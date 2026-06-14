@@ -1452,9 +1452,9 @@ export default function App() {
     { id: "partners", label: "Studio Partners",    Icon: Building2,   lane: "b2b"  },
     { id: "outreach", label: "Outreach Hub",       Icon: Send,        lane: "b2b"  },
     { id: "sessions", label: "Sessions",           Icon: CalendarDays,lane: "b2b"  },
-    { id: "revenue",  label: "Revenue",            Icon: TrendingUp,  lane: "b2c"  },
-    { id: "expenses", label: "Expenses",           Icon: BarChart2,   lane: "b2c"  },
-    // Shared
+    // Shared — financial & ops
+    { id: "revenue",  label: "Revenue",            Icon: TrendingUp,  lane: "core" },
+    { id: "expenses", label: "Expenses",           Icon: BarChart2,   lane: "core" },
     { id: "workflows", label: "Workflows",        Icon: Milestone,   lane: "core" },
     { id: "content",   label: "Content Calendar",  Icon: Megaphone,   lane: "core" },
     { id: "templates", label: "Templates",          Icon: Copy,        lane: "core" },
