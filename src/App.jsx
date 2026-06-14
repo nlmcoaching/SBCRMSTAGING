@@ -254,8 +254,29 @@ const COST_CENTER = [
 const calcNet = (r) =>
   Number(r.gross || 0) - Number(r.stripeFee || 0) - Number(r.studioSplit || 0) -
   Number(r.facilitatorCost || 0) - Number(r.refunds || 0);
-const CONTENT_TYPE = ["Transformation", "Education", "Invite", "Testimonial"];
-const PLATFORM = ["IG", "TikTok", "Email"];
+const CONTENT_TYPE = ["Transformation", "Education", "Invite", "Testimonial"]; // legacy compat
+const PLATFORM = ["Instagram","TikTok","Email","YouTube","LinkedIn","Facebook","Threads","Other"];
+const PLATFORM_COLOR = { Instagram:"#E1306C", TikTok:"#010101", Email:"#D9892B", YouTube:"#FF0000", LinkedIn:"#0077B5", Facebook:"#1877F2", Threads:"#000000", Other: C.ink3 };
+const CONTENT_STATUS = ["Idea","Draft","Scheduled","Published","Archived"];
+const CONTENT_STATUS_COLOR = { "Idea":"#9E9E9E","Draft":"#5FB0F2","Scheduled":"#6B5CE7","Published":"#4A8C6F","Archived":"#CCCCCC" };
+const CONTENT_CATEGORY = [
+  "Client transformation","Breathwork education","Nervous system regulation",
+  "Behind the scenes","Studio partner promotion","Founder story",
+  "Testimonials","FAQs","Safety & contraindications","Upcoming sessions",
+];
+const CONTENT_CAT_COLOR = {
+  "Client transformation":      "#C0573F",
+  "Breathwork education":       "#3F87DC",
+  "Nervous system regulation":  "#4A8C6F",
+  "Behind the scenes":          "#9B7A2E",
+  "Studio partner promotion":   "#6B5CE7",
+  "Founder story":              "#D9892B",
+  "Testimonials":               "#2E6FB0",
+  "FAQs":                       "#7B68EE",
+  "Safety & contraindications": "#9E9E9E",
+  "Upcoming sessions":          C.brand,
+};
+const CONTENT_CTA = ["Book a session","DM me","Link in bio","Sign up","Comment below","Save this","Share with a friend","None"];
 
 const SESSION_STATUS = ["Planned", "Booking open", "Promotion active", "Almost full", "Completed", "Follow-up pending", "Closed out"];
 const SESSION_STATUS_COLOR = {
@@ -422,11 +443,16 @@ const SEED = {
     { id: "rv12", name: "Sample - Virtual session IG promo 5/25",     date: "2026-05-25", channel: "Virtual session",  source: "Organic Instagram",campaign: "May reel",      sessionId: "",   clientId: "",  gross: 315,  stripeFee: 9.45,  studioSplit: 0,    facilitatorCost: 0,   refunds: 0,  costCenter: "Virtual sessions",  notes: "9 paid × $35 — came from reel" },
   ],
   content: [
-    { id: "ct1", name: "Sample - Maya's burnout-to-calm story", type: "Transformation", platform: "IG", datePosted: "2026-06-02", engagement: 420, leads: 3, booked: 1 },
-    { id: "ct2", name: "Sample - What is box breathing (60s explainer)", type: "Education", platform: "TikTok", datePosted: "2026-06-05", engagement: 1850, leads: 5, booked: 2 },
-    { id: "ct3", name: "Sample - June Thursday Reset invite", type: "Invite", platform: "IG", datePosted: "2026-06-08", engagement: 210, leads: 4, booked: 3 },
-    { id: "ct4", name: "Sample - Sam testimonial clip", type: "Testimonial", platform: "IG", datePosted: "2026-06-09", engagement: 380, leads: 2, booked: 1 },
-    { id: "ct5", name: "Sample - Monthly newsletter: breath + sleep", type: "Education", platform: "Email", datePosted: "2026-06-10", engagement: 95, leads: 1, booked: 1 },
+    { id: "ct1",  name: "Sample - Maya's burnout-to-calm transformation",           category: "Client transformation",      status: "Published", platform: "Instagram", scheduledDate: "2026-06-02", datePosted: "2026-06-02", body: "3 months ago Maya could barely slow down. Last night she stayed in savasana for 10 minutes. That's the work. ✨ #breathwork #transformation", cta: "DM me", sessionId: "s1", partnerId: "", reused: false, reach: 1840, likes: 312, comments: 28, shares: 18, saves: 41, engagement: 420, leads: 3, booked: 1, revenue: 35,  notes: "Best organic reach in June" },
+    { id: "ct2",  name: "Sample - What is box breathing (60s explainer)",            category: "Breathwork education",       status: "Published", platform: "TikTok",    scheduledDate: "2026-06-05", datePosted: "2026-06-05", body: "4 seconds in. Hold 4. Out 4. Hold 4. Your nervous system NEEDS this. Try it right now.", cta: "Save this", sessionId: "", partnerId: "", reused: false, reach: 8400, likes: 920, comments: 62, shares: 310, saves: 205, engagement: 1850, leads: 5, booked: 2, revenue: 70,  notes: "Went semi-viral. Repurpose to IG Reel" },
+    { id: "ct3",  name: "Sample - June Thursday Reset invite (YogaSix)",              category: "Studio partner promotion",   status: "Published", platform: "Instagram", scheduledDate: "2026-06-08", datePosted: "2026-06-08", body: "Join us this Thursday at YogaSix Walnut Creek 🌿 45 min breathwork journey. Limited spots.", cta: "Link in bio", sessionId: "s2", partnerId: "sp1", reused: false, reach: 920, likes: 88, comments: 14, shares: 6, saves: 12, engagement: 210, leads: 4, booked: 3, revenue: 105, notes: "" },
+    { id: "ct4",  name: "Sample - Sam Rivera testimonial clip",                       category: "Testimonials",               status: "Published", platform: "Instagram", scheduledDate: "2026-06-09", datePosted: "2026-06-09", body: "\"I didn't know I was holding so much until it started to move.\" — Sam Rivera after her first session 🙏", cta: "Book a session", sessionId: "s1", partnerId: "", reused: false, reach: 1620, likes: 242, comments: 36, shares: 24, saves: 58, engagement: 380, leads: 2, booked: 1, revenue: 35,  notes: "High save rate — strong social proof" },
+    { id: "ct5",  name: "Sample - Monthly newsletter: breath + sleep connection",     category: "Breathwork education",       status: "Published", platform: "Email",     scheduledDate: "2026-06-10", datePosted: "2026-06-10", body: "How breathwork activates the parasympathetic nervous system and why that changes sleep quality...", cta: "Book a session", sessionId: "", partnerId: "", reused: false, reach: 340, likes: 0, comments: 0, shares: 0, saves: 0, engagement: 95, leads: 1, booked: 1, revenue: 35,  notes: "Open rate 42%. Strong CTA click" },
+    { id: "ct6",  name: "Sample - Why I started Simply Breathe (founder story)",      category: "Founder story",              status: "Published", platform: "Instagram", scheduledDate: "2026-06-11", datePosted: "2026-06-11", body: "The moment I realized I hadn't taken a full breath in 3 years was the moment everything changed. Here's why I do this work...", cta: "Comment below", sessionId: "", partnerId: "", reused: false, reach: 2100, likes: 418, comments: 52, shares: 30, saves: 22, engagement: 540, leads: 6, booked: 2, revenue: 70,  notes: "Highest engagement this month" },
+    { id: "ct7",  name: "Sample - 3 signs your nervous system needs a reset",         category: "Nervous system regulation",  status: "Published", platform: "TikTok",    scheduledDate: "2026-06-12", datePosted: "2026-06-12", body: "1. You wake up already exhausted. 2. You hold your breath when stressed. 3. You can't turn your mind off...", cta: "Save this", sessionId: "", partnerId: "", reused: false, reach: 5200, likes: 610, comments: 48, shares: 190, saves: 310, engagement: 1200, leads: 4, booked: 1, revenue: 35,  notes: "Repurpose to IG carousel" },
+    { id: "ct8",  name: "Sample - Behind the scenes: how I set up a breathwork room",  category: "Behind the scenes",          status: "Draft",     platform: "Instagram", scheduledDate: "2026-06-18", datePosted: "", body: "The mats, the diffuser, the lighting — here's everything I bring to make the space feel safe...", cta: "Comment below", sessionId: "", partnerId: "sp1", reused: false, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0, engagement: 0, leads: 0, booked: 0, revenue: 0, notes: "Film this Thursday before session" },
+    { id: "ct9",  name: "Sample - Is breathwork safe during pregnancy? (FAQ)",        category: "FAQs",                       status: "Scheduled", platform: "Instagram", scheduledDate: "2026-06-20", datePosted: "", body: "Short answer: modified practice, yes. Here's what to know before booking...", cta: "DM me", sessionId: "", partnerId: "", reused: false, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0, engagement: 0, leads: 0, booked: 0, revenue: 0, notes: "Evergreen content — schedule in advance" },
+    { id: "ct10", name: "Sample - Upcoming Lotus & Pine New Moon session",             category: "Upcoming sessions",          status: "Idea",      platform: "Instagram", scheduledDate: "2026-06-22", datePosted: "", body: "", cta: "Link in bio", sessionId: "s3", partnerId: "sp5", reused: false, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0, engagement: 0, leads: 0, booked: 0, revenue: 0, notes: "Coordinate with Geoff for co-post" },
   ],
   followups: [
     { id: "f1", name: "Sample - Chris 24h check-in", clientId: "c3", stage: "Attended 1x", lastContact: "2026-06-01", futype: "24h", nextAction: "2026-06-02", outcome: "Replied - booked next session" },
@@ -614,7 +640,7 @@ export default function App() {
     { id: "sessions", label: "Sessions",           Icon: CalendarDays,lane: "b2b"  },
     { id: "revenue",  label: "Revenue",            Icon: TrendingUp,  lane: "b2b"  },
     // Shared
-    { id: "content",  label: "Content & Referral", Icon: Megaphone,   lane: "core" },
+    { id: "content",  label: "Content Calendar",  Icon: Megaphone,   lane: "core" },
   ];
 
   const go = (id) => { setSection(id); setView(0); setQuery(""); setNavOpen(false); };
@@ -789,7 +815,7 @@ function newRecord(db) {
     sessions: { name: "", studioId: "", date: todayISO(), time: "", status: "Planned", journey: "Breathwork Basics", capacity: 20, registered: 0, attendance: 0, paidAttendees: 0, waivers: 0, noShows: 0, revenue: 0, studioSplit: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, equipmentNeeded: "", roomSetupStatus: "Not started", musicSetupStatus: "Not started", testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false, referralsRequested: false, notes: "", checklist: emptySessionChecklist() },
     offers:    { name: "", clientId: "", offerType: "Single session", price: 0, status: "Drafted", probability: "50%", source: "", dateOffered: todayISO(), expireDate: "", followUpDate: "", notes: "", reasonLost: "" },
     revenue:   { name: "", date: todayISO(), channel: "Studio session", source: "", campaign: "", sessionId: "", clientId: "", gross: 0, stripeFee: 0, studioSplit: 0, facilitatorCost: 0, refunds: 0, costCenter: "Studio sessions", notes: "" },
-    content: { name: "", type: "Education", platform: "IG", datePosted: todayISO(), engagement: 0, leads: 0, booked: 0 },
+    content: { name: "", category: "Breathwork education", status: "Idea", platform: "Instagram", scheduledDate: "", datePosted: "", body: "", cta: "Book a session", sessionId: "", partnerId: "", reused: false, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0, engagement: 0, leads: 0, booked: 0, revenue: 0, notes: "" },
     followups: { name: "", clientId: "", stage: "Lead", lastContact: todayISO(), futype: "24h", nextAction: "", outcome: "" },
     referrals: { referrerId: "", referredName: "", referredId: "", date: todayISO(), status: "Referred", revenue: 0, thankYouSent: false, rewardGiven: false, notes: "" },
     outreach:  { name: "", targetType: "Studio", contactName: "", email: "", phone: "", location: "", source: "Cold outreach", warmth: "Cold", priority: "Medium", status: "Not contacted", responseStatus: "Pending", outreachMessage: "", lastContact: "", nextFollowUp: "", revenuePotential: 0, partnerId: "", notes: "" },
@@ -1724,6 +1750,8 @@ function Section({ section, data, derived, today, view, setView, query, onOpen }
         ? <RevenueAttributionView data={data} derived={derived} today={today} onOpen={(r) => onOpen({ db: "revenue", record: r })} />
         : v.layout === "referral-tree"
         ? <ReferralTreeView data={data} derived={derived} today={today} onOpen={(r) => onOpen({ db: "referrals", record: r })} />
+        : v.layout === "content-analytics"
+        ? <ContentAnalyticsView data={data} onOpen={onOpen} />
         : v.layout === "outreach-hub"
         ? <OutreachHubView rows={processed.rows} data={data} today={today} onOpen={(r) => onOpen({ db: "outreach", record: r })} />
         : v.layout === "calendar"
@@ -1940,10 +1968,43 @@ const VIEWS = {
   },
   content: {
     views: [
-      { name: "What's working", layout: "table",
+      { name: "Pipeline",
+        layout: "board",
+        card: ["category", "platform", "scheduledDate", "leads", "booked"],
+        run: (rows) => ({
+          groups: ["Idea","Draft","Scheduled","Published"].map(s => ({
+            key: s, label: s, color: CONTENT_STATUS_COLOR[s],
+            cards: rows.filter(r => r.status === s),
+          })),
+        }) },
+      { name: "Analytics", layout: "content-analytics" },
+      { name: "Calendar",
+        layout: "table",
         columns: contentCols(),
-        run: (rows) => ({ rows: [...rows].sort((a, b) => Number(b.booked) - Number(a.booked) || Number(b.leads) - Number(a.leads)) }) },
-      { name: "All content", layout: "table", columns: contentCols(), run: (rows) => ({ rows }) },
+        run: (rows) => ({
+          rows: [...rows]
+            .filter(r => r.status !== "Archived")
+            .sort((a, b) => (a.scheduledDate || a.datePosted || "9999").localeCompare(b.scheduledDate || b.datePosted || "9999")),
+        }) },
+      { name: "Top performers",
+        layout: "table",
+        columns: contentCols(),
+        run: (rows) => ({
+          rows: [...rows]
+            .filter(r => r.status === "Published")
+            .sort((a, b) => (Number(b.revenue) || 0) - (Number(a.revenue) || 0) || (Number(b.leads) || 0) - (Number(a.leads) || 0)),
+          footer: {
+            revenue: money(rows.filter(r=>r.status==="Published").reduce((a,r)=>a+(Number(r.revenue)||0),0)),
+            label: "Total attributed revenue",
+          },
+        }) },
+      { name: "Ideas & drafts",
+        layout: "table",
+        columns: contentCols(),
+        run: (rows) => ({
+          rows: rows.filter(r => ["Idea","Draft"].includes(r.status))
+            .sort((a, b) => (a.scheduledDate || "9999").localeCompare(b.scheduledDate || "9999")),
+        }) },
     ],
   },
   followups: {
@@ -2068,12 +2129,20 @@ function revCols() {
 }
 function contentCols() {
   return [
-    col("name", "Title", (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
-    col("type", "Type", (r) => <Tag color={C.brand} soft>{r.type}</Tag>),
-    col("platform", "Platform", (r) => r.platform),
-    col("engagement", "Engagement", (r) => Number(r.engagement).toLocaleString(), { align: "right" }),
-    col("leads", "Leads", (r) => r.leads, { align: "right" }),
-    col("booked", "Booked", (r) => <strong>{r.booked}</strong>, { align: "right" }),
+    col("name",      "Title",    (r) => (
+      <div>
+        <div style={{ fontWeight: 600, fontSize: 13 }}>{cleanName(r.name)}</div>
+        {r.body && <div style={{ fontSize: 11, color: C.ink3, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 260 }}>{r.body}</div>}
+      </div>
+    )),
+    col("category",  "Category",  (r) => <Tag color={CONTENT_CAT_COLOR[r.category] || C.ink3} soft>{r.category}</Tag>),
+    col("status",    "Status",    (r) => <Tag color={CONTENT_STATUS_COLOR[r.status] || C.ink3} soft>{r.status}</Tag>),
+    col("platform",  "Platform",  (r) => <Tag color={PLATFORM_COLOR[r.platform] || C.ink3} soft>{r.platform}</Tag>),
+    col("scheduledDate","Date",   (r) => <DateChip iso={r.datePosted || r.scheduledDate} />),
+    col("reach",     "Reach",     (r) => (Number(r.reach) || 0).toLocaleString(), { align: "right" }),
+    col("leads",     "Leads",     (r) => Number(r.leads) || 0, { align: "right" }),
+    col("booked",    "Booked",    (r) => <strong style={{ color: C.brand }}>{Number(r.booked) || 0}</strong>, { align: "right" }),
+    col("revenue",   "Revenue",   (r) => money(r.revenue), { align: "right" }),
   ];
 }
 const sum = (rows, k) => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
@@ -2397,9 +2466,26 @@ const FIELDS = {
     f("costCenter", "Cost center", "select", { options: COST_CENTER }), f("notes", "Notes", "textarea"),
   ],
   content: [
-    f("name", "Content title", "text", { title: true }), f("type", "Type", "select", { options: CONTENT_TYPE }),
-    f("platform", "Platform", "select", { options: PLATFORM }), f("datePosted", "Date posted", "date"),
-    f("engagement", "Engagement", "number"), f("leads", "Leads generated", "number"), f("booked", "Sessions booked", "number"),
+    f("name",          "Post title / idea",       "text",     { title: true }),
+    f("category",      "Content category",        "select",   { options: CONTENT_CATEGORY }),
+    f("status",        "Status",                  "select",   { options: CONTENT_STATUS }),
+    f("platform",      "Platform",                "select",   { options: PLATFORM }),
+    f("body",          "Draft / caption",         "textarea"),
+    f("cta",           "Call to action",          "select",   { options: CONTENT_CTA }),
+    f("scheduledDate", "Scheduled date",          "date"),
+    f("datePosted",    "Published date",          "date"),
+    f("sessionId",     "Session promoted",        "relation", { target: "sessions" }),
+    f("partnerId",     "Studio partner tagged",   "relation", { target: "partners" }),
+    f("reused",        "Repurposed content?",     "checkbox"),
+    f("reach",         "Reach",                   "number"),
+    f("likes",         "Likes",                   "number"),
+    f("comments",      "Comments",                "number"),
+    f("shares",        "Shares",                  "number"),
+    f("saves",         "Saves",                   "number"),
+    f("leads",         "Leads generated",         "number"),
+    f("booked",        "Sessions booked",         "number"),
+    f("revenue",       "Revenue attributed ($)",  "currency"),
+    f("notes",         "Notes",                   "textarea"),
   ],
   followups: [
     f("name", "Follow-up", "text", { title: true }), f("clientId", "Client", "relation", { target: "clients" }),
@@ -3730,6 +3816,187 @@ function OutreachHubView({ rows, data, today, onOpen }) {
 /* ============================================================
    REFERRAL TREE
    ============================================================ */
+
+function ContentAnalyticsView({ data, onOpen }) {
+  const posts    = data.content || [];
+  const published = posts.filter(p => p.status === "Published");
+
+  const totalReach   = published.reduce((a, p) => a + (Number(p.reach)    || 0), 0);
+  const totalLeads   = published.reduce((a, p) => a + (Number(p.leads)    || 0), 0);
+  const totalBooked  = published.reduce((a, p) => a + (Number(p.booked)   || 0), 0);
+  const totalRev     = published.reduce((a, p) => a + (Number(p.revenue)  || 0), 0);
+  const totalEngaged = published.reduce((a, p) => a + (Number(p.engagement)||0), 0);
+
+  const convRate = totalLeads > 0 ? Math.round((totalBooked / totalLeads) * 100) : 0;
+  const rpl      = totalLeads > 0 ? Math.round(totalRev / totalLeads) : 0;
+
+  // Platform breakdown
+  const platformMap = {};
+  published.forEach(p => {
+    const pl = p.platform || "Other";
+    if (!platformMap[pl]) platformMap[pl] = { reach: 0, leads: 0, booked: 0, revenue: 0, count: 0 };
+    platformMap[pl].reach   += Number(p.reach)   || 0;
+    platformMap[pl].leads   += Number(p.leads)   || 0;
+    platformMap[pl].booked  += Number(p.booked)  || 0;
+    platformMap[pl].revenue += Number(p.revenue) || 0;
+    platformMap[pl].count++;
+  });
+  const platforms = Object.entries(platformMap).sort((a, b) => b[1].revenue - a[1].revenue);
+
+  // Category breakdown
+  const catMap = {};
+  published.forEach(p => {
+    const cat = p.category || "Other";
+    if (!catMap[cat]) catMap[cat] = { leads: 0, booked: 0, revenue: 0, count: 0 };
+    catMap[cat].leads   += Number(p.leads)   || 0;
+    catMap[cat].booked  += Number(p.booked)  || 0;
+    catMap[cat].revenue += Number(p.revenue) || 0;
+    catMap[cat].count++;
+  });
+  const categories = Object.entries(catMap).sort((a, b) => b[1].revenue - a[1].revenue);
+
+  // Top posts by revenue
+  const topPosts = [...published].sort((a, b) =>
+    (Number(b.revenue) || 0) - (Number(a.revenue) || 0) ||
+    (Number(b.leads)   || 0) - (Number(a.leads)   || 0)
+  ).slice(0, 5);
+
+  const maxRev = platforms[0]?.[1]?.revenue || 1;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+      {/* Summary stats */}
+      <div className="sb-stats">
+        <Stat label="Total reach"        value={totalReach.toLocaleString()} hint={`${published.length} published posts`} />
+        <Stat label="Leads generated"    value={totalLeads}    hint="across all platforms" accent={C.gold} />
+        <Stat label="Sessions booked"    value={totalBooked}   hint={`${convRate}% lead conversion`} accent="#4A8C6F" />
+        <Stat label="Revenue attributed" value={money(totalRev)} hint={`${money(rpl)} per lead`} accent={C.brand} />
+      </div>
+
+      {/* Content funnel */}
+      <div className="sb-card">
+        <div className="sb-panelhead">
+          <span style={{ fontFamily: FONT.display, fontSize: 15, fontWeight: 600 }}>Content → Revenue Funnel</span>
+        </div>
+        <div style={{ padding: "8px 16px 16px", display: "flex", gap: 0, alignItems: "stretch" }}>
+          {[
+            { label: "Posts Published", value: published.length, color: "#9E9E9E",  pct: 100 },
+            { label: "Total Reach",     value: totalReach,       color: "#5FB0F2",  pct: 100 },
+            { label: "Leads",           value: totalLeads,        color: C.gold,    pct: published.length ? Math.min(100, Math.round((totalLeads / published.length) * 25)) : 0 },
+            { label: "Bookings",        value: totalBooked,       color: C.brand,   pct: totalLeads ? Math.round((totalBooked / totalLeads) * 100) : 0 },
+            { label: "Revenue",         value: money(totalRev),   color: "#4A8C6F", pct: totalBooked ? Math.min(100, Math.round((totalBooked / (totalBooked || 1)) * 100)) : 0 },
+          ].map((step, i, arr) => (
+            <div key={step.label} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+              <div style={{ width: "90%", height: 8, background: hexA(step.color, 0.15), borderRadius: 4, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: step.pct + "%", background: step.color, borderRadius: 4 }} />
+              </div>
+              <div style={{ fontFamily: FONT.display, fontSize: 18, fontWeight: 700, color: step.color }}>{step.value}</div>
+              <div style={{ fontSize: 11, color: C.ink3, textAlign: "center", fontWeight: 500 }}>{step.label}</div>
+              {i < arr.length - 1 && (
+                <div style={{ position: "absolute", fontSize: 16, color: C.line, marginTop: -8 }}></div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }} className="sb-grid2">
+        {/* Platform breakdown */}
+        <div className="sb-card">
+          <div className="sb-panelhead">
+            <span style={{ fontFamily: FONT.display, fontSize: 15, fontWeight: 600 }}>By Platform</span>
+          </div>
+          <div style={{ padding: "0 4px 8px" }}>
+            {platforms.length === 0 ? <Empty pad>No data yet.</Empty> : platforms.map(([pl, s]) => {
+              const barW = Math.round((s.revenue / maxRev) * 100);
+              const plColor = PLATFORM_COLOR[pl] || C.ink3;
+              return (
+                <div key={pl} style={{ padding: "8px 12px", borderBottom: `1px solid ${C.lineSoft || C.line}` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: plColor, flexShrink: 0 }} />
+                    <span style={{ fontWeight: 600, fontSize: 13, flex: 1 }}>{pl}</span>
+                    <span style={{ fontSize: 11.5, color: C.ink3 }}>{s.count} post{s.count !== 1 ? "s" : ""}</span>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: plColor }}>{money(s.revenue)}</span>
+                  </div>
+                  <div style={{ height: 5, background: C.line, borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: barW + "%", background: plColor, borderRadius: 3 }} />
+                  </div>
+                  <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+                    <span style={{ fontSize: 11, color: C.ink3 }}>Reach: {(s.reach).toLocaleString()}</span>
+                    <span style={{ fontSize: 11, color: C.ink3 }}>Leads: {s.leads}</span>
+                    <span style={{ fontSize: 11, color: C.ink3 }}>Booked: {s.booked}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Category breakdown */}
+        <div className="sb-card">
+          <div className="sb-panelhead">
+            <span style={{ fontFamily: FONT.display, fontSize: 15, fontWeight: 600 }}>By Category</span>
+          </div>
+          <div style={{ padding: "0 4px 8px" }}>
+            {categories.length === 0 ? <Empty pad>No data yet.</Empty> : categories.map(([cat, s]) => {
+              const catColor = CONTENT_CAT_COLOR[cat] || C.ink3;
+              const maxCatRev = categories[0]?.[1]?.revenue || 1;
+              return (
+                <div key={cat} style={{ padding: "7px 12px", borderBottom: `1px solid ${C.lineSoft || C.line}` }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: catColor, flexShrink: 0 }} />
+                    <span style={{ fontSize: 12.5, flex: 1, color: C.ink }}>{cat}</span>
+                    <span style={{ fontSize: 11, color: C.ink3 }}>{s.count}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 700, color: catColor }}>{money(s.revenue)}</span>
+                  </div>
+                  <div style={{ height: 4, background: C.line, borderRadius: 3, marginTop: 5, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: Math.round((s.revenue / maxCatRev) * 100) + "%", background: catColor, borderRadius: 3 }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Top posts */}
+      <div className="sb-card">
+        <div className="sb-panelhead">
+          <span style={{ fontFamily: FONT.display, fontSize: 15, fontWeight: 600 }}>Top Performing Posts</span>
+        </div>
+        <div className="sb-panelbody">
+          {topPosts.length === 0 ? <Empty pad>No published posts yet.</Empty> : topPosts.map((p, i) => {
+            const catColor = CONTENT_CAT_COLOR[p.category] || C.ink3;
+            const plColor  = PLATFORM_COLOR[p.platform]   || C.ink3;
+            return (
+              <button key={p.id} className="sb-listrow" onClick={() => onOpen({ db: "content", record: p })}>
+                <span style={{ width: 24, height: 24, borderRadius: "50%", background: C.brandSoft, color: C.brand,
+                  fontWeight: 700, fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  {i + 1}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, lineHeight: 1.3 }}>{p.name.replace("Sample - ", "")}</div>
+                  <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+                    <Tag color={catColor} soft>{p.category}</Tag>
+                    <Tag color={plColor} soft>{p.platform}</Tag>
+                    {p.partnerId && <Tag color={LANE.b2b.color} soft>Partner tagged</Tag>}
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, flexShrink: 0 }}>
+                  <span style={{ fontWeight: 700, fontSize: 13.5, color: C.brand }}>{money(p.revenue)}</span>
+                  <span style={{ fontSize: 11, color: C.ink3 }}>{p.leads} leads · {p.booked} booked</span>
+                  <span style={{ fontSize: 11, color: C.ink3 }}>Reach: {(Number(p.reach) || 0).toLocaleString()}</span>
+                </div>
+                <ChevronRight size={13} color={C.ink3} />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ReferralTreeView({ data, derived, today, onOpen }) {
   const refs = data.referrals || [];
