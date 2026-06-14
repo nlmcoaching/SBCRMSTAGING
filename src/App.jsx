@@ -3683,13 +3683,16 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
       <div className={"sb-drawer" + (hasTimeline && tab === "timeline" ? " sb-drawer-wide" : "")}
         onMouseDown={(e) => e.stopPropagation()}>
 
+        {/* Accent stripe */}
+        <div style={{ height: 4, background: `linear-gradient(90deg, ${C.brand}, ${C.brandDeep})`, flexShrink: 0 }} />
+
         <div className="sb-drawerhead">
           <span className="sb-eyebrow">{isNew ? "New" : "Edit"} · {sectionLabel(db)}</span>
           <button className="sb-iconbtn" onClick={onClose}><X size={18} /></button>
         </div>
 
         {/* Title + tab switcher */}
-        <div style={{ padding: "14px 20px 0", borderBottom: `1px solid ${C.line}` }}>
+        <div style={{ padding: "14px 22px 0", borderBottom: `1px solid ${C.line}` }}>
           <input className="sb-titleinput" style={{ marginBottom: 10 }} value={draft[titleField.key] || ""} placeholder="Untitled"
             onChange={(e) => set(titleField.key, e.target.value)} />
           {(hasTimeline || hasSessionTabs) && (
@@ -8198,17 +8201,17 @@ input, textarea, select, button { font-family: inherit; }
 .sb-calev { font-size: 10.5px; font-weight: 600; background: ${C.brandSoft}; color: ${C.brandDeep}; border: none; border-radius: 5px; padding: 3px 5px; cursor: pointer; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sb-calev:hover { background: ${C.brand}; color: #fff; }
 
-.sb-drawerwrap { position: fixed; inset: 0; background: ${hexA(C.brandDeep, 0.28)}; display: flex; justify-content: flex-end; z-index: 60; backdrop-filter: blur(2px); }
-.sb-drawer { width: 460px; max-width: 94vw; background: ${C.surface}; height: 100%; display: flex; flex-direction: column; box-shadow: -8px 0 40px ${hexA(C.brandDeep, 0.2)}; animation: sb-slide .22s ease; }
-.sb-drawer-wide { width: 620px; }
+.sb-drawerwrap { position: fixed; inset: 0; background: ${hexA(C.brandDeep, 0.38)}; display: flex; align-items: center; justify-content: center; z-index: 60; backdrop-filter: blur(4px); padding: 20px; }
+.sb-drawer { width: 700px; max-width: 96vw; max-height: 90vh; background: ${C.surface}; border-radius: 20px; display: flex; flex-direction: column; box-shadow: 0 24px 80px ${hexA(C.brandDeep, 0.32)}, 0 4px 20px ${hexA(C.brandDeep, 0.12)}; animation: sb-pop .22s cubic-bezier(.22,.68,0,1.2); overflow: hidden; }
+.sb-drawer-wide { width: 900px; }
 .sb-modal { width: 540px; max-width: 94vw; max-height: 88vh; margin: auto; background: ${C.surface}; border-radius: 16px; display: flex; flex-direction: column; box-shadow: 0 20px 60px ${hexA(C.brandDeep, 0.3)}; animation: sb-pop .2s ease; }
 .sb-drawerwrap:has(.sb-modal) { align-items: center; justify-content: center; }
 @keyframes sb-slide { from { transform: translateX(30px); opacity: .6; } to { transform: none; opacity: 1; } }
-@keyframes sb-pop { from { transform: scale(.97); opacity: .6; } to { transform: none; opacity: 1; } }
-.sb-drawerhead { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid ${C.line}; }
+@keyframes sb-pop { from { transform: scale(.96) translateY(6px); opacity: 0; } to { transform: none; opacity: 1; } }
+.sb-drawerhead { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px 16px; border-bottom: 1px solid ${C.line}; flex-shrink: 0; }
 .sb-eyebrow { font-size: 11.5px; text-transform: uppercase; letter-spacing: .12em; color: ${C.ink3}; font-weight: 600; }
-.sb-drawerbody { padding: 18px 20px; overflow-y: auto; flex: 1; }
-.sb-drawerfoot { display: flex; align-items: center; gap: 9px; padding: 14px 20px; border-top: 1px solid ${C.line}; }
+.sb-drawerbody { padding: 20px 22px; overflow-y: auto; flex: 1; }
+.sb-drawerfoot { display: flex; align-items: center; gap: 9px; padding: 14px 22px; border-top: 1px solid ${C.line}; flex-shrink: 0; }
 .sb-titleinput { font-family: ${FONT.display}; font-size: 22px; font-weight: 600; border: none; outline: none; width: 100%; color: ${C.ink}; padding: 0 0 14px; }
 .sb-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
 .sb-field { display: flex; flex-direction: column; gap: 5px; }
