@@ -1,0 +1,34 @@
+---
+description: Keep DOCUMENTATION.md and USER_GUIDE.md updated whenever features, fields, components, or behaviour change in the SBCRM.
+alwaysApply: true
+---
+
+# SBCRM — Keep Docs in Sync
+
+Whenever you add, change, or remove a feature, field, component, UI element, or behaviour in this project, you MUST update both documentation files **in the same commit**:
+
+- `DOCUMENTATION.md` — technical reference (fields, components, constants, architecture)
+- `USER_GUIDE.md` — plain-language end-user guide (how to use the feature, step-by-step)
+
+## What triggers a doc update
+
+| Change type | DOCUMENTATION.md | USER_GUIDE.md |
+|---|---|---|
+| New section / nav item | Add full section with fields table, views, requirements | Add how-to steps in plain language |
+| New field on a record | Add row to the schema table for that section | Update "what to enter" instructions if user-facing |
+| New view or tab | Document layout, columns, and filters | Explain when and how to use it |
+| New component | Add to the component table in Technical Architecture | Add to relevant user-facing section |
+| Changed status values or dropdown options | Update the values in the relevant fields table | Update status definition table for users |
+| Security or auth change | Update Authentication & Security section | Update Logging In / Profile sections |
+| Removed feature | Remove from both docs | Remove from both docs |
+
+## Where to add new sections
+
+- **DOCUMENTATION.md**: Insert between the last feature section and "Navigation & Layout". Update the Table of Contents numbering.
+- **USER_GUIDE.md**: Insert in logical usage order (before "Your Profile"). Update the Table of Contents numbering.
+
+## Style rules
+
+- DOCUMENTATION.md: Technical, precise, uses tables and field listings.
+- USER_GUIDE.md: Plain language, no jargon, uses numbered steps and friendly explanations.
+- Both: Keep the existing formatting style. Do not add emojis unless already present.
