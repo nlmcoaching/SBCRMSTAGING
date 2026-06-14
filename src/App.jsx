@@ -1485,7 +1485,7 @@ export default function App() {
               return (
                 <button key={s.id} onClick={() => go(s.id)} className="sb-navbtn"
                   style={{ background: active ? C.brandSoft : "transparent", color: active ? C.brandDeep : C.ink2, fontWeight: active ? 600 : 500 }}>
-                  <s.Icon size={17} strokeWidth={2} style={{ flexShrink: 0 }} />
+                  <s.Icon size={17} strokeWidth={1.5} style={{ flexShrink: 0 }} />
                   <span style={{ flex: 1, textAlign: "left" }}>{s.label}</span>
                 </button>
               );
@@ -1526,7 +1526,7 @@ export default function App() {
                           borderLeft: active ? `2px solid ${lane.color}` : "2px solid transparent",
                           paddingLeft: 10,
                         }}>
-                        <s.Icon size={16} strokeWidth={2} style={{ flexShrink: 0, color: active ? lane.color : "inherit" }} />
+                        <s.Icon size={16} strokeWidth={1.5} style={{ flexShrink: 0, color: active ? lane.color : "inherit" }} />
                         <span style={{ flex: 1, textAlign: "left" }}>{s.label}</span>
                         {dueCount > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: "#C0573F", color: "#fff", borderRadius: 20, padding: "1px 7px" }}>{dueCount}</span>}
                         {count != null && <span style={{ fontSize: 11, color: active ? lane.color : C.ink3 }}>{count}</span>}
@@ -1550,7 +1550,7 @@ export default function App() {
                   <div key={s.id}>
                     <button onClick={() => go(s.id)} className="sb-navbtn"
                       style={{ background: active ? C.brandSoft : "transparent", color: active ? C.brandDeep : C.ink2, fontWeight: active ? 600 : 500 }}>
-                      <s.Icon size={16} strokeWidth={2} style={{ flexShrink: 0 }} />
+                      <s.Icon size={16} strokeWidth={1.5} style={{ flexShrink: 0 }} />
                       <span style={{ flex: 1, textAlign: "left" }}>{s.label}</span>
                       {children.length > 0
                         ? <ChevronRight size={13} style={{ color: C.ink3, transform: expanded ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
@@ -1563,7 +1563,7 @@ export default function App() {
                         <button key={c.id} onClick={() => go(c.id)} className="sb-navbtn"
                           style={{ background: cActive ? C.brandSoft : "transparent", color: cActive ? C.brandDeep : C.ink2, fontWeight: cActive ? 600 : 400, paddingLeft: 30 }}>
                           <span style={{ width: 6, height: 6, borderRadius: "50%", background: cActive ? C.brand : C.ink3, flexShrink: 0, marginRight: 2 }} />
-                          <c.Icon size={14} strokeWidth={2} style={{ flexShrink: 0 }} />
+                          <c.Icon size={14} strokeWidth={1.5} style={{ flexShrink: 0 }} />
                           <span style={{ flex: 1, textAlign: "left" }}>{c.label}</span>
                         </button>
                       );
@@ -2196,7 +2196,7 @@ function AlertsPanel({ data, today, onOpen }) {
   if (all.length === 0) return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px",
       background: "#F0FAF5", border: "1px solid #A8D8BE", borderRadius: 12, color: "#1E5239" }}>
-      <Check size={16} color="#4A8C6F" strokeWidth={2.5} />
+      <Check size={16} color="#4A8C6F" strokeWidth={1.5} />
       <span style={{ fontWeight: 600, fontSize: 13.5 }}>All clear — no active alerts</span>
     </div>
   );
@@ -2210,7 +2210,7 @@ function AlertsPanel({ data, today, onOpen }) {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px",
         background: headerBg, borderBottom: `1px solid ${headerBorder}`, flexWrap: "wrap" }}>
-        <BellRing size={15} color={headerColor} strokeWidth={2.5} />
+        <BellRing size={15} color={headerColor} strokeWidth={1.5} />
         <span style={{ fontWeight: 700, fontSize: 14, color: headerColor, flex: 1 }}>
           {critical > 0 ? `${critical} critical alert${critical !== 1 ? "s" : ""}` : "Alerts"}{warning > 0 ? ` · ${warning} warning${warning !== 1 ? "s" : ""}` : ""}
         </span>
@@ -2232,7 +2232,7 @@ function AlertsPanel({ data, today, onOpen }) {
               borderBottom: i < shown.length - 1 ? `1px solid ${C.lineSoft || C.line}` : "none",
               borderLeft: `3px solid ${sv.color}`,
             }}>
-              <SvIcon size={14} color={sv.color} strokeWidth={2.5} style={{ marginTop: 2, flexShrink: 0 }} />
+              <SvIcon size={14} color={sv.color} strokeWidth={1.5} style={{ marginTop: 2, flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, lineHeight: 1.35 }}>{a.title}</div>
                 <div style={{ fontSize: 11.5, color: C.ink3, marginTop: 2 }}>{a.detail}</div>
@@ -2422,7 +2422,7 @@ function PipelineSnapshot({ data, today }) {
             background: C.surfaceAlt, border: `1px solid ${C.line}`,
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 7 }}>
-              <Icon size={12} color={accent} strokeWidth={2.5} />
+              <Icon size={12} color={accent} strokeWidth={1.5} />
               <span style={{ fontSize: 11, color: C.ink3, textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600, lineHeight: 1.2 }}>
                 {label}
               </span>
@@ -2518,7 +2518,7 @@ function Today({ data, derived, today, onOpen, onGo }) {
               <div key={cat} style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column" }}>
                 {/* Column header */}
                 <div style={{ padding: "13px 15px 12px", background: meta.bg, borderBottom: `1px solid ${hexA(meta.color, 0.18)}`, display: "flex", alignItems: "center", gap: 7 }}>
-                  <Icon size={14} color={meta.color} strokeWidth={2.5} />
+                  <Icon size={14} color={meta.color} strokeWidth={1.5} />
                   <span style={{ fontWeight: 700, fontSize: 13.5, color: meta.text, flex: 1 }}>{meta.label}</span>
                   <span style={{ fontSize: 11, fontWeight: 700, color: meta.text, opacity: 0.65 }}>
                     {all.length} action{all.length !== 1 ? "s" : ""}
@@ -2626,7 +2626,7 @@ function RevenueTrend({ data }) {
           <Tooltip formatter={(v) => [money(v), "Net revenue"]} cursor={{ stroke: C.line }}
             contentStyle={{ borderRadius: 10, border: `1px solid ${C.line}`, fontSize: 13, boxShadow: "0 4px 14px rgba(0,0,0,.08)" }}
             labelStyle={{ color: C.ink2, fontWeight: 600 }} />
-          <Area type="monotone" dataKey="value" stroke={C.brand} strokeWidth={2.5} fill="url(#sbRev)" dot={{ r: 3, fill: C.brand }} activeDot={{ r: 5 }} />
+          <Area type="monotone" dataKey="value" stroke={C.brand} strokeWidth={1.5} fill="url(#sbRev)" dot={{ r: 3, fill: C.brand }} activeDot={{ r: 5 }} />
         </AreaChart>
       </ResponsiveContainer>
     </div>
@@ -5902,7 +5902,7 @@ function BreathMark({ size = 32, animate }) {
     <span style={{ position: "relative", width: size, height: size, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
       <span className={animate ? "sb-breathe" : ""} style={{ position: "absolute", inset: 0, borderRadius: "50%", border: `1.5px solid ${C.brand}`, opacity: 0.35 }} />
       <span className={animate ? "sb-breathe sb-breathe2" : ""} style={{ position: "absolute", inset: size * 0.18, borderRadius: "50%", border: `1.5px solid ${C.brand}`, opacity: 0.6 }} />
-      <Wind size={size * 0.42} color={C.brand} strokeWidth={2} />
+      <Wind size={size * 0.42} color={C.brand} strokeWidth={1.5} />
     </span>
   );
 }
@@ -6990,7 +6990,7 @@ function TestimonialLibraryView({ data, onOpen }) {
         <div style={{ border: `1px solid #F5E4A8`, borderRadius: 12, overflow: "hidden" }}>
           <div style={{ padding: "11px 16px", background: "#FFFBF0", borderBottom: "1px solid #F5E4A8",
             display: "flex", alignItems: "center", gap: 8 }}>
-            <BellRing size={14} color={C.gold} strokeWidth={2.5} />
+            <BellRing size={14} color={C.gold} strokeWidth={1.5} />
             <span style={{ fontWeight: 700, fontSize: 13.5, color: "#7A4D0F" }}>
               {actionNeeded.length} testimonial{actionNeeded.length !== 1 ? "s" : ""} need attention
             </span>
@@ -8194,6 +8194,7 @@ const FONT = {
 const CSS = `
 * { box-sizing: border-box; }
 input, textarea, select, button { font-family: inherit; }
+.lucide { stroke-width: 1.5 !important; }
 .sb-shell { display: flex; min-height: 100vh; }
 .sb-sidebar { width: 226px; flex-shrink: 0; background: ${C.surface}; border-right: 1px solid ${C.line}; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; z-index: 40; }
 .sb-navbtn { display: flex; align-items: center; gap: 11px; width: 100%; padding: 9px 12px; border: none; border-radius: 9px; font-size: 14px; cursor: pointer; transition: background .12s; }
