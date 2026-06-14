@@ -286,28 +286,185 @@ function newRecord(db) {
 }
 
 /* ============================================================
-   TODAY DASHBOARD
+   TODAY DASHBOARD — Command Center
    ============================================================ */
+
+const CAT_META = {
+  revenue:      { label: "Revenue",      color: C.brand,    bg: C.brandSoft,   text: C.brandDeep },
+  relationship: { label: "Relationship", color: C.gold,     bg: "#F6EAD6",     text: "#7A4D0F"   },
+  delivery:     { label: "Delivery",     color: "#4A8C6F",  bg: "#E2F0EA",     text: "#1E5239"   },
+};
+const URGENCY_DOT = { high: "#C0573F", medium: C.gold, low: C.ink3 };
+
+function buildActions(data, derived, today) {
+  const daysBetween = (a, b) => (!a || !b) ? 0 : Math.round((new Date(b) - new Date(a)) / 86400000);
+  const tomorrowISO = (() => { const d = new Date(today); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
+  const actions = [];
+
+  // ── REVENUE ──────────────────────────────────────────────────────────
+  // Overdue follow-ups (24h / 72h)
+  data.followups
+    .filter((f) => !f.outcome && f.nextAction && f.nextAction <= today && (f.futype === "24h" || f.futype === "72h"))
+    .forEach((f) => {
+      const client = data.clients.find((c) => c.id === f.clientId);
+      const d = daysBetween(f.nextAction, today);
+      const label = f.futype === "24h" ? "24-hour" : "72-hour";
+      actions.push({ id: "fu_" + f.id, priority: d >= 2 ? 1 : 2, urgency: d >= 2 ? "high" : "medium", category: "revenue",
+        text: `Call ${cleanName(client?.name || f.name)} — ${label} post-session follow-up ${d > 0 ? `${d} day${d !== 1 ? "s" : ""} overdue` : "due today"}`,
+        sub: `${label} follow-up · client since ${fmtDate(client?.firstSession) || "—"}`, db: "followups", record: f });
+    });
+
+  // Open offers
+  data.offers
+    .filter((o) => o.status === "Offered")
+    .forEach((o) => {
+      const client = data.clients.find((c) => c.id === o.clientId);
+      const d = daysBetween(o.dateOffered, today);
+      actions.push({ id: "off_" + o.id, priority: d >= 5 ? 2 : 3, urgency: d >= 5 ? "high" : "medium", category: "revenue",
+        text: `Follow up with ${cleanName(client?.name || o.name)} — open ${o.offerType} offer${d ? `, offered ${d} day${d !== 1 ? "s" : ""} ago` : ""}`,
+        sub: `${o.offerType} · ${money(o.price)} · offered ${fmtDate(o.dateOffered)}`, db: "offers", record: o });
+    });
+
+  // Attended 1x — no rebook
+  data.clients
+    .filter((c) => c.status === "Attended 1x" && !c.nextSession)
+    .forEach((c) => {
+      actions.push({ id: "reb_" + c.id, priority: 3, urgency: "medium", category: "revenue",
+        text: `Rebook ${cleanName(c.name)} — attended once on ${fmtDate(c.lastSession)}, no next session set`,
+        sub: `Attended 1x · source: ${c.source} · ${c.referral} referral potential`, db: "clients", record: c });
+    });
+
+  // Leads with no follow-up at all
+  data.clients
+    .filter((c) => c.status === "Lead" && !data.followups.some((f) => f.clientId === c.id))
+    .forEach((c) => {
+      actions.push({ id: "ld_" + c.id, priority: 4, urgency: "medium", category: "revenue",
+        text: `Convert lead ${cleanName(c.name)} — no follow-up scheduled yet`,
+        sub: `Lead · ${c.source} · next session: ${fmtDate(c.nextSession) || "none"}`, db: "clients", record: c });
+    });
+
+  // Studio partners needing next step
+  data.partners
+    .filter((p) => ["Demo Completed", "Pilot Scheduled"].includes(p.stage))
+    .filter((p) => !(derived.sessionsByStudio[p.id] || []).some((s) => s.date >= today))
+    .forEach((p) => {
+      actions.push({ id: "sp_" + p.id, priority: 3, urgency: "medium", category: "revenue",
+        text: `Book next session with ${cleanName(p.name)} — ${p.stage.toLowerCase()}, no upcoming session`,
+        sub: `${p.stage} · contact: ${p.contact} · ${p.email}`, db: "partners", record: p });
+    });
+
+  // Engaged clients (2-3x) — no package yet
+  data.clients
+    .filter((c) => c.status === "Engaged (2-3x)" && (!c.packageType || c.packageType === "None" || c.packageType === "Drop-in"))
+    .forEach((c) => {
+      actions.push({ id: "pkg_" + c.id, priority: 4, urgency: "medium", category: "revenue",
+        text: `Offer package to ${cleanName(c.name)} — ${c.sessionsAttended} sessions in, still on drop-in`,
+        sub: `Engaged · LTV: ${money(c.lifetimeValue)} · last seen: ${fmtDate(c.lastSession)}`, db: "clients", record: c });
+    });
+
+  // ── RELATIONSHIP ──────────────────────────────────────────────────────
+  // Referral follow-ups overdue
+  data.followups
+    .filter((f) => f.futype === "Referral" && !f.outcome && f.nextAction && f.nextAction <= today)
+    .forEach((f) => {
+      const client = data.clients.find((c) => c.id === f.clientId);
+      actions.push({ id: "ref_" + f.id, priority: 4, urgency: "medium", category: "relationship",
+        text: `Thank ${cleanName(client?.name || f.name)} for the referral — follow-up due ${daysBetween(f.nextAction, today) > 0 ? "& overdue" : "today"}`,
+        sub: `Referral follow-up · due ${fmtDate(f.nextAction)}`, db: "followups", record: f });
+    });
+
+  // Advocates + High-referral — request testimonial
+  data.clients
+    .filter((c) => c.status === "Advocate" || (c.referral === "High" && Number(c.sessionsAttended) >= 3))
+    .filter((c) => !data.followups.some((f) => f.clientId === c.id && f.futype === "Referral" && f.lastContact >= (today.slice(0, 7) + "-01")))
+    .slice(0, 3)
+    .forEach((c) => {
+      actions.push({ id: "tst_" + c.id, priority: 5, urgency: "low", category: "relationship",
+        text: `Request a testimonial from ${cleanName(c.name)} — ${c.sessionsAttended} sessions, noted as ${c.referral.toLowerCase()} referral`,
+        sub: `${c.status} · last session: ${fmtDate(c.lastSession)}`, db: "clients", record: c });
+    });
+
+  // Active partners — no session in 14+ days
+  data.partners
+    .filter((p) => p.stage === "Active Weekly Partner" || p.stage === "Scaled Partner")
+    .filter((p) => {
+      const dates = (derived.sessionsByStudio[p.id] || []).map((s) => s.date).sort();
+      const last = dates[dates.length - 1];
+      return !last || daysBetween(last, today) > 14;
+    })
+    .forEach((p) => {
+      const dates = (derived.sessionsByStudio[p.id] || []).map((s) => s.date).sort();
+      const last = dates[dates.length - 1];
+      actions.push({ id: "pi_" + p.id, priority: 5, urgency: "low", category: "relationship",
+        text: `Check in with ${p.contact} at ${cleanName(p.name)} — ${last ? `last session ${fmtDate(last)}` : "no sessions logged"}`,
+        sub: `${p.stage} · ${p.email}`, db: "partners", record: p });
+    });
+
+  // Warm contacts to invite — engaged, no upcoming session
+  data.clients
+    .filter((c) => c.status === "Engaged (2-3x)" && !c.nextSession)
+    .forEach((c) => {
+      actions.push({ id: "inv_" + c.id, priority: 6, urgency: "low", category: "relationship",
+        text: `Invite ${cleanName(c.name)} to an upcoming session — engaged but no next date scheduled`,
+        sub: `Engaged · last seen: ${fmtDate(c.lastSession)} · ${c.source}`, db: "clients", record: c });
+    });
+
+  // ── DELIVERY ──────────────────────────────────────────────────────────
+  // Sessions today
+  data.sessions
+    .filter((s) => s.date === today)
+    .forEach((s) => {
+      actions.push({ id: "tod_" + s.id, priority: 1, urgency: "high", category: "delivery",
+        text: `Session today: ${cleanName(s.name)} — confirm room setup and payment link`,
+        sub: `${cleanName(derived.partnerName[s.studioId] || "unknown studio")} · ${today}`, db: "sessions", record: s });
+    });
+
+  // Sessions tomorrow
+  data.sessions
+    .filter((s) => s.date === tomorrowISO)
+    .forEach((s) => {
+      actions.push({ id: "tmr_" + s.id, priority: 2, urgency: "medium", category: "delivery",
+        text: `Session tomorrow: ${cleanName(s.name)} — run through setup checklist today`,
+        sub: `${cleanName(derived.partnerName[s.studioId] || "unknown studio")} · ${fmtDate(tomorrowISO)}`, db: "sessions", record: s });
+    });
+
+  // Attended clients with no follow-up within 4 days
+  data.clients
+    .filter((c) => c.sessionsAttended > 0 && c.lastSession)
+    .filter((c) => {
+      const d = daysBetween(c.lastSession, today);
+      return d >= 1 && d <= 4 && !data.followups.some((f) => f.clientId === c.id && f.lastContact >= c.lastSession);
+    })
+    .forEach((c) => {
+      actions.push({ id: "nfu_" + c.id, priority: 2, urgency: "medium", category: "delivery",
+        text: `Log follow-up for ${cleanName(c.name)} — attended ${fmtDate(c.lastSession)}, no follow-up recorded`,
+        sub: `${c.status} · ${c.sessionsAttended} session${c.sessionsAttended !== 1 ? "s" : ""}`, db: "clients", record: c });
+    });
+
+  const urgencyScore = { high: 0, medium: 1, low: 2 };
+  return actions.sort((a, b) => a.priority !== b.priority ? a.priority - b.priority : urgencyScore[a.urgency] - urgencyScore[b.urgency]);
+}
+
 function Today({ data, derived, today, onOpen, onGo }) {
-  const due = data.followups
-    .filter((f) => onOrBefore(f.nextAction, today) && !f.outcome)
-    .sort((a, b) => (a.nextAction || "").localeCompare(b.nextAction || ""));
-  const sessionsToday = data.sessions.filter((s) => s.date === today);
-  const upcoming = data.sessions
-    .filter((s) => s.date > today)
-    .sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3);
-  const leads = data.clients.filter((c) => c.status === "Lead");
-  const openOffers = data.offers.filter((o) => o.status === "Offered");
+  const [filter, setFilter] = useState("all");
+
+  const actions = buildActions(data, derived, today);
+  const filtered = filter === "all" ? actions : actions.filter((a) => a.category === filter);
+  const counts = { revenue: 0, relationship: 0, delivery: 0 };
+  actions.forEach((a) => counts[a.category]++);
 
   const mtdSessions = data.sessions.filter((s) => sameMonth(s.date, today)).reduce((a, s) => a + (Number(s.netRevenue) || 0), 0);
   const mtdOffers = data.offers.filter((o) => o.status === "Accepted" && sameMonth(o.closeDate, today)).reduce((a, o) => a + (Number(o.price) || 0), 0);
   const activeMembers = data.clients.filter((c) => c.status === "Member (4+)" || c.status === "Advocate").length;
+  const openOffers = data.offers.filter((o) => o.status === "Offered").length;
 
   const d = new Date();
   const greeting = d.getHours() < 12 ? "Good morning" : d.getHours() < 18 ? "Good afternoon" : "Good evening";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+
+      {/* Hero */}
       <div className="sb-hero">
         <BreathMark size={62} animate />
         <div>
@@ -320,85 +477,72 @@ function Today({ data, derived, today, onOpen, onGo }) {
         </div>
       </div>
 
+      {/* Stats */}
       <div className="sb-stats">
         <Stat label="Revenue this month" value={money(mtdSessions + mtdOffers)} hint="sessions + offers closed" />
-        <Stat label="Follow-ups due" value={due.length} hint="today & overdue" accent={due.length ? C.gold : C.brand} />
-        <Stat label="Open offers" value={openOffers.length} hint="awaiting a yes" />
+        <Stat label="Priorities today" value={actions.length} hint="ranked actions waiting" accent={actions.length ? C.gold : C.brand} />
+        <Stat label="Open offers" value={openOffers} hint="awaiting a yes" />
         <Stat label="Active members" value={activeMembers} hint="Member & Advocate" />
       </div>
 
-      <div className="sb-grid2">
-        <Panel title="Follow-ups due" badge={due.length} onAll={() => onGo("followups")}>
-          {due.length === 0 ? <Empty>All caught up. Nothing waiting on you.</Empty> :
-            due.map((f) => (
-              <Row key={f.id} onClick={() => onOpen({ db: "followups", record: f })}>
-                <Dot color={FUTYPE_COLOR[f.futype]} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="sb-rowtitle">{cleanName(f.name)}</div>
-                  <div className="sb-rowsub">{derived.clientName[f.clientId] ? clientShort(derived.clientName[f.clientId]) : "—"} · {f.futype}</div>
-                </div>
-                <DateChip iso={f.nextAction} today={today} />
-              </Row>
-            ))}
-        </Panel>
+      {/* Command Center */}
+      <div className="sb-card">
+        <div className="sb-panelhead" style={{ flexWrap: "wrap", gap: 8, paddingBottom: 12 }}>
+          <span style={{ fontFamily: FONT.display, fontSize: 16, fontWeight: 600 }}>Today's Priorities</span>
+          <span className="sb-badge">{actions.length}</span>
+          <div style={{ flex: 1 }} />
+          {/* Category filter tabs */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {(["all", "revenue", "relationship", "delivery"]).map((cat) => {
+              const active = filter === cat;
+              const meta = cat !== "all" ? CAT_META[cat] : null;
+              const label = cat === "all" ? `All (${actions.length})` : `${meta.label} (${counts[cat]})`;
+              return (
+                <button key={cat} onClick={() => setFilter(cat)} style={{
+                  padding: "4px 13px", borderRadius: 20, border: "1px solid", fontSize: 12, fontWeight: 600,
+                  cursor: "pointer", transition: "all .12s",
+                  borderColor: active ? (meta ? meta.color : C.brand) : C.line,
+                  background: active ? (meta ? meta.bg : C.brandSoft) : "transparent",
+                  color: active ? (meta ? meta.text : C.brandDeep) : C.ink2,
+                }}>{label}</button>
+              );
+            })}
+          </div>
+        </div>
 
-        <Panel title="Today's sessions" badge={sessionsToday.length} onAll={() => onGo("sessions")}>
-          {sessionsToday.length > 0 ? sessionsToday.map((s) => (
-            <Row key={s.id} onClick={() => onOpen({ db: "sessions", record: s })}>
-              <Dot color={C.brand} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="sb-rowtitle">{cleanName(s.name)}</div>
-                <div className="sb-rowsub">{clientShort(derived.partnerName[s.studioId] || "")}</div>
-              </div>
-              <span className="sb-rowval">{s.attendance} in room</span>
-            </Row>
-          )) : (
-            <>
-              <Empty>No sessions on the schedule today.</Empty>
-              {upcoming.length > 0 && <div className="sb-mininote">Next up</div>}
-              {upcoming.map((s) => (
-                <Row key={s.id} onClick={() => onOpen({ db: "sessions", record: s })}>
-                  <Dot color={C.ink3} />
+        <div className="sb-panelbody">
+          {filtered.length === 0
+            ? <Empty pad>Nothing in this category right now — well done.</Empty>
+            : filtered.map((action, i) => {
+              const meta = CAT_META[action.category];
+              return (
+                <button key={action.id} className="sb-listrow sb-actionrow"
+                  onClick={() => onOpen({ db: action.db, record: action.record })}>
+                  {/* Rank badge */}
+                  <span style={{
+                    width: 24, height: 24, borderRadius: "50%", background: URGENCY_DOT[action.urgency],
+                    color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center",
+                    justifyContent: "center", flexShrink: 0,
+                  }}>{i + 1}</span>
+                  {/* Text */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="sb-rowtitle">{cleanName(s.name)}</div>
-                    <div className="sb-rowsub">{clientShort(derived.partnerName[s.studioId] || "")}</div>
+                    <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink, lineHeight: 1.35 }}>{action.text}</div>
+                    <div className="sb-rowsub" style={{ marginTop: 2 }}>{action.sub}</div>
                   </div>
-                  <DateChip iso={s.date} today={today} />
-                </Row>
-              ))}
-            </>
-          )}
-        </Panel>
-
-        <Panel title="Leads to convert" badge={leads.length} onAll={() => onGo("clients")}>
-          {leads.length === 0 ? <Empty>No open leads right now.</Empty> :
-            leads.map((c) => (
-              <Row key={c.id} onClick={() => onOpen({ db: "clients", record: c })}>
-                <Dot color={STATUS_COLOR[c.status]} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="sb-rowtitle">{cleanName(c.name)}</div>
-                  <div className="sb-rowsub">{c.source} · {c.referral} referral potential</div>
-                </div>
-                {c.nextSession && <DateChip iso={c.nextSession} today={today} />}
-              </Row>
-            ))}
-        </Panel>
-
-        <Panel title="Open offers" badge={openOffers.length} onAll={() => onGo("offers")}>
-          {openOffers.length === 0 ? <Empty>No offers waiting on a decision.</Empty> :
-            openOffers.sort((a, b) => (a.dateOffered || "").localeCompare(b.dateOffered || "")).map((o) => (
-              <Row key={o.id} onClick={() => onOpen({ db: "offers", record: o })}>
-                <Dot color={OFFER_STATUS_COLOR[o.status]} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="sb-rowtitle">{clientShort(derived.clientName[o.clientId] || cleanName(o.name))}</div>
-                  <div className="sb-rowsub">{o.offerType} · offered {fmtDate(o.dateOffered)}</div>
-                </div>
-                <span className="sb-rowval">{money(o.price)}</span>
-              </Row>
-            ))}
-        </Panel>
+                  {/* Category chip */}
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, whiteSpace: "nowrap",
+                    background: meta.bg, color: meta.text, flexShrink: 0,
+                  }}>{meta.label}</span>
+                  <ChevronRight size={14} color={C.ink3} style={{ flexShrink: 0 }} />
+                </button>
+              );
+            })
+          }
+        </div>
       </div>
 
+      {/* Charts */}
       <div className="sb-grid2">
         <Panel title="Revenue trend"><RevenueTrend data={data} /></Panel>
         <Panel title="Clients by source"><SourceBreakdown data={data} /></Panel>
@@ -848,13 +992,15 @@ function f(key, label, type, opts = {}) { return { key, label, type, ...opts }; 
 
 function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDelete, onOpenRelated }) {
   const [draft, setDraft] = useState(record);
-  useEffect(() => setDraft(record), [record]);
+  const [tab, setTab] = useState("details");
+  useEffect(() => { setDraft(record); setTab("details"); }, [record]);
   const fields = FIELDS[db];
   const titleField = fields.find((x) => x.title);
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
   const isNew = !data[db].some((r) => r.id === record.id);
+  const hasTimeline = (db === "clients" || db === "partners") && !isNew;
 
-  // related records
+  // related records (used in details tab)
   const related = [];
   if (db === "clients") {
     related.push({ label: "Offers", items: data.offers.filter((o) => o.clientId === draft.id), dbk: "offers", render: (o) => `${o.offerType} · ${money(o.price)} · ${o.status}` });
@@ -870,48 +1016,313 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
 
   return (
     <div className="sb-drawerwrap" onMouseDown={onClose}>
-      <div className="sb-drawer" onMouseDown={(e) => e.stopPropagation()}>
+      <div className={"sb-drawer" + (hasTimeline && tab === "timeline" ? " sb-drawer-wide" : "")}
+        onMouseDown={(e) => e.stopPropagation()}>
+
         <div className="sb-drawerhead">
           <span className="sb-eyebrow">{isNew ? "New" : "Edit"} · {sectionLabel(db)}</span>
           <button className="sb-iconbtn" onClick={onClose}><X size={18} /></button>
         </div>
 
-        <div className="sb-drawerbody">
-          <input className="sb-titleinput" value={draft[titleField.key] || ""} placeholder="Untitled"
+        {/* Title + tab switcher */}
+        <div style={{ padding: "14px 20px 0", borderBottom: `1px solid ${C.line}` }}>
+          <input className="sb-titleinput" style={{ marginBottom: 10 }} value={draft[titleField.key] || ""} placeholder="Untitled"
             onChange={(e) => set(titleField.key, e.target.value)} />
-
-          <div className="sb-fields">
-            {fields.filter((x) => !x.title).map((fld) => (
-              <FieldInput key={fld.key} fld={fld} value={draft[fld.key]} onChange={(v) => set(fld.key, v)} data={data} />
-            ))}
-          </div>
-
-          {related.length > 0 && (
-            <div style={{ marginTop: 22 }}>
-              {related.map((rel, i) => (
-                <div key={i} style={{ marginBottom: 14 }}>
-                  <div className="sb-rellabel"><Link2 size={13} /> {rel.label}{rel.note ? <span style={{ marginLeft: "auto", color: C.brand, fontWeight: 700 }}>{rel.note}</span> : null}</div>
-                  {rel.items && (rel.items.length === 0
-                    ? <div style={{ fontSize: 12.5, color: C.ink3, padding: "6px 2px" }}>None yet.</div>
-                    : rel.items.map((it) => (
-                      <button key={it.id} className="sb-relrow" onClick={() => onOpenRelated({ db: rel.dbk, record: it })}>
-                        <span style={{ flex: 1, textAlign: "left" }}>{cleanName(it.name)}</span>
-                        <span style={{ color: C.ink2, fontSize: 12 }}>{rel.render(it)}</span>
-                        <ArrowUpRight size={13} color={C.ink3} />
-                      </button>
-                    )))}
-                </div>
+          {hasTimeline && (
+            <div style={{ display: "flex", gap: 2 }}>
+              {[["details", "Details & Edit"], ["timeline", "Contact Timeline"]].map(([t, label]) => (
+                <button key={t} onClick={() => setTab(t)} style={{
+                  padding: "7px 16px", border: "none", borderRadius: "8px 8px 0 0", fontSize: 13, fontWeight: 600,
+                  cursor: "pointer", background: tab === t ? C.brand : "transparent",
+                  color: tab === t ? "#fff" : C.ink3,
+                }}>{label}</button>
               ))}
             </div>
           )}
+        </div>
+
+        <div className="sb-drawerbody" style={{ paddingTop: 16 }}>
+          {hasTimeline && tab === "timeline"
+            ? <ContactTimeline db={db} record={draft} data={data} derived={derived} today={today} onOpenRelated={onOpenRelated} />
+            : (
+              <>
+                <div className="sb-fields">
+                  {fields.filter((x) => !x.title).map((fld) => (
+                    <FieldInput key={fld.key} fld={fld} value={draft[fld.key]} onChange={(v) => set(fld.key, v)} data={data} />
+                  ))}
+                </div>
+
+                {related.length > 0 && (
+                  <div style={{ marginTop: 22 }}>
+                    {related.map((rel, i) => (
+                      <div key={i} style={{ marginBottom: 14 }}>
+                        <div className="sb-rellabel"><Link2 size={13} /> {rel.label}{rel.note ? <span style={{ marginLeft: "auto", color: C.brand, fontWeight: 700 }}>{rel.note}</span> : null}</div>
+                        {rel.items && (rel.items.length === 0
+                          ? <div style={{ fontSize: 12.5, color: C.ink3, padding: "6px 2px" }}>None yet.</div>
+                          : rel.items.map((it) => (
+                            <button key={it.id} className="sb-relrow" onClick={() => onOpenRelated({ db: rel.dbk, record: it })}>
+                              <span style={{ flex: 1, textAlign: "left" }}>{cleanName(it.name)}</span>
+                              <span style={{ color: C.ink2, fontSize: 12 }}>{rel.render(it)}</span>
+                              <ArrowUpRight size={13} color={C.ink3} />
+                            </button>
+                          )))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
         </div>
 
         <div className="sb-drawerfoot">
           {!isNew && <button className="sb-danger" onClick={() => onDelete(draft.id)}><Trash2 size={15} /> Delete</button>}
           <div style={{ flex: 1 }} />
           <button className="sb-ghost" onClick={onClose}>Cancel</button>
-          <button className="sb-primary" onClick={() => onSave(draft)}>Save</button>
+          {tab !== "timeline" && <button className="sb-primary" onClick={() => onSave(draft)}>Save</button>}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   CONTACT TIMELINE
+   ============================================================ */
+const TL_COLORS = {
+  session:    C.brand,
+  offer_sent: C.gold,
+  offer_won:  "#4A8C6F",
+  offer_lost: "#C0573F",
+  followup:   "#7B68EE",
+  referral:   C.gold,
+  upcoming:   C.ink3,
+  milestone:  C.brandDeep,
+};
+
+function tlEvent(date, type, title, detail, extra = {}) {
+  return { date: date || "", type, title, detail, ...extra };
+}
+
+function buildClientTimeline(record, data, today) {
+  const events = [];
+  const clientOffers = data.offers.filter((o) => o.clientId === record.id);
+  const clientFUs = data.followups.filter((f) => f.clientId === record.id);
+
+  // First contact / lead added
+  const firstDate = record.firstSession || record.nextSession || "";
+  if (firstDate) {
+    events.push(tlEvent(record.firstSession || "", "milestone",
+      "First session attended",
+      [record.source && `Source: ${record.source}`, record.packageType !== "None" && record.packageType && `Package: ${record.packageType}`].filter(Boolean).join(" · ") || "No package yet",
+      { sub: record.notes || "" }));
+  } else {
+    events.push(tlEvent("", "milestone", "Lead added", `Source: ${record.source || "—"} · Status: ${record.status}`, { sub: record.notes || "" }));
+  }
+
+  // All sessions (we use firstSession as start, lastSession as most recent)
+  if (record.lastSession && record.lastSession !== record.firstSession) {
+    const count = Number(record.sessionsAttended) || 0;
+    events.push(tlEvent(record.lastSession, "session",
+      `Most recent session — session #${count}`,
+      `${count} total session${count !== 1 ? "s" : ""} attended · LTV: ${money(record.lifetimeValue)}`));
+  }
+
+  // Offers
+  clientOffers.forEach((o) => {
+    events.push(tlEvent(o.dateOffered, "offer_sent",
+      `${o.offerType} offer sent`,
+      `${money(o.price)} · status: ${o.status}`,
+      { offerId: o.id }));
+    if (o.closeDate && o.status !== "Offered") {
+      events.push(tlEvent(o.closeDate,
+        o.status === "Accepted" ? "offer_won" : "offer_lost",
+        `${o.offerType} ${o.status.toLowerCase()}`,
+        o.status === "Accepted" ? `Payment received: ${money(o.price)}` : `Declined on ${fmtDate(o.closeDate)}`,
+        { offerId: o.id }));
+    }
+  });
+
+  // Follow-ups
+  clientFUs.forEach((f) => {
+    events.push(tlEvent(f.lastContact, "followup",
+      `${f.futype} follow-up`,
+      f.outcome || "Pending response",
+      { pending: !f.outcome, nextAction: f.nextAction }));
+  });
+
+  // Next session (future)
+  if (record.nextSession && record.nextSession >= today) {
+    events.push(tlEvent(record.nextSession, "upcoming",
+      "Next session scheduled",
+      fmtDate(record.nextSession, true),
+      { future: true }));
+  }
+
+  // Referral status
+  const pendingFU = clientFUs.find((f) => !f.outcome && f.nextAction);
+  const highReferral = record.referral === "High";
+  const isAdvocate = record.status === "Advocate";
+
+  return {
+    events: events.filter((e) => e.date || e.type === "milestone").sort((a, b) => (a.date || "0").localeCompare(b.date || "0")),
+    summary: [
+      { label: "Status",        value: record.status },
+      { label: "Source",        value: record.source || "—" },
+      { label: "First session", value: fmtDate(record.firstSession) || "Not yet" },
+      { label: "Sessions",      value: `${record.sessionsAttended || 0} attended` },
+      { label: "Package",       value: record.packageType || "None" },
+      { label: "Lifetime value",value: money(record.lifetimeValue || 0) },
+      { label: "Referral",      value: record.referral + " potential", accent: REFERRAL_COLOR[record.referral] },
+      { label: "Open offers",   value: clientOffers.filter((o) => o.status === "Offered").length + " pending" },
+      { label: "Testimonial",   value: isAdvocate ? "Advocate — request now" : highReferral ? "High potential — not yet requested" : "Not yet requested" },
+      { label: "Next follow-up",value: pendingFU ? fmtDate(pendingFU.nextAction) : "None scheduled", accent: pendingFU && pendingFU.nextAction <= today ? "#C0573F" : null },
+    ],
+  };
+}
+
+function buildPartnerTimeline(record, data, derived, today) {
+  const sessions = [...(derived.sessionsByStudio[record.id] || [])].sort((a, b) => a.date.localeCompare(b.date));
+  const totalNet = sessions.reduce((a, s) => a + (Number(s.netRevenue) || 0), 0);
+  const totalAttend = sessions.reduce((a, s) => a + (Number(s.attendance) || 0), 0);
+  const avgAttend = sessions.length ? Math.round(totalAttend / sessions.length) : 0;
+
+  const events = [];
+
+  // Partnership milestone
+  events.push(tlEvent(sessions[0]?.date || "", "milestone",
+    `Partnership: ${record.stage}`,
+    `${record.revShare || "Revenue share TBD"} · Contact: ${record.contact} (${record.role})`));
+
+  // All sessions as events
+  sessions.forEach((s, i) => {
+    events.push(tlEvent(s.date, "session",
+      `Session ${i + 1}: ${cleanName(s.name)}`,
+      `${s.attendance} in room · ${money(s.netRevenue)} net · ${pct(s.conversion)} conversion · ${s.packagesSold} pkg sold`,
+      { notes: s.notes, sessionId: s.id }));
+  });
+
+  // Upcoming sessions
+  const upcomingSessions = data.sessions.filter((s) => s.studioId === record.id && s.date >= today);
+  upcomingSessions.forEach((s) => {
+    if (!sessions.find((x) => x.id === s.id)) {
+      events.push(tlEvent(s.date, "upcoming", `Upcoming: ${cleanName(s.name)}`, fmtDate(s.date, true), { future: true }));
+    }
+  });
+
+  return {
+    events: events.sort((a, b) => (a.date || "0").localeCompare(b.date || "0")),
+    summary: [
+      { label: "Stage",          value: record.stage },
+      { label: "Location",       value: record.location || "—" },
+      { label: "Contact",        value: `${record.contact} (${record.role})` },
+      { label: "Email",          value: record.email || "—" },
+      { label: "Revenue share",  value: record.revShare || "TBD" },
+      { label: "Total sessions", value: sessions.length + " logged" },
+      { label: "Avg attendance", value: avgAttend + " per session" },
+      { label: "Total net revenue", value: money(totalNet), accent: C.brand },
+      { label: "Sessions/month", value: (record.sessionsPerMonth || 0) + " scheduled" },
+    ],
+  };
+}
+
+function ContactTimeline({ db, record, data, derived, today, onOpenRelated }) {
+  const { events, summary } = db === "clients"
+    ? buildClientTimeline(record, data, today)
+    : buildPartnerTimeline(record, data, derived, today);
+
+  const TL_ICON = {
+    session:    <Wind size={13} />,
+    offer_sent: <DollarSign size={13} />,
+    offer_won:  <Check size={13} />,
+    offer_lost: <X size={13} />,
+    followup:   <Phone size={13} />,
+    referral:   <Users size={13} />,
+    upcoming:   <CalendarDays size={13} />,
+    milestone:  <ArrowUpRight size={13} />,
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+      {/* Summary grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 14px", background: C.surfaceAlt, borderRadius: 12, padding: "14px 16px" }}>
+        {summary.map(({ label, value, accent }) => (
+          <div key={label} style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".07em", color: C.ink3, fontWeight: 700 }}>{label}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: accent || C.ink }}>{value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Timeline */}
+      <div>
+        <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", color: C.ink3, fontWeight: 700, marginBottom: 12 }}>
+          Timeline · {events.length} event{events.length !== 1 ? "s" : ""}
+        </div>
+
+        {events.length === 0
+          ? <Empty pad>No events logged yet — add sessions, offers, and follow-ups to build this timeline.</Empty>
+          : (
+            <div style={{ position: "relative" }}>
+              {/* Vertical line */}
+              <div style={{ position: "absolute", left: 15, top: 8, bottom: 8, width: 2, background: C.line, borderRadius: 2 }} />
+
+              {events.map((ev, i) => {
+                const color = TL_COLORS[ev.type] || C.ink3;
+                const isFuture = ev.future || (ev.date && ev.date > today);
+                return (
+                  <div key={i} style={{ display: "flex", gap: 14, marginBottom: 18, opacity: isFuture ? 0.7 : 1 }}>
+                    {/* Dot */}
+                    <div style={{ flexShrink: 0, width: 32, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                      <div style={{
+                        width: 30, height: 30, borderRadius: "50%", background: isFuture ? C.surfaceAlt : color,
+                        border: `2px solid ${isFuture ? C.line : color}`, display: "flex", alignItems: "center",
+                        justifyContent: "center", color: isFuture ? C.ink3 : "#fff", zIndex: 1, position: "relative",
+                      }}>
+                        {TL_ICON[ev.type]}
+                      </div>
+                    </div>
+
+                    {/* Card */}
+                    <div style={{
+                      flex: 1, background: isFuture ? "transparent" : C.surface,
+                      border: `1px solid ${isFuture ? C.lineSoft : C.line}`,
+                      borderRadius: 10, padding: "10px 14px", marginBottom: 2,
+                      borderLeft: isFuture ? undefined : `3px solid ${color}`,
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, lineHeight: 1.35 }}>{ev.title}</div>
+                        {ev.date && (
+                          <span style={{ fontSize: 11, color: isFuture ? C.ink3 : C.brand, fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>
+                            {isFuture ? "📅 " : ""}{fmtDate(ev.date)}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12, color: C.ink2, marginTop: 3 }}>{ev.detail}</div>
+                      {ev.sub && ev.sub.length > 0 && (
+                        <div style={{ fontSize: 11.5, color: C.ink3, marginTop: 5, fontStyle: "italic", lineHeight: 1.5, borderTop: `1px solid ${C.lineSoft}`, paddingTop: 6 }}>
+                          {ev.sub.length > 180 ? ev.sub.slice(0, 180) + "…" : ev.sub}
+                        </div>
+                      )}
+                      {ev.notes && ev.notes.length > 0 && (
+                        <div style={{ fontSize: 11.5, color: C.ink3, marginTop: 5, fontStyle: "italic", lineHeight: 1.5, borderTop: `1px solid ${C.lineSoft}`, paddingTop: 6 }}>
+                          {ev.notes.length > 180 ? ev.notes.slice(0, 180) + "…" : ev.notes}
+                        </div>
+                      )}
+                      {ev.pending && ev.nextAction && (
+                        <div style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, fontWeight: 600,
+                          color: ev.nextAction <= today ? "#C0573F" : C.gold, background: ev.nextAction <= today ? hexA("#C0573F", 0.1) : C.goldSoft,
+                          padding: "2px 8px", borderRadius: 6 }}>
+                          <CalendarDays size={11} />
+                          Next action: {fmtDate(ev.nextAction)}{ev.nextAction <= today ? " · overdue" : ""}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
       </div>
     </div>
   );
@@ -1174,6 +1585,9 @@ input, textarea, select, button { font-family: inherit; }
 .sb-badge { background: ${C.brandSoft}; color: ${C.brandDeep}; font-size: 12px; font-weight: 700; padding: 1px 9px; border-radius: 20px; }
 .sb-listrow { display: flex; align-items: center; gap: 11px; width: 100%; padding: 10px 12px; border: none; background: none; border-radius: 10px; cursor: pointer; text-align: left; }
 .sb-listrow:hover { background: ${C.surfaceAlt}; }
+.sb-actionrow { align-items: flex-start; padding: 12px 14px; border-bottom: 1px solid ${C.lineSoft}; border-radius: 0; }
+.sb-actionrow:last-child { border-bottom: none; }
+.sb-actionrow:hover { background: ${C.brandMist}; }
 .sb-rowtitle { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sb-rowsub { font-size: 12px; color: ${C.ink3}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sb-rowval { font-size: 13px; font-weight: 600; color: ${C.brand}; white-space: nowrap; }
@@ -1207,6 +1621,7 @@ input, textarea, select, button { font-family: inherit; }
 
 .sb-drawerwrap { position: fixed; inset: 0; background: ${hexA(C.brandDeep, 0.28)}; display: flex; justify-content: flex-end; z-index: 60; backdrop-filter: blur(2px); }
 .sb-drawer { width: 460px; max-width: 94vw; background: ${C.surface}; height: 100%; display: flex; flex-direction: column; box-shadow: -8px 0 40px ${hexA(C.brandDeep, 0.2)}; animation: sb-slide .22s ease; }
+.sb-drawer-wide { width: 620px; }
 .sb-modal { width: 540px; max-width: 94vw; max-height: 88vh; margin: auto; background: ${C.surface}; border-radius: 16px; display: flex; flex-direction: column; box-shadow: 0 20px 60px ${hexA(C.brandDeep, 0.3)}; animation: sb-pop .2s ease; }
 .sb-drawerwrap:has(.sb-modal) { align-items: center; justify-content: center; }
 @keyframes sb-slide { from { transform: translateX(30px); opacity: .6; } to { transform: none; opacity: 1; } }
