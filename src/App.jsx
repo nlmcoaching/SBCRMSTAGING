@@ -1059,8 +1059,11 @@ function LockScreen({ onUnlock, error, initialising, users }) {
               onMouseLeave={e => { e.currentTarget.style.borderColor = C.line; e.currentTarget.style.background = C.surfaceAlt; }}>
                 <div style={{ width: 40, height: 40, borderRadius: "50%", background: u.color || C.brand,
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 14, fontWeight: 800, color: "#fff", flexShrink: 0 }}>
-                  {initials(u.name)}
+                  fontSize: 14, fontWeight: 800, color: "#fff", flexShrink: 0, overflow: "hidden" }}>
+                  {u.avatar
+                    ? <img src={u.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    : initials(u.name)
+                  }
                 </div>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 13.5, color: C.ink }}>{u.name}</div>
@@ -1079,8 +1082,11 @@ function LockScreen({ onUnlock, error, initialising, users }) {
                   background: C.surfaceAlt, width: "100%", marginBottom: 4 }}>
                 <div style={{ width: 32, height: 32, borderRadius: "50%", background: selectedUser.color || C.brand,
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 12, fontWeight: 800, color: "#fff" }}>
-                  {initials(selectedUser.name)}
+                  fontSize: 12, fontWeight: 800, color: "#fff", overflow: "hidden" }}>
+                  {selectedUser.avatar
+                    ? <img src={selectedUser.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    : initials(selectedUser.name)
+                  }
                 </div>
                 <div style={{ textAlign: "left", flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 13, color: C.ink }}>{selectedUser.name}</div>
