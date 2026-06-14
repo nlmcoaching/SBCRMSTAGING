@@ -56,6 +56,36 @@ const STUDIO_TYPE = ["Yoga", "Gym", "Pilates", "Meditation", "Wellness", "Corpor
 const CLOSE_PROB = ["Low", "Medium", "High", "Closed Won", "Closed Lost"];
 const CLOSE_PROB_COLOR = { Low: "#9FB2CC", Medium: C.gold, High: "#4A8C6F", "Closed Won": "#13245C", "Closed Lost": "#C0573F" };
 const CONTRACT_STATUS = ["None", "Drafted", "Sent", "Signed"];
+
+const PARTNER_CHECKLIST = [
+  // Legal
+  { id: "agreement_sent",      label: "Agreement sent",                    cat: "Legal & Agreement" },
+  { id: "agreement_signed",    label: "Agreement signed",                  cat: "Legal & Agreement" },
+  { id: "liability_waiver",    label: "Liability waiver process confirmed", cat: "Legal & Agreement" },
+  { id: "insurance_requested", label: "Insurance certificate requested",   cat: "Legal & Agreement" },
+  { id: "insurance_received",  label: "Insurance certificate received",    cat: "Legal & Agreement" },
+  // Finance
+  { id: "revenue_split",       label: "Revenue split agreed",              cat: "Finance & Pricing" },
+  { id: "ticket_price",        label: "Ticket price agreed",               cat: "Finance & Pricing" },
+  { id: "min_attendance",      label: "Minimum attendance agreed",         cat: "Finance & Pricing" },
+  { id: "payment_terms",       label: "Payment terms confirmed",           cat: "Finance & Pricing" },
+  // Marketing
+  { id: "promotion_plan",      label: "Promotion plan approved",           cat: "Marketing & Assets" },
+  { id: "qr_code",             label: "QR code created",                   cat: "Marketing & Assets" },
+  { id: "booking_page",        label: "Booking page created",              cat: "Marketing & Assets" },
+  { id: "event_assets",        label: "Event assets delivered to studio",  cat: "Marketing & Assets" },
+  // Operations
+  { id: "room_setup",          label: "Room setup confirmed",              cat: "Operations" },
+  { id: "followup_agreed",     label: "Post-session follow-up agreed",     cat: "Operations" },
+];
+const CHECKLIST_CATS = ["Legal & Agreement", "Finance & Pricing", "Marketing & Assets", "Operations"];
+const CHECKLIST_CAT_COLOR = {
+  "Legal & Agreement": "#4A8C6F",
+  "Finance & Pricing": C.gold,
+  "Marketing & Assets": C.brand,
+  "Operations": "#7B68EE",
+};
+const emptyChecklist = () => Object.fromEntries(PARTNER_CHECKLIST.map((i) => [i.id, false]));
 const FUTYPE = ["24h", "72h", "Referral", "Reactivation"];
 const FUTYPE_COLOR = { "24h": "#3F87DC", "72h": "#2F6FD0", "Referral": "#D9892B", "Reactivation": "#9FB2CC" };
 const SOURCE = ["Studio", "IG", "Referral", "Ads"];
@@ -72,11 +102,11 @@ const PLATFORM = ["IG", "TikTok", "Email"];
 /* ---------- Seed data (from the six source files, relations wired) ---------- */
 const SEED = {
   partners: [
-    { id: "sp1", name: "Sample - YogaSix Walnut Creek", studioType: "Yoga", location: "Walnut Creek, CA", contact: "Alyssa Tran", role: "Manager", email: "alyssa@example.com", phone: "555-0201", stage: "Recurring partner", estimatedCommunitySize: 320, bestFitJourney: "Reset & Release", revenuePotential: 2400, closeProbability: "Closed Won", revShare: "70/30 split (us/studio)", contractStatus: "Signed", outreachDate: "2026-03-01", lastTouch: "2026-06-11", nextAction: "2026-06-18", avgAttendance: 14, sessionsPerMonth: 4, insuranceReqs: "COI on file", promotionCommitments: "Monthly IG story + email to list", notes: "Thursday Reset is the anchor class; strong word of mouth. Alyssa is a champion." },
-    { id: "sp2", name: "Sample - CorePower Lafayette", studioType: "Yoga", location: "Lafayette, CA", contact: "Mike Donnelly", role: "Owner", email: "mike@example.com", phone: "555-0202", stage: "Demo completed", estimatedCommunitySize: 280, bestFitJourney: "Letting Go & Rebirth", revenuePotential: 1800, closeProbability: "High", revShare: "Flat room fee $75", contractStatus: "None", outreachDate: "2026-05-10", lastTouch: "2026-06-03", nextAction: "2026-06-16", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "Needs COI before pilot", promotionCommitments: "TBD — discussing newsletter feature", notes: "Demo went well 6/3. Mike is interested but cautious. Follow up with pilot proposal this week." },
-    { id: "sp3", name: "Sample - The Still Point", studioType: "Meditation", location: "Pleasant Hill, CA", contact: "Renee Park", role: "Director", email: "renee@example.com", phone: "555-0203", stage: "Pilot proposed", estimatedCommunitySize: 140, bestFitJourney: "Nervous System Reset", revenuePotential: 1200, closeProbability: "Medium", revShare: "80/20 split (us/studio)", contractStatus: "Drafted", outreachDate: "2026-04-15", lastTouch: "2026-06-05", nextAction: "2026-06-14", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "COI + liability waiver required", promotionCommitments: "4-week pilot feature on their blog", notes: "4-week Sunday evening pilot proposed. Contract drafted but not returned. Renee responsive over email." },
-    { id: "sp4", name: "Sample - Flow State Studio", studioType: "Wellness", location: "Concord, CA", contact: "Tara Iverson", role: "Owner", email: "tara@example.com", phone: "555-0204", stage: "Initial outreach sent", estimatedCommunitySize: 90, bestFitJourney: "Breathwork Basics", revenuePotential: 900, closeProbability: "Low", revShare: "TBD", contractStatus: "None", outreachDate: "2026-06-09", lastTouch: "2026-06-09", nextAction: "2026-06-17", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "Warm intro from Dana. Sent intro email 6/9. Waiting on reply." },
-    { id: "sp5", name: "Sample - Lotus & Pine", studioType: "Yoga", location: "Danville, CA", contact: "Geoff Adams", role: "Manager", email: "geoff@example.com", phone: "555-0205", stage: "Recurring partner", estimatedCommunitySize: 500, bestFitJourney: "Deep Surrender", revenuePotential: 5200, closeProbability: "Closed Won", revShare: "60/40 split (us/studio)", contractStatus: "Signed", outreachDate: "2026-01-15", lastTouch: "2026-06-10", nextAction: "2026-06-20", avgAttendance: 18, sessionsPerMonth: 8, insuranceReqs: "COI on file + annual renewal", promotionCommitments: "Co-branded social posts + monthly email feature", notes: "Two weekly slots plus monthly workshop. Best earner. Geoff wants to add a Friday morning slot." },
+    { id: "sp1", name: "Sample - YogaSix Walnut Creek", studioType: "Yoga", location: "Walnut Creek, CA", contact: "Alyssa Tran", role: "Manager", email: "alyssa@example.com", phone: "555-0201", stage: "Recurring partner", estimatedCommunitySize: 320, bestFitJourney: "Reset & Release", revenuePotential: 2400, closeProbability: "Closed Won", revShare: "70/30 split (us/studio)", contractStatus: "Signed", outreachDate: "2026-03-01", lastTouch: "2026-06-11", nextAction: "2026-06-18", avgAttendance: 14, sessionsPerMonth: 4, insuranceReqs: "COI on file", promotionCommitments: "Monthly IG story + email to list", notes: "Thursday Reset is the anchor class; strong word of mouth. Alyssa is a champion.", checklist: { agreement_sent: true, agreement_signed: true, liability_waiver: true, insurance_requested: true, insurance_received: true, revenue_split: true, ticket_price: true, min_attendance: true, payment_terms: true, promotion_plan: true, qr_code: true, booking_page: true, event_assets: true, room_setup: true, followup_agreed: true } },
+    { id: "sp2", name: "Sample - CorePower Lafayette", studioType: "Yoga", location: "Lafayette, CA", contact: "Mike Donnelly", role: "Owner", email: "mike@example.com", phone: "555-0202", stage: "Demo completed", estimatedCommunitySize: 280, bestFitJourney: "Letting Go & Rebirth", revenuePotential: 1800, closeProbability: "High", revShare: "Flat room fee $75", contractStatus: "None", outreachDate: "2026-05-10", lastTouch: "2026-06-03", nextAction: "2026-06-16", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "Needs COI before pilot", promotionCommitments: "TBD — discussing newsletter feature", notes: "Demo went well 6/3. Mike is interested but cautious. Follow up with pilot proposal this week.", checklist: { agreement_sent: false, agreement_signed: false, liability_waiver: false, insurance_requested: false, insurance_received: false, revenue_split: true, ticket_price: true, min_attendance: false, payment_terms: false, promotion_plan: false, qr_code: false, booking_page: false, event_assets: false, room_setup: false, followup_agreed: false } },
+    { id: "sp3", name: "Sample - The Still Point", studioType: "Meditation", location: "Pleasant Hill, CA", contact: "Renee Park", role: "Director", email: "renee@example.com", phone: "555-0203", stage: "Pilot proposed", estimatedCommunitySize: 140, bestFitJourney: "Nervous System Reset", revenuePotential: 1200, closeProbability: "Medium", revShare: "80/20 split (us/studio)", contractStatus: "Drafted", outreachDate: "2026-04-15", lastTouch: "2026-06-05", nextAction: "2026-06-14", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "COI + liability waiver required", promotionCommitments: "4-week pilot feature on their blog", notes: "4-week Sunday evening pilot proposed. Contract drafted but not returned. Renee responsive over email.", checklist: { agreement_sent: true, agreement_signed: false, liability_waiver: false, insurance_requested: true, insurance_received: false, revenue_split: true, ticket_price: true, min_attendance: true, payment_terms: false, promotion_plan: false, qr_code: false, booking_page: false, event_assets: false, room_setup: false, followup_agreed: false } },
+    { id: "sp4", name: "Sample - Flow State Studio", studioType: "Wellness", location: "Concord, CA", contact: "Tara Iverson", role: "Owner", email: "tara@example.com", phone: "555-0204", stage: "Initial outreach sent", estimatedCommunitySize: 90, bestFitJourney: "Breathwork Basics", revenuePotential: 900, closeProbability: "Low", revShare: "TBD", contractStatus: "None", outreachDate: "2026-06-09", lastTouch: "2026-06-09", nextAction: "2026-06-17", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "Warm intro from Dana. Sent intro email 6/9. Waiting on reply.", checklist: emptyChecklist() },
+    { id: "sp5", name: "Sample - Lotus & Pine", studioType: "Yoga", location: "Danville, CA", contact: "Geoff Adams", role: "Manager", email: "geoff@example.com", phone: "555-0205", stage: "Recurring partner", estimatedCommunitySize: 500, bestFitJourney: "Deep Surrender", revenuePotential: 5200, closeProbability: "Closed Won", revShare: "60/40 split (us/studio)", contractStatus: "Signed", outreachDate: "2026-01-15", lastTouch: "2026-06-10", nextAction: "2026-06-20", avgAttendance: 18, sessionsPerMonth: 8, insuranceReqs: "COI on file + annual renewal", promotionCommitments: "Co-branded social posts + monthly email feature", notes: "Two weekly slots plus monthly workshop. Best earner. Geoff wants to add a Friday morning slot.", checklist: { agreement_sent: true, agreement_signed: true, liability_waiver: true, insurance_requested: true, insurance_received: true, revenue_split: true, ticket_price: true, min_attendance: true, payment_terms: true, promotion_plan: true, qr_code: true, booking_page: true, event_assets: true, room_setup: true, followup_agreed: true } },
   ],
   clients: [
     { id: "c1", name: "Sample - Jordan Lee", phone: "555-0101", email: "jordan@example.com", source: "Studio", status: "Lead", firstSession: "", sessionsAttended: 0, lastSession: "", nextSession: "2026-06-12", packageType: "None", lifetimeValue: 0, notes: "Found us via YogaSix flyer; anxious about first session, wants calm intro", referral: "Low" },
@@ -297,7 +327,7 @@ function newRecord(db) {
   const base = { id: uid(db) };
   const m = {
     clients: { name: "", phone: "", email: "", source: "Studio", status: "Lead", firstSession: "", sessionsAttended: 0, lastSession: "", nextSession: "", packageType: "None", lifetimeValue: 0, notes: "", referral: "Low" },
-    partners: { name: "", studioType: "Yoga", location: "", contact: "", role: "Owner", email: "", phone: "", stage: "Target identified", estimatedCommunitySize: 0, bestFitJourney: "", revenuePotential: 0, closeProbability: "Low", revShare: "", contractStatus: "None", outreachDate: "", lastTouch: todayISO(), nextAction: "", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "" },
+    partners: { name: "", studioType: "Yoga", location: "", contact: "", role: "Owner", email: "", phone: "", stage: "Target identified", estimatedCommunitySize: 0, bestFitJourney: "", revenuePotential: 0, closeProbability: "Low", revShare: "", contractStatus: "None", outreachDate: "", lastTouch: todayISO(), nextAction: "", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "", checklist: emptyChecklist() },
     sessions: { name: "", studioId: "", date: todayISO(), attendance: 0, revenue: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, notes: "" },
     offers: { name: "", clientId: "", offerType: "Drop-in", price: 0, status: "Offered", dateOffered: todayISO(), closeDate: "" },
     content: { name: "", type: "Education", platform: "IG", datePosted: todayISO(), engagement: 0, leads: 0, booked: 0 },
@@ -980,6 +1010,26 @@ function PartnerPipelineView({ groups, onOpen }) {
                           </span>
                         )}
                       </div>
+                      {/* Checklist mini progress */}
+                      {(() => {
+                        const cl = r.checklist || {};
+                        const d = Object.values(cl).filter(Boolean).length;
+                        const t = PARTNER_CHECKLIST.length;
+                        if (d === 0) return null;
+                        const pct = Math.round((d / t) * 100);
+                        const col = pct === 100 ? "#4A8C6F" : pct >= 60 ? C.brand : C.gold;
+                        return (
+                          <div style={{ marginTop: 7 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                              <span style={{ fontSize: 9.5, color: C.ink3, textTransform: "uppercase", letterSpacing: ".06em" }}>Launch checklist</span>
+                              <span style={{ fontSize: 9.5, color: col, fontWeight: 700 }}>{d}/{t}</span>
+                            </div>
+                            <div style={{ height: 4, background: C.line, borderRadius: 4, overflow: "hidden" }}>
+                              <div style={{ height: "100%", width: pct + "%", background: col, borderRadius: 4 }} />
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </button>
                   ))}
               </div>
@@ -1153,6 +1203,7 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
   const isNew = !data[db].some((r) => r.id === record.id);
   const hasTimeline = (db === "clients" || db === "partners") && !isNew;
+  const hasChecklist = db === "partners" && !isNew;
 
   // related records (used in details tab)
   const related = [];
@@ -1184,13 +1235,30 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
             onChange={(e) => set(titleField.key, e.target.value)} />
           {hasTimeline && (
             <div style={{ display: "flex", gap: 2 }}>
-              {[["details", "Details & Edit"], ["timeline", "Contact Timeline"]].map(([t, label]) => (
-                <button key={t} onClick={() => setTab(t)} style={{
-                  padding: "7px 16px", border: "none", borderRadius: "8px 8px 0 0", fontSize: 13, fontWeight: 600,
-                  cursor: "pointer", background: tab === t ? C.brand : "transparent",
-                  color: tab === t ? "#fff" : C.ink3,
-                }}>{label}</button>
-              ))}
+              {[
+                ["details", "Details & Edit"],
+                ...(hasChecklist ? [["checklist", "Launch Checklist"]] : []),
+                ["timeline", "Contact Timeline"],
+              ].map(([t, label]) => {
+                const done = t === "checklist" ? Object.values(draft.checklist || {}).filter(Boolean).length : null;
+                const total = t === "checklist" ? PARTNER_CHECKLIST.length : null;
+                return (
+                  <button key={t} onClick={() => setTab(t)} style={{
+                    padding: "7px 14px", border: "none", borderRadius: "8px 8px 0 0", fontSize: 13, fontWeight: 600,
+                    cursor: "pointer", background: tab === t ? C.brand : "transparent",
+                    color: tab === t ? "#fff" : C.ink3, display: "flex", alignItems: "center", gap: 6,
+                  }}>
+                    {label}
+                    {done != null && (
+                      <span style={{
+                        fontSize: 11, fontWeight: 700, padding: "1px 6px", borderRadius: 20,
+                        background: done === total ? "#4A8C6F" : tab === t ? "rgba(255,255,255,0.25)" : C.brandSoft,
+                        color: done === total ? "#fff" : tab === t ? "#fff" : C.brandDeep,
+                      }}>{done}/{total}</span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
@@ -1198,6 +1266,8 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
         <div className="sb-drawerbody" style={{ paddingTop: 16 }}>
           {hasTimeline && tab === "timeline"
             ? <ContactTimeline db={db} record={draft} data={data} derived={derived} today={today} onOpenRelated={onOpenRelated} />
+            : hasChecklist && tab === "checklist"
+            ? <PartnerLaunchChecklist checklist={draft.checklist || emptyChecklist()} onChange={(cl) => set("checklist", cl)} partnerName={cleanName(draft.name)} />
             : (
               <>
                 <div className="sb-fields">
@@ -1232,9 +1302,92 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
           {!isNew && <button className="sb-danger" onClick={() => onDelete(draft.id)}><Trash2 size={15} /> Delete</button>}
           <div style={{ flex: 1 }} />
           <button className="sb-ghost" onClick={onClose}>Cancel</button>
-          {tab !== "timeline" && <button className="sb-primary" onClick={() => onSave(draft)}>Save</button>}
-        </div>
+          {tab !== "timeline" && <button className="sb-primary" onClick={() => onSave(draft)}>Save</button>}        </div>
       </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   PARTNER LAUNCH CHECKLIST
+   ============================================================ */
+function PartnerLaunchChecklist({ checklist, onChange, partnerName }) {
+  const toggle = (id) => onChange({ ...checklist, [id]: !checklist[id] });
+  const done = Object.values(checklist).filter(Boolean).length;
+  const total = PARTNER_CHECKLIST.length;
+  const pctDone = Math.round((done / total) * 100);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+      {/* Progress header */}
+      <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: "16px 18px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{partnerName} — Launch Checklist</div>
+            <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>{done} of {total} items complete</div>
+          </div>
+          <div style={{ fontFamily: FONT.display, fontSize: 28, fontWeight: 700, color: pctDone === 100 ? "#4A8C6F" : pctDone >= 60 ? C.brand : C.gold }}>
+            {pctDone}%
+          </div>
+        </div>
+        {/* Progress bar */}
+        <div style={{ height: 8, background: C.line, borderRadius: 8, overflow: "hidden" }}>
+          <div style={{
+            height: "100%", borderRadius: 8, transition: "width .3s ease",
+            width: pctDone + "%",
+            background: pctDone === 100 ? "#4A8C6F" : pctDone >= 60 ? C.brand : C.gold,
+          }} />
+        </div>
+        {pctDone === 100 && (
+          <div style={{ marginTop: 8, fontSize: 12.5, color: "#4A8C6F", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
+            <Check size={14} /> All launch items complete — this partner is fully onboarded.
+          </div>
+        )}
+      </div>
+
+      {/* Categories */}
+      {CHECKLIST_CATS.map((cat) => {
+        const items = PARTNER_CHECKLIST.filter((i) => i.cat === cat);
+        const catDone = items.filter((i) => checklist[i.id]).length;
+        const color = CHECKLIST_CAT_COLOR[cat];
+        return (
+          <div key={cat}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <div style={{ width: 10, height: 10, borderRadius: "50%", background: color, flexShrink: 0 }} />
+              <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color }}>{cat}</span>
+              <span style={{ fontSize: 11, color: C.ink3, marginLeft: "auto" }}>{catDone}/{items.length}</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              {items.map((item) => {
+                const checked = !!checklist[item.id];
+                return (
+                  <button key={item.id} onClick={() => toggle(item.id)} style={{
+                    display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+                    background: checked ? hexA(color, 0.07) : "transparent",
+                    border: "none", borderRadius: 8, padding: "9px 10px", cursor: "pointer",
+                    transition: "background .12s",
+                  }}>
+                    {/* Checkbox */}
+                    <div style={{
+                      width: 20, height: 20, borderRadius: 5, border: `2px solid ${checked ? color : C.line}`,
+                      background: checked ? color : C.surface, display: "flex", alignItems: "center",
+                      justifyContent: "center", flexShrink: 0, transition: "all .12s",
+                    }}>
+                      {checked && <Check size={12} color="#fff" strokeWidth={3} />}
+                    </div>
+                    <span style={{
+                      fontSize: 13.5, fontWeight: checked ? 500 : 400,
+                      color: checked ? C.ink3 : C.ink,
+                      textDecoration: checked ? "line-through" : "none",
+                    }}>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
