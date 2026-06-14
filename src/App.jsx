@@ -1405,6 +1405,7 @@ export default function App() {
     { id: "content",   label: "Content Calendar",  Icon: Megaphone,   lane: "core" },
     { id: "templates", label: "Templates",          Icon: Copy,        lane: "core" },
     { id: "users",     label: "User Management",    Icon: Users,       lane: "core" },
+    { id: "admin",     label: "Admin",              Icon: Shield,      lane: "core" },
   ];
 
   const go = (id) => { setSection(id); setView(0); setQuery(""); setNavOpen(false); };
@@ -2619,7 +2620,12 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         : v.layout === "workflows"
         ? <WorkflowsView data={data} derived={derived} today={today} />
         : v.layout === "user-management"
-        ? <UserManagementView currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} onUsersUpdated={setSecUsers} />        : v.layout === "outreach-hub"
+        ? <UserManagementView currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} onUsersUpdated={setSecUsers} />
+        : v.layout === "admin-overview"   ? <AdminView tab="overview"   data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
+        : v.layout === "admin-schema"     ? <AdminView tab="schema"     data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
+        : v.layout === "admin-integrity"  ? <AdminView tab="integrity"  data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
+        : v.layout === "admin-storage"    ? <AdminView tab="storage"    data={data} secUsers={secUsers} currentUser={currentUser} today={today} setData={setData} />
+        : v.layout === "outreach-hub"
         ? <OutreachHubView rows={processed.rows} data={data} today={today} onOpen={(r) => onOpen({ db: "outreach", record: r })} />
         : v.layout === "calendar"
         ? <CalendarView rows={processed.rows} today={today} derived={derived} onOpen={(r) => onOpen({ db: section, record: r })} />
@@ -2662,6 +2668,14 @@ const VIEWS = {
   },
   users: {
     views: [{ name: "Users & Permissions", layout: "user-management" }],
+  },
+  admin: {
+    views: [
+      { name: "Overview",        layout: "admin-overview" },
+      { name: "Schema Browser",  layout: "admin-schema" },
+      { name: "Data Integrity",  layout: "admin-integrity" },
+      { name: "Storage & Backup", layout: "admin-storage" },
+    ],
   },
   clients: {
     views: [
@@ -4594,6 +4608,604 @@ const DB_ORDER = ["partners", "clients", "sessions", "offers", "content", "follo
 /* ============================================================
    EDIT PROFILE MODAL
    ============================================================ */
+/* ============================================================
+   ADMIN VIEW
+   ============================================================ */
+
+const DB_SCHEMA = [
+  {
+    table: "clients", label: "Clients", lane: "B2C",
+    description: "Individual clients — leads, attendees, members, and advocates.",
+    fields: [
+      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
+      { name: "name",            type: "string",   required: true,  description: "Full name" },
+      { name: "email",           type: "email",    required: false, description: "Contact email address" },
+      { name: "phone",           type: "string",   required: false, description: "Phone number" },
+      { name: "source",          type: "select",   required: false, description: "How the client found Simply Breathe", values: "Referral · Instagram · Studio · Website · Direct · Event · Corporate · Other" },
+      { name: "type",            type: "select",   required: false, description: "Client classification", values: "First-time attendee · Repeat attendee · Member · Advocate · Referral source · Private client · Studio attendee · Virtual attendee · Corporate attendee · High-value lead · Past client – reactivate" },
+      { name: "tags",            type: "array",    required: false, description: "Intent / emotional tags", values: "Stress relief · Anxiety · Burnout · Performance · Grief · Letting go · Self-confidence · Nervous system reset · Transformation seeker · Spiritual growth · Corporate wellness" },
+      { name: "firstContact",    type: "date",     required: false, description: "Date of first contact (ISO 8601)" },
+      { name: "lastSession",     type: "date",     required: false, description: "Date of most recent session attended" },
+      { name: "nextFollowUp",    type: "date",     required: false, description: "Scheduled next follow-up date" },
+      { name: "status",          type: "select",   required: false, description: "Relationship status", values: "New lead · Active · Warm · VIP · Advocate · Inactive · Lost" },
+      { name: "referralSource",  type: "string",   required: false, description: "Name of the person who referred this client" },
+      { name: "referralPotential", type: "select", required: false, description: "Likelihood to refer others", values: "High · Medium · Low" },
+      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
+    ],
+  },
+  {
+    table: "partners", label: "Studio Partners", lane: "B2B",
+    description: "Studios, gyms, and wellness spaces that host breathwork events.",
+    fields: [
+      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
+      { name: "name",            type: "string",   required: true,  description: "Studio or business name" },
+      { name: "owner",           type: "string",   required: false, description: "Owner or manager name" },
+      { name: "email",           type: "email",    required: false, description: "Primary contact email" },
+      { name: "phone",           type: "string",   required: false, description: "Phone number" },
+      { name: "location",        type: "string",   required: false, description: "City / address" },
+      { name: "type",            type: "select",   required: false, description: "Studio category", values: "Yoga · Gym · Meditation · Wellness · Pilates · Corporate · Other" },
+      { name: "communitySize",   type: "number",   required: false, description: "Estimated active member / follower count" },
+      { name: "bestJourney",     type: "string",   required: false, description: "Best-fit breathwork journey for this audience" },
+      { name: "revenuePotential",type: "currency",  required: false, description: "Estimated total revenue potential ($)" },
+      { name: "stage",           type: "select",   required: false, description: "Pipeline stage", values: "Target Identified · Researched · Initial Outreach Sent · Follow-Up Needed · Discovery Call Booked · Demo Session Offered · Demo Completed · Pilot Proposed · Agreement Sent · Agreement Signed · First Session Scheduled · Pilot Completed · Recurring Partner · Lost / Not a Fit" },
+      { name: "probability",     type: "number",   required: false, description: "Probability of closing (0–100%)" },
+      { name: "lastTouch",       type: "date",     required: false, description: "Date of last activity or contact" },
+      { name: "nextAction",      type: "string",   required: false, description: "Next required action" },
+      { name: "contractStatus",  type: "select",   required: false, description: "Agreement status", values: "None · Sent · Signed · Expired" },
+      { name: "insuranceReq",    type: "string",   required: false, description: "Insurance requirements noted" },
+      { name: "promotionCommit", type: "string",   required: false, description: "Agreed promotion commitments" },
+      { name: "notes",           type: "textarea", required: false, description: "Free-form notes and conversation history" },
+      { name: "checklist",       type: "object",   required: false, description: "Studio Launch Checklist — 4-phase, 23 boolean items (before_signing, after_signing, before_event, after_event)" },
+    ],
+  },
+  {
+    table: "sessions", label: "Sessions", lane: "B2C",
+    description: "Individual breathwork events — studio, virtual, or private.",
+    fields: [
+      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
+      { name: "date",            type: "date",     required: true,  description: "Session date (ISO 8601)" },
+      { name: "time",            type: "string",   required: false, description: "Session start time" },
+      { name: "studio",          type: "string",   required: false, description: "Studio name or 'Virtual'" },
+      { name: "journey",         type: "string",   required: false, description: "Breathwork journey used" },
+      { name: "status",          type: "select",   required: false, description: "Lifecycle status", values: "Planned · Booking Open · Promotion Active · Almost Full · Completed · Follow-Up Pending · Closed Out" },
+      { name: "capacity",        type: "number",   required: false, description: "Maximum attendee capacity" },
+      { name: "registered",      type: "number",   required: false, description: "Number registered" },
+      { name: "paid",            type: "number",   required: false, description: "Number who paid" },
+      { name: "waivers",         type: "number",   required: false, description: "Number of waivers completed" },
+      { name: "noShows",         type: "number",   required: false, description: "Number of no-shows" },
+      { name: "grossRevenue",    type: "currency",  required: false, description: "Total gross revenue collected ($)" },
+      { name: "studioSplit",     type: "currency",  required: false, description: "Amount paid to studio ($)" },
+      { name: "netRevenue",      type: "currency",  required: false, description: "Net revenue after studio split ($)" },
+      { name: "roomSetup",       type: "select",   required: false, description: "Room setup status", values: "Not started · In progress · Complete" },
+      { name: "audioSetup",      type: "select",   required: false, description: "Music / headset setup status", values: "Not started · In progress · Complete" },
+      { name: "testimonialsCapt",type: "boolean",  required: false, description: "Were testimonials captured post-session?" },
+      { name: "followUpSent",    type: "boolean",  required: false, description: "Was the post-session follow-up email sent?" },
+      { name: "rebookOfferSent", type: "boolean",  required: false, description: "Was a rebook offer sent?" },
+      { name: "referralsReq",    type: "boolean",  required: false, description: "Were referrals requested?" },
+      { name: "breakthroughNoted", type: "boolean", required: false, description: "Was a client breakthrough noted? Triggers testimonial request alert." },
+      { name: "equipChecklist",  type: "object",   required: false, description: "Equipment checklist — 3 phases, 17 boolean items (audio_tech, room_supplies, admin_checkin)" },
+      { name: "conversionResult",type: "string",   required: false, description: "Outcome summary (e.g. '2 3-packs sold')" },
+      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
+    ],
+  },
+  {
+    table: "offers", label: "Offers", lane: "B2C",
+    description: "Sales offers made to clients or studios.",
+    fields: [
+      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
+      { name: "client",          type: "string",   required: true,  description: "Client or studio name" },
+      { name: "type",            type: "select",   required: false, description: "Offer type", values: "Single session · 3-pack · 6-pack · 12-pack · Private session · Studio pilot · Studio recurring agreement · Corporate event · Group event · Referral partner offer" },
+      { name: "amount",          type: "currency",  required: false, description: "Offer value ($)" },
+      { name: "dateOffered",     type: "date",     required: false, description: "Date offer was sent" },
+      { name: "expiresOn",       type: "date",     required: false, description: "Offer expiration date" },
+      { name: "followUpDate",    type: "date",     required: false, description: "Scheduled follow-up date" },
+      { name: "status",          type: "select",   required: false, description: "Offer lifecycle status", values: "Drafted · Sent · Viewed · Follow-Up Due · Accepted · Paid · Declined · Expired" },
+      { name: "probability",     type: "number",   required: false, description: "Estimated close probability (0–100%)" },
+      { name: "source",          type: "select",   required: false, description: "Lead source for this offer", values: "Referral · Instagram · Studio · Website · Direct · Event · Corporate · Other" },
+      { name: "reasonLost",      type: "string",   required: false, description: "Reason if offer was declined or expired" },
+      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
+    ],
+  },
+  {
+    table: "revenue", label: "Revenue", lane: "B2C",
+    description: "Individual revenue line items for attribution and profitability analysis.",
+    fields: [
+      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
+      { name: "date",            type: "date",     required: true,  description: "Revenue date" },
+      { name: "client",          type: "string",   required: false, description: "Linked client name" },
+      { name: "session",         type: "string",   required: false, description: "Linked session ID or name" },
+      { name: "channel",         type: "select",   required: false, description: "Revenue channel", values: "Studio session · Virtual session · Private client · Group package · Corporate event · Referral partner · Paid ad · Organic Instagram · Email list · Studio partner" },
+      { name: "gross",           type: "currency",  required: false, description: "Gross revenue ($)" },
+      { name: "stripeFee",       type: "currency",  required: false, description: "Payment processing fee ($)" },
+      { name: "studioSplit",     type: "currency",  required: false, description: "Studio share ($)" },
+      { name: "facilitatorCost", type: "currency",  required: false, description: "Facilitator / contractor cost ($)" },
+      { name: "refunds",         type: "currency",  required: false, description: "Refund amount ($)" },
+      { name: "net",             type: "currency",  required: false, description: "Net revenue after all deductions ($)" },
+      { name: "costCenter",      type: "string",   required: false, description: "Cost center or accounting category" },
+      { name: "source",          type: "string",   required: false, description: "Marketing source or campaign" },
+      { name: "campaign",        type: "string",   required: false, description: "Campaign name" },
+      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
+    ],
+  },
+  {
+    table: "referrals", label: "Referrals", lane: "B2C",
+    description: "Referral relationships — who referred whom and the resulting revenue.",
+    fields: [
+      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
+      { name: "referrer",        type: "string",   required: true,  description: "Name of person who gave the referral" },
+      { name: "referred",        type: "string",   required: false, description: "Name of person referred" },
+      { name: "date",            type: "date",     required: false, description: "Date referral was received" },
+      { name: "status",          type: "select",   required: false, description: "Referral status", values: "Received · Contacted · Attended · Purchased · Thanked · Closed" },
+      { name: "attended",        type: "boolean",  required: false, description: "Did the referred person attend a session?" },
+      { name: "purchased",       type: "boolean",  required: false, description: "Did they purchase an offer?" },
+      { name: "revenue",         type: "currency",  required: false, description: "Revenue generated from this referral ($)" },
+      { name: "thankYouSent",    type: "boolean",  required: false, description: "Was a thank-you sent to the referrer?" },
+      { name: "rewardGiven",     type: "boolean",  required: false, description: "Was a referral reward given?" },
+      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
+    ],
+  },
+  {
+    table: "content", label: "Content Calendar", lane: "B2C",
+    description: "Social media and email content — ideas, drafts, scheduled, and published.",
+    fields: [
+      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
+      { name: "title",           type: "string",   required: true,  description: "Post title or working title" },
+      { name: "body",            type: "textarea", required: false, description: "Caption or body copy" },
+      { name: "platform",        type: "select",   required: false, description: "Publishing platform", values: "Instagram · Facebook · LinkedIn · TikTok · YouTube · Email · Blog · Other" },
+      { name: "category",        type: "select",   required: false, description: "Content category", values: "Client transformation · Breathwork education · Nervous system regulation · Behind the scenes · Studio partner promotion · Founder story · Testimonials · FAQs · Contraindications/safety · Upcoming sessions" },
+      { name: "status",          type: "select",   required: false, description: "Content lifecycle status", values: "Idea · Draft · Scheduled · Published · Archived" },
+      { name: "scheduledDate",   type: "date",     required: false, description: "Scheduled publish date" },
+      { name: "reach",           type: "number",   required: false, description: "Total accounts reached" },
+      { name: "likes",           type: "number",   required: false, description: "Like count" },
+      { name: "comments",        type: "number",   required: false, description: "Comment count" },
+      { name: "shares",          type: "number",   required: false, description: "Share / repost count" },
+      { name: "saves",           type: "number",   required: false, description: "Save count" },
+      { name: "leads",           type: "number",   required: false, description: "Leads generated from this post" },
+      { name: "booked",          type: "number",   required: false, description: "Bookings attributed to this post" },
+      { name: "revenue",         type: "currency",  required: false, description: "Revenue attributed to this post ($)" },
+      { name: "sessionPromoted", type: "string",   required: false, description: "Session name promoted in this post" },
+      { name: "studioTagged",    type: "string",   required: false, description: "Studio partner tagged" },
+      { name: "reused",          type: "boolean",  required: false, description: "Is this repurposed content?" },
+      { name: "cta",             type: "string",   required: false, description: "Call to action text or link" },
+      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
+    ],
+  },
+  {
+    table: "outreach", label: "Outreach Hub", lane: "B2B",
+    description: "Proactive studio and referral outreach tracking.",
+    fields: [
+      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
+      { name: "name",            type: "string",   required: true,  description: "Target name (studio or individual)" },
+      { name: "targetType",      type: "select",   required: false, description: "Type of outreach target", values: "Studio · Individual · Corporate · Event Space · Wellness Brand" },
+      { name: "contactStatus",   type: "select",   required: false, description: "Contact lifecycle status", values: "Not contacted · Contacted · Responded · Meeting booked · Demo offered · Negotiating · Closed · Not interested" },
+      { name: "messageUsed",     type: "textarea", required: false, description: "Outreach message or template used" },
+      { name: "lastContact",     type: "date",     required: false, description: "Date of last contact" },
+      { name: "nextFollowUp",    type: "date",     required: false, description: "Next scheduled follow-up date" },
+      { name: "responseStatus",  type: "select",   required: false, description: "Response received", values: "No response · Positive · Neutral · Negative · Bounced" },
+      { name: "warmth",          type: "select",   required: false, description: "Relationship warmth", values: "Cold · Warm · Hot" },
+      { name: "source",          type: "select",   required: false, description: "How this target was found", values: "Instagram · Referral · LinkedIn · Walk-in · Event · Website · Directory · Other" },
+      { name: "priority",        type: "number",   required: false, description: "Priority score (1–5)" },
+      { name: "revenuePotential",type: "currency",  required: false, description: "Estimated revenue potential ($)" },
+      { name: "partnerId",       type: "string",   required: false, description: "Linked Studio Partner record ID" },
+      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
+    ],
+  },
+  {
+    table: "testimonials", label: "Testimonials", lane: "B2C",
+    description: "Client testimonials — written, video, and usage permissions.",
+    fields: [
+      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
+      { name: "client",          type: "string",   required: true,  description: "Client name" },
+      { name: "session",         type: "string",   required: false, description: "Session or journey attended" },
+      { name: "written",         type: "textarea", required: false, description: "Full written testimonial text" },
+      { name: "videoUrl",        type: "string",   required: false, description: "Video testimonial URL" },
+      { name: "permissionRec",   type: "boolean",  required: false, description: "Was permission received to use this testimonial?" },
+      { name: "useWebsite",      type: "boolean",  required: false, description: "Permitted for website use?" },
+      { name: "useSocial",       type: "boolean",  required: false, description: "Permitted for social media use?" },
+      { name: "firstNameOnly",   type: "boolean",  required: false, description: "First name only permission?" },
+      { name: "theme",           type: "select",   required: false, description: "Testimonial theme", values: "Stress relief · Release · Clarity · Emotional breakthrough · Sleep · Performance · Transformation · Nervous system" },
+      { name: "bestQuote",       type: "string",   required: false, description: "Single best pull-quote for marketing" },
+      { name: "beforeSummary",   type: "textarea", required: false, description: "Client state before the session" },
+      { name: "afterSummary",    type: "textarea", required: false, description: "Client state after the session" },
+      { name: "status",          type: "select",   required: false, description: "Testimonial status", values: "Requested · Received · Approved · Published · Archived" },
+      { name: "date",            type: "date",     required: false, description: "Date testimonial was received" },
+    ],
+  },
+  {
+    table: "templates", label: "Templates", lane: "Core",
+    description: "Email and SMS communication templates.",
+    fields: [
+      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
+      { name: "name",            type: "string",   required: true,  description: "Template display name" },
+      { name: "category",        type: "select",   required: false, description: "Template category", values: "B2B Outreach · Session · Follow-Up · Offer" },
+      { name: "channel",         type: "select",   required: false, description: "Delivery channel", values: "Email · SMS" },
+      { name: "subject",         type: "string",   required: false, description: "Email subject line (Email templates only)" },
+      { name: "body",            type: "textarea", required: false, description: "Template body — supports {{variable}} placeholders" },
+      { name: "linkedTo",        type: "select",   required: false, description: "Associated record type", values: "Client · Studio Partner · Session · Offer · General" },
+      { name: "notes",           type: "textarea", required: false, description: "Usage notes or variable descriptions" },
+    ],
+  },
+];
+
+function AdminView({ tab, data, secUsers, currentUser, today, setData }) {
+  const [integrityResults, setIntegrityResults] = useState(null);
+  const [runningCheck, setRunningCheck]         = useState(false);
+  const [schemaTable,  setSchemaTable]          = useState(DB_SCHEMA[0].table);
+  const [exportMsg,    setExportMsg]            = useState("");
+  const [expandedField, setExpandedField]       = useState(null);
+
+  // ── record counts + sizes ──
+  const tables = DB_SCHEMA.map(t => {
+    const rows   = data[t.table] || [];
+    const bytes  = new TextEncoder().encode(JSON.stringify(rows)).length;
+    return { ...t, count: rows.length, sizeKB: (bytes / 1024).toFixed(1) };
+  });
+  const totalRecords = tables.reduce((s, t) => s + t.count, 0);
+  const totalKB      = tables.reduce((s, t) => s + parseFloat(t.sizeKB), 0).toFixed(1);
+  const storageUsedKB = (() => {
+    try {
+      const raw = localStorage.getItem("simplybreathe:data:v5:enc") || "";
+      return (raw.length / 1024).toFixed(1);
+    } catch { return "N/A"; }
+  })();
+
+  // ── integrity checks ──
+  const runIntegrity = () => {
+    setRunningCheck(true);
+    const issues = [];
+    const warn = (table, id, field, msg, severity = "medium") =>
+      issues.push({ table, id, field, msg, severity });
+
+    // Clients
+    (data.clients || []).forEach(r => {
+      if (!r.name?.trim())       warn("clients",      r.id, "name",    "Missing name",                  "high");
+      if (!r.email && !r.phone)  warn("clients",      r.id, "contact", "No email or phone",             "medium");
+    });
+    // Partners
+    (data.partners || []).forEach(r => {
+      if (!r.name?.trim())       warn("partners",     r.id, "name",    "Missing studio name",           "high");
+      if (!r.stage)              warn("partners",     r.id, "stage",   "No pipeline stage set",         "medium");
+    });
+    // Sessions
+    (data.sessions || []).forEach(r => {
+      if (!r.date)               warn("sessions",     r.id, "date",    "Missing session date",          "high");
+      if (r.grossRevenue > 0 && !r.netRevenue)
+                                 warn("sessions",     r.id, "netRevenue","Gross revenue set but net missing","medium");
+      if (r.status === "Completed" && !r.followUpSent)
+                                 warn("sessions",     r.id, "followUpSent","Completed session — follow-up not sent","low");
+    });
+    // Offers
+    (data.offers || []).forEach(r => {
+      if (!r.client?.trim())     warn("offers",       r.id, "client",  "Offer has no linked client",    "high");
+      if (!r.amount || r.amount <= 0)
+                                 warn("offers",       r.id, "amount",  "Offer amount is zero or missing","medium");
+      if (r.expiresOn && r.expiresOn < today && !["Accepted","Paid","Declined","Expired"].includes(r.status))
+                                 warn("offers",       r.id, "expiresOn","Offer past expiry but still open","medium");
+    });
+    // Revenue
+    (data.revenue || []).forEach(r => {
+      if (!r.date)               warn("revenue",      r.id, "date",    "Missing revenue date",          "high");
+      if (!r.gross && !r.net)    warn("revenue",      r.id, "gross",   "No gross or net revenue value", "medium");
+    });
+    // Referrals
+    (data.referrals || []).forEach(r => {
+      if (!r.referrer?.trim())   warn("referrals",    r.id, "referrer","Missing referrer name",         "high");
+    });
+    // Testimonials
+    (data.testimonials || []).forEach(r => {
+      if (!r.client?.trim())     warn("testimonials", r.id, "client",  "Missing client name",           "high");
+      if (r.status === "Approved" && !r.permissionRec)
+                                 warn("testimonials", r.id, "permissionRec","Approved but no permission recorded","high");
+    });
+    // Templates
+    (data.templates || []).forEach(r => {
+      if (!r.name?.trim())       warn("templates",    r.id, "name",    "Template has no name",          "high");
+      if (!r.body?.trim())       warn("templates",    r.id, "body",    "Template body is empty",        "medium");
+    });
+
+    setTimeout(() => { setIntegrityResults(issues); setRunningCheck(false); }, 300);
+  };
+
+  // ── export all data ──
+  const exportAll = () => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a"); a.href = url;
+    a.download = `sbcrm-backup-${today}.json`; a.click();
+    URL.revokeObjectURL(url);
+    setExportMsg("✓ Backup downloaded");
+    setTimeout(() => setExportMsg(""), 3000);
+  };
+
+  const SEV_COLOR = { high: "#EF4444", medium: "#F59E0B", low: C.ink3 };
+  const SEV_BG    = { high: "#FEF2F2", medium: "#FFFBEB", low: C.surfaceAlt };
+  const TYPE_COLOR = { string: "#2E6FB0", number: "#D9892B", currency: "#4A8C6F", date: "#8E44AD", boolean: "#2A9D8F", select: C.brand, array: "#C0392B", object: "#6B5CE7", email: "#2E6FB0", textarea: "#55627B" };
+
+  const schDef = DB_SCHEMA.find(t => t.table === schemaTable);
+
+  return (
+    <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+
+      {tab === "overview" && (
+        <>
+          {/* Summary stats */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 28 }}>
+            {[
+              { label: "Total Records",    value: totalRecords,                      sub: "across all tables" },
+              { label: "Active Users",     value: secUsers.length,                   sub: "logged-in accounts" },
+              { label: "Data Size",        value: totalKB + " KB",                   sub: "uncompressed JSON" },
+              { label: "Storage Used",     value: storageUsedKB + " KB",             sub: "encrypted in localStorage" },
+            ].map(s => (
+              <div key={s.label} style={{ background: C.surface, borderRadius: 14, padding: "18px 20px", border: `1px solid ${C.line}` }}>
+                <div style={{ fontSize: 11, color: C.ink3, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em" }}>{s.label}</div>
+                <div style={{ fontSize: 28, fontWeight: 700, color: C.ink, margin: "6px 0 2px", fontFamily: FONT.display }}>{s.value}</div>
+                <div style={{ fontSize: 11, color: C.ink3 }}>{s.sub}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Table record counts */}
+          <div style={{ background: C.surface, borderRadius: 16, border: `1px solid ${C.line}`, overflow: "hidden" }}>
+            <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${C.line}` }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: C.ink }}>Database Tables</div>
+              <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>Record counts and estimated size per table</div>
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: C.surfaceAlt }}>
+                  {["Table","Lane","Records","Fields","Size","Status"].map(h => (
+                    <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontSize: 11, fontWeight: 700, color: C.ink3, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `1px solid ${C.line}` }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {tables.map((t, i) => (
+                  <tr key={t.table} style={{ borderBottom: i < tables.length - 1 ? `1px solid ${C.line}` : "none" }}>
+                    <td style={{ padding: "12px 16px" }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: C.ink }}>{t.label}</div>
+                      <div style={{ fontSize: 11, color: C.ink3 }}>{t.table}</div>
+                    </td>
+                    <td style={{ padding: "12px 16px" }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 8,
+                        background: t.lane === "B2C" ? C.brandSoft : t.lane === "B2B" ? "#E0F5F0" : C.surfaceAlt,
+                        color: t.lane === "B2C" ? C.brandDeep : t.lane === "B2B" ? "#2A9D8F" : C.ink3 }}>
+                        {t.lane}
+                      </span>
+                    </td>
+                    <td style={{ padding: "12px 16px", fontWeight: 700, fontSize: 14, color: t.count === 0 ? "#EF4444" : C.ink }}>{t.count}</td>
+                    <td style={{ padding: "12px 16px", fontSize: 13, color: C.ink2 }}>{t.fields.length}</td>
+                    <td style={{ padding: "12px 16px", fontSize: 13, color: C.ink3 }}>{t.sizeKB} KB</td>
+                    <td style={{ padding: "12px 16px" }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: t.count > 0 ? "#16A34A" : "#EF4444" }}>
+                        {t.count > 0 ? "✓ Has data" : "Empty"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* System info */}
+          <div style={{ marginTop: 20, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <div style={{ background: C.surface, borderRadius: 14, padding: "16px 20px", border: `1px solid ${C.line}` }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: C.ink, marginBottom: 12 }}>Storage Keys</div>
+              {[
+                { key: "simplybreathe:data:v5:enc", desc: "Encrypted CRM data" },
+                { key: "sb:security:v1",            desc: "User accounts & PIN hashes" },
+              ].map(k => (
+                <div key={k.key} style={{ marginBottom: 10 }}>
+                  <div style={{ fontFamily: "monospace", fontSize: 11, color: C.brand, background: C.brandMist, padding: "4px 8px", borderRadius: 6, wordBreak: "break-all" }}>{k.key}</div>
+                  <div style={{ fontSize: 11, color: C.ink3, marginTop: 3 }}>{k.desc}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ background: C.surface, borderRadius: 14, padding: "16px 20px", border: `1px solid ${C.line}` }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: C.ink, marginBottom: 12 }}>Encryption</div>
+              {[
+                { label: "Algorithm",      value: "AES-256-GCM" },
+                { label: "Key derivation", value: "PBKDF2 · SHA-256 · 100k iterations" },
+                { label: "Salt length",    value: "16 bytes (random per user)" },
+                { label: "Key model",      value: "Envelope encryption (master key wrapped per user)" },
+                { label: "Data version",   value: "v5" },
+              ].map(r => (
+                <div key={r.label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 7, fontSize: 12 }}>
+                  <span style={{ color: C.ink3 }}>{r.label}</span>
+                  <span style={{ fontWeight: 600, color: C.ink }}>{r.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {tab === "schema" && (
+        <>
+          {/* Table selector */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
+            {DB_SCHEMA.map(t => (
+              <button key={t.table} onClick={() => { setSchemaTable(t.table); setExpandedField(null); }}
+                style={{ padding: "7px 14px", borderRadius: 9, border: `1px solid ${schemaTable === t.table ? C.brand : C.line}`,
+                  background: schemaTable === t.table ? C.brandSoft : C.surface,
+                  color: schemaTable === t.table ? C.brandDeep : C.ink2,
+                  fontWeight: schemaTable === t.table ? 700 : 500, fontSize: 13, cursor: "pointer" }}>
+                {t.label}
+                <span style={{ marginLeft: 6, fontSize: 11, opacity: 0.7 }}>({t.fields.length})</span>
+              </button>
+            ))}
+          </div>
+
+          {schDef && (
+            <div style={{ background: C.surface, borderRadius: 16, border: `1px solid ${C.line}`, overflow: "hidden" }}>
+              {/* Table header */}
+              <div style={{ padding: "18px 22px", borderBottom: `1px solid ${C.line}`, background: C.surfaceAlt }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 700, background: C.brandSoft, color: C.brandDeep, padding: "4px 12px", borderRadius: 8 }}>{schDef.table}</div>
+                  <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 8,
+                    background: schDef.lane === "B2C" ? C.brandSoft : schDef.lane === "B2B" ? "#E0F5F0" : C.surfaceAlt,
+                    color: schDef.lane === "B2C" ? C.brandDeep : schDef.lane === "B2B" ? "#2A9D8F" : C.ink3 }}>
+                    {schDef.lane}
+                  </span>
+                  <span style={{ fontSize: 13, color: C.ink2 }}>{schDef.description}</span>
+                </div>
+              </div>
+
+              {/* Field rows */}
+              {schDef.fields.map((f, i) => (
+                <div key={f.name}
+                  style={{ borderBottom: i < schDef.fields.length - 1 ? `1px solid ${C.line}` : "none",
+                    background: expandedField === f.name ? C.surfaceAlt : "transparent", cursor: "pointer" }}
+                  onClick={() => setExpandedField(expandedField === f.name ? null : f.name)}>
+                  <div style={{ display: "grid", gridTemplateColumns: "200px 110px 80px 1fr", alignItems: "center", padding: "12px 22px", gap: 12 }}>
+                    <div style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 600, color: C.ink }}>{f.name}</div>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 8, background: hexA(TYPE_COLOR[f.type] || C.ink3, 0.12), color: TYPE_COLOR[f.type] || C.ink3, display: "inline-block" }}>{f.type}</span>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: f.required ? "#EF4444" : C.ink3 }}>{f.required ? "Required" : "Optional"}</span>
+                    <span style={{ fontSize: 13, color: C.ink2 }}>{f.description}</span>
+                  </div>
+                  {expandedField === f.name && f.values && (
+                    <div style={{ padding: "0 22px 14px 22px" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: C.ink3, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Allowed Values</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {f.values.split(" · ").map(v => (
+                          <span key={v} style={{ fontSize: 12, padding: "3px 10px", borderRadius: 8, background: C.brandSoft, color: C.brandDeep, fontWeight: 500 }}>{v}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div style={{ padding: "10px 22px", borderTop: `1px solid ${C.line}`, fontSize: 12, color: C.ink3, display: "flex", gap: 16 }}>
+                <span><strong>{schDef.fields.length}</strong> fields total</span>
+                <span><strong>{schDef.fields.filter(f => f.required).length}</strong> required</span>
+                <span><strong>{schDef.fields.filter(f => f.type === "select").length}</strong> dropdowns</span>
+                <span><strong>{schDef.fields.filter(f => f.type === "boolean").length}</strong> checkboxes</span>
+                <span style={{ marginLeft: "auto", fontStyle: "italic" }}>Click a row to see allowed values</span>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {tab === "integrity" && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>Data Integrity Check</div>
+              <div style={{ fontSize: 13, color: C.ink3, marginTop: 2 }}>Scans all records for missing required fields, logical inconsistencies, and data quality issues.</div>
+            </div>
+            <button onClick={runIntegrity} disabled={runningCheck}
+              style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 22px", borderRadius: 10, border: "none", background: C.brand, color: "#fff", fontSize: 13, fontWeight: 600, cursor: runningCheck ? "not-allowed" : "pointer", opacity: runningCheck ? 0.7 : 1 }}>
+              {runningCheck ? <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Running…</> : <><Activity size={14} /> Run Check</>}
+            </button>
+          </div>
+
+          {integrityResults === null ? (
+            <div style={{ textAlign: "center", padding: "60px 0", color: C.ink3 }}>
+              <Activity size={32} style={{ marginBottom: 12, opacity: 0.4 }} />
+              <div style={{ fontSize: 14 }}>Click "Run Check" to scan all records</div>
+            </div>
+          ) : integrityResults.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "60px 0", color: "#16A34A" }}>
+              <Check size={40} style={{ marginBottom: 12 }} />
+              <div style={{ fontSize: 16, fontWeight: 700 }}>All Clear</div>
+              <div style={{ fontSize: 13, color: C.ink3, marginTop: 6 }}>No integrity issues found across {totalRecords} records.</div>
+            </div>
+          ) : (
+            <>
+              {/* Summary */}
+              <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
+                {["high","medium","low"].map(sev => {
+                  const cnt = integrityResults.filter(i => i.severity === sev).length;
+                  return (
+                    <div key={sev} style={{ flex: 1, background: SEV_BG[sev], border: `1px solid ${SEV_COLOR[sev]}30`, borderRadius: 12, padding: "14px 16px", textAlign: "center" }}>
+                      <div style={{ fontSize: 26, fontWeight: 800, color: SEV_COLOR[sev] }}>{cnt}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: SEV_COLOR[sev], textTransform: "capitalize" }}>{sev} severity</div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Issue list */}
+              <div style={{ background: C.surface, borderRadius: 14, border: `1px solid ${C.line}`, overflow: "hidden" }}>
+                {["high","medium","low"].flatMap(sev =>
+                  integrityResults.filter(i => i.severity === sev).map((issue, idx) => (
+                    <div key={idx} style={{ display: "grid", gridTemplateColumns: "90px 140px 130px 1fr", gap: 12, alignItems: "center", padding: "12px 18px", borderBottom: `1px solid ${C.line}` }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 7, background: SEV_BG[issue.severity], color: SEV_COLOR[issue.severity], textTransform: "capitalize", textAlign: "center" }}>{issue.severity}</span>
+                      <span style={{ fontFamily: "monospace", fontSize: 12, color: C.ink2 }}>{issue.table}</span>
+                      <span style={{ fontFamily: "monospace", fontSize: 12, color: C.brand }}>{issue.field}</span>
+                      <span style={{ fontSize: 13, color: C.ink }}>{issue.msg}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div style={{ marginTop: 10, fontSize: 12, color: C.ink3, textAlign: "right" }}>{integrityResults.length} issue{integrityResults.length !== 1 ? "s" : ""} found across {totalRecords} records</div>
+            </>
+          )}
+        </>
+      )}
+
+      {tab === "storage" && (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
+            {/* Export */}
+            <div style={{ background: C.surface, borderRadius: 16, border: `1px solid ${C.line}`, padding: "22px 24px" }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: C.ink, marginBottom: 6 }}>Export Backup</div>
+              <div style={{ fontSize: 13, color: C.ink3, marginBottom: 18, lineHeight: 1.6 }}>
+                Downloads a full JSON backup of all CRM data. Keep this file secure — it contains your unencrypted records.
+              </div>
+              <div style={{ fontSize: 12, color: C.ink2, marginBottom: 16 }}>
+                <strong>{totalRecords}</strong> records · <strong>{totalKB} KB</strong> uncompressed
+              </div>
+              <button onClick={exportAll}
+                style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", borderRadius: 10, border: "none", background: C.brand, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                <Download size={14} /> Download Backup
+              </button>
+              {exportMsg && <div style={{ marginTop: 10, fontSize: 13, color: "#16A34A", fontWeight: 600 }}>{exportMsg}</div>}
+            </div>
+
+            {/* Storage details */}
+            <div style={{ background: C.surface, borderRadius: 16, border: `1px solid ${C.line}`, padding: "22px 24px" }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: C.ink, marginBottom: 14 }}>Storage Details</div>
+              {[
+                { label: "Encrypted store size",  value: storageUsedKB + " KB" },
+                { label: "Uncompressed data size", value: totalKB + " KB" },
+                { label: "Total records",          value: totalRecords },
+                { label: "Active users",           value: secUsers.length },
+                { label: "Logged in as",           value: currentUser?.name || "—" },
+                { label: "Current role",           value: currentUser?.role || "—" },
+              ].map(r => (
+                <div key={r.label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${C.line}`, fontSize: 13 }}>
+                  <span style={{ color: C.ink3 }}>{r.label}</span>
+                  <span style={{ fontWeight: 600, color: C.ink }}>{r.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Per-table breakdown */}
+          <div style={{ marginTop: 18, background: C.surface, borderRadius: 14, border: `1px solid ${C.line}`, padding: "18px 20px" }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: C.ink, marginBottom: 14 }}>Storage by Table</div>
+            {tables.map(t => {
+              const pct = totalKB > 0 ? (parseFloat(t.sizeKB) / parseFloat(totalKB)) * 100 : 0;
+              return (
+                <div key={t.table} style={{ marginBottom: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                    <span style={{ color: C.ink, fontWeight: 600 }}>{t.label} <span style={{ color: C.ink3, fontWeight: 400 }}>({t.count} records)</span></span>
+                    <span style={{ color: C.ink3 }}>{t.sizeKB} KB · {pct.toFixed(1)}%</span>
+                  </div>
+                  <div style={{ height: 6, background: C.line, borderRadius: 4 }}>
+                    <div style={{ height: "100%", width: pct + "%", background: C.brand, borderRadius: 4, minWidth: pct > 0 ? 4 : 0 }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 const AVATAR_COLORS = ["#2E6FB0","#6B5CE7","#D9892B","#4A8C6F","#2A9D8F","#C0392B","#8E44AD","#16A085","#E67E22","#2980B9"];
 
 function EditProfileModal({ user, masterKeyRaw, onSave, onClose }) {
