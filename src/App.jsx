@@ -89,14 +89,31 @@ const CHECKLIST_CAT_COLOR = {
 const emptyChecklist = () => Object.fromEntries(PARTNER_CHECKLIST.map((i) => [i.id, false]));
 const FUTYPE = ["24h", "72h", "Referral", "Reactivation"];
 const FUTYPE_COLOR = { "24h": "#3F87DC", "72h": "#2F6FD0", "Referral": "#D9892B", "Reactivation": "#9FB2CC" };
-const SOURCE = ["Studio", "IG", "Referral", "Ads"];
-const SOURCE_COLOR = { Studio: "#13245C", IG: "#2F6FD0", Referral: "#5FB0F2", Ads: "#D9892B" };
+const SOURCE = ["Post-session", "Referral", "Studio partner", "Instagram", "TikTok", "Email", "LinkedIn", "Direct outreach", "Walk-in", "Other"];
+const SOURCE_COLOR = { "Post-session": C.brand, "Referral": "#4A8C6F", "Studio partner": "#2F6FD0", "Instagram": "#E1306C", "TikTok": "#010101", "Email": "#D9892B", "LinkedIn": "#0077B5", "Direct outreach": "#7B68EE", "Walk-in": "#9FB2CC", "Other": C.ink3 };
 const PACKAGE = ["None", "Drop-in", "3-pack", "5-pack", "Membership"];
 const REFERRAL = ["Low", "Medium", "High"];
 const REFERRAL_COLOR = { Low: "#9FB2CC", Medium: "#3F87DC", High: "#D9892B" };
-const OFFER_TYPE = ["Drop-in", "3-pack", "5-pack", "Membership"];
-const OFFER_STATUS = ["Offered", "Accepted", "Declined"];
-const OFFER_STATUS_COLOR = { Offered: "#5FB0F2", Accepted: "#2F6FD0", Declined: "#9FB2CC" };
+const OFFER_TYPE = [
+  "Single session", "3-pack", "6-pack", "12-pack",
+  "Private session", "Studio pilot", "Studio recurring agreement",
+  "Corporate event", "Group event", "Referral partner offer",
+];
+const OFFER_STATUS = ["Drafted", "Sent", "Viewed", "Follow-up due", "Accepted", "Paid", "Declined", "Expired"];
+const OFFER_STATUS_COLOR = {
+  "Drafted":        "#9FB2CC",
+  "Sent":           "#5FB0F2",
+  "Viewed":         "#7B68EE",
+  "Follow-up due":  "#D9892B",
+  "Accepted":       "#4A8C6F",
+  "Paid":           "#2F6FD0",
+  "Declined":       "#C0573F",
+  "Expired":        "#B0B8C1",
+};
+const OFFER_PROB = ["10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"];
+const OPEN_STATUSES = ["Drafted", "Sent", "Viewed", "Follow-up due"];
+const WON_STATUSES  = ["Accepted", "Paid"];
+const LOST_STATUSES = ["Declined", "Expired"];
 const CONTENT_TYPE = ["Transformation", "Education", "Invite", "Testimonial"];
 const PLATFORM = ["IG", "TikTok", "Email"];
 
@@ -237,12 +254,18 @@ const SEED = {
     { id: "se4", name: "Sample - Lotus & Pine New Moon Workshop 6/9", studioId: "sp5", date: "2026-06-09", time: "7:30 PM", status: "Closed out", journey: "New Moon Ceremony", capacity: 30, registered: 25, attendance: 22, paidAttendees: 20, waivers: 20, noShows: 3, revenue: 1100, studioSplit: 440, netRevenue: 660, conversion: 0.18, packagesSold: 1, referralsGenerated: 3, equipmentNeeded: "Headset, speaker, candles, intention cards, journal prompts", roomSetupStatus: "Ready", musicSetupStatus: "Ready", testimonialsCapt: 3, followUpSent: true, rebookOfferSent: true, referralsRequested: true, notes: "Workshop format converts slower but generates referrals. 2 unpaid attendees — tighten payment flow.", checklist: { room_booked: true, capacity_set: true, booking_live: true, promo_sent: true, equipment_packed: true, room_setup_done: true, audio_tested: true, waivers_shared: true, attendance_logged: true, revenue_recorded: true, studio_paid: true, testimonials_done: true, followup_sent: true, rebook_offered: true, referrals_asked: true, notes_written: true } },
   ],
   offers: [
-    { id: "o1", name: "Sample - Chris Okafor / 3-pack", clientId: "c3", offerType: "3-pack", price: 105, status: "Offered", dateOffered: "2026-06-01", closeDate: "" },
-    { id: "o2", name: "Sample - Priya Nair / 3-pack", clientId: "c4", offerType: "3-pack", price: 105, status: "Accepted", dateOffered: "2026-05-10", closeDate: "2026-05-10" },
-    { id: "o3", name: "Sample - Sam Rivera / Membership", clientId: "c5", offerType: "Membership", price: 120, status: "Accepted", dateOffered: "2026-04-20", closeDate: "2026-04-22" },
-    { id: "o4", name: "Sample - Maya Chen / Drop-in", clientId: "c2", offerType: "Drop-in", price: 35, status: "Offered", dateOffered: "2026-06-10", closeDate: "" },
-    { id: "o5", name: "Sample - Dana Wolfe / 5-pack", clientId: "c6", offerType: "5-pack", price: 160, status: "Accepted", dateOffered: "2026-05-28", closeDate: "2026-05-28" },
-    { id: "o6", name: "Sample - Jordan Lee / Drop-in", clientId: "c1", offerType: "Drop-in", price: 35, status: "Declined", dateOffered: "2026-06-05", closeDate: "2026-06-08" },
+    { id: "o1",  name: "Sample - Chris / 3-pack",                  clientId: "c3", offerType: "3-pack",                    price: 105, status: "Sent",           dateOffered: "2026-06-01", expireDate: "2026-06-15", followUpDate: "2026-06-08",  probability: "60%", source: "Post-session",    notes: "Said he'd think about it",         reasonLost: "" },
+    { id: "o2",  name: "Sample - Priya / 3-pack",                  clientId: "c4", offerType: "3-pack",                    price: 105, status: "Paid",           dateOffered: "2026-05-10", expireDate: "",           followUpDate: "",           probability: "100%",source: "Post-session",    notes: "",                                 reasonLost: "" },
+    { id: "o3",  name: "Sample - Sam / 6-pack",                    clientId: "c5", offerType: "6-pack",                    price: 195, status: "Accepted",       dateOffered: "2026-04-20", expireDate: "",           followUpDate: "",           probability: "90%", source: "Referral",        notes: "Loved the first session",          reasonLost: "" },
+    { id: "o4",  name: "Sample - Maya / Single session",           clientId: "c2", offerType: "Single session",            price: 35,  status: "Follow-up due",  dateOffered: "2026-06-10", expireDate: "2026-06-20", followUpDate: "2026-06-13", probability: "50%", source: "Instagram",       notes: "Interested, needs nudge",          reasonLost: "" },
+    { id: "o5",  name: "Sample - Dana / 6-pack",                   clientId: "c6", offerType: "6-pack",                    price: 195, status: "Paid",           dateOffered: "2026-05-28", expireDate: "",           followUpDate: "",           probability: "100%",source: "Studio partner",  notes: "",                                 reasonLost: "" },
+    { id: "o6",  name: "Sample - Jordan / Single session",         clientId: "c1", offerType: "Single session",            price: 35,  status: "Declined",       dateOffered: "2026-06-05", expireDate: "",           followUpDate: "",           probability: "0%",  source: "Direct outreach", notes: "",                                 reasonLost: "Not the right time" },
+    { id: "o7",  name: "Sample - CorePower Berkeley / Studio pilot",clientId: "",  offerType: "Studio pilot",              price: 300, status: "Sent",           dateOffered: "2026-06-09", expireDate: "2026-06-23", followUpDate: "2026-06-14", probability: "70%", source: "Direct outreach", notes: "Very interested, follow up Friday", reasonLost: "" },
+    { id: "o8",  name: "Sample - Lotus & Pine / Recurring",        clientId: "",   offerType: "Studio recurring agreement",price: 600, status: "Accepted",       dateOffered: "2026-05-15", expireDate: "",           followUpDate: "",           probability: "100%",source: "Referral",        notes: "Signed May 20",                    reasonLost: "" },
+    { id: "o9",  name: "Sample - Maya / 3-pack",                   clientId: "c2", offerType: "3-pack",                    price: 105, status: "Viewed",         dateOffered: "2026-06-12", expireDate: "2026-06-26", followUpDate: "2026-06-14", probability: "65%", source: "Post-session",    notes: "Opened the email twice",           reasonLost: "" },
+    { id: "o10", name: "Sample - Corporate wellness / Group event", clientId: "",  offerType: "Group event",               price: 450, status: "Drafted",        dateOffered: "2026-06-13", expireDate: "2026-06-27", followUpDate: "2026-06-16", probability: "40%", source: "LinkedIn",        notes: "HR lead, warm intro via Sam",      reasonLost: "" },
+    { id: "o11", name: "Sample - Past lead / 3-pack",              clientId: "",   offerType: "3-pack",                    price: 105, status: "Expired",        dateOffered: "2026-05-01", expireDate: "2026-05-15", followUpDate: "",           probability: "0%",  source: "Instagram",       notes: "",                                 reasonLost: "No response" },
+    { id: "o12", name: "Sample - Priya / Private session",         clientId: "c4", offerType: "Private session",           price: 150, status: "Accepted",       dateOffered: "2026-06-05", expireDate: "",           followUpDate: "",           probability: "90%", source: "Post-session",    notes: "Requested after group session",    reasonLost: "" },
   ],
   content: [
     { id: "ct1", name: "Sample - Maya's burnout-to-calm story", type: "Transformation", platform: "IG", datePosted: "2026-06-02", engagement: 420, leads: 3, booked: 1 },
@@ -514,7 +537,7 @@ function newRecord(db) {
     clients: { name: "", phone: "", email: "", source: "Studio", status: "Lead", firstSession: "", sessionsAttended: 0, lastSession: "", nextSession: "", packageType: "None", lifetimeValue: 0, notes: "", referral: "Low" },
     partners: { name: "", studioType: "Yoga", location: "", contact: "", role: "Owner", email: "", phone: "", stage: "Target identified", estimatedCommunitySize: 0, bestFitJourney: "", revenuePotential: 0, closeProbability: "Low", revShare: "", contractStatus: "None", outreachDate: "", lastTouch: todayISO(), nextAction: "", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "", checklist: emptyChecklist() },
     sessions: { name: "", studioId: "", date: todayISO(), time: "", status: "Planned", journey: "Breathwork Basics", capacity: 20, registered: 0, attendance: 0, paidAttendees: 0, waivers: 0, noShows: 0, revenue: 0, studioSplit: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, equipmentNeeded: "", roomSetupStatus: "Not started", musicSetupStatus: "Not started", testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false, referralsRequested: false, notes: "", checklist: emptySessionChecklist() },
-    offers: { name: "", clientId: "", offerType: "Drop-in", price: 0, status: "Offered", dateOffered: todayISO(), closeDate: "" },
+    offers: { name: "", clientId: "", offerType: "Single session", price: 0, status: "Drafted", probability: "50%", source: "", dateOffered: todayISO(), expireDate: "", followUpDate: "", notes: "", reasonLost: "" },
     content: { name: "", type: "Education", platform: "IG", datePosted: todayISO(), engagement: 0, leads: 0, booked: 0 },
     followups: { name: "", clientId: "", stage: "Lead", lastContact: todayISO(), futype: "24h", nextAction: "", outcome: "" },
   };
@@ -894,6 +917,8 @@ function Section({ section, data, derived, today, view, setView, query, onOpen }
         ? <PartnerPipelineView groups={processed.groups} onOpen={(r) => onOpen({ db: section, record: r })} />
         : v.layout === "session-perf"
         ? <SessionPerfView rows={processed.rows} derived={derived} onOpen={(r) => onOpen({ db: section, record: r })} />
+        : v.layout === "offer-analytics"
+        ? <OfferConversionView data={data} derived={derived} today={today} onOpen={(r) => onOpen({ db: "offers", record: r })} />
         : v.layout === "calendar"
         ? <CalendarView rows={processed.rows} today={today} derived={derived} onOpen={(r) => onOpen({ db: section, record: r })} />
         : <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => onOpen({ db: section, record: r })} ctx={{ data, derived, today }} />}
@@ -1011,13 +1036,23 @@ const VIEWS = {
   },
   offers: {
     views: [
-      { name: "Open offers", layout: "table",
+      { name: "Open pipeline", layout: "table",
         columns: offerCols(),
-        run: (rows) => ({ rows: rows.filter((r) => r.status === "Offered").sort((a, b) => (a.dateOffered || "").localeCompare(b.dateOffered || "")) }) },
+        run: (rows) => ({ rows: rows.filter((r) => OPEN_STATUSES.includes(r.status)).sort((a, b) => (a.expireDate || "9999").localeCompare(b.expireDate || "9999")) }) },
+      { name: "Conversion analytics", layout: "offer-analytics" },
+      { name: "By offer type", layout: "table",
+        columns: [
+          col("offerType", "Type", (r) => r.offerType),
+          col("price", "Amount", (r) => money(r.price), { align: "right", sum: "price" }),
+          col("status", "Status", (r) => <Tag color={OFFER_STATUS_COLOR[r.status]}>{r.status}</Tag>),
+          col("source", "Source", (r) => r.source || "—"),
+          col("notes", "Notes", (r) => <span style={{ color: C.ink2, fontSize: 12 }}>{r.notes}</span>),
+        ],
+        run: (rows) => ({ rows: [...rows].sort((a, b) => a.offerType.localeCompare(b.offerType)) }) },
       { name: "Won this month", layout: "table",
         columns: offerCols(),
         run: (rows, c) => {
-          const r = rows.filter((x) => x.status === "Accepted" && sameMonth(x.closeDate, c.today));
+          const r = rows.filter((x) => WON_STATUSES.includes(x.status) && sameMonth(x.dateOffered, c.today));
           return { rows: r, footer: { price: money(sum(r, "price")), label: "Closed this month" } };
         } },
       { name: "All offers", layout: "table", columns: offerCols(), run: (rows) => ({ rows }) },
@@ -1070,12 +1105,15 @@ function partnerCols() {
 }
 function offerCols() {
   return [
-    col("clientId", "Client", (r, c) => <span style={{ fontWeight: 600 }}>{clientShort(c.derived.clientName[r.clientId] || cleanName(r.name))}</span>),
-    col("offerType", "Offer", (r) => r.offerType),
-    col("price", "Price", (r) => money(r.price), { align: "right", sum: "price" }),
+    col("clientId", "Client / Studio", (r, c) => <span style={{ fontWeight: 600 }}>{clientShort(c.derived.clientName[r.clientId] || cleanName(r.name))}</span>),
+    col("offerType", "Type", (r) => r.offerType),
+    col("price", "Amount", (r) => money(r.price), { align: "right", sum: "price" }),
     col("status", "Status", (r) => <Tag color={OFFER_STATUS_COLOR[r.status]}>{r.status}</Tag>),
+    col("probability", "Prob.", (r) => r.probability || "—", { align: "right" }),
+    col("source", "Source", (r) => r.source ? <Tag color={SOURCE_COLOR[r.source] || C.ink3} soft>{r.source}</Tag> : "—"),
     col("dateOffered", "Offered", (r) => fmtDate(r.dateOffered)),
-    col("closeDate", "Closed", (r) => fmtDate(r.closeDate)),
+    col("expireDate", "Expires", (r, c) => <DateChip iso={r.expireDate} today={c.today} />),
+    col("followUpDate", "Follow-up", (r, c) => <DateChip iso={r.followUpDate} today={c.today} />),
   ];
 }
 function contentCols() {
@@ -1383,8 +1421,12 @@ const FIELDS = {
   ],
   offers: [
     f("name", "Offer", "text", { title: true }), f("clientId", "Client", "relation", { target: "clients" }),
-    f("offerType", "Offer type", "select", { options: OFFER_TYPE }), f("price", "Price", "currency"),
-    f("status", "Status", "select", { options: OFFER_STATUS }), f("dateOffered", "Date offered", "date"), f("closeDate", "Close date", "date"),
+    f("offerType", "Offer type", "select", { options: OFFER_TYPE }), f("price", "Amount", "currency"),
+    f("status", "Status", "select", { options: OFFER_STATUS }),
+    f("probability", "Close probability", "select", { options: OFFER_PROB }),
+    f("source", "Source", "select", { options: SOURCE }),
+    f("dateOffered", "Date offered", "date"), f("expireDate", "Expiration date", "date"), f("followUpDate", "Follow-up date", "date"),
+    f("notes", "Notes", "textarea"), f("reasonLost", "Reason lost", "text"),
   ],
   content: [
     f("name", "Content title", "text", { title: true }), f("type", "Type", "select", { options: CONTENT_TYPE }),
@@ -2428,6 +2470,219 @@ function sectionLabel(db) { return { clients: "Clients", partners: "Studio Partn
 function hexA(hex, a) {
   const h = (hex || "#000").replace("#", ""); const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
   return `rgba(${r},${g},${b},${a})`;
+}
+
+/* ============================================================
+   OFFER CONVERSION ANALYTICS
+   ============================================================ */
+
+function OfferConversionView({ data, derived, today, onOpen }) {
+  const offers = data.offers || [];
+
+  // ── Core metrics ────────────────────────────────────────────
+  const won    = offers.filter(o => WON_STATUSES.includes(o.status));
+  const lost   = offers.filter(o => LOST_STATUSES.includes(o.status));
+  const open   = offers.filter(o => OPEN_STATUSES.includes(o.status));
+  const closed = won.length + lost.length;
+  const convRate  = closed > 0 ? Math.round((won.length / closed) * 100) : 0;
+  const wonRev    = sum(won, "price");
+  const pipeline  = sum(open, "price");
+  const avgDeal   = won.length > 0 ? wonRev / won.length : 0;
+
+  // ── Pipeline stage bar ──────────────────────────────────────
+  const stageCount = {};
+  OFFER_STATUS.forEach(s => { stageCount[s] = offers.filter(o => o.status === s).length; });
+  const maxStage = Math.max(1, ...Object.values(stageCount));
+
+  // ── By offer type ───────────────────────────────────────────
+  const byType = {};
+  offers.forEach(o => {
+    const t = o.offerType || "Unknown";
+    if (!byType[t]) byType[t] = { sent: 0, won: 0, lost: 0, rev: 0 };
+    byType[t].sent++;
+    if (WON_STATUSES.includes(o.status))  { byType[t].won++; byType[t].rev += Number(o.price) || 0; }
+    if (LOST_STATUSES.includes(o.status)) byType[t].lost++;
+  });
+  const typeRows = Object.entries(byType)
+    .map(([type, d]) => ({ type, ...d, rate: (d.won + d.lost) > 0 ? Math.round((d.won / (d.won + d.lost)) * 100) : null }))
+    .sort((a, b) => b.rev - a.rev);
+
+  // ── By source ───────────────────────────────────────────────
+  const bySrc = {};
+  offers.forEach(o => {
+    const s = o.source || "Unknown";
+    if (!bySrc[s]) bySrc[s] = { sent: 0, won: 0, lost: 0, rev: 0 };
+    bySrc[s].sent++;
+    if (WON_STATUSES.includes(o.status))  { bySrc[s].won++; bySrc[s].rev += Number(o.price) || 0; }
+    if (LOST_STATUSES.includes(o.status)) bySrc[s].lost++;
+  });
+  const srcRows = Object.entries(bySrc)
+    .map(([source, d]) => ({ source, ...d, rate: (d.won + d.lost) > 0 ? Math.round((d.won / (d.won + d.lost)) * 100) : null }))
+    .sort((a, b) => b.rev - a.rev);
+
+  // ── Recent wins & losses ─────────────────────────────────────
+  const recentWon  = [...won].sort((a, b) => (b.dateOffered || "").localeCompare(a.dateOffered || "")).slice(0, 5);
+  const recentLost = [...lost].sort((a, b) => (b.dateOffered || "").localeCompare(a.dateOffered || "")).slice(0, 5);
+
+  const rateColor = (r) => r === null ? C.ink3 : r >= 60 ? "#4A8C6F" : r >= 35 ? C.gold : "#C0573F";
+
+  const convBar = (won, total) => {
+    const p = total > 0 ? Math.round((won / total) * 100) : 0;
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ flex: 1, height: 6, background: C.line, borderRadius: 6, overflow: "hidden" }}>
+          <div style={{ height: "100%", width: p + "%", background: rateColor(p), borderRadius: 6 }} />
+        </div>
+        <span style={{ fontSize: 11, fontWeight: 700, color: rateColor(p), width: 32 }}>{p}%</span>
+      </div>
+    );
+  };
+
+  const thStyle = { fontSize: 11.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 600, padding: "10px 12px", borderBottom: `1px solid ${C.line}`, textAlign: "left", whiteSpace: "nowrap" };
+  const tdStyle = { padding: "11px 12px", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+      {/* Key metrics */}
+      <div className="sb-stats">
+        <Stat label="Conversion rate" value={convRate + "%"} accent={rateColor(convRate)} hint={`${won.length} won of ${closed} closed`} />
+        <Stat label="Won revenue"     value={money(wonRev)}  accent={C.brand} hint="accepted + paid" />
+        <Stat label="Open pipeline"   value={money(pipeline)} hint={`${open.length} open offer${open.length !== 1 ? "s" : ""}`} />
+        <Stat label="Avg deal size"   value={money(avgDeal)}  hint="per closed offer" />
+      </div>
+
+      {/* Pipeline stage breakdown */}
+      <Panel title="Pipeline by status">
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", padding: "4px 0" }}>
+          {OFFER_STATUS.map(s => {
+            const n = stageCount[s] || 0;
+            if (!n) return null;
+            return (
+              <div key={s} style={{ flex: 1, minWidth: 90, background: C.surfaceAlt, borderRadius: 10, padding: "12px 14px", borderTop: `3px solid ${OFFER_STATUS_COLOR[s]}` }}>
+                <div style={{ fontSize: 22, fontWeight: 700, color: OFFER_STATUS_COLOR[s] }}>{n}</div>
+                <div style={{ fontSize: 11, color: C.ink2, fontWeight: 600, marginTop: 3 }}>{s}</div>
+                <div style={{ fontSize: 11, color: C.ink3, marginTop: 2 }}>
+                  {money(sum(offers.filter(o => o.status === s), "price"))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Panel>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }} className="sb-grid2">
+        {/* By offer type */}
+        <Panel title="Conversion by offer type">
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={thStyle}>Type</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>Sent</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>Won</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>Revenue</th>
+                <th style={{ ...thStyle, minWidth: 100 }}>Conv. rate</th>
+              </tr>
+            </thead>
+            <tbody>
+              {typeRows.map(r => (
+                <tr key={r.type}>
+                  <td style={{ ...tdStyle, fontWeight: 600 }}>{r.type}</td>
+                  <td style={{ ...tdStyle, textAlign: "right", color: C.ink2 }}>{r.sent}</td>
+                  <td style={{ ...tdStyle, textAlign: "right", color: "#4A8C6F", fontWeight: 600 }}>{r.won}</td>
+                  <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>{money(r.rev)}</td>
+                  <td style={{ ...tdStyle, minWidth: 110 }}>{convBar(r.won, r.won + r.lost)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Panel>
+
+        {/* By source */}
+        <Panel title="Conversion by source">
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={thStyle}>Source</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>Sent</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>Won</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>Revenue</th>
+                <th style={{ ...thStyle, minWidth: 100 }}>Conv. rate</th>
+              </tr>
+            </thead>
+            <tbody>
+              {srcRows.map(r => (
+                <tr key={r.source}>
+                  <td style={{ ...tdStyle }}>
+                    <Tag color={SOURCE_COLOR[r.source] || C.ink3} soft>{r.source}</Tag>
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: "right", color: C.ink2 }}>{r.sent}</td>
+                  <td style={{ ...tdStyle, textAlign: "right", color: "#4A8C6F", fontWeight: 600 }}>{r.won}</td>
+                  <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>{money(r.rev)}</td>
+                  <td style={{ ...tdStyle, minWidth: 110 }}>{convBar(r.won, r.won + r.lost)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Panel>
+      </div>
+
+      {/* Follow-up due warning */}
+      {(() => {
+        const fu = offers.filter(o => o.status === "Follow-up due" || (OPEN_STATUSES.includes(o.status) && o.followUpDate && o.followUpDate <= today));
+        if (!fu.length) return null;
+        return (
+          <Panel title={`Follow-up needed · ${fu.length}`}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {fu.slice(0, 8).map(o => (
+                <div key={o.id} onClick={() => onOpen(o)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", background: hexA("#D9892B", 0.07), borderRadius: 8, cursor: "pointer", borderLeft: `3px solid #D9892B` }}>
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>{clientShort(derived.clientName[o.clientId] || cleanName(o.name))}</span>
+                    <span style={{ fontSize: 12, color: C.ink2, marginLeft: 8 }}>{o.offerType} · {money(o.price)}</span>
+                  </div>
+                  <Tag color={OFFER_STATUS_COLOR[o.status]}>{o.status}</Tag>
+                  {o.followUpDate && <DateChip iso={o.followUpDate} today={today} />}
+                </div>
+              ))}
+            </div>
+          </Panel>
+        );
+      })()}
+
+      {/* Recent wins & losses */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }} className="sb-grid2">
+        <Panel title={`Recent wins · ${won.length}`}>
+          {!recentWon.length ? <Empty>No closed offers yet</Empty> :
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {recentWon.map(o => (
+                <div key={o.id} onClick={() => onOpen(o)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 8, cursor: "pointer", background: hexA("#4A8C6F", 0.06), borderLeft: "3px solid #4A8C6F" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{clientShort(derived.clientName[o.clientId] || cleanName(o.name))}</div>
+                    <div style={{ fontSize: 11, color: C.ink2 }}>{o.offerType} · {fmtDate(o.dateOffered)}</div>
+                  </div>
+                  <span style={{ fontWeight: 700, color: "#4A8C6F", fontSize: 13 }}>{money(o.price)}</span>
+                </div>
+              ))}
+            </div>
+          }
+        </Panel>
+        <Panel title={`Recent losses · ${lost.length}`}>
+          {!recentLost.length ? <Empty>No lost offers yet</Empty> :
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {recentLost.map(o => (
+                <div key={o.id} onClick={() => onOpen(o)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 8, cursor: "pointer", background: hexA("#C0573F", 0.05), borderLeft: "3px solid #C0573F" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{clientShort(derived.clientName[o.clientId] || cleanName(o.name))}</div>
+                    <div style={{ fontSize: 11, color: C.ink2 }}>{o.offerType} · {fmtDate(o.dateOffered)}</div>
+                  </div>
+                  {o.reasonLost && <span style={{ fontSize: 11, color: "#C0573F", maxWidth: 120, textAlign: "right" }}>{o.reasonLost}</span>}
+                </div>
+              ))}
+            </div>
+          }
+        </Panel>
+      </div>
+    </div>
+  );
 }
 
 /* ============================================================
