@@ -6,4 +6,5 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
   .sb-pipeline-grid  { grid-template-columns: 1fr 1fr !important; }
   .sb-lane-split     { grid-template-columns: 1fr !important; }
   .sb-grid2          { grid-template-columns: 1fr !important; }
+  .sb-grid5          { grid-template-columns: 1fr 1fr !important; }
 }
