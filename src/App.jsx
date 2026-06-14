@@ -1458,8 +1458,8 @@ export default function App() {
     { id: "workflows", label: "Workflows",        Icon: Milestone,   lane: "core" },
     { id: "content",   label: "Content Calendar",  Icon: Megaphone,   lane: "core" },
     { id: "templates", label: "Templates",          Icon: Copy,        lane: "core" },
-    { id: "users",     label: "User Management",    Icon: Users,       lane: "core" },
     { id: "admin",     label: "Admin",              Icon: Shield,      lane: "core" },
+    { id: "users",     label: "User Management",    Icon: Users,       lane: "core", parent: "admin" },
   ];
 
   const go = (id) => { setSection(id); setView(0); setQuery(""); setNavOpen(false); };
@@ -1540,16 +1540,35 @@ export default function App() {
             {/* Shared / core at bottom */}
             <div style={{ marginTop: 10 }}>
               <div style={{ height: 1, background: C.line, margin: "2px 6px 6px" }} />
-              {sections.filter(s => s.lane === "core" && s.id !== "today").map(s => {
+              {sections.filter(s => s.lane === "core" && s.id !== "today" && !s.parent).map(s => {
                 const active = section === s.id;
                 const count = (data[s.id] || []).length;
+                const children = sections.filter(c => c.parent === s.id);
+                const anyChildActive = children.some(c => c.id === section);
+                const expanded = active || anyChildActive;
                 return (
-                  <button key={s.id} onClick={() => go(s.id)} className="sb-navbtn"
-                    style={{ background: active ? C.brandSoft : "transparent", color: active ? C.brandDeep : C.ink2, fontWeight: active ? 600 : 500 }}>
-                    <s.Icon size={16} strokeWidth={2} style={{ flexShrink: 0 }} />
-                    <span style={{ flex: 1, textAlign: "left" }}>{s.label}</span>
-                    {count != null && <span style={{ fontSize: 11, color: active ? C.brand : C.ink3 }}>{count}</span>}
-                  </button>
+                  <div key={s.id}>
+                    <button onClick={() => go(s.id)} className="sb-navbtn"
+                      style={{ background: active ? C.brandSoft : "transparent", color: active ? C.brandDeep : C.ink2, fontWeight: active ? 600 : 500 }}>
+                      <s.Icon size={16} strokeWidth={2} style={{ flexShrink: 0 }} />
+                      <span style={{ flex: 1, textAlign: "left" }}>{s.label}</span>
+                      {children.length > 0
+                        ? <ChevronRight size={13} style={{ color: C.ink3, transform: expanded ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
+                        : (count > 0 && <span style={{ fontSize: 11, color: active ? C.brand : C.ink3 }}>{count}</span>)
+                      }
+                    </button>
+                    {children.length > 0 && expanded && children.map(c => {
+                      const cActive = section === c.id;
+                      return (
+                        <button key={c.id} onClick={() => go(c.id)} className="sb-navbtn"
+                          style={{ background: cActive ? C.brandSoft : "transparent", color: cActive ? C.brandDeep : C.ink2, fontWeight: cActive ? 600 : 400, paddingLeft: 30 }}>
+                          <span style={{ width: 6, height: 6, borderRadius: "50%", background: cActive ? C.brand : C.ink3, flexShrink: 0, marginRight: 2 }} />
+                          <c.Icon size={14} strokeWidth={2} style={{ flexShrink: 0 }} />
+                          <span style={{ flex: 1, textAlign: "left" }}>{c.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 );
               })}
             </div>
