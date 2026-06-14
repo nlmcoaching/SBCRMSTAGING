@@ -932,6 +932,25 @@ const Sec = {
     );
     return JSON.parse(new TextDecoder().decode(pt));
   },
+  // ── Master key (envelope encryption for multi-user) ──
+  async generateMasterKeyB64() {
+    const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+    const raw = await crypto.subtle.exportKey("raw", key);
+    return btoa(String.fromCharCode(...new Uint8Array(raw)));
+  },
+  async importMasterKey(b64) {
+    const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    return crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  },
+  async wrapKeyForUser(masterKeyB64, pin, salt) {
+    const wrapKey = await Sec.deriveKey(pin, salt);
+    return Sec.encrypt(masterKeyB64, wrapKey);
+  },
+  async unwrapKeyForUser(wrappedB64, pin, salt) {
+    const wrapKey = await Sec.deriveKey(pin, salt);
+    const mkB64   = await Sec.decrypt(wrappedB64, wrapKey);
+    return { raw: mkB64, key: await Sec.importMasterKey(mkB64) };
+  },
   sanitize(val) {
     if (typeof val !== "string") return val;
     const t = val.trim();
@@ -942,6 +961,17 @@ const Sec = {
     return d && typeof d === "object" &&
       ["clients", "partners", "sessions", "offers"].every(k => Array.isArray(d[k]));
   },
+};
+
+/* ── USER MANAGEMENT ── */
+const USER_ROLES = ["Owner", "Admin", "Editor", "Viewer"];
+const USER_ROLE_COLOR = { Owner: "#4A8C6F", Admin: "#2E6FB0", Editor: C.brand, Viewer: C.ink3 };
+const USER_COLORS = ["#2E6FB0","#6B5CE7","#D9892B","#4A8C6F",C.brand,"#C0392B","#8E44AD","#16A085"];
+const ROLE_PERMISSIONS = {
+  Owner:  { view: true,  edit: true,  delete: true,  manage: true  },
+  Admin:  { view: true,  edit: true,  delete: true,  manage: false },
+  Editor: { view: true,  edit: true,  delete: false, manage: false },
+  Viewer: { view: true,  edit: false, delete: false, manage: false },
 };
 const uid = (p) => p + "_" + Math.random().toString(36).slice(2, 9);
 const todayISO = () => {
@@ -966,18 +996,27 @@ const norm = (s) => String(s || "").trim().toLowerCase();
 
 /* ============================================================ */
 /* ── LOCK SCREEN ── */
-function LockScreen({ onUnlock, error, initialising }) {
-  const [pin, setPin]     = useState("");
-  const [show, setShow]   = useState(false);
-  const [busy, setBusy]   = useState(false);
+function LockScreen({ onUnlock, error, initialising, users }) {
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [pin, setPin]   = useState("");
+  const [show, setShow] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  // Auto-select if only one user
+  useEffect(() => {
+    if (!initialising && users.length === 1) setSelectedUser(users[0]);
+  }, [initialising, users]);
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!pin.trim() || busy) return;
+    if (!pin.trim() || busy || !selectedUser) return;
     setBusy(true);
-    await onUnlock(pin);
+    await onUnlock(selectedUser.id, pin);
     setBusy(false);
+    setPin("");
   };
+
+  const initials = (name) => name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
 
   return (
     <div style={{
@@ -987,76 +1026,96 @@ function LockScreen({ onUnlock, error, initialising }) {
     }}>
       <div style={{
         background: C.surface, border: `1px solid ${C.line}`, borderRadius: 20,
-        padding: "48px 40px 40px", width: "100%", maxWidth: 380, textAlign: "center",
+        padding: "44px 40px 36px", width: "100%", maxWidth: 400, textAlign: "center",
         boxShadow: "0 8px 40px rgba(22,33,58,0.10)",
       }}>
-        {/* Logo mark */}
-        <div style={{
-          width: 64, height: 64, borderRadius: "50%", background: C.brandSoft,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          margin: "0 auto 20px",
-        }}>
-          <Wind size={28} color={C.brand} />
+        <div style={{ width: 60, height: 60, borderRadius: "50%", background: C.brandSoft,
+          display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px" }}>
+          <Wind size={26} color={C.brand} />
         </div>
-
-        <h1 style={{ fontFamily: FONT.display, fontSize: 22, fontWeight: 700, color: C.ink, margin: "0 0 4px" }}>
+        <h1 style={{ fontFamily: FONT.display, fontSize: 21, fontWeight: 700, color: C.ink, margin: "0 0 4px" }}>
           Simply Breathe OS
         </h1>
-        <p style={{ fontSize: 13, color: C.ink3, margin: "0 0 32px" }}>
-          Enter your PIN to access the CRM
+        <p style={{ fontSize: 13, color: C.ink3, margin: "0 0 28px" }}>
+          {initialising ? "Loading…" : selectedUser ? `Welcome back, ${selectedUser.name.split(" ")[0]}` : "Who's accessing today?"}
         </p>
 
         {initialising ? (
           <div style={{ fontSize: 13, color: C.ink3, padding: "20px 0" }}>Initialising security…</div>
+        ) : !selectedUser ? (
+          /* ── User tile grid ── */
+          <div style={{ display: "grid", gridTemplateColumns: users.length > 2 ? "1fr 1fr" : "1fr", gap: 10 }}>
+            {users.map(u => (
+              <button key={u.id} onClick={() => setSelectedUser(u)} style={{
+                display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
+                border: `1.5px solid ${C.line}`, borderRadius: 12, cursor: "pointer",
+                background: C.surfaceAlt, transition: "all .12s", textAlign: "left",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = u.color || C.brand; e.currentTarget.style.background = hexA(u.color || C.brand, 0.06); }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = C.line; e.currentTarget.style.background = C.surfaceAlt; }}>
+                <div style={{ width: 40, height: 40, borderRadius: "50%", background: u.color || C.brand,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 14, fontWeight: 800, color: "#fff", flexShrink: 0 }}>
+                  {initials(u.name)}
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13.5, color: C.ink }}>{u.name}</div>
+                  <div style={{ fontSize: 11, color: USER_ROLE_COLOR[u.role] || C.ink3, fontWeight: 600 }}>{u.role}</div>
+                </div>
+              </button>
+            ))}
+          </div>
         ) : (
-          <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          /* ── PIN entry ── */
+          <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 13 }}>
+            {users.length > 1 && (
+              <button type="button" onClick={() => { setSelectedUser(null); setPin(""); setPinError?.(""); }}
+                style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px",
+                  border: `1px solid ${C.line}`, borderRadius: 10, cursor: "pointer",
+                  background: C.surfaceAlt, width: "100%", marginBottom: 4 }}>
+                <div style={{ width: 32, height: 32, borderRadius: "50%", background: selectedUser.color || C.brand,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 12, fontWeight: 800, color: "#fff" }}>
+                  {initials(selectedUser.name)}
+                </div>
+                <div style={{ textAlign: "left", flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: C.ink }}>{selectedUser.name}</div>
+                  <div style={{ fontSize: 11, color: C.ink3 }}>Change user ↩</div>
+                </div>
+              </button>
+            )}
             <div style={{ position: "relative" }}>
-              <input
-                type={show ? "text" : "password"}
-                value={pin}
-                onChange={e => setPin(e.target.value)}
-                placeholder="Enter PIN"
-                autoFocus
-                style={{
+              <input type={show ? "text" : "password"} value={pin} onChange={e => setPin(e.target.value)}
+                placeholder="Enter PIN" autoFocus style={{
                   width: "100%", padding: "13px 44px 13px 16px",
                   border: `1.5px solid ${error ? "#C0392B" : C.line}`,
                   borderRadius: 10, fontSize: 16, outline: "none",
                   fontFamily: "monospace", letterSpacing: show ? ".05em" : ".3em",
-                  color: C.ink, background: C.surface,
-                  boxSizing: "border-box",
+                  color: C.ink, background: C.surface, boxSizing: "border-box",
                 }}
                 onFocus={e => e.target.style.borderColor = C.brand}
                 onBlur={e => e.target.style.borderColor = error ? "#C0392B" : C.line}
               />
               <button type="button" onClick={() => setShow(s => !s)} style={{
                 position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
-                background: "none", border: "none", cursor: "pointer",
-                fontSize: 11, color: C.ink3, fontWeight: 600, padding: "4px",
+                background: "none", border: "none", cursor: "pointer", fontSize: 11, color: C.ink3, fontWeight: 600,
               }}>{show ? "HIDE" : "SHOW"}</button>
             </div>
-
             {error && (
               <div style={{ fontSize: 12.5, color: "#C0392B", background: hexA("#C0392B", 0.07),
                 borderRadius: 8, padding: "8px 12px", textAlign: "left", display: "flex", gap: 7, alignItems: "center" }}>
-                <AlertCircle size={13} color="#C0392B" />
-                {error}
+                <AlertCircle size={13} color="#C0392B" /> {error}
               </div>
             )}
-
             <button type="submit" disabled={busy || !pin.trim()} style={{
-              padding: "13px", background: busy || !pin.trim() ? C.line : C.brand,
+              padding: "13px", background: busy || !pin.trim() ? C.line : selectedUser.color || C.brand,
               color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700,
-              cursor: busy || !pin.trim() ? "not-allowed" : "pointer",
-              transition: "background .15s",
-            }}>
-              {busy ? "Unlocking…" : "Unlock"}
-            </button>
+              cursor: busy || !pin.trim() ? "not-allowed" : "pointer", transition: "background .15s",
+            }}>{busy ? "Unlocking…" : "Unlock"}</button>
           </form>
         )}
-
-        <p style={{ fontSize: 11, color: C.ink3, marginTop: 24, lineHeight: 1.6 }}>
-          🔒 Data is encrypted at rest with AES-256-GCM.<br />
-          Forget your PIN? Data cannot be recovered.
+        <p style={{ fontSize: 11, color: C.ink3, marginTop: 22, lineHeight: 1.6 }}>
+          🔒 Data encrypted with AES-256-GCM
         </p>
       </div>
     </div>
@@ -1078,8 +1137,11 @@ export default function App() {
   /* ── Auth state ── */
   const [locked,       setLocked]      = useState(true);
   const [cryptoKey,    setCryptoKey]   = useState(null);
+  const [masterKeyRaw, setMasterKeyRaw] = useState(null); // raw b64 for user mgmt
+  const [currentUser,  setCurrentUser]  = useState(null); // logged-in user object
   const [pinError,     setPinError]    = useState("");
   const [initialising, setInitialising] = useState(true);
+  const [secUsers,     setSecUsers]    = useState([]);    // loaded from SEC_META_KEY
 
   /* ── Security initialisation (on mount) ── */
   useEffect(() => {
@@ -1088,11 +1150,29 @@ export default function App() {
       try {
         if (typeof window !== "undefined" && window.storage) {
           const sec = await window.storage.get(SEC_META_KEY);
-          if (!sec?.value) {
-            // First run — seed default PIN
-            const salt    = Sec.newSalt();
-            const pinHash = await Sec.hashPin(DEFAULT_PIN);
-            await window.storage.set(SEC_META_KEY, JSON.stringify({ pinHash, salt }));
+          if (sec?.value) {
+            const parsed = JSON.parse(sec.value);
+            // v2 multi-user format
+            if (parsed.version === 2 && Array.isArray(parsed.users)) {
+              if (alive) setSecUsers(parsed.users.filter(u => u.active !== false));
+            }
+            // v1 single-user format — users list shown as placeholder until they unlock+migrate
+          } else {
+            // First ever run — seed owner with default PIN
+            const pinSalt       = Sec.newSalt();
+            const pinHash       = await Sec.hashPin(DEFAULT_PIN);
+            const masterKeyB64  = await Sec.generateMasterKeyB64();
+            const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyB64, DEFAULT_PIN, pinSalt);
+            const owner = {
+              id: "u_owner", name: "Admin", role: "Owner",
+              pinHash, pinSalt, wrappedMasterKey,
+              permissions: ROLE_PERMISSIONS.Owner,
+              active: true, color: USER_COLORS[0],
+              createdAt: todayISO(), lastLogin: "",
+            };
+            const newSec = { version: 2, users: [owner] };
+            await window.storage.set(SEC_META_KEY, JSON.stringify(newSec));
+            if (alive) setSecUsers([owner]);
           }
         }
       } catch (_) { /* storage unavailable */ }
@@ -1102,28 +1182,72 @@ export default function App() {
   }, []);
 
   /* ── PIN unlock handler ── */
-  const handleUnlock = async (pin) => {
+  const handleUnlock = async (userId, pin) => {
     setPinError("");
     try {
       if (!window.storage) {
-        // No storage API (pure browser dev mode) — allow any PIN, use seed
+        // No storage (dev mode) — pass through
+        const fallbackUser = secUsers[0] || { id: "u_owner", name: "Admin", role: "Owner", permissions: ROLE_PERMISSIONS.Owner };
+        setCurrentUser(fallbackUser);
         setLocked(false);
         loaded.current = true;
         return;
       }
       const secRaw = await window.storage.get(SEC_META_KEY);
       if (!secRaw?.value) throw new Error("No security config");
-      const sec  = JSON.parse(secRaw.value);
+      const sec = JSON.parse(secRaw.value);
+
+      // ── Migrate v1 → v2 ──
+      if (!sec.version || sec.version < 2) {
+        const hash = await Sec.hashPin(pin);
+        if (hash !== sec.pinHash) { setPinError("Incorrect PIN. Please try again."); return; }
+        // Generate master key and re-wrap with this PIN
+        const masterKeyB64 = await Sec.generateMasterKeyB64();
+        const pinSalt      = sec.salt;
+        const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyB64, pin, pinSalt);
+        const owner = {
+          id: "u_owner", name: "Admin", role: "Owner",
+          pinHash: hash, pinSalt, wrappedMasterKey,
+          permissions: ROLE_PERMISSIONS.Owner,
+          active: true, color: USER_COLORS[0],
+          createdAt: todayISO(), lastLogin: todayISO(),
+        };
+        const newSec = { version: 2, users: [owner] };
+        await window.storage.set(SEC_META_KEY, JSON.stringify(newSec));
+        setSecUsers([owner]);
+        const masterKey = await Sec.importMasterKey(masterKeyB64);
+        // Migrate encrypted data: re-encrypt with new master key
+        const encRaw = await window.storage.get(STORE_KEY_ENC);
+        if (encRaw?.value) {
+          const oldKey = await Sec.deriveKey(pin, sec.salt);
+          try {
+            const dec = await Sec.decrypt(encRaw.value, oldKey);
+            const reenc = await Sec.encrypt(dec, masterKey);
+            await window.storage.set(STORE_KEY_ENC, reenc);
+            if (Sec.validate(dec)) setData(dec);
+          } catch (_) {}
+        }
+        setMasterKeyRaw(masterKeyB64);
+        setCryptoKey(masterKey);
+        setCurrentUser(owner);
+        loaded.current = true;
+        setLocked(false);
+        return;
+      }
+
+      // ── v2 unlock ──
+      const user = sec.users.find(u => u.id === userId && u.active !== false);
+      if (!user) throw new Error("User not found");
       const hash = await Sec.hashPin(pin);
-      if (hash !== sec.pinHash) { setPinError("Incorrect PIN. Please try again."); return; }
+      if (hash !== user.pinHash) { setPinError("Incorrect PIN. Please try again."); return; }
 
-      const key = await Sec.deriveKey(pin, sec.salt);
+      const { raw: mkB64, key: masterKey } = await Sec.unwrapKeyForUser(user.wrappedMasterKey, pin, user.pinSalt);
 
-      // Attempt to load encrypted v5 data
+      // Load data
       const encRaw = await window.storage.get(STORE_KEY_ENC);
       if (encRaw?.value) {
         try {
-          const dec = await Sec.decrypt(encRaw.value, key);
+          const dec = await Sec.decrypt(encRaw.value, masterKey);
           if (Sec.validate(dec)) setData(dec);
           else setData(SEED);
         } catch (_) {
@@ -1131,22 +1255,25 @@ export default function App() {
           setData(SEED);
         }
       } else {
-        // Migrate legacy unencrypted v4 data
+        // Check for legacy v4 unencrypted data
         const legacyRaw = await window.storage.get(STORE_KEY);
         if (legacyRaw?.value) {
-          try {
-            const legacy = JSON.parse(legacyRaw.value);
-            if (Sec.validate(legacy)) setData(legacy);
-          } catch (_) {}
+          try { const l = JSON.parse(legacyRaw.value); if (Sec.validate(l)) setData(l); } catch (_) {}
         }
-        // else keep SEED
       }
 
-      setCryptoKey(key);
+      // Update lastLogin
+      const updatedUsers = sec.users.map(u => u.id === userId ? { ...u, lastLogin: todayISO() } : u);
+      await window.storage.set(SEC_META_KEY, JSON.stringify({ ...sec, users: updatedUsers }));
+      setSecUsers(updatedUsers.filter(u => u.active !== false));
+
+      setMasterKeyRaw(mkB64);
+      setCryptoKey(masterKey);
+      setCurrentUser(user);
       loaded.current = true;
       setLocked(false);
     } catch (e) {
-      setPinError("Something went wrong. Please try again.");
+      if (!e.message?.includes("PIN")) setPinError("Something went wrong. Please try again.");
     }
   };
 
@@ -1181,9 +1308,15 @@ export default function App() {
     return { partnerName, clientName, acceptedByClient, sessionsByStudio };
   }, [data]);
 
-  if (locked) return <LockScreen onUnlock={handleUnlock} error={pinError} initialising={initialising} />;
+  if (locked) return <LockScreen onUnlock={handleUnlock} error={pinError} initialising={initialising} users={secUsers} />;
 
   const update = (db, fn) => setData((d) => ({ ...d, [db]: fn(d[db]) }));
+  const can = {
+    view:   currentUser?.permissions?.view   ?? true,
+    edit:   currentUser?.permissions?.edit   ?? false,
+    delete: currentUser?.permissions?.delete ?? false,
+    manage: currentUser?.role === "Owner" || !!(currentUser?.permissions?.manage),
+  };
   const saveRecord = (db, rec) =>
     update(db, (rows) => (rows.some((r) => r.id === rec.id) ? rows.map((r) => (r.id === rec.id ? rec : r)) : [...rows, rec]));
   const deleteRecord = (db, id) => { update(db, (rows) => rows.filter((r) => r.id !== id)); setOpen(null); };
@@ -1221,6 +1354,7 @@ export default function App() {
     { id: "workflows", label: "Workflows",        Icon: Milestone,   lane: "core" },
     { id: "content",   label: "Content Calendar",  Icon: Megaphone,   lane: "core" },
     { id: "templates", label: "Templates",          Icon: Copy,        lane: "core" },
+    { id: "users",     label: "User Management",    Icon: Users,       lane: "core" },
   ];
 
   const go = (id) => { setSection(id); setView(0); setQuery(""); setNavOpen(false); };
@@ -1316,9 +1450,10 @@ export default function App() {
             </div>
           </nav>
           <div style={{ marginTop: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-            <button className="sb-ghost" onClick={() => setImporting(true)}><Upload size={15} /> Import CSVs</button>
+            {can.edit && <button className="sb-ghost" onClick={() => setImporting(true)}><Upload size={15} /> Import CSVs</button>}
             <div style={{ fontSize: 11, color: C.ink3, textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-              {saved === "saving" ? "Saving…" : saved === "saved" ? <><Check size={12} /> Saved</> : "Auto-saved locally"}
+              <span style={{ fontWeight: 600, color: currentUser?.color || C.brand }}>{currentUser?.name?.split(" ")[0]}</span>
+              &nbsp;·&nbsp;{saved === "saving" ? "Saving…" : saved === "saved" ? <><Check size={12} /> Saved</> : "Auto-saved"}
             </div>
           </div>
         </aside>
@@ -1356,9 +1491,11 @@ export default function App() {
                   <Search size={15} color={C.ink3} />
                   <input placeholder="Search…" value={query} onChange={(e) => setQuery(e.target.value)} />
                 </div>
-                <button className="sb-primary" onClick={() => setOpen({ db: section, record: newRecord(section) })}>
-                  <Plus size={16} /> New
-                </button>
+                {can.edit && section !== "users" && (
+                  <button className="sb-primary" onClick={() => setOpen({ db: section, record: newRecord(section) })}>
+                    <Plus size={16} /> New
+                  </button>
+                )}
               </>
             )}
           </header>
@@ -1369,15 +1506,16 @@ export default function App() {
               : section === "engine"
               ? <FollowUpEngine data={data} setData={setData} today={today} onOpen={setOpen} />
               : <Section section={section} data={data} derived={derived} today={today}
-                  view={view} setView={setView} query={query} onOpen={setOpen} />}
+                  view={view} setView={setView} query={query} onOpen={setOpen}
+                  currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} setSecUsers={setSecUsers} />}
           </div>
         </main>
       </div>
 
       {open && (
         <RecordDrawer db={open.db} record={open.record} data={data} derived={derived} today={today}
-          onClose={() => setOpen(null)} onSave={(rec) => { saveRecord(open.db, rec); setOpen(null); }}
-          onDelete={(id) => deleteRecord(open.db, id)} onOpenRelated={setOpen}
+          onClose={() => setOpen(null)} onSave={can.edit ? (rec) => { saveRecord(open.db, rec); setOpen(null); } : null}
+          onDelete={can.delete ? (id) => deleteRecord(open.db, id) : null} onOpenRelated={setOpen}
           sequences={data.sequences || []} onStartSequence={startSequence} />
       )}
 
@@ -2315,7 +2453,7 @@ function SourceBreakdown({ data }) {
 /* ============================================================
    SECTION (per database, with views)
    ============================================================ */
-function Section({ section, data, derived, today, view, setView, query, onOpen }) {
+function Section({ section, data, derived, today, view, setView, query, onOpen, currentUser, secUsers, masterKeyRaw, setSecUsers }) {
   const cfg = VIEWS[section];
   const v = cfg.views[Math.min(view, cfg.views.length - 1)];
   let rows = data[section] || [];
@@ -2354,7 +2492,8 @@ function Section({ section, data, derived, today, view, setView, query, onOpen }
         ? <TemplateLibraryView data={data} onOpen={onOpen} />
         : v.layout === "workflows"
         ? <WorkflowsView data={data} derived={derived} today={today} />
-        : v.layout === "outreach-hub"
+        : v.layout === "user-management"
+        ? <UserManagementView currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} onUsersUpdated={setSecUsers} />        : v.layout === "outreach-hub"
         ? <OutreachHubView rows={processed.rows} data={data} today={today} onOpen={(r) => onOpen({ db: "outreach", record: r })} />
         : v.layout === "calendar"
         ? <CalendarView rows={processed.rows} today={today} derived={derived} onOpen={(r) => onOpen({ db: section, record: r })} />
@@ -2393,9 +2532,10 @@ const clientCell = {
 
 const VIEWS = {
   workflows: {
-    views: [
-      { name: "All workflows", layout: "workflows" },
-    ],
+    views: [{ name: "All workflows", layout: "workflows" }],
+  },
+  users: {
+    views: [{ name: "Users & Permissions", layout: "user-management" }],
   },
   clients: {
     views: [
@@ -3335,7 +3475,7 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
         </div>
 
         <div className="sb-drawerfoot">
-          {!isNew && <button className="sb-danger" onClick={() => onDelete(draft.id)}><Trash2 size={15} /> Delete</button>}
+          {!isNew && onDelete && <button className="sb-danger" onClick={() => onDelete(draft.id)}><Trash2 size={15} /> Delete</button>}
           {db === "clients" && !isNew && (() => {
             const activeSeq = (sequences || []).find(s => s.clientId === draft.id && s.status === "active");
             const completed  = (sequences || []).some(s => s.clientId === draft.id && s.status === "completed");
@@ -3356,7 +3496,7 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
           })()}
           <div style={{ flex: 1 }} />
           <button className="sb-ghost" onClick={onClose}>Cancel</button>
-          {tab !== "timeline" && <button className="sb-primary" onClick={() => onSave(draft)}>Save</button>}        </div>
+          {tab !== "timeline" && onSave && <button className="sb-primary" onClick={() => onSave(draft)}>Save</button>}        </div>
       </div>
     </div>
   );
@@ -4985,6 +5125,320 @@ function WorkflowsView({ data, derived, today }) {
           })}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ── USER MANAGEMENT VIEW ── */
+function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdated }) {
+  const [showAdd, setShowAdd]     = useState(false);
+  const [editUser, setEditUser]   = useState(null);   // user being edited
+  const [newName, setNewName]     = useState("");
+  const [newRole, setNewRole]     = useState("Editor");
+  const [newPin, setNewPin]       = useState("");
+  const [newPerm, setNewPerm]     = useState({ ...ROLE_PERMISSIONS.Editor });
+  const [showPin, setShowPin]     = useState(false);
+  const [saving, setSaving]       = useState(false);
+  const [msg, setMsg]             = useState("");
+
+  const canManage = currentUser?.role === "Owner" || currentUser?.permissions?.manage;
+  const initials  = (name) => name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+
+  const flash = (m) => { setMsg(m); setTimeout(() => setMsg(""), 2800); };
+
+  const applyRoleDefaults = (role) => {
+    setNewRole(role);
+    setNewPerm({ ...ROLE_PERMISSIONS[role] });
+  };
+
+  const handleAdd = async () => {
+    if (!newName.trim() || !newPin.trim()) return;
+    setSaving(true);
+    try {
+      const pinSalt  = Sec.newSalt();
+      const pinHash  = await Sec.hashPin(newPin);
+      const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyRaw, newPin, pinSalt);
+      const color    = USER_COLORS[secUsers.length % USER_COLORS.length];
+      const nu = {
+        id: "u_" + Math.random().toString(36).slice(2, 9),
+        name: newName.trim(), role: newRole,
+        pinHash, pinSalt, wrappedMasterKey,
+        permissions: { ...newPerm },
+        active: true, color, createdAt: todayISO(), lastLogin: "",
+      };
+      const secRaw = await window.storage.get(SEC_META_KEY);
+      const sec    = JSON.parse(secRaw.value);
+      const updated = { ...sec, users: [...sec.users, nu] };
+      await window.storage.set(SEC_META_KEY, JSON.stringify(updated));
+      onUsersUpdated(updated.users.filter(u => u.active !== false));
+      setShowAdd(false); setNewName(""); setNewPin(""); setNewRole("Editor");
+      flash(`✓ ${nu.name} added successfully`);
+    } catch (_) { flash("Error adding user. Please try again."); }
+    setSaving(false);
+  };
+
+  const handleUpdatePerms = async (userId, updatedPerms, updatedRole) => {
+    setSaving(true);
+    try {
+      const secRaw = await window.storage.get(SEC_META_KEY);
+      const sec    = JSON.parse(secRaw.value);
+      const updated = { ...sec, users: sec.users.map(u =>
+        u.id === userId ? { ...u, permissions: updatedPerms, role: updatedRole } : u
+      )};
+      await window.storage.set(SEC_META_KEY, JSON.stringify(updated));
+      onUsersUpdated(updated.users.filter(u => u.active !== false));
+      setEditUser(null);
+      flash("✓ Permissions updated");
+    } catch (_) { flash("Error saving. Please try again."); }
+    setSaving(false);
+  };
+
+  const handleResetPin = async (userId, newPinVal) => {
+    if (!newPinVal.trim()) return;
+    setSaving(true);
+    try {
+      const pinSalt  = Sec.newSalt();
+      const pinHash  = await Sec.hashPin(newPinVal);
+      const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyRaw, newPinVal, pinSalt);
+      const secRaw = await window.storage.get(SEC_META_KEY);
+      const sec    = JSON.parse(secRaw.value);
+      const updated = { ...sec, users: sec.users.map(u =>
+        u.id === userId ? { ...u, pinHash, pinSalt, wrappedMasterKey } : u
+      )};
+      await window.storage.set(SEC_META_KEY, JSON.stringify(updated));
+      flash("✓ PIN reset successfully");
+    } catch (_) { flash("Error resetting PIN."); }
+    setSaving(false);
+  };
+
+  const handleDeactivate = async (userId) => {
+    if (userId === currentUser?.id) return;
+    if (!window.confirm("Deactivate this user? They will no longer be able to log in.")) return;
+    setSaving(true);
+    try {
+      const secRaw = await window.storage.get(SEC_META_KEY);
+      const sec    = JSON.parse(secRaw.value);
+      const updated = { ...sec, users: sec.users.map(u => u.id === userId ? { ...u, active: false } : u) };
+      await window.storage.set(SEC_META_KEY, JSON.stringify(updated));
+      onUsersUpdated(updated.users.filter(u => u.active !== false));
+      flash("User deactivated");
+    } catch (_) {}
+    setSaving(false);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+
+      {/* Stats */}
+      <div className="sb-stats">
+        <Stat label="Total users"   value={secUsers.length} hint="active accounts" />
+        <Stat label="Owner"         value={secUsers.filter(u => u.role === "Owner").length}  hint="" accent="#4A8C6F" />
+        <Stat label="Editor / Admin" value={secUsers.filter(u => ["Admin","Editor"].includes(u.role)).length} hint="" accent={C.brand} />
+        <Stat label="Viewer"        value={secUsers.filter(u => u.role === "Viewer").length} hint="" accent={C.ink3} />
+      </div>
+
+      {msg && (
+        <div style={{ background: msg.startsWith("✓") ? hexA("#4A8C6F", 0.1) : hexA("#C0392B", 0.1),
+          border: `1px solid ${hexA(msg.startsWith("✓") ? "#4A8C6F" : "#C0392B", 0.3)}`,
+          borderRadius: 8, padding: "10px 14px", fontSize: 13, fontWeight: 600,
+          color: msg.startsWith("✓") ? "#2D6A50" : "#C0392B" }}>{msg}</div>
+      )}
+
+      {/* Add user */}
+      {canManage && (
+        <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 18px" }}>
+          {!showAdd ? (
+            <button onClick={() => setShowAdd(true)} style={{
+              display: "flex", alignItems: "center", gap: 8, background: C.brand,
+              color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px",
+              cursor: "pointer", fontSize: 13, fontWeight: 700,
+            }}><Plus size={15} /> Add User</button>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 13 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: C.ink }}>New User</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 11.5, fontWeight: 600, color: C.ink3, marginBottom: 5 }}>Full name</div>
+                  <input value={newName} onChange={e => setNewName(e.target.value)}
+                    placeholder="e.g. Sarah Chen"
+                    style={{ width: "100%", padding: "9px 12px", border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, color: C.ink, boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 11.5, fontWeight: 600, color: C.ink3, marginBottom: 5 }}>Role</div>
+                  <select value={newRole} onChange={e => applyRoleDefaults(e.target.value)}
+                    style={{ width: "100%", padding: "9px 12px", border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, color: C.ink }}>
+                    {USER_ROLES.filter(r => r !== "Owner").map(r => <option key={r}>{r}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11.5, fontWeight: 600, color: C.ink3, marginBottom: 5 }}>Initial PIN</div>
+                <div style={{ position: "relative" }}>
+                  <input type={showPin ? "text" : "password"} value={newPin} onChange={e => setNewPin(e.target.value)}
+                    placeholder="Set their login PIN"
+                    style={{ width: "100%", padding: "9px 44px 9px 12px", border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, color: C.ink, boxSizing: "border-box" }} />
+                  <button type="button" onClick={() => setShowPin(s => !s)} style={{
+                    position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+                    background: "none", border: "none", cursor: "pointer", fontSize: 10.5, color: C.ink3, fontWeight: 600,
+                  }}>{showPin ? "HIDE" : "SHOW"}</button>
+                </div>
+              </div>
+              {/* Permission toggles */}
+              <div>
+                <div style={{ fontSize: 11.5, fontWeight: 600, color: C.ink3, marginBottom: 8 }}>Permissions</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {["view","edit","delete"].map(p => (
+                    <label key={p} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
+                      background: newPerm[p] ? hexA(C.brand, 0.1) : C.surfaceAlt,
+                      border: `1px solid ${newPerm[p] ? C.brand : C.line}`, borderRadius: 8,
+                      padding: "7px 12px", fontSize: 12.5, fontWeight: 600,
+                      color: newPerm[p] ? C.brand : C.ink3 }}>
+                      <input type="checkbox" checked={!!newPerm[p]}
+                        onChange={e => setNewPerm(pr => ({ ...pr, [p]: e.target.checked }))}
+                        style={{ display: "none" }} />
+                      {newPerm[p] ? <Check size={13} /> : null} {p.charAt(0).toUpperCase() + p.slice(1)}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={handleAdd} disabled={saving || !newName.trim() || !newPin.trim()} style={{
+                  padding: "9px 20px", background: C.brand, color: "#fff",
+                  border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13,
+                }}>Create User</button>
+                <button onClick={() => setShowAdd(false)} style={{
+                  padding: "9px 16px", background: "transparent", border: `1px solid ${C.line}`,
+                  borderRadius: 8, cursor: "pointer", fontSize: 13, color: C.ink2,
+                }}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* User list */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {secUsers.map(u => {
+          const isMe   = u.id === currentUser?.id;
+          const isEdit = editUser?.id === u.id;
+          const [ePerm, setEPerm] = [editUser?.permissions || u.permissions, (p) => setEditUser(ev => ({ ...ev, permissions: p }))];
+          const [resetPinVal, setResetPinVal] = useState?.("") || ["", () => {}];
+
+          return (
+            <div key={u.id} style={{
+              background: C.surface, border: `1px solid ${isMe ? u.color : C.line}`,
+              borderRadius: 12, overflow: "hidden",
+              borderLeft: `4px solid ${isMe ? u.color || C.brand : C.line}`,
+            }}>
+              <div style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+                {/* Avatar */}
+                <div style={{ width: 44, height: 44, borderRadius: "50%", background: u.color || C.brand,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 15, fontWeight: 800, color: "#fff", flexShrink: 0 }}>
+                  {initials(u.name)}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontWeight: 700, fontSize: 14, color: C.ink }}>{u.name}</span>
+                    {isMe && <span style={{ fontSize: 10.5, background: hexA(u.color || C.brand, 0.12), color: u.color || C.brand, borderRadius: 5, padding: "1px 7px", fontWeight: 700 }}>YOU</span>}
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 10,
+                      background: hexA(USER_ROLE_COLOR[u.role] || C.ink3, 0.1),
+                      color: USER_ROLE_COLOR[u.role] || C.ink3 }}>{u.role}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, marginTop: 5, flexWrap: "wrap" }}>
+                    {["view","edit","delete"].map(p => (
+                      <span key={p} style={{ fontSize: 10.5, fontWeight: 600, padding: "2px 7px", borderRadius: 5,
+                        background: u.permissions?.[p] ? hexA("#4A8C6F", 0.1) : hexA("#C0392B", 0.08),
+                        color: u.permissions?.[p] ? "#2D6A50" : "#C0392B" }}>
+                        {u.permissions?.[p] ? "✓" : "✕"} {p}
+                      </span>
+                    ))}
+                    {u.lastLogin && <span style={{ fontSize: 10.5, color: C.ink3 }}>Last login: {fmtDate(u.lastLogin)}</span>}
+                  </div>
+                </div>
+                {canManage && u.role !== "Owner" && (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => setEditUser(isEdit ? null : { ...u })} style={{
+                      padding: "6px 12px", border: `1px solid ${C.line}`, borderRadius: 8,
+                      cursor: "pointer", fontSize: 12, fontWeight: 600, background: "transparent", color: C.ink2,
+                    }}>{isEdit ? "Cancel" : "Edit"}</button>
+                    {!isMe && <button onClick={() => handleDeactivate(u.id)} style={{
+                      padding: "6px 10px", border: "none", borderRadius: 8,
+                      cursor: "pointer", fontSize: 12, background: hexA("#C0392B", 0.08), color: "#C0392B", fontWeight: 600,
+                    }}>Remove</button>}
+                  </div>
+                )}
+              </div>
+
+              {/* Edit panel */}
+              {isEdit && (
+                <EditUserPanel
+                  user={editUser}
+                  masterKeyRaw={masterKeyRaw}
+                  onSave={(updatedPerms, updatedRole) => handleUpdatePerms(u.id, updatedPerms, updatedRole)}
+                  onResetPin={(pin) => handleResetPin(u.id, pin)}
+                  saving={saving}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function EditUserPanel({ user, masterKeyRaw, onSave, onResetPin, saving }) {
+  const [perm, setPerm]     = useState({ ...user.permissions });
+  const [role, setRole]     = useState(user.role);
+  const [resetPin, setResetPin] = useState("");
+  const [showPin, setShowPin]   = useState(false);
+
+  const applyRole = (r) => { setRole(r); setPerm({ ...ROLE_PERMISSIONS[r] }); };
+
+  return (
+    <div style={{ borderTop: `1px solid ${C.line}`, padding: "14px 16px", background: C.surfaceAlt, display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* Role */}
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: C.ink3 }}>Role:</span>
+        {USER_ROLES.filter(r => r !== "Owner").map(r => (
+          <button key={r} onClick={() => applyRole(r)} style={{
+            padding: "5px 12px", borderRadius: 20, border: `1px solid ${role === r ? USER_ROLE_COLOR[r] : C.line}`,
+            background: role === r ? hexA(USER_ROLE_COLOR[r], 0.1) : "transparent",
+            color: role === r ? USER_ROLE_COLOR[r] : C.ink2, fontWeight: 600, fontSize: 12, cursor: "pointer",
+          }}>{r}</button>
+        ))}
+      </div>
+      {/* Permissions */}
+      <div style={{ display: "flex", gap: 8 }}>
+        {["view","edit","delete"].map(p => (
+          <label key={p} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
+            background: perm[p] ? hexA(C.brand, 0.1) : "transparent",
+            border: `1px solid ${perm[p] ? C.brand : C.line}`, borderRadius: 8,
+            padding: "7px 12px", fontSize: 12.5, fontWeight: 600,
+            color: perm[p] ? C.brand : C.ink3 }}>
+            <input type="checkbox" checked={!!perm[p]} onChange={e => setPerm(pr => ({ ...pr, [p]: e.target.checked }))} style={{ display: "none" }} />
+            {perm[p] ? <Check size={13} /> : null} {p.charAt(0).toUpperCase() + p.slice(1)}
+          </label>
+        ))}
+      </div>
+      {/* Reset PIN */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ position: "relative", flex: 1 }}>
+          <input type={showPin ? "text" : "password"} value={resetPin} onChange={e => setResetPin(e.target.value)}
+            placeholder="New PIN (leave blank to keep current)"
+            style={{ width: "100%", padding: "8px 44px 8px 12px", border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 12.5, color: C.ink, boxSizing: "border-box" }} />
+          <button type="button" onClick={() => setShowPin(s => !s)} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 10, color: C.ink3, fontWeight: 600 }}>{showPin ? "HIDE" : "SHOW"}</button>
+        </div>
+        {resetPin && <button onClick={() => { onResetPin(resetPin); setResetPin(""); }} style={{
+          padding: "8px 14px", background: "#D9892B", color: "#fff", border: "none", borderRadius: 8,
+          cursor: "pointer", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap",
+        }}>Reset PIN</button>}
+      </div>
+      <button onClick={() => onSave(perm, role)} disabled={saving} style={{
+        padding: "9px 20px", background: C.brand, color: "#fff",
+        border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13, alignSelf: "flex-start",
+      }}>Save Changes</button>
     </div>
   );
 }
