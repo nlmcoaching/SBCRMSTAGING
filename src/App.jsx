@@ -1584,7 +1584,6 @@ export default function App() {
                         {currentUser?.lastLogin && <div style={{ fontSize: 11, color: C.ink3 }}>Last login: {currentUser.lastLogin}</div>}
                       </div>
                     </div>
-                    </div>
                     <div style={{ height: 1, background: C.line, margin: "4px 0" }} />
 
                     {/* Menu items */}
