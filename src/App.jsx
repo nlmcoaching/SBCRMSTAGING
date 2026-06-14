@@ -3684,7 +3684,7 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
   const fields = FIELDS[db];
   const titleField = fields.find((x) => x.title);
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
-  const isNew = !data[db].some((r) => r.id === record.id);
+  const isNew = !(data[db] || []).some((r) => r.id === record.id);
   const hasTimeline = (db === "clients" || db === "partners") && !isNew;
   const hasChecklist = db === "partners" && !isNew;
   const hasSessionTabs = db === "sessions" && !isNew;
@@ -5930,7 +5930,7 @@ function Empty({ children, pad }) {
 /* ---------- tiny utils ---------- */
 function cleanName(n) { return String(n || "").replace(/^Sample\s*-\s*/i, ""); }
 function clientShort(n) { return cleanName(n); }
-function sectionLabel(db) { return { clients: "Clients", partners: "Studio Partners", sessions: "Sessions", offers: "Offers & Sales", content: "Content & Referral", followups: "Follow-Ups" }[db]; }
+function sectionLabel(db) { return { clients: "Clients", partners: "Studio Partners", sessions: "Sessions", offers: "Offers & Sales", content: "Content & Referral", followups: "Follow-Ups", revenue: "Revenue", expenses: "Expenses", testimonials: "Testimonials", templates: "Templates", referrals: "Referrals", outreach: "Outreach Hub" }[db] || db; }
 function hexA(hex, a) {
   const h = (hex || "#000").replace("#", ""); const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
   return `rgba(${r},${g},${b},${a})`;
