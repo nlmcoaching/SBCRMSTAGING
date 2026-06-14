@@ -1111,7 +1111,7 @@ function LockScreen({ onUnlock, error, initialising, users }) {
               }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = u.color || C.brand; e.currentTarget.style.background = hexA(u.color || C.brand, 0.06); }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = C.line; e.currentTarget.style.background = C.surfaceAlt; }}>
-                <div style={{ width: 40, height: 40, borderRadius: "50%", background: u.color || C.brand,
+                <div style={{ width: 40, height: 40, borderRadius: "50%", background: u.avatar ? C.bg : (u.color || C.brand),
                   display: "flex", alignItems: "center", justifyContent: "center",
                   fontSize: 14, fontWeight: 800, color: "#fff", flexShrink: 0, overflow: "hidden" }}>
                   {u.avatar
@@ -1134,7 +1134,7 @@ function LockScreen({ onUnlock, error, initialising, users }) {
                 style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px",
                   border: `1px solid ${C.line}`, borderRadius: 10, cursor: "pointer",
                   background: C.surfaceAlt, width: "100%", marginBottom: 4 }}>
-                <div style={{ width: 32, height: 32, borderRadius: "50%", background: selectedUser.color || C.brand,
+                <div style={{ width: 32, height: 32, borderRadius: "50%", background: selectedUser.avatar ? C.bg : (selectedUser.color || C.brand),
                   display: "flex", alignItems: "center", justifyContent: "center",
                   fontSize: 12, fontWeight: 800, color: "#fff", overflow: "hidden" }}>
                   {selectedUser.avatar
@@ -1624,7 +1624,7 @@ export default function App() {
               <button
                 onClick={() => setShowProfile(p => !p)}
                 title={currentUser?.name}
-                style={{ width: 36, height: 36, borderRadius: "50%", background: currentUser?.color || C.brand, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" }}>
+                style={{ width: 36, height: 36, borderRadius: "50%", background: currentUser?.avatar ? C.bg : (currentUser?.color || C.brand), border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" }}>
                 {currentUser?.avatar
                   ? <img src={currentUser.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                   : <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>
@@ -1643,7 +1643,7 @@ export default function App() {
                   }}>
                     {/* User info header */}
                     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px 8px" }}>
-                      <div style={{ width: 38, height: 38, borderRadius: "50%", background: currentUser?.color || C.brand, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" }}>
+                      <div style={{ width: 38, height: 38, borderRadius: "50%", background: currentUser?.avatar ? C.bg : (currentUser?.color || C.brand), display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" }}>
                         {currentUser?.avatar
                           ? <img src={currentUser.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                           : <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>
@@ -5686,7 +5686,7 @@ function EditProfileModal({ user, masterKeyRaw, onSave, onClose }) {
               <div style={{ display: "flex", alignItems: "flex-start", gap: 22 }}>
                 {/* Avatar preview */}
                 <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-                  <div style={{ position: "relative", width: 96, height: 96, borderRadius: "50%", background: color, overflow: "hidden", cursor: "pointer", border: `3px solid ${C.line}` }}
+                  <div style={{ position: "relative", width: 96, height: 96, borderRadius: "50%", background: avatar ? C.bg : color, overflow: "hidden", cursor: "pointer", border: `3px solid ${C.line}` }}
                     onClick={() => fileRef.current?.click()}>
                     {avatar
                       ? <img src={avatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
