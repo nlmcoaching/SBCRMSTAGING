@@ -2461,7 +2461,7 @@ function Today({ data, derived, today, onOpen, onGo }) {
   );
   const activeSeqs   = (data.sequences || []).filter(s => s.status === "active").length;
   const refRevenue   = (data.referrals || []).reduce((a, r) => a + (Number(r.revenue) || 0), 0);
-  const activeMembers = (data.clients || []).filter(c => c.status === "Member (4+)" || c.status === "Advocate").length;
+  const activeMembers = (data.clients || []).filter(c => c.status !== "Lead").length;
 
   const d = new Date();
   const greeting = d.getHours() < 12 ? "Good morning" : d.getHours() < 18 ? "Good afternoon" : "Good evening";
@@ -2488,7 +2488,7 @@ function Today({ data, derived, today, onOpen, onGo }) {
       <div className="sb-stats">
         <Stat label="Net revenue MTD"   value={money(mtdRevenue)}  hint="sessions + closed offers"           onClick={() => onGo("revenue")} />
         <Stat label="Referral revenue"  value={money(refRevenue)}  hint="from all referrals" accent={refRevenue > 0 ? "#4A8C6F" : C.ink3} onClick={() => onGo("referrals")} />
-        <Stat label="Active members"    value={activeMembers}      hint="Member & Advocate clients"          onClick={() => onGo("clients")} />
+        <Stat label="Active clients"    value={activeMembers}      hint="booked, attended or beyond"        onClick={() => onGo("clients")} />
         <Stat label="Active sequences"  value={activeSeqs}         hint="clients in follow-up nurture"       onClick={() => onGo("engine")} />
       </div>
 
