@@ -1196,6 +1196,7 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
+  const [confirm, setConfirm] = useState(null); // { message, onOk, okLabel?, danger? }
   const [saved, setSaved] = useState("idle"); // idle | saving | saved
   const loaded = useRef(false);
   const today = todayISO();
@@ -1680,7 +1681,7 @@ export default function App() {
                     <div style={{ height: 1, background: C.line, margin: "4px 0" }} />
 
                     <button
-                      onClick={() => { setShowProfile(false); if (window.confirm("Log out of Simply Breathe OS?")) handleLogout(); }}
+                      onClick={() => { setShowProfile(false); setConfirm({ message: "Log out of Simply Breathe OS?", okLabel: "Log Out", danger: true, onOk: handleLogout }); }}
                       style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 12px", border: "none", borderRadius: 8, background: "transparent", cursor: "pointer", fontSize: 13, color: "#B91C1C", textAlign: "left" }}
                       onMouseEnter={e => e.currentTarget.style.background = "#FEE2E2"}
                       onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
@@ -1719,6 +1720,14 @@ export default function App() {
           onSave={handleSaveProfile}
           onClose={() => setShowEditProfile(false)}
         />
+      )}
+      {confirm && (
+        <ConfirmModal
+          message={confirm.message}
+          okLabel={confirm.okLabel || "OK"}
+          danger={confirm.danger}
+          onOk={() => { confirm.onOk(); setConfirm(null); }}
+          onCancel={() => setConfirm(null)} />
       )}
     </div>
   );
@@ -2717,7 +2726,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         : v.layout === "workflows"
         ? <WorkflowsView data={data} derived={derived} today={today} />
         : v.layout === "user-management"
-        ? <UserManagementView currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} onUsersUpdated={setSecUsers} />
+        ? <UserManagementView currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} onUsersUpdated={setSecUsers} onConfirm={setConfirm} />
         : v.layout === "admin-overview"   ? <AdminView tab="overview"   data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
         : v.layout === "admin-schema"     ? <AdminView tab="schema"     data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
         : v.layout === "admin-integrity"  ? <AdminView tab="integrity"  data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
@@ -5800,6 +5809,43 @@ function EditProfileModal({ user, masterKeyRaw, onSave, onClose }) {
   );
 }
 
+function ConfirmModal({ message, okLabel = "OK", danger = false, onOk, onCancel }) {
+  return (
+    <div className="sb-drawerwrap" onMouseDown={onCancel} style={{ zIndex: 80 }}>
+      <div onMouseDown={e => e.stopPropagation()} style={{
+        background: C.surface, borderRadius: 18, padding: "32px 32px 24px",
+        width: 380, maxWidth: "92vw", textAlign: "center",
+        boxShadow: `0 24px 80px ${hexA(C.brandDeep, 0.28)}, 0 4px 16px ${hexA(C.brandDeep, 0.1)}`,
+        animation: "sb-pop .2s cubic-bezier(.22,.68,0,1.2)",
+      }}>
+        <div style={{ width: 52, height: 52, borderRadius: "50%", background: danger ? "#FEF2F2" : C.brandSoft,
+          display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+          {danger
+            ? <LogOut size={22} color="#DC2626" strokeWidth={1.5} />
+            : <Info size={22} color={C.brand} strokeWidth={1.5} />}
+        </div>
+        <div style={{ fontFamily: FONT.display, fontSize: 17, fontWeight: 700, color: C.ink, marginBottom: 8 }}>
+          {okLabel}?
+        </div>
+        <div style={{ fontSize: 14, color: C.ink3, lineHeight: 1.6, marginBottom: 28 }}>{message}</div>
+        <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+          <button onClick={onCancel} className="sb-ghost" style={{ minWidth: 100, justifyContent: "center" }}>
+            Cancel
+          </button>
+          <button onClick={onOk} style={{
+            minWidth: 120, padding: "9px 20px", borderRadius: 10, border: "none", cursor: "pointer",
+            fontWeight: 700, fontSize: 14, justifyContent: "center",
+            background: danger ? "#DC2626" : C.brand, color: "#fff",
+            boxShadow: `0 2px 8px ${hexA(danger ? "#DC2626" : C.brand, 0.35)}`,
+          }}>
+            {okLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ImportModal({ data, setData, onClose }) {
   const [staged, setStaged] = useState({});  // db -> parsed rows
   const [busy, setBusy] = useState(false);
@@ -6467,7 +6513,7 @@ function WorkflowsView({ data, derived, today }) {
 }
 
 /* ── USER MANAGEMENT VIEW ── */
-function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdated }) {
+function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdated, onConfirm }) {
   const [showAdd, setShowAdd]     = useState(false);
   const [editUser, setEditUser]   = useState(null);   // user being edited
   const [newName, setNewName]     = useState("");
@@ -6555,7 +6601,15 @@ function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdate
 
   const handleDeactivate = async (userId) => {
     if (userId === currentUser?.id) return;
+    if (onConfirm) {
+      onConfirm({ message: "Deactivate this user? They will no longer be able to log in.", okLabel: "Deactivate", danger: true, onOk: () => doDeactivate(userId) });
+      return;
+    }
     if (!window.confirm("Deactivate this user? They will no longer be able to log in.")) return;
+    doDeactivate(userId);
+  };
+
+  const doDeactivate = async (userId) => {
     setSaving(true);
     try {
       const secRaw = await store.get(SEC_META_KEY);
