@@ -95,7 +95,7 @@ On load, the decrypted data is validated against the expected schema (all requir
 
 ## User Management
 
-**Navigation:** Sidebar → User Management (Core section)
+**Navigation:** Sidebar → Admin → User Management (nested sub-item; expands when Admin is active)
 
 ### Features
 
@@ -962,27 +962,42 @@ Expenses feed into two places:
 
 ### Sidebar Structure
 
-Sections are grouped into three visual lanes:
-
-**B2C — Personal Clients** (left border accent)
-- Today (Dashboard)
-- Clients
-- Sessions
-- Offers
-- Follow-Up Engine
-- Revenue
-- Content
-- Testimonials
-- Referrals
+Sections are grouped into three visual lanes rendered in this order:
 
 **B2B — Studio Partners** (teal left border accent)
 - Studio Partners
 - Outreach Hub
+- Sessions
 
-**Core — Operations** (no accent)
-- Templates
+**B2C — Personal Clients** (brand left border accent)
+- Clients
+- Offers & Sales
+- Testimonials
+- Follow-Ups
+- Referrals
+- Follow-up Engine
+
+**Core — Operations** (no accent, always visible)
+- Today (Command Center) — pinned at top
+- Revenue
+- Expenses
 - Workflows
-- User Management
+- Content Calendar
+- Templates
+- Admin
+  - User Management *(nested sub-item, expands when Admin is active)*
+
+> **Note:** User Management is a collapsible child of Admin. The Admin nav item shows a chevron indicator; clicking Admin or User Management automatically expands the group.
+
+### Record Editing — Modal Popup
+
+Clicking any record (or the **New** button) opens a **centered modal popup** rather than a side panel. The modal features:
+- A gradient accent stripe at the top (brand color)
+- Rounded corners (20px radius) with a rich drop shadow
+- Pop-in animation (scale + fade)
+- Standard width: **700px** (max 96vw); wide mode for Contact Timeline: **900px**
+- Max height **90vh** — header and footer always visible; body scrolls independently
+- Clicking the semi-transparent backdrop closes without saving
 
 ### Header
 
@@ -1014,8 +1029,9 @@ Click the avatar in the top-right to open the dropdown:
 
 ### CSV Import
 
-- Available for: Clients, Studio Partners, Sessions, Offers, Referrals, Content, Outreach
-- Drag-and-drop or file picker
+- Available for: Clients, Studio Partners, Sessions, Offers, Referrals, Content, Outreach, **Expenses**
+- Expenses can also be imported directly via the **Upload Expense CSV** button on the Expenses → Summary page (appends rows; does not replace existing data)
+- Drag-and-drop or file picker via the global **Import CSVs** sidebar button
 - PapaParse used for CSV parsing
 - Formula injection and HTML stripped on import
 - Duplicate detection by name/email
@@ -1054,6 +1070,8 @@ Accessed via the avatar dropdown → Edit Profile. Two tabs:
 - Lock screen "change user" back button
 - Header avatar button (top-right)
 - Profile dropdown header
+
+Profile photos use `position: absolute; inset: 0; object-fit: cover` so the image fills the entire circle with no background gap or color bleed.
 
 ---
 

@@ -66,38 +66,42 @@ If your PIN is correct, you'll go straight to your dashboard. If you forget your
 
 The left sidebar is your main navigation. It is organized into three groups:
 
-**Personal Clients (B2C)**
-Everything related to individual clients — their records, sessions, offers, content, and more.
-
-| Section | What It's For |
-|---|---|
-| Today | Your daily dashboard and action list |
-| Clients | All your individual clients and leads |
-| Sessions | Every breathwork session you've run or planned |
-| Offers | Packages and proposals you've made to clients |
-| Follow-Up Engine | Automated post-session follow-up sequences |
-| Revenue | Revenue tracking and attribution |
-| Content | Your content calendar and social post planning |
-| Testimonials | Client testimonials and social proof |
-| Referrals | Who's referring who and the value they generate |
-
 **Studio Partners (B2B)**
-Everything related to studios and business-to-business relationships.
+Everything related to studios and business-to-business relationships — shown first because studio partnerships drive the core of the business.
 
 | Section | What It's For |
 |---|---|
 | Studio Partners | Your full studio pipeline — from first contact to recurring partner |
 | Outreach Hub | Your proactive outreach list for new studios and referral sources |
+| Sessions | Every breathwork session you've run or planned |
 
-**Core**
-System-wide tools that support both lanes.
+**Personal Clients (B2C)**
+Everything related to individual clients and leads.
 
 | Section | What It's For |
 |---|---|
-| Templates | Pre-written email and SMS templates ready to use |
+| Clients | All your individual clients and leads |
+| Offers & Sales | Packages and proposals you've made to clients |
+| Testimonials | Client testimonials and social proof |
+| Follow-Ups | Manual follow-up records |
+| Referrals | Who's referring who and the value they generate |
+| Follow-up Engine | Automated post-session follow-up sequences |
+
+**Core — Operations**
+System-wide tools that support everything else.
+
+| Section | What It's For |
+|---|---|
+| Today | Your daily dashboard and action list |
+| Revenue | Revenue tracking and attribution |
+| Expenses | Business expense tracking and P&L |
 | Workflows | A visual view of your five core business pipelines |
-| User Management | Add or manage people who can access the system |
+| Content Calendar | Your content calendar and social post planning |
+| Templates | Pre-written email and SMS templates ready to use |
 | Admin | System health, database info, and backup tools |
+| ↳ User Management | Nested under Admin — add or manage system users |
+
+> **Tip:** User Management lives inside the Admin section. Click **Admin** in the sidebar to expand it and reveal the User Management sub-item.
 
 ### The Header
 
@@ -109,11 +113,12 @@ At the top of every page you'll find:
 
 ### Opening a Record
 
-Click any row in a table to open the full record in a side panel. From there you can:
+Click any row in a table to open the full record in a **centered modal popup**. From there you can:
 - Read all the details
 - Edit any field
 - Switch between tabs (e.g. Timeline, Checklist, Equipment)
 - Save your changes or delete the record (if you have permission)
+- Click anywhere outside the modal (on the dark backdrop) to close without saving
 
 ---
 
@@ -717,7 +722,7 @@ The system automatically uses your expense data in:
 Click your **avatar circle** in the top-right corner of any page, then select **Edit Profile**.
 
 **Profile tab — what you can update:**
-- **Profile photo** — Click the avatar circle or the "Upload photo" button. Your photo will be resized automatically. It will appear on the login screen and in the header.
+- **Profile photo** — Click the avatar circle or the "Upload photo" button. Your photo will be resized automatically. It fills the entire avatar circle edge-to-edge and appears on the login screen and in the header.
 - **Avatar color** — If you don't have a photo, choose a color for your initials circle.
 - **Full Name**
 - **Title** — e.g. "Lead Facilitator", "Studio Manager"
