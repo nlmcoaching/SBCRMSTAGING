@@ -1155,8 +1155,14 @@ export default function App() {
             // v2 multi-user format
             if (parsed.version === 2 && Array.isArray(parsed.users)) {
               if (alive) setSecUsers(parsed.users.filter(u => u.active !== false));
+            } else {
+              // v1 single-user format — show a placeholder tile so the screen is interactive
+              // handleUnlock will auto-migrate to v2 on successful PIN entry
+              if (alive) setSecUsers([{
+                id: "v1_migration", name: "Admin", role: "Owner",
+                permissions: ROLE_PERMISSIONS.Owner, active: true, color: USER_COLORS[0],
+              }]);
             }
-            // v1 single-user format — users list shown as placeholder until they unlock+migrate
           } else {
             // First ever run — seed owner with default PIN
             const pinSalt       = Sec.newSalt();
@@ -1176,7 +1182,16 @@ export default function App() {
           }
         }
       } catch (_) { /* storage unavailable */ }
-      finally { if (alive) setInitialising(false); }
+      finally {
+        // If storage is unavailable or errored, ensure at least one tile shows
+        if (alive) {
+          setSecUsers(prev => prev.length > 0 ? prev : [{
+            id: "v1_migration", name: "Admin", role: "Owner",
+            permissions: ROLE_PERMISSIONS.Owner, active: true, color: USER_COLORS[0],
+          }]);
+          setInitialising(false);
+        }
+      }
     })();
     return () => { alive = false; };
   }, []);
