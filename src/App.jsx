@@ -5,7 +5,7 @@ import {
   LayoutGrid, Users, Building2, CalendarDays, DollarSign, Megaphone,
   RefreshCw, Plus, X, Search, Upload, Download, Trash2, ChevronLeft,
   ChevronRight, Menu, Phone, Mail, Link2, Wind, ArrowUpRight, Check,
-  Zap, Copy, Clock, TrendingUp, BarChart2,
+  Zap, Copy, Clock, TrendingUp, BarChart2, AlertCircle, Activity, Send,
 } from "lucide-react";
 
 /* ============================================================
@@ -824,6 +824,151 @@ function buildActions(data, derived, today) {
   return actions.sort((a, b) => a.priority !== b.priority ? a.priority - b.priority : urgencyScore[a.urgency] - urgencyScore[b.urgency]);
 }
 
+/* ── PIPELINE SNAPSHOT ── */
+function PipelineSnapshot({ data, today }) {
+  const offers        = data.offers   || [];
+  const partners      = data.partners || [];
+  const sessions      = data.sessions || [];
+  const clients       = data.clients  || [];
+  const revenue       = data.revenue  || [];
+
+  // Open offer pipeline
+  const openOffers      = offers.filter(o => OPEN_STATUSES.includes(o.status));
+  const openPipelineVal = openOffers.reduce((a, o) => a + (Number(o.price) || 0), 0);
+  const openPipelineWt  = openOffers.reduce((a, o) =>
+    a + (Number(o.price) || 0) * ((Number(o.probability) || 50) / 100), 0);
+
+  // Studio pipeline — non-lost partners, sum revenuePotential
+  const lostStage       = "Lost / not a fit";
+  const studioPartners  = partners.filter(p => p.stage !== lostStage);
+  const recurringP      = partners.filter(p => p.stage === "Recurring partner");
+  const studioPipeVal   = studioPartners.reduce((a, p) => a + (Number(p.revenuePotential) || 0), 0);
+  const partnerConvRate = studioPartners.length > 0
+    ? Math.round((recurringP.length / studioPartners.length) * 100) : 0;
+
+  // Expected this month: upcoming sessions (not completed) + weighted open offers
+  const preSessions     = sessions.filter(s =>
+    sameMonth(s.date, today) && ["Planned","Booking open","Promotion active","Almost full"].includes(s.sessionStatus));
+  const bookedVal       = preSessions.reduce((a, s) => a + (Number(s.grossRevenue) || 0), 0);
+  const expected30d     = bookedVal + openPipelineWt;
+
+  // Booked but not delivered
+  const bookedNotDel    = preSessions.length;
+  const bookedNotDelVal = bookedVal;
+
+  // Delivered but unpaid — completed sessions without paymentConfirmed
+  const unpaidSessions  = sessions.filter(s =>
+    ["Completed","Follow-up pending","Closed out"].includes(s.sessionStatus) && !s.paymentConfirmed);
+  const unpaidVal       = unpaidSessions.reduce((a, s) => a + (Number(s.netRevenue) || 0), 0);
+
+  // Offers awaiting response (Sent / Viewed)
+  const awaitingOffers  = offers.filter(o => ["Sent", "Viewed"].includes(o.status));
+  const awaitingVal     = awaitingOffers.reduce((a, o) => a + (Number(o.price) || 0), 0);
+
+  // Average client value — use clients with any recorded totalSpend
+  const payingClients   = clients.filter(c => Number(c.totalSpend) > 0);
+  const avgClientVal    = payingClients.length > 0
+    ? payingClients.reduce((a, c) => a + (Number(c.totalSpend) || 0), 0) / payingClients.length : 0;
+
+  // Average session net revenue
+  const sessionsWithRev = sessions.filter(s => Number(s.netRevenue) > 0);
+  const avgSessionRev   = sessionsWithRev.length > 0
+    ? sessionsWithRev.reduce((a, s) => a + (Number(s.netRevenue) || 0), 0) / sessionsWithRev.length : 0;
+
+  const totalPotential  = openPipelineVal + studioPipeVal;
+
+  const tiles = [
+    {
+      label: "Open offer pipeline",
+      value: money(openPipelineVal),
+      sub: `${openOffers.length} offers · ${money(Math.round(openPipelineWt))} weighted`,
+      accent: C.brand, Icon: TrendingUp,
+    },
+    {
+      label: "Studio partner pipeline",
+      value: money(studioPipeVal),
+      sub: `${studioPartners.length} studios active`,
+      accent: "#6B5CE7", Icon: Building2,
+    },
+    {
+      label: "Expected 30-day revenue",
+      value: money(Math.round(expected30d)),
+      sub: "upcoming sessions + weighted offers",
+      accent: C.gold, Icon: CalendarDays,
+    },
+    {
+      label: "Booked, not delivered",
+      value: money(bookedNotDelVal),
+      sub: `${bookedNotDel} upcoming session${bookedNotDel !== 1 ? "s" : ""}`,
+      accent: C.ink2, Icon: Clock,
+    },
+    {
+      label: "Delivered, unpaid",
+      value: money(unpaidVal),
+      sub: `${unpaidSessions.length} session${unpaidSessions.length !== 1 ? "s" : ""} pending payment`,
+      accent: unpaidVal > 0 ? "#E05454" : C.ink3, Icon: AlertCircle,
+    },
+    {
+      label: "Offers awaiting response",
+      value: money(awaitingVal),
+      sub: `${awaitingOffers.length} offer${awaitingOffers.length !== 1 ? "s" : ""} sent or viewed`,
+      accent: C.gold, Icon: Send,
+    },
+    {
+      label: "Avg client value",
+      value: money(Math.round(avgClientVal)),
+      sub: `across ${payingClients.length} paying client${payingClients.length !== 1 ? "s" : ""}`,
+      accent: C.brand, Icon: Users,
+    },
+    {
+      label: "Avg session net revenue",
+      value: money(Math.round(avgSessionRev)),
+      sub: `${sessionsWithRev.length} session${sessionsWithRev.length !== 1 ? "s" : ""} with revenue`,
+      accent: C.brand, Icon: BarChart2,
+    },
+    {
+      label: "Partner conversion rate",
+      value: `${partnerConvRate}%`,
+      sub: `${recurringP.length} of ${studioPartners.length} recurring`,
+      accent: "#4A8C6F", Icon: Check,
+    },
+  ];
+
+  return (
+    <div className="sb-card" style={{ overflow: "hidden" }}>
+      {/* Header */}
+      <div style={{ padding: "14px 18px 12px", display: "flex", alignItems: "baseline", gap: 10, borderBottom: `1px solid ${C.line}`, flexWrap: "wrap" }}>
+        <span style={{ fontFamily: FONT.display, fontSize: 16, fontWeight: 600 }}>Pipeline at a Glance</span>
+        <div style={{ flex: 1 }} />
+        <span style={{ fontSize: 11.5, color: C.ink3, fontWeight: 500 }}>Total potential</span>
+        <span style={{ fontFamily: FONT.display, fontSize: 22, fontWeight: 700, color: C.brand }}>
+          {money(totalPotential)}
+        </span>
+      </div>
+
+      {/* Tile grid */}
+      <div style={{ padding: "14px 14px 14px", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}
+           className="sb-pipeline-grid">
+        {tiles.map(({ label, value, sub, accent, Icon }) => (
+          <div key={label} style={{
+            padding: "13px 14px", borderRadius: 10,
+            background: C.surfaceAlt, border: `1px solid ${C.line}`,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 7 }}>
+              <Icon size={12} color={accent} strokeWidth={2.5} />
+              <span style={{ fontSize: 11, color: C.ink3, textTransform: "uppercase", letterSpacing: "0.07em", fontWeight: 600, lineHeight: 1.2 }}>
+                {label}
+              </span>
+            </div>
+            <div style={{ fontFamily: FONT.display, fontSize: 21, fontWeight: 700, color: accent, lineHeight: 1.1 }}>{value}</div>
+            <div style={{ fontSize: 11, color: C.ink3, marginTop: 5, lineHeight: 1.4 }}>{sub}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Today({ data, derived, today, onOpen, onGo }) {
   const [showAll, setShowAll] = useState(null); // null | "revenue" | "relationship" | "operational"
 
@@ -836,11 +981,11 @@ function Today({ data, derived, today, onOpen, onGo }) {
 
   const mtdRevenue = (
     data.sessions.filter(s => sameMonth(s.date, today)).reduce((a, s) => a + (Number(s.netRevenue) || 0), 0) +
-    data.revenue?.filter(r => sameMonth(r.date, today)).reduce((a, r) => a + calcNet(r), 0) || 0
+    (data.revenue?.filter(r => sameMonth(r.date, today)).reduce((a, r) => a + calcNet(r), 0) || 0)
   );
-  const openPipeline = (data.offers || []).filter(o => OPEN_STATUSES.includes(o.status)).reduce((a, o) => a + (Number(o.price) || 0), 0);
   const activeSeqs   = (data.sequences || []).filter(s => s.status === "active").length;
   const refRevenue   = (data.referrals || []).reduce((a, r) => a + (Number(r.revenue) || 0), 0);
+  const activeMembers = (data.clients || []).filter(c => c.status === "Member (4+)" || c.status === "Advocate").length;
 
   const d = new Date();
   const greeting = d.getHours() < 12 ? "Good morning" : d.getHours() < 18 ? "Good afternoon" : "Good evening";
@@ -866,10 +1011,13 @@ function Today({ data, derived, today, onOpen, onGo }) {
       {/* Stats */}
       <div className="sb-stats">
         <Stat label="Net revenue MTD"   value={money(mtdRevenue)}  hint="sessions + closed offers" />
-        <Stat label="Open pipeline"     value={money(openPipeline)} hint={`${(data.offers||[]).filter(o=>OPEN_STATUSES.includes(o.status)).length} open offers`} />
         <Stat label="Referral revenue"  value={money(refRevenue)}  hint="from all referrals" accent={refRevenue > 0 ? "#4A8C6F" : C.ink3} />
+        <Stat label="Active members"    value={activeMembers}      hint="Member & Advocate clients" />
         <Stat label="Active sequences"  value={activeSeqs}         hint="clients in follow-up nurture" />
       </div>
+
+      {/* Pipeline snapshot */}
+      <PipelineSnapshot data={data} today={today} />
 
       {/* ── NEXT BEST ACTIONS ── */}
       <div>
@@ -3835,6 +3983,7 @@ input, textarea, select, button { font-family: inherit; }
   .sb-menu { display: inline-flex; }
   .sb-stats { grid-template-columns: 1fr 1fr; }
   .sb-nba-grid { grid-template-columns: 1fr !important; }
+  .sb-pipeline-grid { grid-template-columns: 1fr 1fr !important; }
   .sb-grid2 { grid-template-columns: 1fr; }
   .sb-content, .sb-header { padding-left: 16px; padding-right: 16px; }
   .sb-search { width: 130px; }
