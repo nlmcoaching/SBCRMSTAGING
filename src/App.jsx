@@ -235,6 +235,20 @@ const TESTIMONIAL_THEMES = [
   "Confidence","Spiritual growth","Nervous system reset","Physical release",
 ];
 
+/* ── MESSAGE TEMPLATES ── */
+const TMPL_CATEGORY = ["Studio Outreach","Studio Sales","Post-Session","Sales & Offers","Engagement","Operations"];
+const TMPL_CATEGORY_COLOR = {
+  "Studio Outreach": "#6B5CE7",
+  "Studio Sales":    "#2E6FB0",
+  "Post-Session":    "#4A8C6F",
+  "Sales & Offers":  C.brand,
+  "Engagement":      "#D9892B",
+  "Operations":      "#9E9E9E",
+};
+const TMPL_CHANNEL       = ["Email","SMS","DM"];
+const TMPL_CHANNEL_COLOR = { Email:"#D9892B", SMS:"#4A8C6F", DM:"#E1306C" };
+const TMPL_LINKED_TO     = ["clients","partners","sessions","any"];
+
 function outreachScore(o, today) {
   let s = 0;
   if (o.warmth === "Hot") s += 40; else if (o.warmth === "Warm") s += 20;
@@ -548,10 +562,290 @@ const SEED = {
     { id: "tm4", name: "Sample - Priya Nair — Sunday Slow Down",   clientId: "c4", sessionId: "s3", status: "Received",  type: "Written",    content: "I came because Sam wouldn't stop talking about it. I stayed because something in me woke up. I've never cried and laughed in the same breath before. My body knew things my mind had forgotten.",                                                                                                                          bestQuote: "My body knew things my mind had forgotten.",                      beforeSummary: "Skeptical, came via referral",                               afterSummary: "Emotional awakening, high referral potential",                  themes: ["Emotional release","Spiritual growth","Mental clarity"],        permissionReceived: false, useOnWebsite: false, useOnSocial: false, firstNameOnly: false, videoUrl: "",   dateReceived: "2026-06-08", datePublished: "",           notes: "Need to confirm permission before using" },
     { id: "tm5", name: "Sample - Chris Okafor — first session",    clientId: "c3", sessionId: "s1", status: "Breakthrough noted", type: "Written", content: "",                                                                                                                                                                                                                                                                                                               bestQuote: "",                                                               beforeSummary: "First-timer, strong nervous system response during session",  afterSummary: "Hasn't been asked yet — testimonial request overdue",          themes: ["Stress relief","Nervous system reset"],                          permissionReceived: false, useOnWebsite: false, useOnSocial: false, firstNameOnly: false, videoUrl: "",   dateReceived: "",           datePublished: "",           notes: "Breakthrough observed 6/1. Request not yet sent." },
   ],
+  templates: [
+    {
+      id: "tpl1", name: "Studio outreach — intro",
+      category: "Studio Outreach", channel: "Email", linkedTo: "partners", usageCount: 4,
+      subject: "Breathwork for {{studioName}} — a revenue partnership",
+      body: `Hi {{contactName}},
+
+I'm {{yourName}}, founder of Simply Breathe. I help wellness studios add high-engagement breathwork experiences that their community loves — and that generate meaningful additional revenue for the studio.
+
+Here's how it works: I bring the session, the music, the facilitation, and the follow-up. You provide the space and promote to your list. We split the revenue. No risk, no cost to you.
+
+Studios like {{referenceStudio}} have seen {{avgAttendance}} attendees per session and strong re-booking rates.
+
+Would you be open to a 15-minute call to see if this is a fit for {{studioName}}?
+
+Warm,
+{{yourName}}`,
+      variables: "{{contactName}}, {{studioName}}, {{yourName}}, {{referenceStudio}}, {{avgAttendance}}",
+      notes: "Use for cold and warm intro. Personalize with referenceStudio name for warm intros.",
+    },
+    {
+      id: "tpl2", name: "Studio follow-up — no response",
+      category: "Studio Outreach", channel: "Email", linkedTo: "partners", usageCount: 2,
+      subject: "Following up — Simply Breathe × {{studioName}}",
+      body: `Hi {{contactName}},
+
+I wanted to follow up on my message from {{lastContactDate}}. I completely understand life gets busy.
+
+I'd love just 15 minutes to show you what the experience has looked like at studios similar to yours. No obligation — just a conversation.
+
+If timing isn't right right now, I'm happy to circle back in a few weeks. Just let me know.
+
+Warm,
+{{yourName}}`,
+      variables: "{{contactName}}, {{studioName}}, {{lastContactDate}}, {{yourName}}",
+      notes: "Send 5–7 days after initial outreach with no response.",
+    },
+    {
+      id: "tpl3", name: "Demo invitation",
+      category: "Studio Sales", channel: "Email", linkedTo: "partners", usageCount: 3,
+      subject: "Let me bring the experience to {{studioName}}",
+      body: `Hi {{contactName}},
+
+The best way to understand what Simply Breathe is about is to feel it.
+
+I'd love to offer a complimentary 30-minute breathwork experience for you and a small group at {{studioName}} — no commitment required. I'll handle everything: music, facilitation, and a brief debrief afterward.
+
+It's the fastest way to know if this resonates with your community.
+
+Are you open to {{proposedDate}}?
+
+Warm,
+{{yourName}}`,
+      variables: "{{contactName}}, {{studioName}}, {{proposedDate}}, {{yourName}}",
+      notes: "Best used after initial interest shown. Keep it low-commitment.",
+    },
+    {
+      id: "tpl4", name: "Pilot proposal",
+      category: "Studio Sales", channel: "Email", linkedTo: "partners", usageCount: 1,
+      subject: "4-week breathwork pilot for {{studioName}} — proposal",
+      body: `Hi {{contactName}},
+
+Thank you for the conversation last week — I left genuinely excited about what this could be for {{studioName}} and your community.
+
+I'd like to propose a 4-week pilot:
+
+• {{sessionsPerMonth}} sessions per month
+• Revenue split: {{revSplit}}
+• Ticket price: {{ticketPrice}} per person
+• Minimum attendance: {{minAttendance}} to cover costs
+• I handle: facilitation, music, setup, follow-up emails
+• You handle: space, promotion to your list, social posts
+
+I've attached a one-page overview. I'm also happy to jump on a call to walk through any questions.
+
+Looking forward to building something great together.
+
+Warm,
+{{yourName}}`,
+      variables: "{{contactName}}, {{studioName}}, {{sessionsPerMonth}}, {{revSplit}}, {{ticketPrice}}, {{minAttendance}}, {{yourName}}",
+      notes: "Personalize numbers from the partner record. Attach one-pager PDF.",
+    },
+    {
+      id: "tpl5", name: "Agreement follow-up",
+      category: "Studio Sales", channel: "Email", linkedTo: "partners", usageCount: 0,
+      subject: "Quick check-in on our agreement — {{studioName}}",
+      body: `Hi {{contactName}},
+
+I wanted to circle back on the partnership agreement I sent over on {{sentDate}}.
+
+Is there anything you'd like to discuss, clarify, or adjust before we move forward? I'm happy to get on a quick call if that's easier.
+
+Once we have the agreement signed, I can get the booking page and QR code set up within a few days so we can start promoting.
+
+Looking forward to it.
+
+Warm,
+{{yourName}}`,
+      variables: "{{contactName}}, {{studioName}}, {{sentDate}}, {{yourName}}",
+      notes: "Send 4–5 days after agreement sent with no response.",
+    },
+    {
+      id: "tpl6", name: "Event reminder",
+      category: "Operations", channel: "Email", linkedTo: "sessions", usageCount: 7,
+      subject: "Your session is coming up — {{sessionName}}",
+      body: `Hi {{clientName}},
+
+Just a reminder that {{sessionName}} is happening:
+
+📅 {{sessionDate}}
+🕐 {{sessionTime}}
+📍 {{location}}
+
+A few things to know:
+• Arrive 5–10 minutes early so we can get settled
+• Wear comfortable clothing you can breathe in
+• Bring a water bottle
+• No food 2 hours before if possible
+
+The waiver link (if needed): {{waiverLink}}
+
+I can't wait to hold space for you. See you soon. 🌿
+
+Warm,
+{{yourName}}`,
+      variables: "{{clientName}}, {{sessionName}}, {{sessionDate}}, {{sessionTime}}, {{location}}, {{waiverLink}}, {{yourName}}",
+      notes: "Send 24–48 hours before the session.",
+    },
+    {
+      id: "tpl7", name: "Thank-you after session",
+      category: "Post-Session", channel: "SMS", linkedTo: "clients", usageCount: 12,
+      subject: "",
+      body: `Hi {{clientName}} 💙
+
+Thank you so much for being in the room today. What you did took courage — and I hope you can feel the shift.
+
+Take it slow tonight. Rest, hydrate, and let your body integrate. If anything comes up — emotions, memories, questions — that's normal and beautiful.
+
+I'm here if you need anything.
+
+— {{yourName}}`,
+      variables: "{{clientName}}, {{yourName}}",
+      notes: "Send within 2 hours of session ending. Keep it warm and brief.",
+    },
+    {
+      id: "tpl8", name: "24-hour check-in",
+      category: "Post-Session", channel: "SMS", linkedTo: "clients", usageCount: 9,
+      subject: "",
+      body: `Hi {{clientName}} 🌿
+
+Checking in from yesterday. How are you feeling today?
+
+Sometimes the integration happens slowly — sleep, emotions, moments of unexpected clarity. All of it is part of the process.
+
+Anything you want to share or ask? I'm here.
+
+— {{yourName}}`,
+      variables: "{{clientName}}, {{yourName}}",
+      notes: "Send ~24 hours after session. Creates the opening for deeper conversation.",
+    },
+    {
+      id: "tpl9", name: "72-hour offer follow-up",
+      category: "Sales & Offers", channel: "Email", linkedTo: "clients", usageCount: 6,
+      subject: "Continuing the work — an invitation for you",
+      body: `Hi {{clientName}},
+
+I hope you've had a chance to settle into what came up in our last session. The shift you experienced doesn't have to be a one-time thing.
+
+For those who feel called to go deeper, I'm offering {{offerDetails}} — which gives us the space to do more sustained, meaningful work together.
+
+If that resonates, here's how to move forward: {{bookingLink}}
+
+No pressure at all. But if something is stirring in you, this is the next step.
+
+With care,
+{{yourName}}`,
+      variables: "{{clientName}}, {{offerDetails}}, {{bookingLink}}, {{yourName}}",
+      notes: "Send 48–72 hours after session. Match offer to client's experience.",
+    },
+    {
+      id: "tpl10", name: "Testimonial request",
+      category: "Engagement", channel: "Email", linkedTo: "clients", usageCount: 5,
+      subject: "Would you share your experience?",
+      body: `Hi {{clientName}},
+
+It means a lot that you showed up for this work. What you experienced is real — and it matters.
+
+If you're open to it, I'd love to hear about your experience in a few sentences. Even just: what shifted, what you noticed, or what you'd tell someone considering their first session.
+
+Your words could be exactly what someone else needs to hear to take the first step.
+
+You can reply directly to this email — I'll handle the rest.
+
+Thank you for trusting the process. 🙏
+
+With gratitude,
+{{yourName}}`,
+      variables: "{{clientName}}, {{yourName}}",
+      notes: "Send 5–7 days after session. Best results when sent after breakthrough sessions.",
+    },
+    {
+      id: "tpl11", name: "Referral request",
+      category: "Engagement", channel: "Email", linkedTo: "clients", usageCount: 3,
+      subject: "Know someone who could use this?",
+      body: `Hi {{clientName}},
+
+Thank you for continuing to show up. You've been on such a beautiful journey and I'm so grateful for the trust you've placed in this work.
+
+If there's someone in your life who might benefit — a friend who's burned out, anxious, stuck, or just ready for something to shift — I'd be honored if you'd share my info with them.
+
+Here's a simple way to do it: just forward them this email or send them my booking link: {{bookingLink}}
+
+As a thank-you for any referral who books, {{referralReward}}.
+
+You've already changed your own life. Imagine what it could mean to help someone else take the first step.
+
+With so much appreciation,
+{{yourName}}`,
+      variables: "{{clientName}}, {{bookingLink}}, {{referralReward}}, {{yourName}}",
+      notes: "Best sent to Advocates and clients with 3+ sessions attended.",
+    },
+    {
+      id: "tpl12", name: "Rebooking invitation",
+      category: "Sales & Offers", channel: "SMS", linkedTo: "clients", usageCount: 8,
+      subject: "",
+      body: `Hi {{clientName}} 🌿
+
+I'd love to see you again. {{nextSessionDetails}} — would you like to grab a spot?
+
+Spaces fill fast. Here's the link: {{bookingLink}}
+
+Hope to breathe with you soon. 💙
+— {{yourName}}`,
+      variables: "{{clientName}}, {{nextSessionDetails}}, {{bookingLink}}, {{yourName}}",
+      notes: "Send 7–10 days after last session if no next session is booked.",
+    },
+    {
+      id: "tpl13", name: "Private session offer",
+      category: "Sales & Offers", channel: "Email", linkedTo: "clients", usageCount: 2,
+      subject: "A personal invitation — 1:1 breathwork with {{yourName}}",
+      body: `Hi {{clientName}},
+
+I've been thinking about your journey since our last session. What came up for you is important — and I believe there's more depth available if we create the space for it.
+
+I'd like to invite you to a private 1:1 breathwork session. Unlike a group setting, we can tailor the entire experience to exactly what you're carrying and where you want to go.
+
+Private sessions are {{privateSessionPrice}} and run {{privateSessionLength}} minutes. I only hold a limited number each month.
+
+If this feels right, reply to this email or book directly here: {{bookingLink}}
+
+With care,
+{{yourName}}`,
+      variables: "{{clientName}}, {{yourName}}, {{privateSessionPrice}}, {{privateSessionLength}}, {{bookingLink}}",
+      notes: "Offer to clients who've had breakthroughs or attended 2+ group sessions.",
+    },
+    {
+      id: "tpl14", name: "Corporate inquiry response",
+      category: "Studio Outreach", channel: "Email", linkedTo: "partners", usageCount: 1,
+      subject: "Re: Breathwork for {{companyName}} — let's talk",
+      body: `Hi {{contactName}},
+
+Thank you so much for reaching out. Corporate wellness is something I'm genuinely passionate about, and I'd love to explore how breathwork could support your team at {{companyName}}.
+
+Here's what I typically offer for corporate groups:
+
+• 60-minute breathwork experience for teams of 10–50
+• Options: lunch & learn, offsite, quarterly reset, or recurring monthly
+• Fully facilitated — I bring everything needed
+• Focus areas: stress management, nervous system regulation, team presence, creative reset
+
+Investment starts at {{corporateRate}} for groups up to {{groupSize}}.
+
+I'd love to set up a 20-minute call to learn more about your team's needs. Would {{proposedDate}} work?
+
+Warm,
+{{yourName}}`,
+      variables: "{{contactName}}, {{companyName}}, {{corporateRate}}, {{groupSize}}, {{proposedDate}}, {{yourName}}",
+      notes: "Respond within 24 hours. Always offer a specific call time.",
+    },
+  ],
 };
 
 /* ---------- Helpers ---------- */
-const STORE_KEY = "simplybreathe:data:v3";
+const STORE_KEY = "simplybreathe:data:v4";
 const uid = (p) => p + "_" + Math.random().toString(36).slice(2, 9);
 const todayISO = () => {
   const d = new Date();
@@ -665,7 +959,8 @@ export default function App() {
     { id: "sessions", label: "Sessions",           Icon: CalendarDays,lane: "b2b"  },
     { id: "revenue",  label: "Revenue",            Icon: TrendingUp,  lane: "b2b"  },
     // Shared
-    { id: "content",  label: "Content Calendar",  Icon: Megaphone,   lane: "core" },
+    { id: "content",   label: "Content Calendar",  Icon: Megaphone,   lane: "core" },
+    { id: "templates", label: "Templates",          Icon: Copy,        lane: "core" },
   ];
 
   const go = (id) => { setSection(id); setView(0); setQuery(""); setNavOpen(false); };
@@ -845,6 +1140,7 @@ function newRecord(db) {
     referrals: { referrerId: "", referredName: "", referredId: "", date: todayISO(), status: "Referred", revenue: 0, thankYouSent: false, rewardGiven: false, notes: "" },
     outreach:  { name: "", targetType: "Studio", contactName: "", email: "", phone: "", location: "", source: "Cold outreach", warmth: "Cold", priority: "Medium", status: "Not contacted", responseStatus: "Pending", outreachMessage: "", lastContact: "", nextFollowUp: "", revenuePotential: 0, partnerId: "", notes: "" },
     testimonials: { name: "", clientId: "", sessionId: "", status: "Breakthrough noted", type: "Written", content: "", bestQuote: "", beforeSummary: "", afterSummary: "", themes: [], permissionReceived: false, useOnWebsite: false, useOnSocial: false, firstNameOnly: false, videoUrl: "", dateReceived: "", datePublished: "", notes: "" },
+    templates:    { name: "", category: "Post-Session", channel: "Email", subject: "", body: "", variables: "", linkedTo: "clients", usageCount: 0, notes: "" },
   };
   return { ...base, ...m[db] };
 }
@@ -1794,6 +2090,8 @@ function Section({ section, data, derived, today, view, setView, query, onOpen }
         ? <ContentAnalyticsView data={data} onOpen={onOpen} />
         : v.layout === "testimonial-library"
         ? <TestimonialLibraryView data={data} onOpen={onOpen} />
+        : v.layout === "template-library"
+        ? <TemplateLibraryView data={data} onOpen={onOpen} />
         : v.layout === "outreach-hub"
         ? <OutreachHubView rows={processed.rows} data={data} today={today} onOpen={(r) => onOpen({ db: "outreach", record: r })} />
         : v.layout === "calendar"
@@ -2106,6 +2404,20 @@ const VIEWS = {
             cards: rows.filter(r => (r.themes||[]).includes(th)),
           })).filter(g => g.cards.length > 0),
         }) },
+    ],
+  },
+  templates: {
+    views: [
+      { name: "Library", layout: "template-library" },
+      { name: "All", layout: "table",
+        columns: [
+          col("name",     "Template",  r => <span style={{ fontWeight: 600 }}>{r.name}</span>),
+          col("category", "Category",  r => <Tag color={TMPL_CATEGORY_COLOR[r.category]||C.ink3} soft>{r.category}</Tag>),
+          col("channel",  "Channel",   r => <Tag color={TMPL_CHANNEL_COLOR[r.channel]||C.ink3} soft>{r.channel}</Tag>),
+          col("subject",  "Subject",   r => <span style={{ fontSize: 12, color: C.ink2 }}>{r.subject||"—"}</span>),
+          col("usageCount","Used", r => r.usageCount || 0),
+        ],
+      },
     ],
   },
   referrals: {
@@ -2620,6 +2932,16 @@ const FIELDS = {
     f("dateReceived",    "Date received",          "date"),
     f("datePublished",   "Date published",         "date"),
     f("notes",           "Notes",                  "textarea"),
+  ],
+  templates: [
+    f("name",      "Template name",      "text",     { title: true }),
+    f("category",  "Category",           "select",   { options: TMPL_CATEGORY }),
+    f("channel",   "Channel",            "select",   { options: TMPL_CHANNEL }),
+    f("linkedTo",  "Linked to",          "select",   { options: TMPL_LINKED_TO }),
+    f("subject",   "Email subject line", "text"),
+    f("body",      "Message body",       "textarea"),
+    f("variables", "Variables (e.g. {{clientName}})", "text"),
+    f("notes",     "Notes / usage tips", "textarea"),
   ],
 };
 function f(key, label, type, opts = {}) { return { key, label, type, ...opts }; }
@@ -3915,6 +4237,178 @@ function OutreachHubView({ rows, data, today, onOpen }) {
 /* ============================================================
    REFERRAL TREE
    ============================================================ */
+
+/* ── TEMPLATE LIBRARY ── */
+function TemplateLibraryView({ data, onOpen }) {
+  const [catFilter, setCatFilter] = useState("All");
+  const [chanFilter, setChanFilter] = useState("All");
+  const [search, setSearch] = useState("");
+  const [copied, setCopied] = useState(null);
+
+  const templates = data.templates || [];
+
+  const filtered = templates.filter(t => {
+    if (catFilter !== "All" && t.category !== catFilter) return false;
+    if (chanFilter !== "All" && t.channel !== chanFilter) return false;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      return t.name.toLowerCase().includes(q) || t.body.toLowerCase().includes(q) || t.subject.toLowerCase().includes(q);
+    }
+    return true;
+  });
+
+  const copyTemplate = (t) => {
+    const full = (t.subject ? `Subject: ${t.subject}\n\n` : "") + t.body;
+    navigator.clipboard?.writeText(full).catch(() => {});
+    setCopied(t.id);
+    setTimeout(() => setCopied(null), 2000);
+  };
+
+  // Highlight {{variables}} in body preview
+  const renderWithVars = (text, maxLen = 180) => {
+    const snippet = text.slice(0, maxLen) + (text.length > maxLen ? "…" : "");
+    const parts = snippet.split(/({{[^}]+}})/g);
+    return parts.map((p, i) =>
+      /^{{/.test(p)
+        ? <span key={i} style={{ background: "#EEEAFF", color: "#3D2DA0", borderRadius: 3, padding: "0 3px", fontSize: "0.9em", fontWeight: 600 }}>{p}</span>
+        : p
+    );
+  };
+
+  const catCounts = {};
+  templates.forEach(t => { catCounts[t.category] = (catCounts[t.category] || 0) + 1; });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+
+      {/* Stats row */}
+      <div className="sb-stats">
+        <Stat label="Total templates"   value={templates.length}                             hint="ready to use" />
+        <Stat label="Email"             value={templates.filter(t=>t.channel==="Email").length} hint="email templates" accent="#D9892B" />
+        <Stat label="SMS"               value={templates.filter(t=>t.channel==="SMS").length}   hint="text message templates" accent="#4A8C6F" />
+        <Stat label="Most used"         value={[...templates].sort((a,b)=>b.usageCount-a.usageCount)[0]?.name.replace("Sample - ","").slice(0,22)||"—"} hint="by usage count" />
+      </div>
+
+      {/* Filters */}
+      <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 14px", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        {/* Search */}
+        <div className="sb-search" style={{ minWidth: 180, flex: 1 }}>
+          <Search size={14} color={C.ink3} />
+          <input placeholder="Search templates…" value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        {/* Category tabs */}
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+          {["All", ...TMPL_CATEGORY].map(cat => {
+            const active = catFilter === cat;
+            const color  = cat === "All" ? C.brand : TMPL_CATEGORY_COLOR[cat];
+            return (
+              <button key={cat} onClick={() => setCatFilter(cat)} style={{
+                padding: "4px 11px", borderRadius: 20, border: "1px solid", fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+                borderColor: active ? color : C.line,
+                background: active ? hexA(color, 0.12) : "transparent",
+                color: active ? color : C.ink2,
+              }}>{cat}{cat !== "All" && catCounts[cat] ? ` (${catCounts[cat]})` : ""}</button>
+            );
+          })}
+        </div>
+        {/* Channel tabs */}
+        <div style={{ display: "flex", gap: 5 }}>
+          {["All","Email","SMS","DM"].map(ch => {
+            const active = chanFilter === ch;
+            const color  = ch === "All" ? C.ink2 : TMPL_CHANNEL_COLOR[ch];
+            return (
+              <button key={ch} onClick={() => setChanFilter(ch)} style={{
+                padding: "4px 11px", borderRadius: 20, border: "1px solid", fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+                borderColor: active ? color : C.line,
+                background: active ? hexA(color, 0.12) : "transparent",
+                color: active ? color : C.ink2,
+              }}>{ch}</button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Template grid */}
+      {filtered.length === 0 ? (
+        <Empty pad>No templates match your filters.</Empty>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }} className="sb-grid2">
+          {filtered.map(t => {
+            const catColor = TMPL_CATEGORY_COLOR[t.category] || C.ink3;
+            const chanColor = TMPL_CHANNEL_COLOR[t.channel] || C.ink3;
+            const isCopied = copied === t.id;
+            const vars = (t.variables || "").split(",").map(v => v.trim()).filter(Boolean);
+
+            return (
+              <div key={t.id} style={{
+                background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12,
+                overflow: "hidden", display: "flex", flexDirection: "column",
+              }}>
+                {/* Header */}
+                <div style={{ padding: "12px 14px 10px", borderBottom: `1px solid ${C.line}` }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 7 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 700, fontSize: 13.5, color: C.ink, lineHeight: 1.3 }}>{t.name}</div>
+                    </div>
+                    <Tag color={chanColor} soft>{t.channel}</Tag>
+                  </div>
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                    <Tag color={catColor} soft>{t.category}</Tag>
+                    {t.usageCount > 0 && (
+                      <span style={{ fontSize: 10.5, color: C.ink3, fontWeight: 500, padding: "2px 6px" }}>
+                        Used {t.usageCount}×
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Body preview */}
+                <div style={{ padding: "10px 14px", flex: 1 }}>
+                  {t.subject && (
+                    <div style={{ fontSize: 11.5, fontWeight: 600, color: C.ink3, marginBottom: 5 }}>
+                      Subject: <span style={{ color: C.ink }}>{t.subject}</span>
+                    </div>
+                  )}
+                  <div style={{ fontSize: 12.5, color: C.ink2, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>
+                    {renderWithVars(t.body)}
+                  </div>
+                </div>
+
+                {/* Variables */}
+                {vars.length > 0 && (
+                  <div style={{ padding: "6px 14px 8px", display: "flex", gap: 4, flexWrap: "wrap", borderTop: `1px solid ${C.lineSoft || C.line}` }}>
+                    {vars.map(v => (
+                      <span key={v} style={{ fontSize: 10, background: "#EEEAFF", color: "#3D2DA0", borderRadius: 4, padding: "1px 6px", fontWeight: 600 }}>{v}</span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div style={{ padding: "9px 12px", borderTop: `1px solid ${C.line}`, display: "flex", gap: 7, background: C.surfaceAlt }}>
+                  <button onClick={() => copyTemplate(t)} style={{
+                    flex: 1, padding: "7px 0", borderRadius: 8, cursor: "pointer", fontWeight: 700,
+                    fontSize: 12.5, border: "none",
+                    background: isCopied ? "#4A8C6F" : C.brand,
+                    color: "#fff",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                    transition: "background .15s",
+                  }}>
+                    {isCopied ? <><Check size={13} /> Copied!</> : <><Copy size={13} /> Copy</>}
+                  </button>
+                  <button onClick={() => onOpen({ db: "templates", record: t })} style={{
+                    padding: "7px 14px", borderRadius: 8, cursor: "pointer",
+                    fontSize: 12.5, fontWeight: 600, background: "transparent",
+                    border: `1px solid ${C.line}`, color: C.ink2,
+                  }}>Edit</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ── TESTIMONIAL LIBRARY ── */
 function TestimonialLibraryView({ data, onOpen }) {
