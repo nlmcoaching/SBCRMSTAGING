@@ -2486,10 +2486,10 @@ function Today({ data, derived, today, onOpen, onGo }) {
 
       {/* Stats */}
       <div className="sb-stats">
-        <Stat label="Net revenue MTD"   value={money(mtdRevenue)}  hint="sessions + closed offers" />
-        <Stat label="Referral revenue"  value={money(refRevenue)}  hint="from all referrals" accent={refRevenue > 0 ? "#4A8C6F" : C.ink3} />
-        <Stat label="Active members"    value={activeMembers}      hint="Member & Advocate clients" />
-        <Stat label="Active sequences"  value={activeSeqs}         hint="clients in follow-up nurture" />
+        <Stat label="Net revenue MTD"   value={money(mtdRevenue)}  hint="sessions + closed offers"           onClick={() => onGo("revenue")} />
+        <Stat label="Referral revenue"  value={money(refRevenue)}  hint="from all referrals" accent={refRevenue > 0 ? "#4A8C6F" : C.ink3} onClick={() => onGo("referrals")} />
+        <Stat label="Active members"    value={activeMembers}      hint="Member & Advocate clients"          onClick={() => onGo("clients")} />
+        <Stat label="Active sequences"  value={activeSeqs}         hint="clients in follow-up nurture"       onClick={() => onGo("engine")} />
       </div>
 
       {/* Pipeline snapshot */}
@@ -5952,12 +5952,18 @@ function BreathMark({ size = 32, animate }) {
     </span>
   );
 }
-function Stat({ label, value, hint, accent = C.ink }) {
+function Stat({ label, value, hint, accent = C.ink, onClick }) {
   const valStr = String(value ?? "");
   const fontSize = valStr.length > 16 ? 16 : valStr.length > 10 ? 20 : 30;
   return (
-    <div className="sb-card sb-stat">
-      <div style={{ fontSize: 12, color: C.ink3, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</div>
+    <div className="sb-card sb-stat" onClick={onClick}
+      style={{ cursor: onClick ? "pointer" : "default", transition: "box-shadow .15s, transform .15s" }}
+      onMouseEnter={e => { if (onClick) { e.currentTarget.style.boxShadow = `0 6px 24px ${hexA(C.brandDeep,0.13)}`; e.currentTarget.style.transform = "translateY(-2px)"; }}}
+      onMouseLeave={e => { e.currentTarget.style.boxShadow = ""; e.currentTarget.style.transform = ""; }}>
+      <div style={{ fontSize: 12, color: C.ink3, textTransform: "uppercase", letterSpacing: "0.08em", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        {label}
+        {onClick && <ArrowUpRight size={13} color={C.ink3} strokeWidth={1.5} />}
+      </div>
       <div style={{ fontFamily: FONT.display, fontSize, fontWeight: 600, color: accent, lineHeight: 1.2, margin: "6px 0 2px", wordBreak: "break-word" }}>{value}</div>
       <div style={{ fontSize: 12, color: C.ink3 }}>{hint}</div>
     </div>
