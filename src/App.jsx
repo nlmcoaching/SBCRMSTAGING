@@ -649,9 +649,9 @@ function newRecord(db) {
    ============================================================ */
 
 const CAT_META = {
-  revenue:      { label: "Revenue",      color: C.brand,    bg: C.brandSoft,   text: C.brandDeep },
-  relationship: { label: "Relationship", color: C.gold,     bg: "#F6EAD6",     text: "#7A4D0F"   },
-  delivery:     { label: "Delivery",     color: "#4A8C6F",  bg: "#E2F0EA",     text: "#1E5239"   },
+  revenue:      { label: "Revenue",      Icon: DollarSign, color: C.brand,    bg: C.brandSoft,   text: C.brandDeep },
+  relationship: { label: "Relationship", Icon: Users,      color: C.gold,     bg: "#F6EAD6",     text: "#7A4D0F"   },
+  operational:  { label: "Operational",  Icon: Check,      color: "#4A8C6F",  bg: "#E2F0EA",     text: "#1E5239"   },
 };
 const URGENCY_DOT = { high: "#C0573F", medium: C.gold, low: C.ink3 };
 
@@ -773,7 +773,7 @@ function buildActions(data, derived, today) {
   data.sessions
     .filter((s) => s.date === today)
     .forEach((s) => {
-      actions.push({ id: "tod_" + s.id, priority: 1, urgency: "high", category: "delivery",
+      actions.push({ id: "tod_" + s.id, priority: 1, urgency: "high", category: "operational",
         text: `Session today: ${cleanName(s.name)} — confirm room setup and payment link`,
         sub: `${cleanName(derived.partnerName[s.studioId] || "unknown studio")} · ${today}`, db: "sessions", record: s });
     });
@@ -782,7 +782,7 @@ function buildActions(data, derived, today) {
   data.sessions
     .filter((s) => s.date === tomorrowISO)
     .forEach((s) => {
-      actions.push({ id: "tmr_" + s.id, priority: 2, urgency: "medium", category: "delivery",
+      actions.push({ id: "tmr_" + s.id, priority: 2, urgency: "medium", category: "operational",
         text: `Session tomorrow: ${cleanName(s.name)} — run through setup checklist today`,
         sub: `${cleanName(derived.partnerName[s.studioId] || "unknown studio")} · ${fmtDate(tomorrowISO)}`, db: "sessions", record: s });
     });
@@ -795,33 +795,60 @@ function buildActions(data, derived, today) {
       return d >= 1 && d <= 4 && !data.followups.some((f) => f.clientId === c.id && f.lastContact >= c.lastSession);
     })
     .forEach((c) => {
-      actions.push({ id: "nfu_" + c.id, priority: 2, urgency: "medium", category: "delivery",
+      actions.push({ id: "nfu_" + c.id, priority: 2, urgency: "medium", category: "operational",
         text: `Log follow-up for ${cleanName(c.name)} — attended ${fmtDate(c.lastSession)}, no follow-up recorded`,
         sub: `${c.status} · ${c.sessionsAttended} session${c.sessionsAttended !== 1 ? "s" : ""}`, db: "clients", record: c });
     });
 
   const urgencyScore = { high: 0, medium: 1, low: 2 };
+  // Referrals needing a thank-you
+  (data.referrals || [])
+    .filter(r => !r.thankYouSent && r.referrerId)
+    .forEach(r => {
+      const referrer = data.clients.find(c => c.id === r.referrerId);
+      actions.push({ id: "rty_" + r.id, priority: 4, urgency: "medium", category: "relationship",
+        text: `Send thank-you to ${cleanName(referrer?.name || "referrer")} — referred ${cleanName(r.referredName)}`,
+        sub: `Referral · ${fmtDate(r.date)} · Status: ${r.status}`, db: "referrals", record: r });
+    });
+
+  // New referrals not yet contacted
+  (data.referrals || [])
+    .filter(r => r.status === "Referred" && daysBetween(r.date, today) >= 3)
+    .forEach(r => {
+      const referrer = data.clients.find(c => c.id === r.referrerId);
+      actions.push({ id: "rnc_" + r.id, priority: 5, urgency: "medium", category: "relationship",
+        text: `Follow up with ${cleanName(r.referredName)} — referred by ${cleanName(referrer?.name || "?")} ${daysBetween(r.date, today)}d ago`,
+        sub: `Not yet contacted · referred ${fmtDate(r.date)}`, db: "referrals", record: r });
+    });
+
   return actions.sort((a, b) => a.priority !== b.priority ? a.priority - b.priority : urgencyScore[a.urgency] - urgencyScore[b.urgency]);
 }
 
 function Today({ data, derived, today, onOpen, onGo }) {
-  const [filter, setFilter] = useState("all");
+  const [showAll, setShowAll] = useState(null); // null | "revenue" | "relationship" | "operational"
 
   const actions = buildActions(data, derived, today);
-  const filtered = filter === "all" ? actions : actions.filter((a) => a.category === filter);
-  const counts = { revenue: 0, relationship: 0, delivery: 0 };
-  actions.forEach((a) => counts[a.category]++);
+  const byCategory = {
+    revenue:      actions.filter(a => a.category === "revenue"),
+    relationship: actions.filter(a => a.category === "relationship"),
+    operational:  actions.filter(a => a.category === "operational"),
+  };
 
-  const mtdSessions = data.sessions.filter((s) => sameMonth(s.date, today)).reduce((a, s) => a + (Number(s.netRevenue) || 0), 0);
-  const mtdOffers = data.offers.filter((o) => o.status === "Accepted" && sameMonth(o.closeDate, today)).reduce((a, o) => a + (Number(o.price) || 0), 0);
-  const activeMembers = data.clients.filter((c) => c.status === "Member (4+)" || c.status === "Advocate").length;
-  const openOffers = data.offers.filter((o) => o.status === "Offered").length;
+  const mtdRevenue = (
+    data.sessions.filter(s => sameMonth(s.date, today)).reduce((a, s) => a + (Number(s.netRevenue) || 0), 0) +
+    data.revenue?.filter(r => sameMonth(r.date, today)).reduce((a, r) => a + calcNet(r), 0) || 0
+  );
+  const openPipeline = (data.offers || []).filter(o => OPEN_STATUSES.includes(o.status)).reduce((a, o) => a + (Number(o.price) || 0), 0);
+  const activeSeqs   = (data.sequences || []).filter(s => s.status === "active").length;
+  const refRevenue   = (data.referrals || []).reduce((a, r) => a + (Number(r.revenue) || 0), 0);
 
   const d = new Date();
   const greeting = d.getHours() < 12 ? "Good morning" : d.getHours() < 18 ? "Good afternoon" : "Good evening";
 
+  const totalActions = actions.length;
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
 
       {/* Hero */}
       <div className="sb-hero">
@@ -838,66 +865,103 @@ function Today({ data, derived, today, onOpen, onGo }) {
 
       {/* Stats */}
       <div className="sb-stats">
-        <Stat label="Revenue this month" value={money(mtdSessions + mtdOffers)} hint="sessions + offers closed" />
-        <Stat label="Priorities today" value={actions.length} hint="ranked actions waiting" accent={actions.length ? C.gold : C.brand} />
-        <Stat label="Open offers" value={openOffers} hint="awaiting a yes" />
-        <Stat label="Active members" value={activeMembers} hint="Member & Advocate" />
+        <Stat label="Net revenue MTD"   value={money(mtdRevenue)}  hint="sessions + closed offers" />
+        <Stat label="Open pipeline"     value={money(openPipeline)} hint={`${(data.offers||[]).filter(o=>OPEN_STATUSES.includes(o.status)).length} open offers`} />
+        <Stat label="Referral revenue"  value={money(refRevenue)}  hint="from all referrals" accent={refRevenue > 0 ? "#4A8C6F" : C.ink3} />
+        <Stat label="Active sequences"  value={activeSeqs}         hint="clients in follow-up nurture" />
       </div>
 
-      {/* Command Center */}
-      <div className="sb-card">
-        <div className="sb-panelhead" style={{ flexWrap: "wrap", gap: 8, paddingBottom: 12 }}>
-          <span style={{ fontFamily: FONT.display, fontSize: 16, fontWeight: 600 }}>Today's Priorities</span>
-          <span className="sb-badge">{actions.length}</span>
-          <div style={{ flex: 1 }} />
-          {/* Category filter tabs */}
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {(["all", "revenue", "relationship", "delivery"]).map((cat) => {
-              const active = filter === cat;
-              const meta = cat !== "all" ? CAT_META[cat] : null;
-              const label = cat === "all" ? `All (${actions.length})` : `${meta.label} (${counts[cat]})`;
-              return (
-                <button key={cat} onClick={() => setFilter(cat)} style={{
-                  padding: "4px 13px", borderRadius: 20, border: "1px solid", fontSize: 12, fontWeight: 600,
-                  cursor: "pointer", transition: "all .12s",
-                  borderColor: active ? (meta ? meta.color : C.brand) : C.line,
-                  background: active ? (meta ? meta.bg : C.brandSoft) : "transparent",
-                  color: active ? (meta ? meta.text : C.brandDeep) : C.ink2,
-                }}>{label}</button>
-              );
-            })}
-          </div>
+      {/* ── NEXT BEST ACTIONS ── */}
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+          <h3 style={{ fontFamily: FONT.display, fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em", margin: 0 }}>
+            Next Best Actions
+          </h3>
+          {totalActions > 0 && (
+            <span style={{ fontSize: 12, fontWeight: 700, background: URGENCY_DOT.high, color: "#fff", borderRadius: 20, padding: "2px 9px" }}>
+              {totalActions} pending
+            </span>
+          )}
         </div>
 
-        <div className="sb-panelbody">
-          {filtered.length === 0
-            ? <Empty pad>Nothing in this category right now — well done.</Empty>
-            : filtered.map((action, i) => {
-              const meta = CAT_META[action.category];
-              return (
-                <button key={action.id} className="sb-listrow sb-actionrow"
-                  onClick={() => onOpen({ db: action.db, record: action.record })}>
-                  {/* Rank badge */}
-                  <span style={{
-                    width: 24, height: 24, borderRadius: "50%", background: URGENCY_DOT[action.urgency],
-                    color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center",
-                    justifyContent: "center", flexShrink: 0,
-                  }}>{i + 1}</span>
-                  {/* Text */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 600, color: C.ink, lineHeight: 1.35 }}>{action.text}</div>
-                    <div className="sb-rowsub" style={{ marginTop: 2 }}>{action.sub}</div>
-                  </div>
-                  {/* Category chip */}
-                  <span style={{
-                    fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 20, whiteSpace: "nowrap",
-                    background: meta.bg, color: meta.text, flexShrink: 0,
-                  }}>{meta.label}</span>
-                  <ChevronRight size={14} color={C.ink3} style={{ flexShrink: 0 }} />
-                </button>
-              );
-            })
-          }
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }} className="sb-nba-grid">
+          {Object.entries(CAT_META).map(([cat, meta]) => {
+            const all  = byCategory[cat] || [];
+            const top3 = all.slice(0, 3);
+            const rest = all.length - 3;
+            const isExpanded = showAll === cat;
+            const shown = isExpanded ? all : top3;
+            const { Icon } = meta;
+
+            return (
+              <div key={cat} style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                {/* Column header */}
+                <div style={{ padding: "13px 15px 12px", background: meta.bg, borderBottom: `1px solid ${hexA(meta.color, 0.18)}`, display: "flex", alignItems: "center", gap: 7 }}>
+                  <Icon size={14} color={meta.color} strokeWidth={2.5} />
+                  <span style={{ fontWeight: 700, fontSize: 13.5, color: meta.text, flex: 1 }}>{meta.label}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: meta.text, opacity: 0.65 }}>
+                    {all.length} action{all.length !== 1 ? "s" : ""}
+                  </span>
+                </div>
+
+                {/* Action list */}
+                <div style={{ flex: 1 }}>
+                  {shown.length === 0 ? (
+                    <div style={{ padding: "22px 14px", textAlign: "center", color: C.ink3, fontSize: 13 }}>
+                      <span style={{ fontSize: 18 }}>✓</span>
+                      <div style={{ marginTop: 4, fontWeight: 500 }}>All clear</div>
+                    </div>
+                  ) : shown.map((a, i) => (
+                    <button key={a.id}
+                      onClick={() => a.record ? onOpen({ db: a.db, record: a.record }) : null}
+                      style={{
+                        width: "100%", display: "flex", alignItems: "flex-start", gap: 9,
+                        padding: "11px 13px",
+                        background: "transparent", border: "none",
+                        borderBottom: i < shown.length - 1 ? `1px solid ${C.lineSoft}` : "none",
+                        cursor: a.record ? "pointer" : "default", textAlign: "left",
+                      }}
+                      className={a.record ? "sb-nba-row" : ""}
+                    >
+                      {/* Urgency dot + number */}
+                      <span style={{
+                        width: 22, height: 22, borderRadius: "50%",
+                        background: URGENCY_DOT[a.urgency],
+                        color: "#fff", fontSize: 10, fontWeight: 800,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        flexShrink: 0, marginTop: 1,
+                      }}>{i + 1}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, lineHeight: 1.35 }}>{a.text}</div>
+                        {a.sub && <div style={{ fontSize: 11.5, color: C.ink3, marginTop: 2, lineHeight: 1.4 }}>{a.sub}</div>}
+                      </div>
+                      {a.record && <ChevronRight size={13} color={C.ink3} style={{ flexShrink: 0, marginTop: 3 }} />}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Footer: expand / collapse */}
+                {rest > 0 && !isExpanded && (
+                  <button onClick={() => setShowAll(cat)} style={{
+                    padding: "9px 14px", background: "transparent", border: "none",
+                    borderTop: `1px solid ${C.line}`, cursor: "pointer", width: "100%",
+                    fontSize: 12, fontWeight: 600, color: meta.color, textAlign: "center",
+                  }}>
+                    +{rest} more {meta.label.toLowerCase()} action{rest !== 1 ? "s" : ""}
+                  </button>
+                )}
+                {isExpanded && all.length > 3 && (
+                  <button onClick={() => setShowAll(null)} style={{
+                    padding: "9px 14px", background: "transparent", border: "none",
+                    borderTop: `1px solid ${C.line}`, cursor: "pointer", width: "100%",
+                    fontSize: 12, fontWeight: 600, color: C.ink3, textAlign: "center",
+                  }}>
+                    Show less ↑
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -3693,6 +3757,7 @@ input, textarea, select, button { font-family: inherit; }
 .sb-badge { background: ${C.brandSoft}; color: ${C.brandDeep}; font-size: 12px; font-weight: 700; padding: 1px 9px; border-radius: 20px; }
 .sb-listrow { display: flex; align-items: center; gap: 11px; width: 100%; padding: 10px 12px; border: none; background: none; border-radius: 10px; cursor: pointer; text-align: left; }
 .sb-listrow:hover { background: ${C.surfaceAlt}; }
+.sb-nba-row:hover { background: ${C.surfaceAlt}; }
 .sb-actionrow { align-items: flex-start; padding: 12px 14px; border-bottom: 1px solid ${C.lineSoft}; border-radius: 0; }
 .sb-actionrow:last-child { border-bottom: none; }
 .sb-actionrow:hover { background: ${C.brandMist}; }
@@ -3769,6 +3834,7 @@ input, textarea, select, button { font-family: inherit; }
   .sb-scrim { display: block; position: fixed; inset: 0; background: ${hexA(C.brandDeep, 0.3)}; z-index: 35; }
   .sb-menu { display: inline-flex; }
   .sb-stats { grid-template-columns: 1fr 1fr; }
+  .sb-nba-grid { grid-template-columns: 1fr !important; }
   .sb-grid2 { grid-template-columns: 1fr; }
   .sb-content, .sb-header { padding-left: 16px; padding-right: 16px; }
   .sb-search { width: 130px; }
