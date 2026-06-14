@@ -7336,7 +7336,7 @@ function ReferralTreeView({ data, derived, today, onOpen }) {
       {needAction > 0 && (
         <div style={{ background: hexA("#D9892B", 0.09), border: `1px solid ${hexA("#D9892B", 0.3)}`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 13, color: "#7A4D0F", fontWeight: 600 }}>
-            {needAction} referral{needAction !== 1 ? "s" : ""} need attention — thank-you not sent or follow-up pending
+            {needAction} referral{needAction !== 1 ? "s" : ""} need attention — thank you note sent or follow-up pending
           </span>
           <div style={{ flex: 1 }} />
           <span style={{ fontSize: 12, color: "#D9892B" }}>Check "Action needed" view →</span>
