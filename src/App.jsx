@@ -888,7 +888,61 @@ Warm,
 };
 
 /* ---------- Helpers ---------- */
-const STORE_KEY = "simplybreathe:data:v4";
+const STORE_KEY     = "simplybreathe:data:v4";           // legacy (unencrypted)
+const STORE_KEY_ENC = "simplybreathe:data:v5:enc";       // encrypted storage
+const SEC_META_KEY  = "sb:security:v1";                  // { pinHash, salt }
+const DEFAULT_PIN   = "Letmein26!";
+
+/* ── SECURITY UTILITIES ── */
+const Sec = {
+  async hashPin(pin) {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin));
+    return btoa(String.fromCharCode(...new Uint8Array(buf)));
+  },
+  newSalt() {
+    return btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
+  },
+  async deriveKey(pin, saltB64) {
+    const salt = Uint8Array.from(atob(saltB64), c => c.charCodeAt(0));
+    const mat  = await crypto.subtle.importKey(
+      "raw", new TextEncoder().encode(pin), "PBKDF2", false, ["deriveKey"]
+    );
+    return crypto.subtle.deriveKey(
+      { name: "PBKDF2", salt, iterations: 100_000, hash: "SHA-256" },
+      mat,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"]
+    );
+  },
+  async encrypt(data, key) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv }, key,
+      new TextEncoder().encode(JSON.stringify(data))
+    );
+    const out = new Uint8Array(12 + ct.byteLength);
+    out.set(iv); out.set(new Uint8Array(ct), 12);
+    return btoa(String.fromCharCode(...out));
+  },
+  async decrypt(b64, key) {
+    const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const pt  = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: raw.slice(0, 12) }, key, raw.slice(12)
+    );
+    return JSON.parse(new TextDecoder().decode(pt));
+  },
+  sanitize(val) {
+    if (typeof val !== "string") return val;
+    const t = val.trim();
+    const clean = /^[=+\-@|%]/.test(t) ? "'" + t : t;  // neutralise CSV formula injection
+    return clean.replace(/<[^>]*>/g, "");                // strip HTML tags
+  },
+  validate(d) {
+    return d && typeof d === "object" &&
+      ["clients", "partners", "sessions", "offers"].every(k => Array.isArray(d[k]));
+  },
+};
 const uid = (p) => p + "_" + Math.random().toString(36).slice(2, 9);
 const todayISO = () => {
   const d = new Date();
@@ -911,6 +965,104 @@ const num = (v) => { const n = parseFloat(String(v).replace(/[^0-9.\-]/g, "")); 
 const norm = (s) => String(s || "").trim().toLowerCase();
 
 /* ============================================================ */
+/* ── LOCK SCREEN ── */
+function LockScreen({ onUnlock, error, initialising }) {
+  const [pin, setPin]     = useState("");
+  const [show, setShow]   = useState(false);
+  const [busy, setBusy]   = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!pin.trim() || busy) return;
+    setBusy(true);
+    await onUnlock(pin);
+    setBusy(false);
+  };
+
+  return (
+    <div style={{
+      minHeight: "100vh", background: C.bg,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    }}>
+      <div style={{
+        background: C.surface, border: `1px solid ${C.line}`, borderRadius: 20,
+        padding: "48px 40px 40px", width: "100%", maxWidth: 380, textAlign: "center",
+        boxShadow: "0 8px 40px rgba(22,33,58,0.10)",
+      }}>
+        {/* Logo mark */}
+        <div style={{
+          width: 64, height: 64, borderRadius: "50%", background: C.brandSoft,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          margin: "0 auto 20px",
+        }}>
+          <Wind size={28} color={C.brand} />
+        </div>
+
+        <h1 style={{ fontFamily: FONT.display, fontSize: 22, fontWeight: 700, color: C.ink, margin: "0 0 4px" }}>
+          Simply Breathe OS
+        </h1>
+        <p style={{ fontSize: 13, color: C.ink3, margin: "0 0 32px" }}>
+          Enter your PIN to access the CRM
+        </p>
+
+        {initialising ? (
+          <div style={{ fontSize: 13, color: C.ink3, padding: "20px 0" }}>Initialising security…</div>
+        ) : (
+          <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ position: "relative" }}>
+              <input
+                type={show ? "text" : "password"}
+                value={pin}
+                onChange={e => setPin(e.target.value)}
+                placeholder="Enter PIN"
+                autoFocus
+                style={{
+                  width: "100%", padding: "13px 44px 13px 16px",
+                  border: `1.5px solid ${error ? "#C0392B" : C.line}`,
+                  borderRadius: 10, fontSize: 16, outline: "none",
+                  fontFamily: "monospace", letterSpacing: show ? ".05em" : ".3em",
+                  color: C.ink, background: C.surface,
+                  boxSizing: "border-box",
+                }}
+                onFocus={e => e.target.style.borderColor = C.brand}
+                onBlur={e => e.target.style.borderColor = error ? "#C0392B" : C.line}
+              />
+              <button type="button" onClick={() => setShow(s => !s)} style={{
+                position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
+                background: "none", border: "none", cursor: "pointer",
+                fontSize: 11, color: C.ink3, fontWeight: 600, padding: "4px",
+              }}>{show ? "HIDE" : "SHOW"}</button>
+            </div>
+
+            {error && (
+              <div style={{ fontSize: 12.5, color: "#C0392B", background: hexA("#C0392B", 0.07),
+                borderRadius: 8, padding: "8px 12px", textAlign: "left", display: "flex", gap: 7, alignItems: "center" }}>
+                <AlertCircle size={13} color="#C0392B" />
+                {error}
+              </div>
+            )}
+
+            <button type="submit" disabled={busy || !pin.trim()} style={{
+              padding: "13px", background: busy || !pin.trim() ? C.line : C.brand,
+              color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700,
+              cursor: busy || !pin.trim() ? "not-allowed" : "pointer",
+              transition: "background .15s",
+            }}>
+              {busy ? "Unlocking…" : "Unlock"}
+            </button>
+          </form>
+        )}
+
+        <p style={{ fontSize: 11, color: C.ink3, marginTop: 24, lineHeight: 1.6 }}>
+          🔒 Data is encrypted at rest with AES-256-GCM.<br />
+          Forget your PIN? Data cannot be recovered.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [data, setData] = useState(SEED);
   const [section, setSection] = useState("today");
@@ -923,36 +1075,100 @@ export default function App() {
   const loaded = useRef(false);
   const today = todayISO();
 
-  // Load persisted data
+  /* ── Auth state ── */
+  const [locked,       setLocked]      = useState(true);
+  const [cryptoKey,    setCryptoKey]   = useState(null);
+  const [pinError,     setPinError]    = useState("");
+  const [initialising, setInitialising] = useState(true);
+
+  /* ── Security initialisation (on mount) ── */
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
         if (typeof window !== "undefined" && window.storage) {
-          const r = await window.storage.get(STORE_KEY);
-          if (alive && r && r.value) setData(JSON.parse(r.value));
+          const sec = await window.storage.get(SEC_META_KEY);
+          if (!sec?.value) {
+            // First run — seed default PIN
+            const salt    = Sec.newSalt();
+            const pinHash = await Sec.hashPin(DEFAULT_PIN);
+            await window.storage.set(SEC_META_KEY, JSON.stringify({ pinHash, salt }));
+          }
         }
-      } catch (e) { /* no saved state yet — keep seed */ }
-      finally { loaded.current = true; }
+      } catch (_) { /* storage unavailable */ }
+      finally { if (alive) setInitialising(false); }
     })();
     return () => { alive = false; };
   }, []);
 
-  // Persist on change
+  /* ── PIN unlock handler ── */
+  const handleUnlock = async (pin) => {
+    setPinError("");
+    try {
+      if (!window.storage) {
+        // No storage API (pure browser dev mode) — allow any PIN, use seed
+        setLocked(false);
+        loaded.current = true;
+        return;
+      }
+      const secRaw = await window.storage.get(SEC_META_KEY);
+      if (!secRaw?.value) throw new Error("No security config");
+      const sec  = JSON.parse(secRaw.value);
+      const hash = await Sec.hashPin(pin);
+      if (hash !== sec.pinHash) { setPinError("Incorrect PIN. Please try again."); return; }
+
+      const key = await Sec.deriveKey(pin, sec.salt);
+
+      // Attempt to load encrypted v5 data
+      const encRaw = await window.storage.get(STORE_KEY_ENC);
+      if (encRaw?.value) {
+        try {
+          const dec = await Sec.decrypt(encRaw.value, key);
+          if (Sec.validate(dec)) setData(dec);
+          else setData(SEED);
+        } catch (_) {
+          setPinError("Data could not be decrypted — reset to defaults.");
+          setData(SEED);
+        }
+      } else {
+        // Migrate legacy unencrypted v4 data
+        const legacyRaw = await window.storage.get(STORE_KEY);
+        if (legacyRaw?.value) {
+          try {
+            const legacy = JSON.parse(legacyRaw.value);
+            if (Sec.validate(legacy)) setData(legacy);
+          } catch (_) {}
+        }
+        // else keep SEED
+      }
+
+      setCryptoKey(key);
+      loaded.current = true;
+      setLocked(false);
+    } catch (e) {
+      setPinError("Something went wrong. Please try again.");
+    }
+  };
+
+  /* ── Persist on change (encrypted) ── */
   useEffect(() => {
-    if (!loaded.current) return;
+    if (!loaded.current || !cryptoKey) return;
     let alive = true;
     setSaved("saving");
     (async () => {
       try {
         if (typeof window !== "undefined" && window.storage) {
-          await window.storage.set(STORE_KEY, JSON.stringify(data));
+          const enc = await Sec.encrypt(data, cryptoKey);
+          if (alive) await window.storage.set(STORE_KEY_ENC, enc);
         }
-      } catch (e) { /* ignore */ }
+      } catch (_) {}
       finally { if (alive) { setSaved("saved"); setTimeout(() => alive && setSaved("idle"), 1400); } }
     })();
     return () => { alive = false; };
-  }, [data]);
+  }, [data, cryptoKey]);
+
+  /* ── Lock gate ── */
+  if (locked) return <LockScreen onUnlock={handleUnlock} error={pinError} initialising={initialising} />;
 
   // Derived rollups
   const derived = useMemo(() => {
@@ -4124,6 +4340,7 @@ function ImportModal({ data, setData, onClose }) {
           Object.keys(raw).forEach((k) => { lower[norm(k)] = raw[k]; });
           Object.entries(spec.map).forEach(([csvKey, field]) => {
             let val = lower[csvKey] ?? "";
+            val = Sec.sanitize(val);                          // ← sanitize before coercing
             if (spec.nums && spec.nums.includes(field)) val = num(val);
             rec[field] = val;
           });
