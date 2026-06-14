@@ -5821,8 +5821,8 @@ function ConfirmModal({ message, okLabel = "OK", danger = false, onOk, onCancel 
         <div style={{ width: 52, height: 52, borderRadius: "50%", background: danger ? "#DC2626" : C.brand,
           display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
           {danger
-            ? <LogOut size={22} color="#fff" strokeWidth={1.5} />
-            : <Info size={22} color="#fff" strokeWidth={1.5} />}
+            ? <LogOut size={22} color={C.bg} strokeWidth={1.5} />
+            : <Info size={22} color={C.bg} strokeWidth={1.5} />}
         </div>
         <div style={{ fontFamily: FONT.display, fontSize: 17, fontWeight: 700, color: C.ink, marginBottom: 8 }}>
           {okLabel}?
