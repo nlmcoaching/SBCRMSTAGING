@@ -2102,14 +2102,14 @@ function SourceBreakdown({ data }) {
 function Section({ section, data, derived, today, view, setView, query, onOpen }) {
   const cfg = VIEWS[section];
   const v = cfg.views[Math.min(view, cfg.views.length - 1)];
-  let rows = data[section];
+  let rows = data[section] || [];
 
   // search
   if (query.trim()) {
     const q = norm(query);
     rows = rows.filter((r) => Object.values(r).some((val) => norm(val).includes(q)));
   }
-  const processed = v.run(rows, { data, derived, today });
+  const processed = v.run ? v.run(rows, { data, derived, today }) : { rows };
 
   return (
     <div>
@@ -2468,6 +2468,7 @@ const VIEWS = {
           col("subject",  "Subject",   r => <span style={{ fontSize: 12, color: C.ink2 }}>{r.subject||"—"}</span>),
           col("usageCount","Used", r => r.usageCount || 0),
         ],
+        run: (rows) => ({ rows }),
       },
     ],
   },
