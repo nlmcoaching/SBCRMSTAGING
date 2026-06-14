@@ -2624,7 +2624,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         : v.layout === "admin-overview"   ? <AdminView tab="overview"   data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
         : v.layout === "admin-schema"     ? <AdminView tab="schema"     data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
         : v.layout === "admin-integrity"  ? <AdminView tab="integrity"  data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
-        : v.layout === "admin-storage"    ? <AdminView tab="storage"    data={data} secUsers={secUsers} currentUser={currentUser} today={today} setData={setData} />
+        : v.layout === "admin-storage"    ? <AdminView tab="storage"    data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
         : v.layout === "outreach-hub"
         ? <OutreachHubView rows={processed.rows} data={data} today={today} onOpen={(r) => onOpen({ db: "outreach", record: r })} />
         : v.layout === "calendar"
@@ -4827,7 +4827,7 @@ const DB_SCHEMA = [
   },
 ];
 
-function AdminView({ tab, data, secUsers, currentUser, today, setData }) {
+function AdminView({ tab, data, secUsers, currentUser, today }) {
   const [integrityResults, setIntegrityResults] = useState(null);
   const [runningCheck, setRunningCheck]         = useState(false);
   const [schemaTable,  setSchemaTable]          = useState(DB_SCHEMA[0].table);
