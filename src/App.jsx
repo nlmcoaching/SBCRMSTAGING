@@ -5827,7 +5827,7 @@ function ConfirmModal({ message, okLabel = "OK", danger = false, onOk, onCancel 
         <div style={{ fontFamily: FONT.display, fontSize: 17, fontWeight: 700, color: C.ink, marginBottom: 8 }}>
           {okLabel}?
         </div>
-        <div style={{ fontSize: 14, color: C.ink3, lineHeight: 1.6, marginBottom: 28 }}>{message}</div>
+        <div style={{ fontSize: 14, color: C.ink3, lineHeight: 1.6, marginBottom: 28, fontWeight: 700 }}>{message}</div>
         <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
           <button onClick={onCancel} className="sb-ghost" style={{ minWidth: 100, justifyContent: "center" }}>
             Cancel
