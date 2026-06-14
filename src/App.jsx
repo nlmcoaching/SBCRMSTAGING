@@ -1168,9 +1168,7 @@ export default function App() {
   }, [data, cryptoKey]);
 
   /* ── Lock gate ── */
-  if (locked) return <LockScreen onUnlock={handleUnlock} error={pinError} initialising={initialising} />;
-
-  // Derived rollups
+  // Derived rollups — must be called unconditionally (Rules of Hooks)
   const derived = useMemo(() => {
     const partnerName = Object.fromEntries(data.partners.map((p) => [p.id, p.name]));
     const clientName = Object.fromEntries(data.clients.map((c) => [c.id, c.name]));
@@ -1182,6 +1180,8 @@ export default function App() {
     data.sessions.forEach((s) => { (sessionsByStudio[s.studioId] ||= []).push(s); });
     return { partnerName, clientName, acceptedByClient, sessionsByStudio };
   }, [data]);
+
+  if (locked) return <LockScreen onUnlock={handleUnlock} error={pinError} initialising={initialising} />;
 
   const update = (db, fn) => setData((d) => ({ ...d, [db]: fn(d[db]) }));
   const saveRecord = (db, rec) =>
