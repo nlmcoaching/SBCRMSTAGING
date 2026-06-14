@@ -1135,6 +1135,7 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [navOpen, setNavOpen] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [showEditProfile, setShowEditProfile] = useState(false);
   const [saved, setSaved] = useState("idle"); // idle | saving | saved
   const loaded = useRef(false);
   const today = todayISO();
@@ -1304,6 +1305,21 @@ export default function App() {
     setMasterKeyRaw(null);
     setCurrentUser(null);
     setPinError("");
+  };
+
+  /* ── Save profile edits ── */
+  const handleSaveProfile = async (updates) => {
+    const updated = { ...currentUser, ...updates };
+    setCurrentUser(updated);
+    setSecUsers(prev => prev.map(u => u.id === currentUser.id ? updated : u));
+    if (!window?.storage) return;
+    try {
+      const secRaw = await window.storage.get(SEC_META_KEY);
+      const sec = JSON.parse(secRaw?.value || "{}");
+      if (!Array.isArray(sec.users)) return;
+      const newSec = { ...sec, users: sec.users.map(u => u.id === currentUser.id ? updated : u) };
+      await window.storage.set(SEC_META_KEY, JSON.stringify(newSec));
+    } catch (e) { console.error("handleSaveProfile:", e); }
   };
 
   /* ── Persist on change (encrypted) ── */
@@ -1529,10 +1545,13 @@ export default function App() {
               <button
                 onClick={() => setShowProfile(p => !p)}
                 title={currentUser?.name}
-                style={{ width: 36, height: 36, borderRadius: "50%", background: currentUser?.color || C.brand, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>
-                  {(currentUser?.name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
-                </span>
+                style={{ width: 36, height: 36, borderRadius: "50%", background: currentUser?.color || C.brand, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" }}>
+                {currentUser?.avatar
+                  ? <img src={currentUser.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  : <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>
+                      {(currentUser?.name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
+                    </span>
+                }
               </button>
 
               {showProfile && (
@@ -1545,22 +1564,32 @@ export default function App() {
                   }}>
                     {/* User info header */}
                     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px 8px" }}>
-                      <div style={{ width: 38, height: 38, borderRadius: "50%", background: currentUser?.color || C.brand, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                        <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>
-                          {(currentUser?.name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
-                        </span>
+                      <div style={{ width: 38, height: 38, borderRadius: "50%", background: currentUser?.color || C.brand, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" }}>
+                        {currentUser?.avatar
+                          ? <img src={currentUser.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          : <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>
+                              {(currentUser?.name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
+                            </span>
+                        }
                       </div>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser?.name || "User"}</div>
-                        <div style={{ fontSize: 11, color: C.ink3, display: "flex", alignItems: "center", gap: 4 }}>
-                          <Shield size={10} />{currentUser?.role || "Viewer"}
-                          {currentUser?.lastLogin && <>&nbsp;· {currentUser.lastLogin}</>}
-                        </div>
+                        <div style={{ fontSize: 11, color: C.ink3 }}>{currentUser?.title || currentUser?.role || "Viewer"}</div>
+                        {currentUser?.email && <div style={{ fontSize: 11, color: C.ink3 }}>{currentUser.email}</div>}
+                        {currentUser?.lastLogin && <div style={{ fontSize: 11, color: C.ink3 }}>Last login: {currentUser.lastLogin}</div>}
                       </div>
+                    </div>
                     </div>
                     <div style={{ height: 1, background: C.line, margin: "4px 0" }} />
 
                     {/* Menu items */}
+                    <button onClick={() => { setShowProfile(false); setShowEditProfile(true); }}
+                      style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 12px", border: "none", borderRadius: 8, background: "transparent", cursor: "pointer", fontSize: 13, color: C.ink, textAlign: "left" }}
+                      onMouseEnter={e => e.currentTarget.style.background = C.brandMist}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <UserCircle size={14} color={C.ink3} /> Edit Profile
+                    </button>
+
                     {can.manage && (
                       <button onClick={() => { go("users"); setShowProfile(false); }}
                         style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 12px", border: "none", borderRadius: 8, background: "transparent", cursor: "pointer", fontSize: 13, color: C.ink, textAlign: "left" }}
@@ -1605,6 +1634,14 @@ export default function App() {
       )}
 
       {importing && <ImportModal data={data} setData={setData} onClose={() => setImporting(false)} />}
+      {showEditProfile && (
+        <EditProfileModal
+          user={currentUser}
+          masterKeyRaw={masterKeyRaw}
+          onSave={handleSaveProfile}
+          onClose={() => setShowEditProfile(false)}
+        />
+      )}
     </div>
   );
 }
@@ -4549,6 +4586,222 @@ const IMPORT_MAP = {
   followups: { file: "06-Follow-Ups.csv", map: { "follow-up": "name", "client name": "_client", stage: "stage", "last contact date": "lastContact", "follow-up type": "futype", "next action date": "nextAction", outcome: "outcome" }, rel: { field: "_client", to: "clients", set: "clientId" } },
 };
 const DB_ORDER = ["partners", "clients", "sessions", "offers", "content", "followups"];
+
+/* ============================================================
+   EDIT PROFILE MODAL
+   ============================================================ */
+const AVATAR_COLORS = ["#2E6FB0","#6B5CE7","#D9892B","#4A8C6F","#2A9D8F","#C0392B","#8E44AD","#16A085","#E67E22","#2980B9"];
+
+function EditProfileModal({ user, masterKeyRaw, onSave, onClose }) {
+  const [name,        setName]        = useState(user?.name  || "");
+  const [title,       setTitle]       = useState(user?.title || "");
+  const [email,       setEmail]       = useState(user?.email || "");
+  const [phone,       setPhone]       = useState(user?.phone || "");
+  const [color,       setColor]       = useState(user?.color || AVATAR_COLORS[0]);
+  const [avatar,      setAvatar]      = useState(user?.avatar || "");
+  const [tab,         setTab]         = useState("profile"); // profile | security
+  const [curPin,      setCurPin]      = useState("");
+  const [newPin,      setNewPin]      = useState("");
+  const [confirmPin,  setConfirmPin]  = useState("");
+  const [pinMsg,      setPinMsg]      = useState("");
+  const [saving,      setSaving]      = useState(false);
+  const [msg,         setMsg]         = useState("");
+  const fileRef = useRef();
+
+  const initials = (name || user?.name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+
+  const handleImage = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 240;
+        const ratio = Math.min(MAX / img.width, MAX / img.height, 1);
+        const canvas = document.createElement("canvas");
+        canvas.width  = Math.round(img.width  * ratio);
+        canvas.height = Math.round(img.height * ratio);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        setAvatar(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSave = async () => {
+    if (!name.trim()) { setMsg("Name is required."); return; }
+    setSaving(true); setMsg("");
+    try {
+      const updates = { name: name.trim(), title, email, phone, color, avatar };
+
+      if (tab === "security" && (curPin || newPin || confirmPin)) {
+        if (!curPin)              { setPinMsg("Enter your current PIN."); setSaving(false); return; }
+        if (newPin.length < 4)    { setPinMsg("New PIN must be at least 4 characters."); setSaving(false); return; }
+        if (newPin !== confirmPin){ setPinMsg("New PINs don't match."); setSaving(false); return; }
+        const curHash = await Sec.hashPin(curPin);
+        if (curHash !== user.pinHash) { setPinMsg("Current PIN is incorrect."); setSaving(false); return; }
+        const pinSalt = Sec.newSalt();
+        const pinHash = await Sec.hashPin(newPin);
+        const wrappedMasterKey = masterKeyRaw
+          ? await Sec.wrapKeyForUser(masterKeyRaw, newPin, pinSalt)
+          : user.wrappedMasterKey;
+        Object.assign(updates, { pinHash, pinSalt, wrappedMasterKey });
+        setPinMsg(""); setCurPin(""); setNewPin(""); setConfirmPin("");
+      }
+      await onSave(updates);
+      onClose();
+    } catch (e) { setMsg("Error saving: " + (e?.message || e)); }
+    setSaving(false);
+  };
+
+  const TABS = [{ id: "profile", label: "Profile" }, { id: "security", label: "Security" }];
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(16,33,58,0.55)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }}>
+      <div style={{ background: C.surface, borderRadius: 20, width: "100%", maxWidth: 520, maxHeight: "92vh", overflowY: "auto", boxShadow: "0 24px 64px rgba(0,0,0,0.22)", display: "flex", flexDirection: "column" }}>
+
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "22px 28px 16px" }}>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: C.ink, fontFamily: FONT.display }}>Edit Profile</div>
+            <div style={{ fontSize: 13, color: C.ink3, marginTop: 2 }}>{user?.role || "User"} · {user?.createdAt ? `Member since ${user.createdAt}` : "Simply Breathe OS"}</div>
+          </div>
+          <button onClick={onClose} style={{ background: C.surfaceAlt, border: "none", borderRadius: 10, width: 34, height: 34, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: C.ink2 }}><X size={18} /></button>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: "flex", gap: 4, padding: "0 28px 16px", borderBottom: `1px solid ${C.line}` }}>
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              style={{ padding: "7px 18px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: tab === t.id ? C.brandSoft : "transparent", color: tab === t.id ? C.brandDeep : C.ink3 }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ padding: "24px 28px 28px", display: "flex", flexDirection: "column", gap: 22 }}>
+
+          {tab === "profile" && (
+            <>
+              {/* Avatar section */}
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 22 }}>
+                {/* Avatar preview */}
+                <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+                  <div style={{ position: "relative", width: 96, height: 96, borderRadius: "50%", background: color, overflow: "hidden", cursor: "pointer", border: `3px solid ${C.line}` }}
+                    onClick={() => fileRef.current?.click()}>
+                    {avatar
+                      ? <img src={avatar} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      : <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, fontWeight: 700, color: "#fff" }}>{initials}</span>
+                    }
+                    <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0, transition: "opacity .15s", borderRadius: "50%" }}
+                      onMouseEnter={e => e.currentTarget.style.opacity = 1}
+                      onMouseLeave={e => e.currentTarget.style.opacity = 0}>
+                      <Upload size={20} color="#fff" />
+                    </div>
+                  </div>
+                  <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleImage} />
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "center" }}>
+                    <button onClick={() => fileRef.current?.click()}
+                      style={{ fontSize: 11, padding: "5px 14px", borderRadius: 8, border: `1px solid ${C.line}`, background: C.surfaceAlt, cursor: "pointer", color: C.ink2, fontWeight: 600 }}>
+                      Upload photo
+                    </button>
+                    {avatar && (
+                      <button onClick={() => setAvatar("")}
+                        style={{ fontSize: 11, color: C.ink3, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Color swatches (visible only when no photo) */}
+                {!avatar && (
+                  <div style={{ paddingTop: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.ink2, marginBottom: 10 }}>Avatar color</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 28px)", gap: 7 }}>
+                      {AVATAR_COLORS.map(c => (
+                        <button key={c} onClick={() => setColor(c)}
+                          style={{ width: 28, height: 28, borderRadius: "50%", background: c, border: color === c ? `3px solid ${C.ink}` : "2px solid transparent", cursor: "pointer", transition: "transform .1s" }}
+                          onMouseEnter={e => e.currentTarget.style.transform = "scale(1.15)"}
+                          onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Fields */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.ink2, display: "block", marginBottom: 6 }}>Full Name *</label>
+                  <input value={name} onChange={e => setName(e.target.value)} placeholder="Your full name"
+                    style={{ width: "100%", padding: "10px 14px", border: `1px solid ${C.line}`, borderRadius: 10, fontSize: 14, color: C.ink, background: C.bg, outline: "none", boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.ink2, display: "block", marginBottom: 6 }}>Title / Role</label>
+                  <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Lead Facilitator"
+                    style={{ width: "100%", padding: "10px 14px", border: `1px solid ${C.line}`, borderRadius: 10, fontSize: 14, color: C.ink, background: C.bg, outline: "none", boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.ink2, display: "block", marginBottom: 6 }}>Role</label>
+                  <div style={{ padding: "10px 14px", border: `1px solid ${C.line}`, borderRadius: 10, fontSize: 14, color: C.ink3, background: C.surfaceAlt }}>{user?.role || "—"}</div>
+                </div>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.ink2, display: "block", marginBottom: 6 }}>Email</label>
+                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="your@email.com"
+                    style={{ width: "100%", padding: "10px 14px", border: `1px solid ${C.line}`, borderRadius: 10, fontSize: 14, color: C.ink, background: C.bg, outline: "none", boxSizing: "border-box" }} />
+                </div>
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.ink2, display: "block", marginBottom: 6 }}>Phone</label>
+                  <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+1 (555) 000-0000"
+                    style={{ width: "100%", padding: "10px 14px", border: `1px solid ${C.line}`, borderRadius: 10, fontSize: 14, color: C.ink, background: C.bg, outline: "none", boxSizing: "border-box" }} />
+                </div>
+              </div>
+            </>
+          )}
+
+          {tab === "security" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+                <Shield size={18} color={C.brand} />
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>Change PIN</div>
+                  <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>Your PIN encrypts and protects your data. Use at least 6 characters.</div>
+                </div>
+              </div>
+              {[
+                { label: "Current PIN", val: curPin, set: setCurPin },
+                { label: "New PIN",     val: newPin, set: setNewPin },
+                { label: "Confirm New PIN", val: confirmPin, set: setConfirmPin },
+              ].map(({ label, val, set }) => (
+                <div key={label}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.ink2, display: "block", marginBottom: 6 }}>{label}</label>
+                  <input type="password" value={val} onChange={e => set(e.target.value)} placeholder="••••••"
+                    style={{ width: "100%", padding: "10px 14px", border: `1px solid ${pinMsg ? "#EF4444" : C.line}`, borderRadius: 10, fontSize: 14, color: C.ink, background: C.bg, outline: "none", boxSizing: "border-box", letterSpacing: "0.2em" }} />
+                </div>
+              ))}
+              {pinMsg && <div style={{ fontSize: 12, color: "#EF4444", padding: "8px 12px", background: "#FEF2F2", borderRadius: 8 }}>{pinMsg}</div>}
+            </div>
+          )}
+
+          {msg && <div style={{ fontSize: 13, color: "#EF4444", padding: "10px 14px", background: "#FEF2F2", borderRadius: 10 }}>{msg}</div>}
+        </div>
+
+        {/* Footer */}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "16px 28px 24px", borderTop: `1px solid ${C.line}` }}>
+          <button onClick={onClose} style={{ padding: "10px 22px", borderRadius: 10, border: `1px solid ${C.line}`, background: "transparent", fontSize: 14, cursor: "pointer", color: C.ink2, fontWeight: 500 }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving}
+            style={{ padding: "10px 26px", borderRadius: 10, border: "none", background: C.brand, color: "#fff", fontSize: 14, fontWeight: 600, cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1, display: "flex", alignItems: "center", gap: 8 }}>
+            {saving ? <><RefreshCw size={14} style={{ animation: "spin 1s linear infinite" }} /> Saving…</> : <><Check size={14} /> Save Changes</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ImportModal({ data, setData, onClose }) {
   const [staged, setStaged] = useState({});  // db -> parsed rows
