@@ -923,7 +923,10 @@ const Sec = {
     );
     const out = new Uint8Array(12 + ct.byteLength);
     out.set(iv); out.set(new Uint8Array(ct), 12);
-    return btoa(String.fromCharCode(...out));
+    // Use loop instead of spread to avoid stack overflow on large payloads
+    let str = "";
+    for (let i = 0; i < out.length; i++) str += String.fromCharCode(out[i]);
+    return btoa(str);
   },
   async decrypt(b64, key) {
     const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
@@ -5168,6 +5171,8 @@ function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdate
 
   const handleAdd = async () => {
     if (!newName.trim() || !newPin.trim()) return;
+    if (!masterKeyRaw)    { flash("Session key unavailable — please log out and back in."); return; }
+    if (!window?.storage) { flash("Persistent storage unavailable in this environment."); return; }
     setSaving(true);
     try {
       const pinSalt  = Sec.newSalt();
@@ -5182,21 +5187,24 @@ function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdate
         active: true, color, createdAt: todayISO(), lastLogin: "",
       };
       const secRaw = await window.storage.get(SEC_META_KEY);
-      const sec    = JSON.parse(secRaw.value);
-      const updated = { ...sec, users: [...sec.users, nu] };
+      const sec    = JSON.parse(secRaw?.value || "{}");
+      if (!Array.isArray(sec.users)) sec.users = [];
+      const updated = { ...sec, version: 2, users: [...sec.users, nu] };
       await window.storage.set(SEC_META_KEY, JSON.stringify(updated));
       onUsersUpdated(updated.users.filter(u => u.active !== false));
       setShowAdd(false); setNewName(""); setNewPin(""); setNewRole("Editor");
       flash(`✓ ${nu.name} added successfully`);
-    } catch (_) { flash("Error adding user. Please try again."); }
+    } catch (e) { console.error("handleAdd error:", e); flash("Error: " + (e?.message || e)); }
     setSaving(false);
   };
 
   const handleUpdatePerms = async (userId, updatedPerms, updatedRole) => {
+    if (!window?.storage) { flash("Persistent storage unavailable."); return; }
     setSaving(true);
     try {
       const secRaw = await window.storage.get(SEC_META_KEY);
-      const sec    = JSON.parse(secRaw.value);
+      const sec    = JSON.parse(secRaw?.value || "{}");
+      if (!Array.isArray(sec.users)) { flash("No user config found."); setSaving(false); return; }
       const updated = { ...sec, users: sec.users.map(u =>
         u.id === userId ? { ...u, permissions: updatedPerms, role: updatedRole } : u
       )};
@@ -5204,40 +5212,42 @@ function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdate
       onUsersUpdated(updated.users.filter(u => u.active !== false));
       setEditUser(null);
       flash("✓ Permissions updated");
-    } catch (_) { flash("Error saving. Please try again."); }
+    } catch (e) { console.error("handleUpdatePerms:", e); flash("Error: " + (e?.message || e)); }
     setSaving(false);
   };
 
   const handleResetPin = async (userId, newPinVal) => {
-    if (!newPinVal.trim()) return;
+    if (!newPinVal.trim() || !masterKeyRaw || !window?.storage) return;
     setSaving(true);
     try {
       const pinSalt  = Sec.newSalt();
       const pinHash  = await Sec.hashPin(newPinVal);
       const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyRaw, newPinVal, pinSalt);
       const secRaw = await window.storage.get(SEC_META_KEY);
-      const sec    = JSON.parse(secRaw.value);
+      const sec    = JSON.parse(secRaw?.value || "{}");
+      if (!Array.isArray(sec.users)) { flash("No user config found."); setSaving(false); return; }
       const updated = { ...sec, users: sec.users.map(u =>
         u.id === userId ? { ...u, pinHash, pinSalt, wrappedMasterKey } : u
       )};
       await window.storage.set(SEC_META_KEY, JSON.stringify(updated));
       flash("✓ PIN reset successfully");
-    } catch (_) { flash("Error resetting PIN."); }
+    } catch (e) { console.error("handleResetPin:", e); flash("Error: " + (e?.message || e)); }
     setSaving(false);
   };
 
   const handleDeactivate = async (userId) => {
-    if (userId === currentUser?.id) return;
+    if (userId === currentUser?.id || !window?.storage) return;
     if (!window.confirm("Deactivate this user? They will no longer be able to log in.")) return;
     setSaving(true);
     try {
       const secRaw = await window.storage.get(SEC_META_KEY);
-      const sec    = JSON.parse(secRaw.value);
+      const sec    = JSON.parse(secRaw?.value || "{}");
+      if (!Array.isArray(sec.users)) { setSaving(false); return; }
       const updated = { ...sec, users: sec.users.map(u => u.id === userId ? { ...u, active: false } : u) };
       await window.storage.set(SEC_META_KEY, JSON.stringify(updated));
       onUsersUpdated(updated.users.filter(u => u.active !== false));
       flash("User deactivated");
-    } catch (_) {}
+    } catch (e) { console.error("handleDeactivate:", e); }
     setSaving(false);
   };
 
@@ -5337,7 +5347,6 @@ function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdate
           const isMe   = u.id === currentUser?.id;
           const isEdit = editUser?.id === u.id;
           const [ePerm, setEPerm] = [editUser?.permissions || u.permissions, (p) => setEditUser(ev => ({ ...ev, permissions: p }))];
-          const [resetPinVal, setResetPinVal] = useState?.("") || ["", () => {}];
 
           return (
             <div key={u.id} style={{
