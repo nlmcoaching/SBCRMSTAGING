@@ -6,6 +6,7 @@ import {
   RefreshCw, Plus, X, Search, Upload, Download, Trash2, ChevronLeft,
   ChevronRight, Menu, Phone, Mail, Link2, Wind, ArrowUpRight, Check,
   Zap, Copy, Clock, TrendingUp, BarChart2, AlertCircle, Activity, Send, Info, BellRing, Milestone,
+  LogOut, UserCircle, Shield, KeyRound,
 } from "lucide-react";
 
 /* ============================================================
@@ -1133,6 +1134,7 @@ export default function App() {
   const [importing, setImporting] = useState(false);
   const [query, setQuery] = useState("");
   const [navOpen, setNavOpen] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [saved, setSaved] = useState("idle"); // idle | saving | saved
   const loaded = useRef(false);
   const today = todayISO();
@@ -1293,6 +1295,15 @@ export default function App() {
     } catch (e) {
       if (!e.message?.includes("PIN")) setPinError("Something went wrong. Please try again.");
     }
+  };
+
+  /* ── Logout ── */
+  const handleLogout = () => {
+    setLocked(true);
+    setCryptoKey(null);
+    setMasterKeyRaw(null);
+    setCurrentUser(null);
+    setPinError("");
   };
 
   /* ── Persist on change (encrypted) ── */
@@ -1469,9 +1480,75 @@ export default function App() {
           </nav>
           <div style={{ marginTop: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
             {can.edit && <button className="sb-ghost" onClick={() => setImporting(true)}><Upload size={15} /> Import CSVs</button>}
-            <div style={{ fontSize: 11, color: C.ink3, textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-              <span style={{ fontWeight: 600, color: currentUser?.color || C.brand }}>{currentUser?.name?.split(" ")[0]}</span>
-              &nbsp;·&nbsp;{saved === "saving" ? "Saving…" : saved === "saved" ? <><Check size={12} /> Saved</> : "Auto-saved"}
+
+            {/* Profile / Logout widget */}
+            <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 10, marginTop: 4 }}>
+              {showProfile ? (
+                <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+                  {/* Avatar + name */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 38, height: 38, borderRadius: "50%", background: currentUser?.color || C.brand, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>
+                        {(currentUser?.name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
+                      </span>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser?.name || "Unknown"}</div>
+                      <div style={{ fontSize: 11, color: C.ink3, display: "flex", alignItems: "center", gap: 4 }}>
+                        <Shield size={10} />{currentUser?.role || "Viewer"}
+                      </div>
+                    </div>
+                    <button onClick={() => setShowProfile(false)} style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, padding: 2 }}><X size={14} /></button>
+                  </div>
+
+                  {/* Permissions summary */}
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {["view","edit","delete","manage"].map(p => (
+                      <span key={p} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 8, background: currentUser?.permissions?.[p] ? C.brandSoft : C.line, color: currentUser?.permissions?.[p] ? C.brandDeep : C.ink3, fontWeight: 600, textTransform: "capitalize" }}>{p}</span>
+                    ))}
+                  </div>
+
+                  {/* Last login */}
+                  {currentUser?.lastLogin && (
+                    <div style={{ fontSize: 11, color: C.ink3, display: "flex", alignItems: "center", gap: 5 }}>
+                      <Clock size={11} /> Last login: {currentUser.lastLogin}
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {can.manage && (
+                      <button className="sb-ghost" style={{ justifyContent: "flex-start", fontSize: 12 }}
+                        onClick={() => { go("users"); setShowProfile(false); }}>
+                        <Users size={13} /> Manage Users
+                      </button>
+                    )}
+                    <button
+                      onClick={() => { if (window.confirm("Log out of Simply Breathe OS?")) handleLogout(); }}
+                      style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 8, background: "#FEE2E2", color: "#B91C1C", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                      <LogOut size={13} /> Log Out
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => setShowProfile(true)}
+                  style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "7px 8px", border: "none", borderRadius: 10, background: "transparent", cursor: "pointer", transition: "background .12s" }}
+                  onMouseEnter={e => e.currentTarget.style.background = C.brandMist}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <div style={{ width: 30, height: 30, borderRadius: "50%", background: currentUser?.color || C.brand, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>
+                      {(currentUser?.name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
+                    </span>
+                  </div>
+                  <div style={{ flex: 1, textAlign: "left" }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser?.name || "User"}</div>
+                    <div style={{ fontSize: 10, color: C.ink3 }}>
+                      {saved === "saving" ? "Saving…" : saved === "saved" ? "✓ Saved" : "Auto-saved"}
+                    </div>
+                  </div>
+                  <UserCircle size={15} style={{ color: C.ink3, flexShrink: 0 }} />
+                </button>
+              )}
             </div>
           </div>
         </aside>
