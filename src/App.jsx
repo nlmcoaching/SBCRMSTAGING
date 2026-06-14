@@ -96,35 +96,69 @@ const CLOSE_PROB = ["Low", "Medium", "High", "Closed Won", "Closed Lost"];
 const CLOSE_PROB_COLOR = { Low: "#9FB2CC", Medium: C.gold, High: "#4A8C6F", "Closed Won": "#13245C", "Closed Lost": "#C0573F" };
 const CONTRACT_STATUS = ["None", "Drafted", "Sent", "Signed"];
 
-const PARTNER_CHECKLIST = [
-  // Legal
-  { id: "agreement_sent",      label: "Agreement sent",                    cat: "Legal & Agreement" },
-  { id: "agreement_signed",    label: "Agreement signed",                  cat: "Legal & Agreement" },
-  { id: "liability_waiver",    label: "Liability waiver process confirmed", cat: "Legal & Agreement" },
-  { id: "insurance_requested", label: "Insurance certificate requested",   cat: "Legal & Agreement" },
-  { id: "insurance_received",  label: "Insurance certificate received",    cat: "Legal & Agreement" },
-  // Finance
-  { id: "revenue_split",       label: "Revenue split agreed",              cat: "Finance & Pricing" },
-  { id: "ticket_price",        label: "Ticket price agreed",               cat: "Finance & Pricing" },
-  { id: "min_attendance",      label: "Minimum attendance agreed",         cat: "Finance & Pricing" },
-  { id: "payment_terms",       label: "Payment terms confirmed",           cat: "Finance & Pricing" },
-  // Marketing
-  { id: "promotion_plan",      label: "Promotion plan approved",           cat: "Marketing & Assets" },
-  { id: "qr_code",             label: "QR code created",                   cat: "Marketing & Assets" },
-  { id: "booking_page",        label: "Booking page created",              cat: "Marketing & Assets" },
-  { id: "event_assets",        label: "Event assets delivered to studio",  cat: "Marketing & Assets" },
-  // Operations
-  { id: "room_setup",          label: "Room setup confirmed",              cat: "Operations" },
-  { id: "followup_agreed",     label: "Post-session follow-up agreed",     cat: "Operations" },
+const PARTNER_CHECKLIST_PHASES = [
+  {
+    id: "pre_sign",
+    label: "Before Signing",
+    color: "#2E6FB0",
+    bg: "#EEF4FF",
+    icon: "📋",
+    items: [
+      { id: "discovery_call",   label: "Discovery call completed"   },
+      { id: "revenue_discussed",label: "Revenue split discussed"    },
+      { id: "capacity_confirmed",label: "Capacity confirmed"        },
+      { id: "insurance_answered",label: "Insurance question answered"},
+      { id: "decision_maker",   label: "Decision maker identified"  },
+    ],
+  },
+  {
+    id: "post_sign",
+    label: "After Signing",
+    color: "#6B5CE7",
+    bg: "#EEEAFF",
+    icon: "✍️",
+    items: [
+      { id: "agreement_uploaded",label: "Agreement uploaded"        },
+      { id: "booking_page",      label: "Booking page created"      },
+      { id: "qr_code",           label: "QR code created"           },
+      { id: "event_flyer",       label: "Event flyer created"       },
+      { id: "studio_email",      label: "Studio email copy sent"    },
+      { id: "social_posts",      label: "Social posts sent"         },
+      { id: "waiver_link",       label: "Waiver link confirmed"     },
+      { id: "payment_flow",      label: "Payment flow tested"       },
+    ],
+  },
+  {
+    id: "pre_event",
+    label: "Before Event",
+    color: "#D9892B",
+    bg: "#FFF8ED",
+    icon: "🎯",
+    items: [
+      { id: "registration_checked",label: "Registration count checked"},
+      { id: "reminder_email",    label: "Reminder email sent"       },
+      { id: "room_setup",        label: "Room setup confirmed"      },
+      { id: "equipment_packed",  label: "Equipment packed"          },
+      { id: "arrival_confirmed", label: "Arrival time confirmed"    },
+    ],
+  },
+  {
+    id: "post_event",
+    label: "After Event",
+    color: "#4A8C6F",
+    bg: "#E2F0EA",
+    icon: "✅",
+    items: [
+      { id: "revenue_reconciled",label: "Revenue reconciled"        },
+      { id: "studio_paid",       label: "Studio paid"               },
+      { id: "followup_sent",     label: "Follow-up sent to attendees"},
+      { id: "testimonials_requested", label: "Testimonials requested"},
+      { id: "next_date",         label: "Next date proposed"        },
+    ],
+  },
 ];
-const CHECKLIST_CATS = ["Legal & Agreement", "Finance & Pricing", "Marketing & Assets", "Operations"];
-const CHECKLIST_CAT_COLOR = {
-  "Legal & Agreement": "#4A8C6F",
-  "Finance & Pricing": C.gold,
-  "Marketing & Assets": C.brand,
-  "Operations": "#7B68EE",
-};
-const emptyChecklist = () => Object.fromEntries(PARTNER_CHECKLIST.map((i) => [i.id, false]));
+const PARTNER_CHECKLIST = PARTNER_CHECKLIST_PHASES.flatMap(p => p.items.map(i => ({ ...i, phase: p.id })));
+const emptyChecklist = () => Object.fromEntries(PARTNER_CHECKLIST.map(i => [i.id, false]));
 const FUTYPE = ["24h", "72h", "Referral", "Reactivation"];
 const FUTYPE_COLOR = { "24h": "#3F87DC", "72h": "#2F6FD0", "Referral": "#D9892B", "Reactivation": "#9FB2CC" };
 const SOURCE = ["Post-session", "Referral", "Studio partner", "Instagram", "TikTok", "Email", "LinkedIn", "Direct outreach", "Walk-in", "Other"];
@@ -339,11 +373,11 @@ function makeSequenceSteps(startDate) {
 /* ---------- Seed data (from the six source files, relations wired) ---------- */
 const SEED = {
   partners: [
-    { id: "sp1", name: "Sample - YogaSix Walnut Creek", studioType: "Yoga", location: "Walnut Creek, CA", contact: "Alyssa Tran", role: "Manager", email: "alyssa@example.com", phone: "555-0201", stage: "Recurring partner", estimatedCommunitySize: 320, bestFitJourney: "Reset & Release", revenuePotential: 2400, closeProbability: "Closed Won", revShare: "70/30 split (us/studio)", contractStatus: "Signed", outreachDate: "2026-03-01", lastTouch: "2026-06-11", nextAction: "2026-06-18", avgAttendance: 14, sessionsPerMonth: 4, insuranceReqs: "COI on file", promotionCommitments: "Monthly IG story + email to list", notes: "Thursday Reset is the anchor class; strong word of mouth. Alyssa is a champion.", checklist: { agreement_sent: true, agreement_signed: true, liability_waiver: true, insurance_requested: true, insurance_received: true, revenue_split: true, ticket_price: true, min_attendance: true, payment_terms: true, promotion_plan: true, qr_code: true, booking_page: true, event_assets: true, room_setup: true, followup_agreed: true } },
-    { id: "sp2", name: "Sample - CorePower Lafayette", studioType: "Yoga", location: "Lafayette, CA", contact: "Mike Donnelly", role: "Owner", email: "mike@example.com", phone: "555-0202", stage: "Demo completed", estimatedCommunitySize: 280, bestFitJourney: "Letting Go & Rebirth", revenuePotential: 1800, closeProbability: "High", revShare: "Flat room fee $75", contractStatus: "None", outreachDate: "2026-05-10", lastTouch: "2026-06-03", nextAction: "2026-06-16", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "Needs COI before pilot", promotionCommitments: "TBD — discussing newsletter feature", notes: "Demo went well 6/3. Mike is interested but cautious. Follow up with pilot proposal this week.", checklist: { agreement_sent: false, agreement_signed: false, liability_waiver: false, insurance_requested: false, insurance_received: false, revenue_split: true, ticket_price: true, min_attendance: false, payment_terms: false, promotion_plan: false, qr_code: false, booking_page: false, event_assets: false, room_setup: false, followup_agreed: false } },
-    { id: "sp3", name: "Sample - The Still Point", studioType: "Meditation", location: "Pleasant Hill, CA", contact: "Renee Park", role: "Director", email: "renee@example.com", phone: "555-0203", stage: "Pilot proposed", estimatedCommunitySize: 140, bestFitJourney: "Nervous System Reset", revenuePotential: 1200, closeProbability: "Medium", revShare: "80/20 split (us/studio)", contractStatus: "Drafted", outreachDate: "2026-04-15", lastTouch: "2026-06-05", nextAction: "2026-06-14", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "COI + liability waiver required", promotionCommitments: "4-week pilot feature on their blog", notes: "4-week Sunday evening pilot proposed. Contract drafted but not returned. Renee responsive over email.", checklist: { agreement_sent: true, agreement_signed: false, liability_waiver: false, insurance_requested: true, insurance_received: false, revenue_split: true, ticket_price: true, min_attendance: true, payment_terms: false, promotion_plan: false, qr_code: false, booking_page: false, event_assets: false, room_setup: false, followup_agreed: false } },
+    { id: "sp1", name: "Sample - YogaSix Walnut Creek", studioType: "Yoga", location: "Walnut Creek, CA", contact: "Alyssa Tran", role: "Manager", email: "alyssa@example.com", phone: "555-0201", stage: "Recurring partner", estimatedCommunitySize: 320, bestFitJourney: "Reset & Release", revenuePotential: 2400, closeProbability: "Closed Won", revShare: "70/30 split (us/studio)", contractStatus: "Signed", outreachDate: "2026-03-01", lastTouch: "2026-06-11", nextAction: "2026-06-18", avgAttendance: 14, sessionsPerMonth: 4, insuranceReqs: "COI on file", promotionCommitments: "Monthly IG story + email to list", notes: "Thursday Reset is the anchor class; strong word of mouth. Alyssa is a champion.", checklist: { discovery_call: true, revenue_discussed: true, capacity_confirmed: true, insurance_answered: true, decision_maker: true, agreement_uploaded: true, booking_page: true, qr_code: true, event_flyer: true, studio_email: true, social_posts: true, waiver_link: true, payment_flow: true, registration_checked: true, reminder_email: true, room_setup: true, equipment_packed: true, arrival_confirmed: true, revenue_reconciled: true, studio_paid: true, followup_sent: true, testimonials_requested: true, next_date: true } },
+    { id: "sp2", name: "Sample - CorePower Lafayette", studioType: "Yoga", location: "Lafayette, CA", contact: "Mike Donnelly", role: "Owner", email: "mike@example.com", phone: "555-0202", stage: "Demo completed", estimatedCommunitySize: 280, bestFitJourney: "Letting Go & Rebirth", revenuePotential: 1800, closeProbability: "High", revShare: "Flat room fee $75", contractStatus: "None", outreachDate: "2026-05-10", lastTouch: "2026-06-03", nextAction: "2026-06-16", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "Needs COI before pilot", promotionCommitments: "TBD — discussing newsletter feature", notes: "Demo went well 6/3. Mike is interested but cautious. Follow up with pilot proposal this week.", checklist: { discovery_call: true, revenue_discussed: true, capacity_confirmed: true, insurance_answered: false, decision_maker: true, agreement_uploaded: false, booking_page: false, qr_code: false, event_flyer: false, studio_email: false, social_posts: false, waiver_link: false, payment_flow: false, registration_checked: false, reminder_email: false, room_setup: false, equipment_packed: false, arrival_confirmed: false, revenue_reconciled: false, studio_paid: false, followup_sent: false, testimonials_requested: false, next_date: false } },
+    { id: "sp3", name: "Sample - The Still Point", studioType: "Meditation", location: "Pleasant Hill, CA", contact: "Renee Park", role: "Director", email: "renee@example.com", phone: "555-0203", stage: "Pilot proposed", estimatedCommunitySize: 140, bestFitJourney: "Nervous System Reset", revenuePotential: 1200, closeProbability: "Medium", revShare: "80/20 split (us/studio)", contractStatus: "Drafted", outreachDate: "2026-04-15", lastTouch: "2026-06-05", nextAction: "2026-06-14", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "COI + liability waiver required", promotionCommitments: "4-week pilot feature on their blog", notes: "4-week Sunday evening pilot proposed. Contract drafted but not returned. Renee responsive over email.", checklist: { discovery_call: true, revenue_discussed: true, capacity_confirmed: true, insurance_answered: true, decision_maker: true, agreement_uploaded: false, booking_page: false, qr_code: false, event_flyer: false, studio_email: false, social_posts: false, waiver_link: false, payment_flow: false, registration_checked: false, reminder_email: false, room_setup: false, equipment_packed: false, arrival_confirmed: false, revenue_reconciled: false, studio_paid: false, followup_sent: false, testimonials_requested: false, next_date: false } },
     { id: "sp4", name: "Sample - Flow State Studio", studioType: "Wellness", location: "Concord, CA", contact: "Tara Iverson", role: "Owner", email: "tara@example.com", phone: "555-0204", stage: "Initial outreach sent", estimatedCommunitySize: 90, bestFitJourney: "Breathwork Basics", revenuePotential: 900, closeProbability: "Low", revShare: "TBD", contractStatus: "None", outreachDate: "2026-06-09", lastTouch: "2026-06-09", nextAction: "2026-06-17", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "Warm intro from Dana. Sent intro email 6/9. Waiting on reply.", checklist: emptyChecklist() },
-    { id: "sp5", name: "Sample - Lotus & Pine", studioType: "Yoga", location: "Danville, CA", contact: "Geoff Adams", role: "Manager", email: "geoff@example.com", phone: "555-0205", stage: "Recurring partner", estimatedCommunitySize: 500, bestFitJourney: "Deep Surrender", revenuePotential: 5200, closeProbability: "Closed Won", revShare: "60/40 split (us/studio)", contractStatus: "Signed", outreachDate: "2026-01-15", lastTouch: "2026-06-10", nextAction: "2026-06-20", avgAttendance: 18, sessionsPerMonth: 8, insuranceReqs: "COI on file + annual renewal", promotionCommitments: "Co-branded social posts + monthly email feature", notes: "Two weekly slots plus monthly workshop. Best earner. Geoff wants to add a Friday morning slot.", checklist: { agreement_sent: true, agreement_signed: true, liability_waiver: true, insurance_requested: true, insurance_received: true, revenue_split: true, ticket_price: true, min_attendance: true, payment_terms: true, promotion_plan: true, qr_code: true, booking_page: true, event_assets: true, room_setup: true, followup_agreed: true } },
+    { id: "sp5", name: "Sample - Lotus & Pine", studioType: "Yoga", location: "Danville, CA", contact: "Geoff Adams", role: "Manager", email: "geoff@example.com", phone: "555-0205", stage: "Recurring partner", estimatedCommunitySize: 500, bestFitJourney: "Deep Surrender", revenuePotential: 5200, closeProbability: "Closed Won", revShare: "60/40 split (us/studio)", contractStatus: "Signed", outreachDate: "2026-01-15", lastTouch: "2026-06-10", nextAction: "2026-06-20", avgAttendance: 18, sessionsPerMonth: 8, insuranceReqs: "COI on file + annual renewal", promotionCommitments: "Co-branded social posts + monthly email feature", notes: "Two weekly slots plus monthly workshop. Best earner. Geoff wants to add a Friday morning slot.", checklist: { discovery_call: true, revenue_discussed: true, capacity_confirmed: true, insurance_answered: true, decision_maker: true, agreement_uploaded: true, booking_page: true, qr_code: true, event_flyer: true, studio_email: true, social_posts: true, waiver_link: true, payment_flow: true, registration_checked: true, reminder_email: true, room_setup: true, equipment_packed: true, arrival_confirmed: true, revenue_reconciled: true, studio_paid: true, followup_sent: true, testimonials_requested: true, next_date: true } },
   ],
   clients: [
     { id: "c1", name: "Sample - Jordan Lee",   phone: "555-0101", email: "jordan@example.com", source: "Studio partner",  status: "Lead",          clientType: "High-value lead",          tags: ["Anxiety","Stress relief"],                              firstSession: "",           sessionsAttended: 0,  lastSession: "",           nextSession: "2026-06-12", packageType: "None",       lifetimeValue: 0,   notes: "Found us via YogaSix flyer; anxious about first session, wants calm intro",      referral: "Low"    },
@@ -467,7 +501,7 @@ const SEED = {
 };
 
 /* ---------- Helpers ---------- */
-const STORE_KEY = "simplybreathe:data:v2";
+const STORE_KEY = "simplybreathe:data:v3";
 const uid = (p) => p + "_" + Math.random().toString(36).slice(2, 9);
 const todayISO = () => {
   const d = new Date();
@@ -2869,82 +2903,173 @@ function SessionPerformance({ record: r, derived, data }) {
    PARTNER LAUNCH CHECKLIST
    ============================================================ */
 function PartnerLaunchChecklist({ checklist, onChange, partnerName }) {
-  const toggle = (id) => onChange({ ...checklist, [id]: !checklist[id] });
-  const done = Object.values(checklist).filter(Boolean).length;
-  const total = PARTNER_CHECKLIST.length;
-  const pctDone = Math.round((done / total) * 100);
+  const cl = checklist || emptyChecklist();
+  const toggle = (id) => onChange({ ...cl, [id]: !cl[id] });
+
+  const totalItems = PARTNER_CHECKLIST.length;
+  const totalDone  = PARTNER_CHECKLIST.filter(i => !!cl[i.id]).length;
+  const pct        = Math.round((totalDone / totalItems) * 100);
+
+  // Determine active phase (first incomplete phase)
+  const activePhaseId = PARTNER_CHECKLIST_PHASES.find(ph =>
+    ph.items.some(i => !cl[i.id])
+  )?.id || "post_event";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
 
-      {/* Progress header */}
-      <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: "16px 18px" }}>
+      {/* Overall progress header */}
+      <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: "16px 18px", marginBottom: 20 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{partnerName} — Launch Checklist</div>
-            <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>{done} of {total} items complete</div>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>{partnerName}</div>
+            <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>
+              {totalDone} of {totalItems} launch items complete
+            </div>
           </div>
-          <div style={{ fontFamily: FONT.display, fontSize: 28, fontWeight: 700, color: pctDone === 100 ? "#4A8C6F" : pctDone >= 60 ? C.brand : C.gold }}>
-            {pctDone}%
+          <div style={{ fontFamily: FONT.display, fontSize: 32, fontWeight: 700,
+            color: pct === 100 ? "#4A8C6F" : pct >= 60 ? C.brand : C.gold }}>
+            {pct}%
           </div>
         </div>
-        {/* Progress bar */}
         <div style={{ height: 8, background: C.line, borderRadius: 8, overflow: "hidden" }}>
-          <div style={{
-            height: "100%", borderRadius: 8, transition: "width .3s ease",
-            width: pctDone + "%",
-            background: pctDone === 100 ? "#4A8C6F" : pctDone >= 60 ? C.brand : C.gold,
+          <div style={{ height: "100%", borderRadius: 8, transition: "width .4s ease",
+            width: pct + "%",
+            background: pct === 100 ? "#4A8C6F" : `linear-gradient(90deg, ${C.brand}, #6B5CE7)`,
           }} />
         </div>
-        {pctDone === 100 && (
-          <div style={{ marginTop: 8, fontSize: 12.5, color: "#4A8C6F", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
-            <Check size={14} /> All launch items complete — this partner is fully onboarded.
+        {pct === 100 && (
+          <div style={{ marginTop: 8, fontSize: 12.5, color: "#4A8C6F", fontWeight: 600,
+            display: "flex", alignItems: "center", gap: 5 }}>
+            <Check size={14} /> Fully launched — this partner is ready to run.
           </div>
         )}
+
+        {/* Phase progress pills */}
+        <div style={{ display: "flex", gap: 6, marginTop: 12, flexWrap: "wrap" }}>
+          {PARTNER_CHECKLIST_PHASES.map(ph => {
+            const done  = ph.items.filter(i => !!cl[i.id]).length;
+            const total = ph.items.length;
+            const complete = done === total;
+            return (
+              <div key={ph.id} style={{
+                display: "flex", alignItems: "center", gap: 5,
+                padding: "4px 10px", borderRadius: 20,
+                background: complete ? ph.bg : C.surface,
+                border: `1px solid ${complete ? ph.color : C.line}`,
+              }}>
+                <span style={{ fontSize: 12 }}>{ph.icon}</span>
+                <span style={{ fontSize: 11.5, fontWeight: 600,
+                  color: complete ? ph.color : C.ink3 }}>
+                  {ph.label}
+                </span>
+                <span style={{ fontSize: 11, color: complete ? ph.color : C.ink3, opacity: 0.7 }}>
+                  {done}/{total}
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Categories */}
-      {CHECKLIST_CATS.map((cat) => {
-        const items = PARTNER_CHECKLIST.filter((i) => i.cat === cat);
-        const catDone = items.filter((i) => checklist[i.id]).length;
-        const color = CHECKLIST_CAT_COLOR[cat];
-        return (
-          <div key={cat}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <div style={{ width: 10, height: 10, borderRadius: "50%", background: color, flexShrink: 0 }} />
-              <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color }}>{cat}</span>
-              <span style={{ fontSize: 11, color: C.ink3, marginLeft: "auto" }}>{catDone}/{items.length}</span>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              {items.map((item) => {
-                const checked = !!checklist[item.id];
-                return (
-                  <button key={item.id} onClick={() => toggle(item.id)} style={{
-                    display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
-                    background: checked ? hexA(color, 0.07) : "transparent",
-                    border: "none", borderRadius: 8, padding: "9px 10px", cursor: "pointer",
-                    transition: "background .12s",
+      {/* Phase sections — timeline style */}
+      <div style={{ position: "relative" }}>
+        {/* Vertical connecting line */}
+        <div style={{
+          position: "absolute", left: 19, top: 24, bottom: 24,
+          width: 2, background: C.line, zIndex: 0,
+        }} />
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          {PARTNER_CHECKLIST_PHASES.map((ph, phIdx) => {
+            const phaseDone  = ph.items.filter(i => !!cl[i.id]).length;
+            const phaseTotal = ph.items.length;
+            const phaseComplete = phaseDone === phaseTotal;
+            const isActive = ph.id === activePhaseId;
+            const isPast   = PARTNER_CHECKLIST_PHASES.findIndex(p => p.id === activePhaseId) > phIdx;
+
+            return (
+              <div key={ph.id} style={{ position: "relative", zIndex: 1 }}>
+                {/* Phase header row */}
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+                  {/* Phase dot */}
+                  <div style={{
+                    width: 40, height: 40, borderRadius: "50%", flexShrink: 0,
+                    background: phaseComplete ? ph.color : isActive ? ph.bg : C.surface,
+                    border: `2px solid ${phaseComplete || isActive ? ph.color : C.line}`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 17, boxShadow: isActive ? `0 0 0 3px ${ph.color}25` : "none",
+                    transition: "all .2s",
                   }}>
-                    {/* Checkbox */}
-                    <div style={{
-                      width: 20, height: 20, borderRadius: 5, border: `2px solid ${checked ? color : C.line}`,
-                      background: checked ? color : C.surface, display: "flex", alignItems: "center",
-                      justifyContent: "center", flexShrink: 0, transition: "all .12s",
-                    }}>
-                      {checked && <Check size={12} color="#fff" strokeWidth={3} />}
+                    {phaseComplete ? <Check size={16} color="#fff" strokeWidth={3} /> : ph.icon}
+                  </div>
+
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontWeight: 700, fontSize: 14, color: isActive || phaseComplete ? ph.color : C.ink3 }}>
+                        {ph.label}
+                      </span>
+                      {isActive && !phaseComplete && (
+                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
+                          background: ph.bg, color: ph.color, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                          Current
+                        </span>
+                      )}
+                      {phaseComplete && (
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: ph.color, opacity: 0.7 }}>
+                          Complete ✓
+                        </span>
+                      )}
                     </div>
-                    <span style={{
-                      fontSize: 13.5, fontWeight: checked ? 500 : 400,
-                      color: checked ? C.ink3 : C.ink,
-                      textDecoration: checked ? "line-through" : "none",
-                    }}>{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })}
+                    {/* Mini progress bar */}
+                    <div style={{ height: 4, background: C.line, borderRadius: 4, marginTop: 5, width: 120, overflow: "hidden" }}>
+                      <div style={{ height: "100%", borderRadius: 4,
+                        width: `${Math.round((phaseDone / phaseTotal) * 100)}%`,
+                        background: ph.color, transition: "width .3s ease" }} />
+                    </div>
+                  </div>
+
+                  <span style={{ fontSize: 12, color: phaseComplete ? ph.color : C.ink3, fontWeight: 600 }}>
+                    {phaseDone}/{phaseTotal}
+                  </span>
+                </div>
+
+                {/* Checklist items */}
+                <div style={{ marginLeft: 52, display: "flex", flexDirection: "column", gap: 2 }}>
+                  {ph.items.map(item => {
+                    const checked = !!cl[item.id];
+                    return (
+                      <button key={item.id} onClick={() => toggle(item.id)} style={{
+                        display: "flex", alignItems: "center", gap: 10, width: "100%",
+                        textAlign: "left", padding: "8px 12px", borderRadius: 8,
+                        background: checked ? hexA(ph.color, 0.07) : "transparent",
+                        border: `1px solid ${checked ? hexA(ph.color, 0.2) : "transparent"}`,
+                        cursor: "pointer", transition: "all .12s",
+                      }}>
+                        <div style={{
+                          width: 20, height: 20, borderRadius: 5, flexShrink: 0,
+                          border: `2px solid ${checked ? ph.color : C.line}`,
+                          background: checked ? ph.color : C.surface,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          transition: "all .15s",
+                        }}>
+                          {checked && <Check size={11} color="#fff" strokeWidth={3} />}
+                        </div>
+                        <span style={{
+                          fontSize: 13.5, fontWeight: checked ? 400 : 500,
+                          color: checked ? C.ink3 : C.ink,
+                          textDecoration: checked ? "line-through" : "none",
+                          flex: 1,
+                        }}>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
