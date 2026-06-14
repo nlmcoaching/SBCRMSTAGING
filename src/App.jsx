@@ -4502,7 +4502,7 @@ function buildWorkflows(data, today) {
         { id: "partner", label: "Recurring Partner", color: "#4A8C6F",  count: pPartner.length, value: pPartner.reduce((s,p)=>s+(p.revenuePotential||0),0), records: pPartner, tip: "Active recurring studio" },
       ],
       kpis: [
-        { label: "Pipeline value", value: "$" + fmtMoney(pPipeVal) },
+        { label: "Pipeline value", value: ""$" + money(pPipeVal) },
         { label: "Stuck / overdue", value: pStuck.length },
         { label: "Active partners", value: pPartner.length },
       ],
@@ -4525,7 +4525,7 @@ function buildWorkflows(data, today) {
         { id: "closed", label: "Closed Out",   color: "#4A8C6F",  count: sClosed.length,     value: null, records: sClosed,     tip: "Revenue reconciled and closed" },
       ],
       kpis: [
-        { label: "Revenue delivered", value: "$" + fmtMoney(sRevTotal) },
+        { label: "Revenue delivered", value: ""$" + money(sRevTotal) },
         { label: "Needing follow-up", value: sDelivered.filter(s => !s.followUpSent).length },
         { label: "Sessions past date, stuck", value: sStuck.length },
       ],
@@ -4549,8 +4549,8 @@ function buildWorkflows(data, today) {
         { id: "lost",    label: "Declined / Lost",color: "#C0392B", count: oLost.length,     value: oLost.reduce((s,o)=>s+(o.price||0),0), records: oLost, tip: "Declined or expired" },
       ],
       kpis: [
-        { label: "Open pipeline", value: "$" + fmtMoney(oPipeVal) },
-        { label: "Won revenue", value: "$" + fmtMoney(oWonVal) },
+        { label: "Open pipeline", value: ""$" + money(oPipeVal) },
+        { label: "Won revenue", value: ""$" + money(oWonVal) },
         { label: "Conversion rate", value: (oWon.length + oLost.length) > 0 ? Math.round(oWon.length / (oWon.length + oLost.length) * 100) + "%" : "—" },
       ],
       nextAction: oStuck.length > 0 ? `Follow up on ${oStuck.length} overdue offer${oStuck.length > 1 ? "s" : ""}` : oFollowUp.length > 0 ? `${oFollowUp.length} offer${oFollowUp.length > 1 ? "s" : ""} need follow-up today` : null,
@@ -4571,7 +4571,7 @@ function buildWorkflows(data, today) {
         { id: "purchased", label: "Purchased",  color: "#4A8C6F",  count: rfPurchased.length, value: rfRevenue, records: rfPurchased, tip: "Purchased a session or package" },
       ],
       kpis: [
-        { label: "Referral revenue", value: "$" + fmtMoney(rfRevenue) },
+        { label: "Referral revenue", value: ""$" + money(rfRevenue) },
         { label: "Awaiting thank-you", value: referrals.filter(r => !r.thankYouSent && r.status !== "Referred").length },
         { label: "Conversion rate", value: referrals.length > 0 ? Math.round(rfPurchased.length / referrals.length * 100) + "%" : "—" },
       ],
@@ -4677,7 +4677,7 @@ function WorkflowsView({ data, derived, today }) {
                           </div>
                           <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 3 }}>{st.label}</div>
                           {st.value != null && st.value > 0 && (
-                            <div style={{ fontSize: 11, color: st.color, fontWeight: 600 }}>${fmtMoney(st.value)}</div>
+                            <div style={{ fontSize: 11, color: st.color, fontWeight: 600 }}>${money(st.value)}</div>
                           )}
                           <div style={{ fontSize: 10.5, color: C.ink3, marginTop: 4, lineHeight: 1.4 }}>{st.tip}</div>
                         </div>
