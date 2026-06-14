@@ -30,11 +30,32 @@ const STATUS_COLOR = {
   "Lead": "#9FB2CC", "Booked": "#6FA8E8", "Attended 1x": "#3F87DC",
   "Engaged (2-3x)": "#2F6FD0", "Member (4+)": "#234E9E", "Advocate": "#13245C",
 };
-const STAGE = ["Prospect", "Demo Completed", "Pilot Scheduled", "Active Weekly Partner", "Scaled Partner"];
+const STAGE = [
+  "Target identified", "Researched", "Initial outreach sent", "Follow-up needed",
+  "Discovery call booked", "Demo session offered", "Demo completed",
+  "Pilot proposed", "Agreement sent", "Agreement signed",
+  "First session scheduled", "Pilot completed", "Recurring partner", "Lost / not a fit",
+];
 const STAGE_COLOR = {
-  "Prospect": "#9FB2CC", "Demo Completed": "#6FA8E8", "Pilot Scheduled": "#3F87DC",
-  "Active Weekly Partner": "#2F6FD0", "Scaled Partner": "#13245C",
+  "Target identified":       "#C5D5E8",
+  "Researched":              "#A8BFDA",
+  "Initial outreach sent":   "#8AAFD0",
+  "Follow-up needed":        "#D9892B",
+  "Discovery call booked":   "#6FA8E8",
+  "Demo session offered":    "#5B9FE0",
+  "Demo completed":          "#4A90D9",
+  "Pilot proposed":          "#3A7FCC",
+  "Agreement sent":          "#2F6FD0",
+  "Agreement signed":        "#2661BE",
+  "First session scheduled": "#1E52AC",
+  "Pilot completed":         "#16429A",
+  "Recurring partner":       "#13245C",
+  "Lost / not a fit":        "#9FB2CC",
 };
+const STUDIO_TYPE = ["Yoga", "Gym", "Pilates", "Meditation", "Wellness", "Corporate", "CrossFit", "Dance", "Other"];
+const CLOSE_PROB = ["Low", "Medium", "High", "Closed Won", "Closed Lost"];
+const CLOSE_PROB_COLOR = { Low: "#9FB2CC", Medium: C.gold, High: "#4A8C6F", "Closed Won": "#13245C", "Closed Lost": "#C0573F" };
+const CONTRACT_STATUS = ["None", "Drafted", "Sent", "Signed"];
 const FUTYPE = ["24h", "72h", "Referral", "Reactivation"];
 const FUTYPE_COLOR = { "24h": "#3F87DC", "72h": "#2F6FD0", "Referral": "#D9892B", "Reactivation": "#9FB2CC" };
 const SOURCE = ["Studio", "IG", "Referral", "Ads"];
@@ -51,11 +72,11 @@ const PLATFORM = ["IG", "TikTok", "Email"];
 /* ---------- Seed data (from the six source files, relations wired) ---------- */
 const SEED = {
   partners: [
-    { id: "sp1", name: "Sample - YogaSix Walnut Creek", location: "Walnut Creek, CA", contact: "Alyssa Tran", role: "Manager", email: "alyssa@example.com", phone: "555-0201", stage: "Active Weekly Partner", revShare: "70/30 split (us/studio)", avgAttendance: 14, sessionsPerMonth: 4, notes: "Thursday Reset is the anchor class; strong word of mouth" },
-    { id: "sp2", name: "Sample - CorePower Lafayette", location: "Lafayette, CA", contact: "Mike Donnelly", role: "Owner", email: "mike@example.com", phone: "555-0202", stage: "Demo Completed", revShare: "Flat room fee $75", avgAttendance: 0, sessionsPerMonth: 0, notes: "Demo went well 6/3; waiting on pilot dates" },
-    { id: "sp3", name: "Sample - The Still Point", location: "Pleasant Hill, CA", contact: "Renee Park", role: "Director", email: "renee@example.com", phone: "555-0203", stage: "Pilot Scheduled", revShare: "80/20 split (us/studio)", avgAttendance: 0, sessionsPerMonth: 0, notes: "4-week pilot starts July; Sunday evenings" },
-    { id: "sp4", name: "Sample - Flow State Studio", location: "Concord, CA", contact: "Tara Iverson", role: "Owner", email: "tara@example.com", phone: "555-0204", stage: "Prospect", revShare: "TBD", avgAttendance: 0, sessionsPerMonth: 0, notes: "Warm intro from Dana; reach out week of 6/16" },
-    { id: "sp5", name: "Sample - Lotus & Pine", location: "Danville, CA", contact: "Geoff Adams", role: "Manager", email: "geoff@example.com", phone: "555-0205", stage: "Scaled Partner", revShare: "60/40 split (us/studio)", avgAttendance: 18, sessionsPerMonth: 8, notes: "Two weekly slots plus monthly workshop; best earner" },
+    { id: "sp1", name: "Sample - YogaSix Walnut Creek", studioType: "Yoga", location: "Walnut Creek, CA", contact: "Alyssa Tran", role: "Manager", email: "alyssa@example.com", phone: "555-0201", stage: "Recurring partner", estimatedCommunitySize: 320, bestFitJourney: "Reset & Release", revenuePotential: 2400, closeProbability: "Closed Won", revShare: "70/30 split (us/studio)", contractStatus: "Signed", outreachDate: "2026-03-01", lastTouch: "2026-06-11", nextAction: "2026-06-18", avgAttendance: 14, sessionsPerMonth: 4, insuranceReqs: "COI on file", promotionCommitments: "Monthly IG story + email to list", notes: "Thursday Reset is the anchor class; strong word of mouth. Alyssa is a champion." },
+    { id: "sp2", name: "Sample - CorePower Lafayette", studioType: "Yoga", location: "Lafayette, CA", contact: "Mike Donnelly", role: "Owner", email: "mike@example.com", phone: "555-0202", stage: "Demo completed", estimatedCommunitySize: 280, bestFitJourney: "Letting Go & Rebirth", revenuePotential: 1800, closeProbability: "High", revShare: "Flat room fee $75", contractStatus: "None", outreachDate: "2026-05-10", lastTouch: "2026-06-03", nextAction: "2026-06-16", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "Needs COI before pilot", promotionCommitments: "TBD — discussing newsletter feature", notes: "Demo went well 6/3. Mike is interested but cautious. Follow up with pilot proposal this week." },
+    { id: "sp3", name: "Sample - The Still Point", studioType: "Meditation", location: "Pleasant Hill, CA", contact: "Renee Park", role: "Director", email: "renee@example.com", phone: "555-0203", stage: "Pilot proposed", estimatedCommunitySize: 140, bestFitJourney: "Nervous System Reset", revenuePotential: 1200, closeProbability: "Medium", revShare: "80/20 split (us/studio)", contractStatus: "Drafted", outreachDate: "2026-04-15", lastTouch: "2026-06-05", nextAction: "2026-06-14", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "COI + liability waiver required", promotionCommitments: "4-week pilot feature on their blog", notes: "4-week Sunday evening pilot proposed. Contract drafted but not returned. Renee responsive over email." },
+    { id: "sp4", name: "Sample - Flow State Studio", studioType: "Wellness", location: "Concord, CA", contact: "Tara Iverson", role: "Owner", email: "tara@example.com", phone: "555-0204", stage: "Initial outreach sent", estimatedCommunitySize: 90, bestFitJourney: "Breathwork Basics", revenuePotential: 900, closeProbability: "Low", revShare: "TBD", contractStatus: "None", outreachDate: "2026-06-09", lastTouch: "2026-06-09", nextAction: "2026-06-17", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "Warm intro from Dana. Sent intro email 6/9. Waiting on reply." },
+    { id: "sp5", name: "Sample - Lotus & Pine", studioType: "Yoga", location: "Danville, CA", contact: "Geoff Adams", role: "Manager", email: "geoff@example.com", phone: "555-0205", stage: "Recurring partner", estimatedCommunitySize: 500, bestFitJourney: "Deep Surrender", revenuePotential: 5200, closeProbability: "Closed Won", revShare: "60/40 split (us/studio)", contractStatus: "Signed", outreachDate: "2026-01-15", lastTouch: "2026-06-10", nextAction: "2026-06-20", avgAttendance: 18, sessionsPerMonth: 8, insuranceReqs: "COI on file + annual renewal", promotionCommitments: "Co-branded social posts + monthly email feature", notes: "Two weekly slots plus monthly workshop. Best earner. Geoff wants to add a Friday morning slot." },
   ],
   clients: [
     { id: "c1", name: "Sample - Jordan Lee", phone: "555-0101", email: "jordan@example.com", source: "Studio", status: "Lead", firstSession: "", sessionsAttended: 0, lastSession: "", nextSession: "2026-06-12", packageType: "None", lifetimeValue: 0, notes: "Found us via YogaSix flyer; anxious about first session, wants calm intro", referral: "Low" },
@@ -276,7 +297,7 @@ function newRecord(db) {
   const base = { id: uid(db) };
   const m = {
     clients: { name: "", phone: "", email: "", source: "Studio", status: "Lead", firstSession: "", sessionsAttended: 0, lastSession: "", nextSession: "", packageType: "None", lifetimeValue: 0, notes: "", referral: "Low" },
-    partners: { name: "", location: "", contact: "", role: "Manager", email: "", phone: "", stage: "Prospect", revShare: "", avgAttendance: 0, sessionsPerMonth: 0, notes: "" },
+    partners: { name: "", studioType: "Yoga", location: "", contact: "", role: "Owner", email: "", phone: "", stage: "Target identified", estimatedCommunitySize: 0, bestFitJourney: "", revenuePotential: 0, closeProbability: "Low", revShare: "", contractStatus: "None", outreachDate: "", lastTouch: todayISO(), nextAction: "", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "" },
     sessions: { name: "", studioId: "", date: todayISO(), attendance: 0, revenue: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, notes: "" },
     offers: { name: "", clientId: "", offerType: "Drop-in", price: 0, status: "Offered", dateOffered: todayISO(), closeDate: "" },
     content: { name: "", type: "Education", platform: "IG", datePosted: todayISO(), engagement: 0, leads: 0, booked: 0 },
@@ -345,7 +366,7 @@ function buildActions(data, derived, today) {
 
   // Studio partners needing next step
   data.partners
-    .filter((p) => ["Demo Completed", "Pilot Scheduled"].includes(p.stage))
+    .filter((p) => ["Demo completed", "Pilot proposed", "Agreement sent", "Discovery call booked", "Demo session offered"].includes(p.stage))
     .filter((p) => !(derived.sessionsByStudio[p.id] || []).some((s) => s.date >= today))
     .forEach((p) => {
       actions.push({ id: "sp_" + p.id, priority: 3, urgency: "medium", category: "revenue",
@@ -386,7 +407,7 @@ function buildActions(data, derived, today) {
 
   // Active partners — no session in 14+ days
   data.partners
-    .filter((p) => p.stage === "Active Weekly Partner" || p.stage === "Scaled Partner")
+    .filter((p) => p.stage === "Recurring partner" || p.stage === "Pilot completed" || p.stage === "First session scheduled")
     .filter((p) => {
       const dates = (derived.sessionsByStudio[p.id] || []).map((s) => s.date).sort();
       const last = dates[dates.length - 1];
@@ -654,6 +675,8 @@ function Section({ section, data, derived, today, view, setView, query, onOpen }
       </div>
       {v.layout === "board"
         ? <BoardView groups={processed.groups} onOpen={(r) => onOpen({ db: section, record: r })} cardKeys={v.card} ctx={{ data, derived, today }} section={section} />
+        : v.layout === "partner-pipeline"
+        ? <PartnerPipelineView groups={processed.groups} onOpen={(r) => onOpen({ db: section, record: r })} />
         : v.layout === "calendar"
         ? <CalendarView rows={processed.rows} today={today} derived={derived} onOpen={(r) => onOpen({ db: section, record: r })} />
         : <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => onOpen({ db: section, record: r })} ctx={{ data, derived, today }} />}
@@ -705,15 +728,35 @@ const VIEWS = {
   },
   partners: {
     views: [
-      { name: "Pipeline", layout: "board", card: ["location", "contact", "stage"],
+      { name: "Pipeline", layout: "partner-pipeline",
         run: (rows) => ({ groups: STAGE.map((s) => ({ key: s, label: s, color: STAGE_COLOR[s], cards: rows.filter((r) => r.stage === s) })) }) },
       { name: "Active partners", layout: "table",
         columns: partnerCols(),
-        run: (rows) => ({ rows: rows.filter((r) => r.stage === "Active Weekly Partner" || r.stage === "Scaled Partner") }) },
-      { name: "Revenue-producing", layout: "table",
-        columns: partnerCols(),
-        run: (rows) => ({ rows: rows.filter((r) => Number(r.sessionsPerMonth) > 0).sort((a, b) => Number(b.sessionsPerMonth) - Number(a.sessionsPerMonth)) }) },
-      { name: "All partners", layout: "table", columns: partnerCols(), run: (rows) => ({ rows }) },
+        run: (rows) => ({ rows: rows.filter((r) => r.stage === "Recurring partner" || r.stage === "First session scheduled" || r.stage === "Pilot completed") }) },
+      { name: "In outreach", layout: "table",
+        columns: [
+          col("name", "Studio", (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
+          col("studioType", "Type", (r) => r.studioType || "—"),
+          col("stage", "Stage", (r) => <Tag color={STAGE_COLOR[r.stage]} soft>{r.stage}</Tag>),
+          col("contact", "Contact", (r) => r.contact),
+          col("lastTouch", "Last touch", (r, c) => <DateChip iso={r.lastTouch} today={c.today} />),
+          col("nextAction", "Next action", (r, c) => <DateChip iso={r.nextAction} today={c.today} />),
+          col("closeProbability", "Probability", (r) => r.closeProbability ? <Tag color={CLOSE_PROB_COLOR[r.closeProbability]} soft>{r.closeProbability}</Tag> : "—"),
+        ],
+        run: (rows) => ({ rows: rows.filter((r) => !["Recurring partner", "Lost / not a fit"].includes(r.stage)).sort((a, b) => (a.nextAction || "").localeCompare(b.nextAction || "")) }) },
+      { name: "Revenue forecast", layout: "table",
+        columns: [
+          col("name", "Studio", (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
+          col("studioType", "Type", (r) => r.studioType || "—"),
+          col("stage", "Stage", (r) => <Tag color={STAGE_COLOR[r.stage]} soft>{r.stage}</Tag>),
+          col("estimatedCommunitySize", "Community", (r) => Number(r.estimatedCommunitySize || 0).toLocaleString(), { align: "right" }),
+          col("revenuePotential", "Rev. potential", (r) => <strong>{money(r.revenuePotential)}</strong>, { align: "right", sum: "revenuePotential" }),
+          col("closeProbability", "Probability", (r) => r.closeProbability ? <Tag color={CLOSE_PROB_COLOR[r.closeProbability]} soft>{r.closeProbability}</Tag> : "—"),
+        ],
+        run: (rows) => {
+          const sorted = [...rows].filter((r) => r.stage !== "Lost / not a fit").sort((a, b) => Number(b.revenuePotential) - Number(a.revenuePotential));
+          return { rows: sorted, footer: { revenuePotential: money(sum(sorted, "revenuePotential")), label: "Total pipeline value" } };
+        } },
     ],
   },
   sessions: {
@@ -792,11 +835,13 @@ const VIEWS = {
 function partnerCols() {
   return [
     col("name", "Studio", (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
+    col("studioType", "Type", (r) => r.studioType || "—"),
     col("location", "Location", (r) => <span style={{ color: C.ink2 }}>{r.location}</span>),
     col("contact", "Contact", (r) => `${r.contact} · ${r.role}`),
-    col("stage", "Stage", (r) => <Tag color={STAGE_COLOR[r.stage]}>{r.stage}</Tag>),
-    col("avgAttendance", "Avg att.", (r) => r.avgAttendance, { align: "right" }),
-    col("sessionsPerMonth", "Sess/mo", (r) => r.sessionsPerMonth, { align: "right" }),
+    col("stage", "Stage", (r) => <Tag color={STAGE_COLOR[r.stage]} soft>{r.stage}</Tag>),
+    col("avgAttendance", "Avg att.", (r) => r.avgAttendance || "—", { align: "right" }),
+    col("sessionsPerMonth", "Sess/mo", (r) => r.sessionsPerMonth || "—", { align: "right" }),
+    col("revenuePotential", "Rev. potential", (r) => money(r.revenuePotential), { align: "right" }),
   ];
 }
 function offerCols() {
@@ -854,6 +899,99 @@ function TableView({ columns, rows, footer, onOpen, ctx }) {
 }
 
 /* ============================================================
+   PARTNER PIPELINE (14-stage horizontal kanban)
+   ============================================================ */
+const STAGE_GROUPS = [
+  { label: "Prospecting", stages: ["Target identified", "Researched", "Initial outreach sent", "Follow-up needed"], color: "#8AAFD0" },
+  { label: "Qualifying", stages: ["Discovery call booked", "Demo session offered", "Demo completed"], color: "#4A90D9" },
+  { label: "Closing", stages: ["Pilot proposed", "Agreement sent", "Agreement signed", "First session scheduled"], color: C.brand },
+  { label: "Active", stages: ["Pilot completed", "Recurring partner"], color: C.brandDeep },
+  { label: "Closed Lost", stages: ["Lost / not a fit"], color: "#9FB2CC" },
+];
+
+function PartnerPipelineView({ groups, onOpen }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+      {/* Phase headers */}
+      <div style={{ display: "flex", gap: 0, marginBottom: 0, overflowX: "auto", paddingBottom: 0 }}>
+        {STAGE_GROUPS.map((ph) => (
+          <div key={ph.label} style={{
+            minWidth: ph.stages.length * 200, flex: `${ph.stages.length} 0 ${ph.stages.length * 200}px`,
+            background: hexA(ph.color, 0.12), border: `1px solid ${hexA(ph.color, 0.3)}`,
+            borderRadius: "10px 10px 0 0", padding: "8px 14px", marginRight: 2,
+          }}>
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: ph.color }}>
+              {ph.label}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Columns */}
+      <div style={{ display: "flex", gap: 2, overflowX: "auto", paddingBottom: 16, alignItems: "flex-start" }}>
+        {groups.map((g) => {
+          const totalPotential = g.cards.reduce((a, r) => a + (Number(r.revenuePotential) || 0), 0);
+          return (
+            <div key={g.key} style={{ minWidth: 198, width: 198, flexShrink: 0, display: "flex", flexDirection: "column" }}>
+              {/* Column head */}
+              <div style={{
+                padding: "10px 10px 8px",
+                background: hexA(g.color, 0.08),
+                borderLeft: `3px solid ${g.color}`,
+                borderBottom: `1px solid ${C.line}`,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: g.color === "#9FB2CC" ? C.ink3 : g.color }}>{g.label}</span>
+                  <span style={{ fontSize: 11, color: C.ink3, fontWeight: 600, background: C.surface, padding: "1px 6px", borderRadius: 10 }}>{g.cards.length}</span>
+                </div>
+                {totalPotential > 0 && (
+                  <div style={{ fontSize: 10.5, color: C.ink3 }}>{money(totalPotential)} potential</div>
+                )}
+              </div>
+
+              {/* Cards */}
+              <div style={{ padding: "8px 4px", display: "flex", flexDirection: "column", gap: 6, minHeight: 60 }}>
+                {g.cards.length === 0
+                  ? <div style={{ border: `1px dashed ${C.line}`, borderRadius: 8, padding: "10px 8px", textAlign: "center", color: C.ink3, fontSize: 12 }}>—</div>
+                  : g.cards.map((r) => (
+                    <button key={r.id} onClick={() => onOpen(r)} style={{
+                      width: "100%", textAlign: "left", background: C.surface,
+                      border: `1px solid ${C.line}`, borderLeft: `3px solid ${g.color}`,
+                      borderRadius: 9, padding: "10px 10px 8px", cursor: "pointer",
+                      transition: "box-shadow .12s, transform .12s",
+                    }}
+                      onMouseEnter={(e) => { e.currentTarget.style.boxShadow = `0 4px 14px ${hexA(C.brandDeep, 0.1)}`; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.transform = "none"; }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, marginBottom: 4, lineHeight: 1.3 }}>{cleanName(r.name)}</div>
+                      {r.studioType && <div style={{ fontSize: 11, color: C.ink3, marginBottom: 4 }}>{r.studioType}{r.location ? ` · ${r.location.split(",")[0]}` : ""}</div>}
+                      {r.contact && <div style={{ fontSize: 11.5, color: C.ink2 }}>{r.contact}</div>}
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5 }}>
+                        {r.closeProbability && r.closeProbability !== "Low" && (
+                          <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 20,
+                            background: hexA(CLOSE_PROB_COLOR[r.closeProbability], 0.15),
+                            color: CLOSE_PROB_COLOR[r.closeProbability] }}>{r.closeProbability}</span>
+                        )}
+                        {r.revenuePotential > 0 && (
+                          <span style={{ fontSize: 10.5, color: C.ink3 }}>{money(r.revenuePotential)}</span>
+                        )}
+                        {r.nextAction && (
+                          <span style={{ fontSize: 10.5, color: r.nextAction <= new Date().toISOString().slice(0,10) ? "#C0573F" : C.ink3 }}>
+                            → {fmtDate(r.nextAction)}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
    BOARD
    ============================================================ */
 function BoardView({ groups, onOpen, cardKeys, ctx, section }) {
@@ -890,8 +1028,10 @@ function cardChip(k, r, ctx) {
   if (k === "nextAction" && r.nextAction) return <MiniChip key={k}><CalendarDays size={11} /> {fmtDate(r.nextAction)}</MiniChip>;
   if (k === "packageType" && r.packageType && r.packageType !== "None") return <MiniChip key={k}>{r.packageType}</MiniChip>;
   if (k === "referral" && r.referral) return <MiniChip key={k} color={REFERRAL_COLOR[r.referral]}>{r.referral} referral</MiniChip>;
-  if (k === "location" && r.location) return <MiniChip key={k}>{r.location}</MiniChip>;
+  if (k === "location" && r.location) return <MiniChip key={k}>{r.location.split(",")[0]}</MiniChip>;
   if (k === "contact" && r.contact) return <MiniChip key={k}>{r.contact}</MiniChip>;
+  if (k === "studioType" && r.studioType) return <MiniChip key={k}>{r.studioType}</MiniChip>;
+  if (k === "closeProbability" && r.closeProbability) return <MiniChip key={k} color={CLOSE_PROB_COLOR[r.closeProbability]}>{r.closeProbability}</MiniChip>;
   if (k === "stage") return null;
   if (k === "clientId") { const n = ctx.derived.clientName[r.clientId]; return n ? <MiniChip key={k}>{clientShort(n)}</MiniChip> : null; }
   if (k === "outcome") return r.outcome ? <MiniChip key={k} color={C.brand}>done</MiniChip> : <MiniChip key={k} color={C.gold}>pending</MiniChip>;
@@ -959,11 +1099,25 @@ const FIELDS = {
     f("notes", "Emotional notes", "textarea"),
   ],
   partners: [
-    f("name", "Studio name", "text", { title: true }), f("stage", "Partnership stage", "select", { options: STAGE }),
+    f("name", "Studio name", "text", { title: true }), f("stage", "Pipeline stage", "select", { options: STAGE }),
+    f("studioType", "Studio type", "select", { options: STUDIO_TYPE }),
     f("location", "Location", "text"), f("contact", "Contact name", "text"),
-    f("role", "Role", "select", { options: ["Owner", "Manager", "Director"] }), f("email", "Email", "email"), f("phone", "Phone", "phone"),
-    f("revShare", "Revenue share model", "text"), f("avgAttendance", "Avg attendance", "number"),
-    f("sessionsPerMonth", "Sessions per month", "number"), f("notes", "Notes", "textarea"),
+    f("role", "Role", "select", { options: ["Owner", "Manager", "Director", "GM", "Instructor"] }),
+    f("email", "Email", "email"), f("phone", "Phone", "phone"),
+    f("estimatedCommunitySize", "Est. community size", "number"),
+    f("bestFitJourney", "Best-fit journey", "text"),
+    f("revenuePotential", "Revenue potential", "currency"),
+    f("closeProbability", "Close probability", "select", { options: CLOSE_PROB }),
+    f("revShare", "Revenue share model", "text"),
+    f("contractStatus", "Contract status", "select", { options: CONTRACT_STATUS }),
+    f("outreachDate", "First outreach date", "date"),
+    f("lastTouch", "Last touch date", "date"),
+    f("nextAction", "Next action date", "date"),
+    f("avgAttendance", "Avg attendance", "number"),
+    f("sessionsPerMonth", "Sessions per month", "number"),
+    f("insuranceReqs", "Insurance requirements", "textarea"),
+    f("promotionCommitments", "Promotion commitments", "textarea"),
+    f("notes", "Conversation notes", "textarea"),
   ],
   sessions: [
     f("name", "Session name", "text", { title: true }), f("studioId", "Studio", "relation", { target: "partners" }),
@@ -1189,9 +1343,23 @@ function buildPartnerTimeline(record, data, derived, today) {
   const events = [];
 
   // Partnership milestone
-  events.push(tlEvent(sessions[0]?.date || "", "milestone",
+  events.push(tlEvent(record.outreachDate || sessions[0]?.date || "", "milestone",
     `Partnership: ${record.stage}`,
     `${record.revShare || "Revenue share TBD"} · Contact: ${record.contact} (${record.role})`));
+
+  // Outreach date (if different from first session)
+  if (record.outreachDate) {
+    events.push(tlEvent(record.outreachDate, "followup",
+      "First outreach sent",
+      `Initial contact with ${record.contact} · ${record.studioType || "Studio"}`));
+  }
+
+  // Last touch
+  if (record.lastTouch && record.lastTouch !== record.outreachDate) {
+    events.push(tlEvent(record.lastTouch, "followup",
+      "Last touchpoint",
+      record.notes ? record.notes.slice(0, 100) : "Check notes for details"));
+  };
 
   // All sessions as events
   sessions.forEach((s, i) => {
@@ -1209,18 +1377,33 @@ function buildPartnerTimeline(record, data, derived, today) {
     }
   });
 
+  // Next action
+  if (record.nextAction) {
+    events.push(tlEvent(record.nextAction, "upcoming",
+      `Next action scheduled`,
+      `Follow up with ${record.contact}`,
+      { future: record.nextAction >= today, pending: record.nextAction < today, nextAction: record.nextAction }));
+  }
+
   return {
     events: events.sort((a, b) => (a.date || "0").localeCompare(b.date || "0")),
     summary: [
-      { label: "Stage",          value: record.stage },
-      { label: "Location",       value: record.location || "—" },
-      { label: "Contact",        value: `${record.contact} (${record.role})` },
-      { label: "Email",          value: record.email || "—" },
-      { label: "Revenue share",  value: record.revShare || "TBD" },
-      { label: "Total sessions", value: sessions.length + " logged" },
-      { label: "Avg attendance", value: avgAttend + " per session" },
+      { label: "Stage",             value: record.stage, accent: STAGE_COLOR[record.stage] },
+      { label: "Studio type",       value: record.studioType || "—" },
+      { label: "Location",          value: record.location || "—" },
+      { label: "Contact",           value: `${record.contact || "—"} (${record.role || "—"})` },
+      { label: "Email",             value: record.email || "—" },
+      { label: "Est. community",    value: record.estimatedCommunitySize ? Number(record.estimatedCommunitySize).toLocaleString() + " people" : "—" },
+      { label: "Revenue potential", value: money(record.revenuePotential || 0), accent: C.brand },
+      { label: "Close probability", value: record.closeProbability || "—", accent: CLOSE_PROB_COLOR[record.closeProbability] },
+      { label: "Revenue share",     value: record.revShare || "TBD" },
+      { label: "Contract status",   value: record.contractStatus || "None" },
+      { label: "First outreach",    value: fmtDate(record.outreachDate) || "—" },
+      { label: "Last touch",        value: fmtDate(record.lastTouch) || "—" },
+      { label: "Next action",       value: fmtDate(record.nextAction) || "None scheduled", accent: record.nextAction && record.nextAction <= today ? "#C0573F" : null },
+      { label: "Total sessions",    value: sessions.length + " logged" },
+      { label: "Avg attendance",    value: avgAttend + " per session" },
       { label: "Total net revenue", value: money(totalNet), accent: C.brand },
-      { label: "Sessions/month", value: (record.sessionsPerMonth || 0) + " scheduled" },
     ],
   };
 }
