@@ -1492,7 +1492,7 @@ export default function App() {
             })}
 
             {/* Lane groups */}
-            {[{ key: "b2c", label: "B2C  ·  Clients" }, { key: "b2b", label: "B2B  ·  Studios" }].map(({ key, label }) => {
+            {[{ key: "b2b", label: "B2B  ·  Studios" }, { key: "b2c", label: "B2C  ·  Clients" }].map(({ key, label }) => {
               const lane = LANE[key];
               const laneSections = sections.filter(s => s.lane === key);
               return (
