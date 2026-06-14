@@ -5907,10 +5907,12 @@ function BreathMark({ size = 32, animate }) {
   );
 }
 function Stat({ label, value, hint, accent = C.ink }) {
+  const valStr = String(value ?? "");
+  const fontSize = valStr.length > 16 ? 16 : valStr.length > 10 ? 20 : 30;
   return (
     <div className="sb-card sb-stat">
       <div style={{ fontSize: 12, color: C.ink3, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</div>
-      <div style={{ fontFamily: FONT.display, fontSize: 30, fontWeight: 600, color: accent, lineHeight: 1.1, margin: "6px 0 2px" }}>{value}</div>
+      <div style={{ fontFamily: FONT.display, fontSize, fontWeight: 600, color: accent, lineHeight: 1.2, margin: "6px 0 2px", wordBreak: "break-word" }}>{value}</div>
       <div style={{ fontSize: 12, color: C.ink3 }}>{hint}</div>
     </div>
   );
@@ -6831,7 +6833,7 @@ function TemplateLibraryView({ data, onOpen }) {
         <Stat label="Total templates"   value={templates.length}                             hint="ready to use" />
         <Stat label="Email"             value={templates.filter(t=>t.channel==="Email").length} hint="email templates" accent="#D9892B" />
         <Stat label="SMS"               value={templates.filter(t=>t.channel==="SMS").length}   hint="text message templates" accent="#4A8C6F" />
-        <Stat label="Most used"         value={[...templates].sort((a,b)=>b.usageCount-a.usageCount)[0]?.name.replace("Sample - ","").slice(0,22)||"—"} hint="by usage count" />
+        <Stat label="Most used"         value={[...templates].sort((a,b)=>b.usageCount-a.usageCount)[0]?.name.replace("Sample - ","")||"—"} hint="by usage count" />
       </div>
 
       {/* Filters */}
