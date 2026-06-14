@@ -5818,11 +5818,11 @@ function ConfirmModal({ message, okLabel = "OK", danger = false, onOk, onCancel 
         boxShadow: `0 24px 80px ${hexA(C.brandDeep, 0.28)}, 0 4px 16px ${hexA(C.brandDeep, 0.1)}`,
         animation: "sb-pop .2s cubic-bezier(.22,.68,0,1.2)",
       }}>
-        <div style={{ width: 52, height: 52, borderRadius: "50%", background: danger ? "#FEF2F2" : C.brandSoft,
+        <div style={{ width: 52, height: 52, borderRadius: "50%", background: danger ? "#DC2626" : C.brand,
           display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
           {danger
-            ? <LogOut size={22} color={C.bg} strokeWidth={1.5} />
-            : <Info size={22} color={C.brand} strokeWidth={1.5} />}
+            ? <LogOut size={22} color="#fff" strokeWidth={1.5} />
+            : <Info size={22} color="#fff" strokeWidth={1.5} />}
         </div>
         <div style={{ fontFamily: FONT.display, fontSize: 17, fontWeight: 700, color: C.ink, marginBottom: 8 }}>
           {okLabel}?
