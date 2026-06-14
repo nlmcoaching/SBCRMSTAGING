@@ -1,6 +1,6 @@
 # Simply Breathe OS — CRM Documentation
 
-> **Version:** 5.0 (June 2026)
+> **Version:** 5.1 (June 2026)
 > **Stack:** React 18 · Vite · Recharts · Lucide React · PapaParse
 > **Storage:** Browser `localStorage` (encrypted) + Cursor canvas `window.storage`
 > **Security:** AES-256-GCM encryption · PBKDF2 key derivation · PIN-based auth
@@ -25,11 +25,13 @@
 14. [Email / SMS Templates](#email--sms-templates)
 15. [Referral Tracking](#referral-tracking)
 16. [Workflows](#workflows)
-17. [Navigation & Layout](#navigation--layout)
-18. [Data Import / Export](#data-import--export)
-19. [Profile & Account](#profile--account)
-20. [Seed Data](#seed-data)
-21. [Technical Architecture](#technical-architecture)
+17. [Workflows](#workflows)
+18. [Admin](#admin)
+19. [Navigation & Layout](#navigation--layout)
+20. [Data Import / Export](#data-import--export)
+21. [Profile & Account](#profile--account)
+22. [Seed Data](#seed-data)
+23. [Technical Architecture](#technical-architecture)
 
 ---
 
@@ -655,6 +657,207 @@ Visualises the five core business workflows as living pipelines so the CRM runs 
 
 ---
 
+## Admin
+
+**Navigation:** Sidebar → Admin (Core section)
+
+**Access:** Available to all roles. Owner-only destructive actions (e.g. reset) are gated separately.
+
+The Admin section is the system health and maintenance hub. It gives administrators a live view of database state, full schema documentation, data quality scanning, and storage management — without needing to leave the CRM.
+
+---
+
+### Tab 1 — Overview
+
+A real-time snapshot of the entire system.
+
+#### Summary Stats (4-card row)
+
+| Card | Value |
+|---|---|
+| Total Records | Sum of all records across all 10 tables |
+| Active Users | Number of active user accounts in the security config |
+| Data Size | Uncompressed JSON size of all CRM data (KB) |
+| Storage Used | Size of the encrypted `localStorage` entry (KB) |
+
+#### Database Tables Table
+
+Full listing of every table with:
+
+| Column | Description |
+|---|---|
+| Table | Display name and internal key (e.g. `clients`) |
+| Lane | B2C · B2B · Core — color-coded badge |
+| Records | Current record count. Zero-count tables are flagged in red |
+| Fields | Number of schema fields defined for that table |
+| Size | Estimated uncompressed size in KB |
+| Status | "✓ Has data" (green) or "Empty" (red) |
+
+#### Storage Keys Reference
+
+Displays the two `localStorage` / `window.storage` keys the application uses:
+
+| Key | Purpose |
+|---|---|
+| `simplybreathe:data:v5:enc` | AES-256-GCM encrypted CRM data payload |
+| `sb:security:v1` | User accounts, PIN hashes, wrapped master keys |
+
+#### Encryption Spec Panel
+
+| Setting | Value |
+|---|---|
+| Algorithm | AES-256-GCM |
+| Key derivation | PBKDF2 · SHA-256 · 100,000 iterations |
+| Salt length | 16 bytes, random per user |
+| Key model | Envelope encryption — master key wrapped separately per user |
+| Data version | v5 |
+
+---
+
+### Tab 2 — Schema Browser
+
+A full, interactive reference for every database table and field in the CRM. No external tool or documentation file is needed.
+
+#### Table Selector
+
+Toggle buttons for all 10 tables. Each button shows the table label and field count. The selected table is highlighted.
+
+#### Field Listing
+
+For each table, every field is listed in a row with:
+
+| Column | Description |
+|---|---|
+| Field Name | `monospace` internal key (e.g. `grossRevenue`) |
+| Type | Color-coded data type badge |
+| Required / Optional | Red "Required" or muted "Optional" |
+| Description | Plain-language explanation of the field's purpose |
+
+Clicking any row that has a `select` type expands it to show all allowed values as chips.
+
+#### Field Types
+
+| Type | Color | Description |
+|---|---|---|
+| `string` | Blue | Free-text single-line value |
+| `textarea` | Grey | Multi-line free-text |
+| `email` | Blue | Email address |
+| `number` | Orange | Integer or decimal |
+| `currency` | Green | Dollar amount ($) |
+| `date` | Purple | ISO 8601 date string (YYYY-MM-DD) |
+| `boolean` | Teal | True / false checkbox |
+| `select` | Brand green | Enumerated value — expand row for allowed values |
+| `array` | Red | Multi-select array of strings |
+| `object` | Violet | Nested object (e.g. checklist phases) |
+
+#### Footer Summary
+
+Per-table counts: total fields · required fields · dropdown fields · checkbox fields.
+
+#### Tables Covered
+
+| Table Key | Display Name | Lane | Fields |
+|---|---|---|---|
+| `clients` | Clients | B2C | 14 |
+| `partners` | Studio Partners | B2B | 19 |
+| `sessions` | Sessions | B2C | 23 |
+| `offers` | Offers | B2C | 11 |
+| `revenue` | Revenue | B2C | 15 |
+| `referrals` | Referrals | B2C | 11 |
+| `content` | Content Calendar | B2C | 20 |
+| `outreach` | Outreach Hub | B2B | 14 |
+| `testimonials` | Testimonials | B2C | 15 |
+| `templates` | Templates | Core | 8 |
+
+**Total: 150 documented fields across 10 tables.**
+
+---
+
+### Tab 3 — Data Integrity
+
+On-demand data quality scan across all records in all tables.
+
+#### How to Use
+
+Click **Run Check**. The scanner inspects every record and returns a list of issues sorted by severity. A spinner shows while running. "All Clear" is displayed if no issues are found.
+
+#### Checks Performed
+
+| Table | Check | Severity |
+|---|---|---|
+| clients | Missing `name` | High |
+| clients | No email **and** no phone | Medium |
+| partners | Missing `name` | High |
+| partners | No `stage` set | Medium |
+| sessions | Missing `date` | High |
+| sessions | Gross revenue set but `netRevenue` is empty | Medium |
+| sessions | Status = Completed but `followUpSent` = false | Low |
+| offers | No linked `client` | High |
+| offers | `amount` is zero or missing | Medium |
+| offers | `expiresOn` is in the past and status is still open | Medium |
+| revenue | Missing `date` | High |
+| revenue | Neither `gross` nor `net` has a value | Medium |
+| referrals | Missing `referrer` name | High |
+| testimonials | Missing `client` name | High |
+| testimonials | Status = Approved but `permissionRec` is false | High |
+| templates | Missing `name` | High |
+| templates | `body` is empty | Medium |
+
+#### Results Display
+
+- **Summary row:** Three boxes showing High / Medium / Low counts with color-coded backgrounds.
+- **Issue list:** Each issue shows severity badge, table name, field name, and description.
+- **Footer:** Total issues found and total records scanned.
+
+---
+
+### Tab 4 — Storage & Backup
+
+#### Export Backup
+
+Downloads a full JSON backup of all CRM data to the local machine.
+
+- File name format: `sbcrm-backup-{today}.json`
+- Content: raw unencrypted JSON of all 10 table arrays
+- Pre-download summary shows record count and uncompressed size
+- A "✓ Backup downloaded" confirmation is shown for 3 seconds after export
+
+> **Security note:** The exported file is unencrypted. Store it securely.
+
+#### Storage Details Panel
+
+Live read of current storage state:
+
+| Field | Value |
+|---|---|
+| Encrypted store size | Size of `localStorage` encrypted entry |
+| Uncompressed data size | Size of all data as plain JSON |
+| Total records | Count across all tables |
+| Active users | Number of user accounts |
+| Logged in as | Current user name |
+| Current role | Current user role |
+
+#### Storage by Table — Bar Chart
+
+Horizontal bar chart showing each table's share of total storage:
+- Table name, record count
+- Size in KB and percentage of total
+- Proportional bar colored with brand green
+
+---
+
+### Requirements
+
+| Requirement | Detail |
+|---|---|
+| Access control | All authenticated users can view Admin. Only Owners can export data. |
+| Integrity checks | Non-destructive read-only scan — no data is modified |
+| Schema data | Defined in the `DB_SCHEMA` constant in `App.jsx` — must be updated when new fields are added |
+| Export format | JSON (not encrypted) — suitable for manual backup and disaster recovery |
+| Storage calculation | Encrypted size read from `localStorage` directly; uncompressed size computed via `TextEncoder` |
+
+---
+
 ## Navigation & Layout
 
 ### Sidebar Structure
@@ -822,6 +1025,7 @@ All state is managed via React `useState` and `useMemo` in the root `App` compon
 | `RecordDrawer` | Slide-in detail/edit panel |
 | `EditProfileModal` | Profile photo + info + PIN change |
 | `UserManagementView` | Multi-user CRUD and permissions |
+| `AdminView` | 4-tab admin panel: overview, schema browser, integrity check, storage |
 | `WorkflowsView` | Five workflow pipeline visualizations |
 | `TemplateLibraryView` | Template browsing and copy |
 | `TestimonialLibraryView` | Testimonial cards and action tracking |
