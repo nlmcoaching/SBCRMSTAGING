@@ -6,7 +6,7 @@ import {
   RefreshCw, Plus, X, Search, Upload, Download, Trash2, ChevronLeft,
   ChevronRight, Menu, Phone, Mail, Link2, Wind, ArrowUpRight, Check,
   Zap, Copy, Clock, TrendingUp, BarChart2, AlertCircle, Activity, Send, Info, BellRing, Milestone,
-  LogOut, UserCircle, Shield, KeyRound, Receipt,
+  LogOut, UserCircle, Shield, KeyRound, Receipt, ClipboardList, FileSignature, CalendarCheck, CheckCircle,
 } from "lucide-react";
 
 /* ============================================================
@@ -103,7 +103,7 @@ const PARTNER_CHECKLIST_PHASES = [
     label: "Before Signing",
     color: "#2E6FB0",
     bg: "#EEF4FF",
-    icon: "📋",
+    Icon: ClipboardList,
     items: [
       { id: "discovery_call",   label: "Discovery call completed"   },
       { id: "revenue_discussed",label: "Revenue split discussed"    },
@@ -117,7 +117,7 @@ const PARTNER_CHECKLIST_PHASES = [
     label: "After Signing",
     color: "#6B5CE7",
     bg: "#EEEAFF",
-    icon: "✍️",
+    Icon: FileSignature,
     items: [
       { id: "agreement_uploaded",label: "Agreement uploaded"        },
       { id: "booking_page",      label: "Booking page created"      },
@@ -134,7 +134,7 @@ const PARTNER_CHECKLIST_PHASES = [
     label: "Before Event",
     color: "#D9892B",
     bg: "#FFF8ED",
-    icon: "🎯",
+    Icon: CalendarCheck,
     items: [
       { id: "registration_checked",label: "Registration count checked"},
       { id: "reminder_email",    label: "Reminder email sent"       },
@@ -148,7 +148,7 @@ const PARTNER_CHECKLIST_PHASES = [
     label: "After Event",
     color: "#4A8C6F",
     bg: "#E2F0EA",
-    icon: "✅",
+    Icon: CheckCircle,
     items: [
       { id: "revenue_reconciled",label: "Revenue reconciled"        },
       { id: "studio_paid",       label: "Studio paid"               },
@@ -3173,13 +3173,13 @@ const VIEWS = {
     views: [
       { name: "All targets",        layout: "outreach-hub",
         run: (rows) => ({ rows }) },
-      { name: "🔥 Hot leads",       layout: "outreach-hub",
+      { name: "Hot leads",          layout: "outreach-hub",
         run: (rows, { today }) => ({ rows: rows.filter(r => r.warmth === "Hot") }) },
-      { name: "⏰ Overdue",          layout: "outreach-hub",
+      { name: "Overdue",            layout: "outreach-hub",
         run: (rows, { today }) => ({ rows: rows.filter(r =>
           r.nextFollowUp && r.nextFollowUp < today && !["Won","Declined","Inactive"].includes(r.status)
         )}) },
-      { name: "👻 No response",      layout: "outreach-hub",
+      { name: "No response",        layout: "outreach-hub",
         run: (rows) => ({ rows: rows.filter(r => ["No response","Ghosted"].includes(r.responseStatus)) }) },
       { name: "Demo stage",          layout: "outreach-hub",
         run: (rows) => ({ rows: rows.filter(r => ["Demo offered","Demo scheduled"].includes(r.status)) }) },
@@ -4005,7 +4005,7 @@ function EquipmentChecklist({ equipChecklist, onChange, sessionName, sessionDate
           <div key={phase.id}>
             {/* Phase header */}
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "6px 10px", borderRadius: 8, background: hexA(phase.color, 0.07) }}>
-              <span style={{ fontSize: 16 }}>{phase.icon}</span>
+              <span style={{ fontSize: 16 }}>{phase.Icon ? <phase.Icon size={16} color={phase.color} strokeWidth={1.5} /> : null}</span>
               <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: phase.color, flex: 1 }}>{phase.label}</span>
               {allDone
                 ? <span style={{ fontSize: 11, fontWeight: 700, color: "#4A8C6F" }}>✓ All done</span>
@@ -4050,7 +4050,7 @@ function EquipmentChecklist({ equipChecklist, onChange, sessionName, sessionDate
       {/* All clear state */}
       {pct === 100 && (
         <div style={{ background: hexA("#4A8C6F", 0.1), border: `1px solid ${hexA("#4A8C6F", 0.3)}`, borderRadius: 10, padding: "14px 16px", textAlign: "center" }}>
-          <div style={{ fontSize: 22, marginBottom: 6 }}>✅</div>
+          <div style={{ fontSize: 22, marginBottom: 6 }}><CheckCircle size={28} color="#4A8C6F" strokeWidth={1.5} /></div>
           <div style={{ fontWeight: 700, fontSize: 14, color: "#2D6A50" }}>You're fully set up</div>
           <div style={{ fontSize: 12, color: "#4A8C6F", marginTop: 3 }}>All equipment and setup items are confirmed. Go hold space. 🌿</div>
         </div>
@@ -4330,7 +4330,7 @@ function PartnerLaunchChecklist({ checklist, onChange, partnerName }) {
                 background: complete ? ph.bg : C.surface,
                 border: `1px solid ${complete ? ph.color : C.line}`,
               }}>
-                <span style={{ fontSize: 12 }}>{ph.icon}</span>
+                <span style={{ fontSize: 12 }}>{ph.Icon ? <ph.Icon size={14} color={ph.color} strokeWidth={1.5} /> : null}</span>
                 <span style={{ fontSize: 11.5, fontWeight: 600,
                   color: complete ? ph.color : C.ink3 }}>
                   {ph.label}
@@ -4373,7 +4373,7 @@ function PartnerLaunchChecklist({ checklist, onChange, partnerName }) {
                     fontSize: 17, boxShadow: isActive ? `0 0 0 3px ${ph.color}25` : "none",
                     transition: "all .2s",
                   }}>
-                    {phaseComplete ? <Check size={16} color="#fff" strokeWidth={3} /> : ph.icon}
+                    {phaseComplete ? <Check size={16} color="#fff" strokeWidth={1.5} /> : (ph.Icon ? <ph.Icon size={16} color="#fff" strokeWidth={1.5} /> : null)}
                   </div>
 
                   <div style={{ flex: 1 }}>
@@ -7991,7 +7991,7 @@ function MessageQueue({ overdue, todayItems, upcoming, today, markSent, onOpenCl
                         </button>
                         <Tag color={item.stepDef?.accent || C.brand} soft>{item.stepDef?.label}</Tag>
                         <MiniChip color={item.stepDef?.accent}>
-                          {item.stepDef?.channel === "email" ? "✉ Email" : "💬 Text"}
+                          {item.stepDef?.channel === "email" ? "Email" : "Text"}
                         </MiniChip>
                       </div>
                       <div style={{ fontSize: 12, color: C.ink3, marginTop: 3 }}>
@@ -8157,7 +8157,7 @@ function TemplatesView() {
           <div style={{ padding: "12px 16px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <Tag color={step.accent} soft>{step.label}</Tag>
-              <MiniChip color={step.accent}>{step.channel === "email" ? "✉ Email" : "💬 Text"}</MiniChip>
+              <MiniChip color={step.accent}>{step.channel === "email" ? "Email" : "Text"}</MiniChip>
               <span style={{ fontSize: 12, color: C.ink3, flex: 1 }}>
                 {step.delayDays === 0 ? "Send same day as session" : `Send ~${step.delayDays} days after session`}
               </span>
