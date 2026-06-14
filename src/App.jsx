@@ -5,6 +5,7 @@ import {
   LayoutGrid, Users, Building2, CalendarDays, DollarSign, Megaphone,
   RefreshCw, Plus, X, Search, Upload, Download, Trash2, ChevronLeft,
   ChevronRight, Menu, Phone, Mail, Link2, Wind, ArrowUpRight, Check,
+  Zap, Copy, Clock,
 } from "lucide-react";
 
 /* ============================================================
@@ -136,6 +137,82 @@ const SESSION_CHECKLIST_PHASES = ["Pre-Session", "Post-Session"];
 const SESSION_PHASE_COLOR = { "Pre-Session": C.brand, "Post-Session": "#4A8C6F" };
 const emptySessionChecklist = () => Object.fromEntries(SESSION_CHECKLIST.map((i) => [i.id, false]));
 
+/* ============================================================
+   FOLLOW-UP SEQUENCE ENGINE
+   ============================================================ */
+const FU_STEPS = [
+  { id: "same_day", label: "Same Day",    delayDays: 0,  channel: "text",  accent: "#3A8BCD" },
+  { id: "h24",      label: "24 Hours",    delayDays: 1,  channel: "text",  accent: "#7B68EE" },
+  { id: "h72",      label: "48–72 Hours", delayDays: 3,  channel: "email", accent: "#D9892B" },
+  { id: "d5",       label: "5–7 Days",    delayDays: 6,  channel: "email", accent: "#4A8C6F" },
+  { id: "d14",      label: "14–21 Days",  delayDays: 14, channel: "text",  accent: "#9B7EC8" },
+];
+
+const FU_TEMPLATES = {
+  same_day:
+`Hi {first_name}! Thank you so much for breathing with me today. 💙 You showed up and that matters. Tonight: drink lots of water, take it easy, and let your body rest. Your nervous system is integrating something real. I'm honored to have shared that space with you. 🌊`,
+
+  h24:
+`Hey {first_name} — just checking in. How are you feeling today, one day after? Sometimes the shift is quiet at first, and then it lands. Anything come up for you? I'd love to hear — no pressure, just holding space. 🙏`,
+
+  h72:
+`Hi {first_name},
+
+I've been thinking about you since our session.
+
+If what happened in that room opened something for you, the best move right now is not to let it close. The 72-hour window after breathwork is real — this is when decisions stick.
+
+I'd love to invite you to commit to three sessions. Clients who come three times in a row see a completely different result than those who try it once and wait.
+
+I have a 3-pack available — three full sessions. Want me to hold a spot for you?
+
+Just reply here and I'll take care of it. Breathing with you was an honor.`,
+
+  d5:
+`Hi {first_name},
+
+It's been about a week since our session. I hope you've been noticing little shifts — in how you breathe when things get stressful, in how fast you come back to yourself.
+
+Two quick asks:
+
+1. Would you be willing to share a few words about your experience? A short testimonial helps others find this work and takes about 2 minutes. I'd be so grateful.
+
+2. Do you know someone going through something hard — stress, grief, anxiety, burnout? A personal introduction from you means everything to them and to me.
+
+Either way — thank you for showing up. It matters more than you know.`,
+
+  d14:
+`Hey {first_name} — it's been a couple of weeks since we breathed together. I've been thinking about you. How are things?
+
+I have a session coming up that I think would be exactly right for where you are right now. I'd love to see you back in the room. 💙`,
+};
+
+function interpolateTemplate(template, client, seq) {
+  const fullName = (client?.name || "there").trim();
+  const firstName = fullName.split(" ")[0];
+  return (template || "")
+    .replace(/\{name\}/g, fullName)
+    .replace(/\{first_name\}/g, firstName)
+    .replace(/\{session_name\}/g, seq?.sessionName || "our session")
+    .replace(/\{session_date\}/g, seq?.sessionDate ? fmtDate(seq.sessionDate) : "");
+}
+
+function addDays(isoDate, n) {
+  const d = new Date(isoDate + "T12:00:00");
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+function makeSequenceSteps(startDate) {
+  return FU_STEPS.map(s => ({
+    stepId: s.id,
+    dueDate: addDays(startDate, s.delayDays),
+    sent: false,
+    sentAt: "",
+    notes: "",
+  }));
+}
+
 /* ---------- Seed data (from the six source files, relations wired) ---------- */
 const SEED = {
   partners: [
@@ -180,6 +257,52 @@ const SEED = {
     { id: "f3", name: "Sample - Dana referral ask", clientId: "c6", stage: "Advocate", lastContact: "2026-06-10", futype: "Referral", nextAction: "2026-06-13", outcome: "" },
     { id: "f4", name: "Sample - Jordan reactivation", clientId: "c1", stage: "Lead", lastContact: "2026-06-05", futype: "Reactivation", nextAction: "2026-06-19", outcome: "" },
     { id: "f5", name: "Sample - Priya 72h post-session", clientId: "c4", stage: "Engaged (2-3x)", lastContact: "2026-06-07", futype: "72h", nextAction: "2026-06-10", outcome: "Confirmed Friday session" },
+  ],
+  sequences: [
+    {
+      id: "sq1", clientId: "c5", sessionDate: "2026-06-09",
+      sessionName: "Sample - Lotus & Pine New Moon 6/9", status: "active",
+      steps: [
+        { stepId: "same_day", dueDate: "2026-06-09", sent: true,  sentAt: "2026-06-09", notes: "" },
+        { stepId: "h24",      dueDate: "2026-06-10", sent: true,  sentAt: "2026-06-10", notes: "" },
+        { stepId: "h72",      dueDate: "2026-06-12", sent: false, sentAt: "", notes: "" },
+        { stepId: "d5",       dueDate: "2026-06-15", sent: false, sentAt: "", notes: "" },
+        { stepId: "d14",      dueDate: "2026-06-23", sent: false, sentAt: "", notes: "" },
+      ],
+    },
+    {
+      id: "sq2", clientId: "c6", sessionDate: "2026-06-10",
+      sessionName: "Sample - YogaSix Thursday Reset 6/10", status: "active",
+      steps: [
+        { stepId: "same_day", dueDate: "2026-06-10", sent: true,  sentAt: "2026-06-10", notes: "" },
+        { stepId: "h24",      dueDate: "2026-06-11", sent: true,  sentAt: "2026-06-11", notes: "" },
+        { stepId: "h72",      dueDate: "2026-06-13", sent: false, sentAt: "", notes: "" },
+        { stepId: "d5",       dueDate: "2026-06-16", sent: false, sentAt: "", notes: "" },
+        { stepId: "d14",      dueDate: "2026-06-24", sent: false, sentAt: "", notes: "" },
+      ],
+    },
+    {
+      id: "sq3", clientId: "c4", sessionDate: "2026-06-07",
+      sessionName: "Sample - Lotus & Pine Sunday Slow Down 6/7", status: "active",
+      steps: [
+        { stepId: "same_day", dueDate: "2026-06-07", sent: true,  sentAt: "2026-06-07", notes: "" },
+        { stepId: "h24",      dueDate: "2026-06-08", sent: true,  sentAt: "2026-06-08", notes: "" },
+        { stepId: "h72",      dueDate: "2026-06-10", sent: false, sentAt: "", notes: "" },
+        { stepId: "d5",       dueDate: "2026-06-13", sent: false, sentAt: "", notes: "" },
+        { stepId: "d14",      dueDate: "2026-06-21", sent: false, sentAt: "", notes: "" },
+      ],
+    },
+    {
+      id: "sq4", clientId: "c3", sessionDate: "2026-06-01",
+      sessionName: "Sample - CorePower Berkeley Pilot 6/1", status: "active",
+      steps: [
+        { stepId: "same_day", dueDate: "2026-06-01", sent: true,  sentAt: "2026-06-01", notes: "" },
+        { stepId: "h24",      dueDate: "2026-06-02", sent: true,  sentAt: "2026-06-02", notes: "Replied — said they felt it" },
+        { stepId: "h72",      dueDate: "2026-06-04", sent: true,  sentAt: "2026-06-04", notes: "" },
+        { stepId: "d5",       dueDate: "2026-06-07", sent: true,  sentAt: "2026-06-07", notes: "" },
+        { stepId: "d14",      dueDate: "2026-06-15", sent: false, sentAt: "", notes: "" },
+      ],
+    },
   ],
 };
 
@@ -268,14 +391,30 @@ export default function App() {
     update(db, (rows) => (rows.some((r) => r.id === rec.id) ? rows.map((r) => (r.id === rec.id ? rec : r)) : [...rows, rec]));
   const deleteRecord = (db, id) => { update(db, (rows) => rows.filter((r) => r.id !== id)); setOpen(null); };
 
+  const startSequence = (client) => {
+    const startDate = client.lastSession || today;
+    const already = (data.sequences || []).some(s => s.clientId === client.id && s.status === "active");
+    if (already) return;
+    const newSeq = {
+      id: uid("sq"),
+      clientId: client.id,
+      sessionDate: startDate,
+      sessionName: client.lastSession ? `Session ${fmtDate(startDate)}` : "Session",
+      status: "active",
+      steps: makeSequenceSteps(startDate),
+    };
+    setData(d => ({ ...d, sequences: [...(d.sequences || []), newSeq] }));
+  };
+
   const sections = [
-    { id: "today", label: "Simply Breathe OS", Icon: LayoutGrid },
-    { id: "clients", label: "Clients", Icon: Users },
-    { id: "partners", label: "Studio Partners", Icon: Building2 },
-    { id: "sessions", label: "Sessions", Icon: CalendarDays },
-    { id: "offers", label: "Offers & Sales", Icon: DollarSign },
-    { id: "content", label: "Content & Referral", Icon: Megaphone },
-    { id: "followups", label: "Follow-Ups", Icon: RefreshCw },
+    { id: "today",    label: "Simply Breathe OS",   Icon: LayoutGrid },
+    { id: "clients",  label: "Clients",              Icon: Users },
+    { id: "partners", label: "Studio Partners",      Icon: Building2 },
+    { id: "sessions", label: "Sessions",             Icon: CalendarDays },
+    { id: "offers",   label: "Offers & Sales",       Icon: DollarSign },
+    { id: "content",  label: "Content & Referral",   Icon: Megaphone },
+    { id: "followups",label: "Follow-Ups",           Icon: RefreshCw },
+    { id: "engine",   label: "Follow-up Engine",     Icon: Zap },
   ];
 
   const go = (id) => { setSection(id); setView(0); setQuery(""); setNavOpen(false); };
@@ -297,12 +436,18 @@ export default function App() {
           <nav style={{ padding: "6px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
             {sections.map((s) => {
               const active = section === s.id;
-              const count = s.id === "today" ? null : (data[s.id] || []).length;
+              const dueCount = s.id === "engine"
+                ? (data.sequences || []).flatMap(seq =>
+                    seq.status === "active" ? seq.steps.filter(st => !st.sent && st.dueDate <= today) : []
+                  ).length
+                : null;
+              const count = s.id === "today" || s.id === "engine" ? null : (data[s.id] || []).length;
               return (
                 <button key={s.id} onClick={() => go(s.id)} className="sb-navbtn"
                   style={{ background: active ? C.brandSoft : "transparent", color: active ? C.brandDeep : C.ink2, fontWeight: active ? 600 : 500 }}>
                   <s.Icon size={17} strokeWidth={2} style={{ flexShrink: 0 }} />
                   <span style={{ flex: 1, textAlign: "left" }}>{s.label}</span>
+                  {dueCount > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: "#C0573F", color: "#fff", borderRadius: 20, padding: "1px 7px" }}>{dueCount}</span>}
                   {count != null && <span style={{ fontSize: 11, color: active ? C.brand : C.ink3 }}>{count}</span>}
                 </button>
               );
@@ -342,6 +487,8 @@ export default function App() {
           <div className="sb-content">
             {section === "today"
               ? <Today data={data} derived={derived} today={today} onOpen={setOpen} onGo={go} />
+              : section === "engine"
+              ? <FollowUpEngine data={data} setData={setData} today={today} onOpen={setOpen} />
               : <Section section={section} data={data} derived={derived} today={today}
                   view={view} setView={setView} query={query} onOpen={setOpen} />}
           </div>
@@ -351,7 +498,8 @@ export default function App() {
       {open && (
         <RecordDrawer db={open.db} record={open.record} data={data} derived={derived} today={today}
           onClose={() => setOpen(null)} onSave={(rec) => { saveRecord(open.db, rec); setOpen(null); }}
-          onDelete={(id) => deleteRecord(open.db, id)} onOpenRelated={setOpen} />
+          onDelete={(id) => deleteRecord(open.db, id)} onOpenRelated={setOpen}
+          sequences={data.sequences || []} onStartSequence={startSequence} />
       )}
 
       {importing && <ImportModal data={data} setData={setData} onClose={() => setImporting(false)} />}
@@ -1251,7 +1399,7 @@ const FIELDS = {
 };
 function f(key, label, type, opts = {}) { return { key, label, type, ...opts }; }
 
-function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDelete, onOpenRelated }) {
+function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDelete, onOpenRelated, sequences, onStartSequence }) {
   const [draft, setDraft] = useState(record);
   const [tab, setTab] = useState("details");
   useEffect(() => { setDraft(record); setTab("details"); }, [record]);
@@ -1368,6 +1516,24 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
 
         <div className="sb-drawerfoot">
           {!isNew && <button className="sb-danger" onClick={() => onDelete(draft.id)}><Trash2 size={15} /> Delete</button>}
+          {db === "clients" && !isNew && (() => {
+            const activeSeq = (sequences || []).find(s => s.clientId === draft.id && s.status === "active");
+            const completed  = (sequences || []).some(s => s.clientId === draft.id && s.status === "completed");
+            if (activeSeq) return (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.brand, fontWeight: 600 }}>
+                <Zap size={13} /> Sequence active · step {activeSeq.steps.filter(s=>s.sent).length}/{activeSeq.steps.length}
+              </div>
+            );
+            return (
+              <button onClick={() => onStartSequence(draft)} style={{
+                display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 8,
+                background: hexA(C.brand, 0.1), border: `1px solid ${hexA(C.brand, 0.3)}`,
+                color: C.brandDeep, fontWeight: 600, fontSize: 12.5, cursor: "pointer",
+              }}>
+                <Zap size={13} /> {completed ? "Restart Sequence" : "Start Follow-up Sequence"}
+              </button>
+            );
+          })()}
           <div style={{ flex: 1 }} />
           <button className="sb-ghost" onClick={onClose}>Cancel</button>
           {tab !== "timeline" && <button className="sb-primary" onClick={() => onSave(draft)}>Save</button>}        </div>
@@ -2262,6 +2428,332 @@ function sectionLabel(db) { return { clients: "Clients", partners: "Studio Partn
 function hexA(hex, a) {
   const h = (hex || "#000").replace("#", ""); const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
   return `rgba(${r},${g},${b},${a})`;
+}
+
+/* ============================================================
+   FOLLOW-UP ENGINE COMPONENTS
+   ============================================================ */
+
+function FollowUpEngine({ data, setData, today, onOpen }) {
+  const [tab, setTab] = useState("queue");
+
+  const sequences = data.sequences || [];
+
+  // Build all pending steps across all active sequences
+  const allItems = [];
+  sequences.forEach(seq => {
+    if (seq.status !== "active") return;
+    const client = (data.clients || []).find(c => c.id === seq.clientId);
+    if (!client) return;
+    seq.steps.forEach(step => {
+      if (step.sent) return;
+      const stepDef = FU_STEPS.find(s => s.id === step.stepId);
+      allItems.push({ seqId: seq.id, seq, clientId: seq.clientId, client, stepId: step.stepId, stepDef, dueDate: step.dueDate, sessionDate: seq.sessionDate, sessionName: seq.sessionName });
+    });
+  });
+  allItems.sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+
+  const overdueItems  = allItems.filter(i => i.dueDate < today);
+  const todayItems    = allItems.filter(i => i.dueDate === today);
+  const upcomingItems = allItems.filter(i => i.dueDate > today);
+  const totalDue      = overdueItems.length + todayItems.length;
+
+  const markSent = (seqId, stepId) => {
+    setData(d => ({
+      ...d,
+      sequences: (d.sequences || []).map(seq => {
+        if (seq.id !== seqId) return seq;
+        const steps = seq.steps.map(s => s.stepId !== stepId ? s : { ...s, sent: true, sentAt: today });
+        const status = steps.every(s => s.sent) ? "completed" : "active";
+        return { ...seq, steps, status };
+      }),
+    }));
+  };
+
+  const togglePause = (seqId) => {
+    setData(d => ({
+      ...d,
+      sequences: (d.sequences || []).map(seq =>
+        seq.id !== seqId ? seq : { ...seq, status: seq.status === "paused" ? "active" : "paused" }
+      ),
+    }));
+  };
+
+  const tabStyle = (t) => ({
+    padding: "8px 16px", border: "none", borderRadius: "8px 8px 0 0", fontSize: 13, fontWeight: 600,
+    cursor: "pointer", background: tab === t ? C.brand : "transparent",
+    color: tab === t ? "#fff" : C.ink3, display: "flex", alignItems: "center", gap: 6,
+  });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      {/* Stats row */}
+      <div className="sb-stats">
+        <Stat label="Due / Overdue" value={totalDue} accent={totalDue > 0 ? "#C0573F" : C.brand} hint="need action now" />
+        <Stat label="Coming up" value={upcomingItems.length} hint="within 21 days" />
+        <Stat label="Active sequences" value={sequences.filter(s => s.status === "active").length} hint="clients in nurture" />
+        <Stat label="Completed" value={sequences.filter(s => s.status === "completed").length} hint="full sequences sent" />
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 2, borderBottom: `2px solid ${C.line}` }}>
+        <button style={tabStyle("queue")} onClick={() => setTab("queue")}>
+          Message Queue
+          {totalDue > 0 && <span style={{ background: "#C0573F", color: "#fff", borderRadius: 20, fontSize: 11, fontWeight: 700, padding: "1px 7px" }}>{totalDue}</span>}
+        </button>
+        <button style={tabStyle("sequences")} onClick={() => setTab("sequences")}>Active Sequences</button>
+        <button style={tabStyle("templates")} onClick={() => setTab("templates")}>Message Templates</button>
+      </div>
+
+      {tab === "queue" && (
+        <MessageQueue
+          overdue={overdueItems} todayItems={todayItems} upcoming={upcomingItems}
+          today={today} markSent={markSent}
+          onOpenClient={(clientId) => {
+            const c = (data.clients || []).find(x => x.id === clientId);
+            if (c) onOpen({ db: "clients", record: c });
+          }}
+        />
+      )}
+      {tab === "sequences" && (
+        <SequencesView sequences={sequences} clients={data.clients || []} today={today} onOpen={onOpen} togglePause={togglePause} />
+      )}
+      {tab === "templates" && <TemplatesView />}
+    </div>
+  );
+}
+
+function MessageQueue({ overdue, todayItems, upcoming, today, markSent, onOpenClient }) {
+  const [copied, setCopied] = useState(null);
+  const [expanded, setExpanded] = useState({});
+
+  const copyMsg = (key, text) => {
+    try { navigator.clipboard.writeText(text); } catch (e) {}
+    setCopied(key);
+    setTimeout(() => setCopied(null), 2000);
+  };
+
+  const toggle = (key) => setExpanded(e => ({ ...e, [key]: !e[key] }));
+
+  const renderGroup = (items, label, dotColor) => {
+    if (!items.length) return null;
+    return (
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em", color: dotColor, marginBottom: 10 }}>
+          {label} · {items.length}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {items.map(item => {
+            const key = `${item.seqId}_${item.stepId}`;
+            const isOpen = expanded[key];
+            const msg = interpolateTemplate(FU_TEMPLATES[item.stepId], item.client, item);
+            const wasCopied = copied === key;
+            const daysAgo = Math.round((new Date(today) - new Date(item.sessionDate)) / 86400000);
+            return (
+              <div key={key} style={{
+                background: C.surface, border: `1px solid ${C.line}`, borderLeft: `4px solid ${item.stepDef?.accent || C.brand}`,
+                borderRadius: 10, overflow: "hidden",
+              }}>
+                <div style={{ padding: "12px 14px" }}>
+                  {/* Header row */}
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: isOpen ? 10 : 0 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <button onClick={() => onOpenClient(item.clientId)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontWeight: 700, fontSize: 14, color: C.ink, textDecoration: "underline" }}>
+                          {(item.client?.name || "—").trim()}
+                        </button>
+                        <Tag color={item.stepDef?.accent || C.brand} soft>{item.stepDef?.label}</Tag>
+                        <MiniChip color={item.stepDef?.accent}>
+                          {item.stepDef?.channel === "email" ? "✉ Email" : "💬 Text"}
+                        </MiniChip>
+                      </div>
+                      <div style={{ fontSize: 12, color: C.ink3, marginTop: 3 }}>
+                        {item.sessionName} · {daysAgo} day{daysAgo !== 1 ? "s" : ""} ago ·{" "}
+                        {item.dueDate < today ? <span style={{ color: "#C0573F", fontWeight: 600 }}>overdue since {fmtDate(item.dueDate)}</span>
+                          : <span style={{ color: "#D9892B", fontWeight: 600 }}>due today</span>}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
+                      <button onClick={() => toggle(key)} style={{ padding: "5px 11px", background: C.surfaceAlt, border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 12, cursor: "pointer", color: C.ink2 }}>
+                        {isOpen ? "Hide" : "View message"}
+                      </button>
+                      <button onClick={() => copyMsg(key, msg)} style={{
+                        padding: "5px 11px", borderRadius: 7, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
+                        background: wasCopied ? hexA("#4A8C6F", 0.12) : C.surfaceAlt,
+                        color: wasCopied ? "#4A8C6F" : C.ink2, border: `1px solid ${wasCopied ? hexA("#4A8C6F", 0.35) : C.line}`,
+                      }}>
+                        {wasCopied ? <><Check size={12} /> Copied!</> : <><Copy size={12} /> Copy</>}
+                      </button>
+                      <button onClick={() => markSent(item.seqId, item.stepId)} style={{
+                        padding: "5px 14px", borderRadius: 7, fontSize: 12, cursor: "pointer", fontWeight: 600,
+                        background: C.brand, color: "#fff", border: "none",
+                      }}>
+                        Mark Sent ✓
+                      </button>
+                    </div>
+                  </div>
+                  {/* Expanded message */}
+                  {isOpen && (
+                    <div style={{
+                      background: C.surfaceAlt, borderRadius: 8, padding: "12px 14px",
+                      fontSize: 13, color: C.ink, lineHeight: 1.75, whiteSpace: "pre-wrap",
+                      borderLeft: `3px solid ${item.stepDef?.accent || C.brand}`,
+                    }}>
+                      {msg}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const total = overdue.length + todayItems.length + upcoming.length;
+  if (!total) {
+    return (
+      <div style={{ textAlign: "center", padding: "48px 24px", color: C.ink3 }}>
+        <Zap size={32} style={{ opacity: 0.3, marginBottom: 12 }} />
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>Queue is clear</div>
+        <div style={{ fontSize: 13 }}>Start a sequence from any client record after they attend a session.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      {renderGroup(overdue,    "Overdue",    "#C0573F")}
+      {renderGroup(todayItems, "Due Today",  "#D9892B")}
+      {renderGroup(upcoming,   "Coming Up",  C.ink3)}
+    </div>
+  );
+}
+
+function SequencesView({ sequences, clients, today, onOpen, togglePause }) {
+  if (!sequences.length) {
+    return (
+      <div style={{ textAlign: "center", padding: "48px 24px", color: C.ink3 }}>
+        <Clock size={32} style={{ opacity: 0.3, marginBottom: 12 }} />
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>No sequences yet</div>
+        <div style={{ fontSize: 13 }}>Open a client record and click "Start Follow-up Sequence" after they attend a session.</div>
+      </div>
+    );
+  }
+
+  const sorted = [...sequences].sort((a, b) => {
+    const order = { active: 0, paused: 1, completed: 2 };
+    return (order[a.status] ?? 3) - (order[b.status] ?? 3) || b.sessionDate.localeCompare(a.sessionDate);
+  });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {sorted.map(seq => {
+        const client = clients.find(c => c.id === seq.clientId);
+        const sentCount = seq.steps.filter(s => s.sent).length;
+        const total = seq.steps.length;
+        const pctDone = Math.round((sentCount / total) * 100);
+        const nextPending = seq.steps.find(s => !s.sent);
+        const nextDef = nextPending ? FU_STEPS.find(f => f.id === nextPending.stepId) : null;
+        const isOverdue = nextPending && nextPending.dueDate < today;
+        const statusColor = seq.status === "completed" ? "#4A8C6F" : seq.status === "paused" ? C.ink3 : C.brand;
+
+        return (
+          <div key={seq.id} style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 10, padding: "14px 16px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 13.5 }}>{(client?.name || "—").trim()}</div>
+                <div style={{ fontSize: 12, color: C.ink3 }}>{seq.sessionName} · started {fmtDate(seq.sessionDate)}</div>
+              </div>
+              <Tag color={statusColor} soft>{seq.status}</Tag>
+              {seq.status !== "completed" && (
+                <button onClick={() => togglePause(seq.id)} style={{
+                  padding: "4px 11px", fontSize: 12, borderRadius: 7, cursor: "pointer",
+                  background: C.surfaceAlt, border: `1px solid ${C.line}`, color: C.ink2,
+                }}>
+                  {seq.status === "paused" ? "Resume" : "Pause"}
+                </button>
+              )}
+            </div>
+            {/* Progress bar */}
+            <div style={{ height: 5, background: C.line, borderRadius: 6, overflow: "hidden", marginBottom: 10 }}>
+              <div style={{ height: "100%", width: pctDone + "%", background: seq.status === "completed" ? "#4A8C6F" : C.brand, borderRadius: 6, transition: "width .3s" }} />
+            </div>
+            {/* Step chips */}
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {seq.steps.map(step => {
+                const def = FU_STEPS.find(f => f.id === step.stepId);
+                const late = !step.sent && step.dueDate < today;
+                return (
+                  <div key={step.stepId} style={{
+                    fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20,
+                    background: step.sent ? hexA("#4A8C6F", 0.12) : late ? hexA("#C0573F", 0.12) : C.surfaceAlt,
+                    color: step.sent ? "#4A8C6F" : late ? "#C0573F" : C.ink3,
+                    border: `1px solid ${step.sent ? hexA("#4A8C6F", 0.3) : late ? hexA("#C0573F", 0.3) : C.line}`,
+                  }}>
+                    {step.sent ? "✓" : late ? "!" : "○"} {def?.label}
+                    {step.sent && step.sentAt ? ` · ${fmtDate(step.sentAt)}` : ""}
+                    {step.sent && step.notes ? ` — ${step.notes}` : ""}
+                  </div>
+                );
+              })}
+            </div>
+            {nextDef && seq.status === "active" && (
+              <div style={{ marginTop: 8, fontSize: 12, color: isOverdue ? "#C0573F" : C.ink3, fontWeight: isOverdue ? 600 : 400 }}>
+                Next: {nextDef.label} — {isOverdue ? `overdue since ${fmtDate(nextPending.dueDate)}` : `scheduled ${fmtDate(nextPending.dueDate)}`}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TemplatesView() {
+  const [copied, setCopied] = useState(null);
+
+  const copyTpl = (id) => {
+    try { navigator.clipboard.writeText(FU_TEMPLATES[id]); } catch (e) {}
+    setCopied(id);
+    setTimeout(() => setCopied(null), 2000);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ fontSize: 13, color: C.ink3, padding: "2px 0 6px" }}>
+        These templates are auto-personalized with the client's first name when you view messages in the queue. Copy any template to edit before sending.
+      </div>
+      {FU_STEPS.map(step => (
+        <div key={step.id} style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `4px solid ${step.accent}`, borderRadius: 10, overflow: "hidden" }}>
+          <div style={{ padding: "12px 16px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <Tag color={step.accent} soft>{step.label}</Tag>
+              <MiniChip color={step.accent}>{step.channel === "email" ? "✉ Email" : "💬 Text"}</MiniChip>
+              <span style={{ fontSize: 12, color: C.ink3, flex: 1 }}>
+                {step.delayDays === 0 ? "Send same day as session" : `Send ~${step.delayDays} days after session`}
+              </span>
+              <button onClick={() => copyTpl(step.id)} style={{
+                padding: "5px 11px", borderRadius: 7, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
+                background: copied === step.id ? hexA("#4A8C6F", 0.12) : C.surfaceAlt,
+                color: copied === step.id ? "#4A8C6F" : C.ink2,
+                border: `1px solid ${copied === step.id ? hexA("#4A8C6F", 0.35) : C.line}`,
+              }}>
+                {copied === step.id ? <><Check size={12} /> Copied!</> : <><Copy size={12} /> Copy</>}
+              </button>
+            </div>
+            <div style={{
+              background: C.surfaceAlt, borderRadius: 8, padding: "12px 14px",
+              fontSize: 13, color: C.ink, lineHeight: 1.75, whiteSpace: "pre-wrap",
+            }}>
+              {FU_TEMPLATES[step.id]}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 const FONT = {
