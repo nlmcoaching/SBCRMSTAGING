@@ -5,7 +5,7 @@ import {
   LayoutGrid, Users, Building2, CalendarDays, DollarSign, Megaphone,
   RefreshCw, Plus, X, Search, Upload, Download, Trash2, ChevronLeft,
   ChevronRight, Menu, Phone, Mail, Link2, Wind, ArrowUpRight, Check,
-  Zap, Copy, Clock,
+  Zap, Copy, Clock, TrendingUp, BarChart2,
 } from "lucide-react";
 
 /* ============================================================
@@ -114,6 +114,32 @@ const OFFER_PROB = ["10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%
 const OPEN_STATUSES = ["Drafted", "Sent", "Viewed", "Follow-up due"];
 const WON_STATUSES  = ["Accepted", "Paid"];
 const LOST_STATUSES = ["Declined", "Expired"];
+
+/* ---------- Revenue constants ---------- */
+const REV_CHANNEL = [
+  "Studio session", "Virtual session", "Private client", "Group package",
+  "Corporate event", "Referral partner", "Paid ad", "Organic Instagram",
+  "Email list", "Studio partner",
+];
+const REV_CHANNEL_COLOR = {
+  "Studio session":    "#2F6FD0",
+  "Virtual session":   "#4A8C6F",
+  "Private client":    C.brand,
+  "Group package":     "#7B68EE",
+  "Corporate event":   "#D9892B",
+  "Referral partner":  "#E1306C",
+  "Paid ad":           "#C0573F",
+  "Organic Instagram": "#E4405F",
+  "Email list":        "#D9892B",
+  "Studio partner":    "#13245C",
+};
+const COST_CENTER = [
+  "Studio sessions", "Virtual sessions", "Private sessions",
+  "Packages", "Corporate", "Referral", "Marketing",
+];
+const calcNet = (r) =>
+  Number(r.gross || 0) - Number(r.stripeFee || 0) - Number(r.studioSplit || 0) -
+  Number(r.facilitatorCost || 0) - Number(r.refunds || 0);
 const CONTENT_TYPE = ["Transformation", "Education", "Invite", "Testimonial"];
 const PLATFORM = ["IG", "TikTok", "Email"];
 
@@ -266,6 +292,20 @@ const SEED = {
     { id: "o10", name: "Sample - Corporate wellness / Group event", clientId: "",  offerType: "Group event",               price: 450, status: "Drafted",        dateOffered: "2026-06-13", expireDate: "2026-06-27", followUpDate: "2026-06-16", probability: "40%", source: "LinkedIn",        notes: "HR lead, warm intro via Sam",      reasonLost: "" },
     { id: "o11", name: "Sample - Past lead / 3-pack",              clientId: "",   offerType: "3-pack",                    price: 105, status: "Expired",        dateOffered: "2026-05-01", expireDate: "2026-05-15", followUpDate: "",           probability: "0%",  source: "Instagram",       notes: "",                                 reasonLost: "No response" },
     { id: "o12", name: "Sample - Priya / Private session",         clientId: "c4", offerType: "Private session",           price: 150, status: "Accepted",       dateOffered: "2026-06-05", expireDate: "",           followUpDate: "",           probability: "90%", source: "Post-session",    notes: "Requested after group session",    reasonLost: "" },
+  ],
+  revenue: [
+    { id: "rv1",  name: "Sample - YogaSix Thursday Reset 6/11",      date: "2026-06-11", channel: "Studio session",   source: "Studio partner",  campaign: "",              sessionId: "s3", clientId: "",  gross: 350,  stripeFee: 10.50, studioSplit: 105,  facilitatorCost: 0,   refunds: 0,  costCenter: "Studio sessions",   notes: "8 paid × $43.75" },
+    { id: "rv2",  name: "Sample - Lotus & Pine New Moon 6/9",         date: "2026-06-09", channel: "Studio session",   source: "Studio partner",  campaign: "",              sessionId: "s2", clientId: "",  gross: 280,  stripeFee: 8.40,  studioSplit: 84,   facilitatorCost: 0,   refunds: 0,  costCenter: "Studio sessions",   notes: "7 paid × $40" },
+    { id: "rv3",  name: "Sample - Virtual Sunday Session 6/8",        date: "2026-06-08", channel: "Virtual session",  source: "Email list",      campaign: "June newsletter",sessionId: "",   clientId: "",  gross: 420,  stripeFee: 12.60, studioSplit: 0,    facilitatorCost: 0,   refunds: 0,  costCenter: "Virtual sessions",  notes: "12 paid × $35" },
+    { id: "rv4",  name: "Sample - Priya private session 6/5",         date: "2026-06-05", channel: "Private client",   source: "Post-session",    campaign: "",              sessionId: "",   clientId: "c4",gross: 150,  stripeFee: 4.50,  studioSplit: 0,    facilitatorCost: 0,   refunds: 0,  costCenter: "Private sessions",  notes: "" },
+    { id: "rv5",  name: "Sample - Dana 6-pack 5/28",                  date: "2026-05-28", channel: "Group package",    source: "Studio partner",  campaign: "",              sessionId: "",   clientId: "c6",gross: 195,  stripeFee: 5.85,  studioSplit: 0,    facilitatorCost: 0,   refunds: 0,  costCenter: "Packages",          notes: "" },
+    { id: "rv6",  name: "Sample - CorePower Berkeley pilot 6/1",      date: "2026-06-01", channel: "Studio session",   source: "Direct outreach", campaign: "",              sessionId: "s1", clientId: "",  gross: 300,  stripeFee: 9.00,  studioSplit: 90,   facilitatorCost: 0,   refunds: 0,  costCenter: "Studio sessions",   notes: "Pilot, 6 attendees" },
+    { id: "rv7",  name: "Sample - Sam 6-pack 4/22",                   date: "2026-04-22", channel: "Group package",    source: "Referral",        campaign: "",              sessionId: "",   clientId: "c5",gross: 195,  stripeFee: 5.85,  studioSplit: 0,    facilitatorCost: 0,   refunds: 0,  costCenter: "Packages",          notes: "" },
+    { id: "rv8",  name: "Sample - Lotus & Pine monthly agreement 5/15",date: "2026-05-15", channel: "Studio partner",  source: "Studio partner",  campaign: "",              sessionId: "",   clientId: "",  gross: 600,  stripeFee: 18.00, studioSplit: 180,  facilitatorCost: 0,   refunds: 0,  costCenter: "Studio sessions",   notes: "Monthly partner fee" },
+    { id: "rv9",  name: "Sample - Virtual Sunday Session refund 6/8", date: "2026-06-08", channel: "Virtual session",  source: "Direct outreach", campaign: "",              sessionId: "",   clientId: "c1",gross: 0,    stripeFee: 0,     studioSplit: 0,    facilitatorCost: 0,   refunds: 35, costCenter: "Virtual sessions",  notes: "Jordan requested refund" },
+    { id: "rv10", name: "Sample - Priya 3-pack 5/10",                 date: "2026-05-10", channel: "Group package",    source: "Post-session",    campaign: "",              sessionId: "",   clientId: "c4",gross: 105,  stripeFee: 3.15,  studioSplit: 0,    facilitatorCost: 0,   refunds: 0,  costCenter: "Packages",          notes: "" },
+    { id: "rv11", name: "Sample - Corporate wellness event 6/20",     date: "2026-06-20", channel: "Corporate event",  source: "LinkedIn",        campaign: "Corp outreach", sessionId: "",   clientId: "",  gross: 450,  stripeFee: 13.50, studioSplit: 0,    facilitatorCost: 100, refunds: 0,  costCenter: "Corporate",         notes: "Guest facilitator paid $100" },
+    { id: "rv12", name: "Sample - Virtual session IG promo 5/25",     date: "2026-05-25", channel: "Virtual session",  source: "Organic Instagram",campaign: "May reel",      sessionId: "",   clientId: "",  gross: 315,  stripeFee: 9.45,  studioSplit: 0,    facilitatorCost: 0,   refunds: 0,  costCenter: "Virtual sessions",  notes: "9 paid × $35 — came from reel" },
   ],
   content: [
     { id: "ct1", name: "Sample - Maya's burnout-to-calm story", type: "Transformation", platform: "IG", datePosted: "2026-06-02", engagement: 420, leads: 3, booked: 1 },
@@ -435,6 +475,7 @@ export default function App() {
     { id: "partners", label: "Studio Partners",      Icon: Building2 },
     { id: "sessions", label: "Sessions",             Icon: CalendarDays },
     { id: "offers",   label: "Offers & Sales",       Icon: DollarSign },
+    { id: "revenue",  label: "Revenue",              Icon: TrendingUp },
     { id: "content",  label: "Content & Referral",   Icon: Megaphone },
     { id: "followups",label: "Follow-Ups",           Icon: RefreshCw },
     { id: "engine",   label: "Follow-up Engine",     Icon: Zap },
@@ -537,7 +578,8 @@ function newRecord(db) {
     clients: { name: "", phone: "", email: "", source: "Studio", status: "Lead", firstSession: "", sessionsAttended: 0, lastSession: "", nextSession: "", packageType: "None", lifetimeValue: 0, notes: "", referral: "Low" },
     partners: { name: "", studioType: "Yoga", location: "", contact: "", role: "Owner", email: "", phone: "", stage: "Target identified", estimatedCommunitySize: 0, bestFitJourney: "", revenuePotential: 0, closeProbability: "Low", revShare: "", contractStatus: "None", outreachDate: "", lastTouch: todayISO(), nextAction: "", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "", checklist: emptyChecklist() },
     sessions: { name: "", studioId: "", date: todayISO(), time: "", status: "Planned", journey: "Breathwork Basics", capacity: 20, registered: 0, attendance: 0, paidAttendees: 0, waivers: 0, noShows: 0, revenue: 0, studioSplit: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, equipmentNeeded: "", roomSetupStatus: "Not started", musicSetupStatus: "Not started", testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false, referralsRequested: false, notes: "", checklist: emptySessionChecklist() },
-    offers: { name: "", clientId: "", offerType: "Single session", price: 0, status: "Drafted", probability: "50%", source: "", dateOffered: todayISO(), expireDate: "", followUpDate: "", notes: "", reasonLost: "" },
+    offers:    { name: "", clientId: "", offerType: "Single session", price: 0, status: "Drafted", probability: "50%", source: "", dateOffered: todayISO(), expireDate: "", followUpDate: "", notes: "", reasonLost: "" },
+    revenue:   { name: "", date: todayISO(), channel: "Studio session", source: "", campaign: "", sessionId: "", clientId: "", gross: 0, stripeFee: 0, studioSplit: 0, facilitatorCost: 0, refunds: 0, costCenter: "Studio sessions", notes: "" },
     content: { name: "", type: "Education", platform: "IG", datePosted: todayISO(), engagement: 0, leads: 0, booked: 0 },
     followups: { name: "", clientId: "", stage: "Lead", lastContact: todayISO(), futype: "24h", nextAction: "", outcome: "" },
   };
@@ -919,6 +961,8 @@ function Section({ section, data, derived, today, view, setView, query, onOpen }
         ? <SessionPerfView rows={processed.rows} derived={derived} onOpen={(r) => onOpen({ db: section, record: r })} />
         : v.layout === "offer-analytics"
         ? <OfferConversionView data={data} derived={derived} today={today} onOpen={(r) => onOpen({ db: "offers", record: r })} />
+        : v.layout === "revenue-analytics"
+        ? <RevenueAttributionView data={data} derived={derived} today={today} onOpen={(r) => onOpen({ db: "revenue", record: r })} />
         : v.layout === "calendar"
         ? <CalendarView rows={processed.rows} today={today} derived={derived} onOpen={(r) => onOpen({ db: section, record: r })} />
         : <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => onOpen({ db: section, record: r })} ctx={{ data, derived, today }} />}
@@ -1058,6 +1102,21 @@ const VIEWS = {
       { name: "All offers", layout: "table", columns: offerCols(), run: (rows) => ({ rows }) },
     ],
   },
+  revenue: {
+    views: [
+      { name: "Revenue attribution", layout: "revenue-analytics" },
+      { name: "This month", layout: "table", columns: revCols(),
+        run: (rows, c) => {
+          const r = [...rows].filter(x => sameMonth(x.date, c.today)).sort((a, b) => b.date.localeCompare(a.date));
+          return { rows: r, footer: { gross: money(sum(r, "gross")), label: "Gross this month" } };
+        } },
+      { name: "All transactions", layout: "table", columns: revCols(),
+        run: (rows) => {
+          const r = [...rows].sort((a, b) => b.date.localeCompare(a.date));
+          return { rows: r, footer: { gross: money(sum(r, "gross")), label: "Total gross" } };
+        } },
+    ],
+  },
   content: {
     views: [
       { name: "What's working", layout: "table",
@@ -1114,6 +1173,23 @@ function offerCols() {
     col("dateOffered", "Offered", (r) => fmtDate(r.dateOffered)),
     col("expireDate", "Expires", (r, c) => <DateChip iso={r.expireDate} today={c.today} />),
     col("followUpDate", "Follow-up", (r, c) => <DateChip iso={r.followUpDate} today={c.today} />),
+  ];
+}
+function revCols() {
+  return [
+    col("name", "Description", (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
+    col("date", "Date", (r) => fmtDate(r.date)),
+    col("channel", "Channel", (r) => <Tag color={REV_CHANNEL_COLOR[r.channel] || C.ink3} soft>{r.channel}</Tag>),
+    col("gross", "Gross", (r) => money(r.gross), { align: "right", sum: "gross" }),
+    col("studioSplit", "Studio split", (r) => r.studioSplit ? money(r.studioSplit) : "—", { align: "right" }),
+    col("stripeFee", "Processing", (r) => r.stripeFee ? money(r.stripeFee) : "—", { align: "right" }),
+    col("facilitatorCost", "Facilitator", (r) => r.facilitatorCost ? money(r.facilitatorCost) : "—", { align: "right" }),
+    col("refunds", "Refunds", (r) => r.refunds ? <span style={{ color: "#C0573F" }}>-{money(r.refunds)}</span> : "—", { align: "right" }),
+    col("net", "Net", (r) => {
+      const n = calcNet(r);
+      return <strong style={{ color: n > 0 ? "#4A8C6F" : n < 0 ? "#C0573F" : C.ink3 }}>{money(n)}</strong>;
+    }, { align: "right" }),
+    col("source", "Source", (r) => r.source ? <Tag color={SOURCE_COLOR[r.source] || C.ink3} soft>{r.source}</Tag> : "—"),
   ];
 }
 function contentCols() {
@@ -1427,6 +1503,15 @@ const FIELDS = {
     f("source", "Source", "select", { options: SOURCE }),
     f("dateOffered", "Date offered", "date"), f("expireDate", "Expiration date", "date"), f("followUpDate", "Follow-up date", "date"),
     f("notes", "Notes", "textarea"), f("reasonLost", "Reason lost", "text"),
+  ],
+  revenue: [
+    f("name", "Description", "text", { title: true }), f("date", "Date", "date"),
+    f("channel", "Channel", "select", { options: REV_CHANNEL }),
+    f("gross", "Gross revenue", "currency"), f("stripeFee", "Processing fee (Stripe)", "currency"),
+    f("studioSplit", "Studio split", "currency"), f("facilitatorCost", "Facilitator cost", "currency"), f("refunds", "Refunds", "currency"),
+    f("source", "Source", "select", { options: SOURCE }), f("campaign", "Campaign", "text"),
+    f("sessionId", "Session", "relation", { target: "sessions" }), f("clientId", "Client", "relation", { target: "clients" }),
+    f("costCenter", "Cost center", "select", { options: COST_CENTER }), f("notes", "Notes", "textarea"),
   ],
   content: [
     f("name", "Content title", "text", { title: true }), f("type", "Type", "select", { options: CONTENT_TYPE }),
@@ -2470,6 +2555,237 @@ function sectionLabel(db) { return { clients: "Clients", partners: "Studio Partn
 function hexA(hex, a) {
   const h = (hex || "#000").replace("#", ""); const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
   return `rgba(${r},${g},${b},${a})`;
+}
+
+/* ============================================================
+   REVENUE ATTRIBUTION VIEW
+   ============================================================ */
+
+function RevenueAttributionView({ data, derived, today, onOpen }) {
+  const rows = data.revenue || [];
+  const [highlight, setHighlight] = useState(null);
+
+  // ── Core totals ─────────────────────────────────────────────
+  const totalGross = sum(rows, "gross");
+  const totalFees  = sum(rows, "stripeFee") + sum(rows, "facilitatorCost");
+  const totalSplit = sum(rows, "studioSplit");
+  const totalRef   = sum(rows, "refunds");
+  const totalNet   = rows.reduce((a, r) => a + calcNet(r), 0);
+  const margin     = totalGross > 0 ? Math.round((totalNet / totalGross) * 100) : 0;
+
+  // ── By channel ──────────────────────────────────────────────
+  const byChannel = {};
+  rows.forEach(r => {
+    const ch = r.channel || "Unknown";
+    if (!byChannel[ch]) byChannel[ch] = { gross: 0, fees: 0, split: 0, facilitator: 0, refunds: 0, net: 0, count: 0 };
+    byChannel[ch].gross       += Number(r.gross || 0);
+    byChannel[ch].fees        += Number(r.stripeFee || 0);
+    byChannel[ch].split       += Number(r.studioSplit || 0);
+    byChannel[ch].facilitator += Number(r.facilitatorCost || 0);
+    byChannel[ch].refunds     += Number(r.refunds || 0);
+    byChannel[ch].net         += calcNet(r);
+    byChannel[ch].count++;
+  });
+  const channelRows = Object.entries(byChannel)
+    .map(([ch, d]) => ({ ch, ...d, margin: d.gross > 0 ? Math.round((d.net / d.gross) * 100) : 0 }))
+    .sort((a, b) => b.net - a.net);
+
+  // ── By source ────────────────────────────────────────────────
+  const bySrc = {};
+  rows.forEach(r => {
+    const s = r.source || "Unknown";
+    if (!bySrc[s]) bySrc[s] = { gross: 0, net: 0, count: 0 };
+    bySrc[s].gross += Number(r.gross || 0);
+    bySrc[s].net   += calcNet(r);
+    bySrc[s].count++;
+  });
+  const srcRows = Object.entries(bySrc)
+    .map(([src, d]) => ({ src, ...d, margin: d.gross > 0 ? Math.round((d.net / d.gross) * 100) : 0 }))
+    .sort((a, b) => b.net - a.net);
+
+  // ── By client ────────────────────────────────────────────────
+  const byClient = {};
+  rows.filter(r => r.clientId).forEach(r => {
+    if (!byClient[r.clientId]) byClient[r.clientId] = { gross: 0, net: 0, count: 0 };
+    byClient[r.clientId].gross += Number(r.gross || 0);
+    byClient[r.clientId].net   += calcNet(r);
+    byClient[r.clientId].count++;
+  });
+  const clientRows = Object.entries(byClient)
+    .map(([id, d]) => ({ id, name: derived.clientName[id] || id, ...d }))
+    .sort((a, b) => b.net - a.net).slice(0, 8);
+
+  // ── Recent transactions ──────────────────────────────────────
+  const recent = [...rows].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 6);
+
+  const marginColor = (m) => m >= 70 ? "#4A8C6F" : m >= 45 ? C.gold : "#C0573F";
+  const thS = { fontSize: 11.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 600, padding: "10px 12px", borderBottom: `1px solid ${C.line}`, textAlign: "left", whiteSpace: "nowrap" };
+  const tdS = { padding: "11px 12px", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 };
+  const tdR = { ...tdS, textAlign: "right" };
+
+  const marginBar = (m, maxM) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ flex: 1, height: 7, background: C.line, borderRadius: 6, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: Math.max(0, m) + "%", background: marginColor(m), borderRadius: 6, transition: "width .4s" }} />
+      </div>
+      <span style={{ fontSize: 11, fontWeight: 700, color: marginColor(m), width: 36, textAlign: "right" }}>{m}%</span>
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+      {/* Key metrics */}
+      <div className="sb-stats">
+        <Stat label="Net revenue"   value={money(totalNet)}   accent={C.brand} hint="after all deductions" />
+        <Stat label="Gross revenue" value={money(totalGross)} accent="#2F6FD0" hint="before fees & splits" />
+        <Stat label="Margin"        value={margin + "%"}      accent={marginColor(margin)} hint="net ÷ gross" />
+        <Stat label="Studio splits" value={money(totalSplit)} accent={C.gold} hint="paid to partner studios" />
+      </div>
+
+      {/* Revenue waterfall: Gross → deductions → Net */}
+      <Panel title="Revenue waterfall">
+        <div style={{ padding: "4px 0 8px" }}>
+          {[
+            { label: "Gross revenue",      value: totalGross, color: "#2F6FD0", op: "base" },
+            { label: "Studio splits",      value: -totalSplit,  color: C.gold,    op: "minus" },
+            { label: "Processing fees",    value: -totalFees,   color: "#9FB2CC", op: "minus" },
+            { label: "Refunds",            value: -totalRef,    color: "#C0573F", op: "minus" },
+            { label: "Net revenue",        value: totalNet,   color: "#4A8C6F", op: "result" },
+          ].map(({ label, value, color, op }) => (
+            <div key={label} style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 0", borderBottom: op === "result" ? "none" : `1px solid ${C.lineSoft}` }}>
+              <div style={{ width: 180, fontSize: op === "result" ? 13.5 : 13, fontWeight: op === "result" ? 700 : 500, color: op === "result" ? color : C.ink2 }}>{label}</div>
+              <div style={{ flex: 1, height: op === "result" ? 10 : 7, background: C.line, borderRadius: 6, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: Math.abs(totalGross) > 0 ? Math.abs(value) / totalGross * 100 + "%" : "0%", background: color, borderRadius: 6 }} />
+              </div>
+              <div style={{ width: 90, textAlign: "right", fontSize: op === "result" ? 15 : 13, fontWeight: op === "result" ? 700 : 500, color: color }}>
+                {op === "minus" ? `-${money(Math.abs(value))}` : money(value)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Panel>
+
+      {/* Channel P&L table */}
+      <Panel title="P&L by channel — what's actually profitable">
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={thS}>Channel</th>
+              <th style={{ ...thS, textAlign: "right" }}>Txns</th>
+              <th style={{ ...thS, textAlign: "right" }}>Gross</th>
+              <th style={{ ...thS, textAlign: "right" }}>Studio split</th>
+              <th style={{ ...thS, textAlign: "right" }}>Fees</th>
+              <th style={{ ...thS, textAlign: "right" }}>Net</th>
+              <th style={{ ...thS, minWidth: 120 }}>Margin</th>
+            </tr>
+          </thead>
+          <tbody>
+            {channelRows.map(r => (
+              <tr key={r.ch}
+                onMouseEnter={() => setHighlight(r.ch)} onMouseLeave={() => setHighlight(null)}
+                style={{ background: highlight === r.ch ? C.surfaceAlt : "transparent", cursor: "default" }}>
+                <td style={{ ...tdS }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: "50%", background: REV_CHANNEL_COLOR[r.ch] || C.ink3, flexShrink: 0 }} />
+                    <span style={{ fontWeight: 600 }}>{r.ch}</span>
+                  </div>
+                </td>
+                <td style={tdR}>{r.count}</td>
+                <td style={tdR}>{money(r.gross)}</td>
+                <td style={{ ...tdR, color: r.split > 0 ? C.gold : C.ink3 }}>{r.split > 0 ? money(r.split) : "—"}</td>
+                <td style={{ ...tdR, color: C.ink2 }}>{r.fees > 0 ? money(r.fees + r.facilitator) : "—"}</td>
+                <td style={{ ...tdR, fontWeight: 700, color: marginColor(r.margin) }}>{money(r.net)}</td>
+                <td style={{ ...tdS, minWidth: 130 }}>{marginBar(r.margin)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr style={{ background: C.surfaceAlt }}>
+              <td style={{ ...tdS, fontWeight: 700 }}>Total</td>
+              <td style={tdR}>{rows.length}</td>
+              <td style={{ ...tdR, fontWeight: 700 }}>{money(totalGross)}</td>
+              <td style={{ ...tdR, color: C.gold, fontWeight: 600 }}>{money(totalSplit)}</td>
+              <td style={{ ...tdR, color: C.ink2 }}>{money(totalFees)}</td>
+              <td style={{ ...tdR, fontWeight: 700, color: marginColor(margin) }}>{money(totalNet)}</td>
+              <td style={{ ...tdS }}>{marginBar(margin)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </Panel>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }} className="sb-grid2">
+        {/* By source */}
+        <Panel title="Net revenue by source">
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={thS}>Source</th>
+                <th style={{ ...thS, textAlign: "right" }}>Gross</th>
+                <th style={{ ...thS, textAlign: "right" }}>Net</th>
+                <th style={{ ...thS, minWidth: 90 }}>Margin</th>
+              </tr>
+            </thead>
+            <tbody>
+              {srcRows.map(r => (
+                <tr key={r.src}>
+                  <td style={tdS}><Tag color={SOURCE_COLOR[r.src] || C.ink3} soft>{r.src}</Tag></td>
+                  <td style={tdR}>{money(r.gross)}</td>
+                  <td style={{ ...tdR, fontWeight: 700, color: marginColor(r.margin) }}>{money(r.net)}</td>
+                  <td style={{ ...tdS, minWidth: 100 }}>{marginBar(r.margin)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Panel>
+
+        {/* By client */}
+        <Panel title="Top clients by net revenue">
+          {!clientRows.length ? <Empty>No client-linked transactions yet</Empty> : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {clientRows.map((r, i) => (
+                <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, background: i === 0 ? hexA(C.brand, 0.06) : "transparent" }}>
+                  <span style={{ width: 20, fontSize: 12, fontWeight: 700, color: C.ink3, textAlign: "right" }}>{i + 1}</span>
+                  <span style={{ flex: 1, fontWeight: 600, fontSize: 13 }}>{(r.name || "—").trim()}</span>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontWeight: 700, color: "#4A8C6F", fontSize: 13 }}>{money(r.net)}</div>
+                    <div style={{ fontSize: 11, color: C.ink3 }}>{r.count} txn{r.count !== 1 ? "s" : ""}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      {/* Recent transactions */}
+      <Panel title="Recent transactions">
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={thS}>Description</th>
+              <th style={thS}>Date</th>
+              <th style={thS}>Channel</th>
+              <th style={{ ...thS, textAlign: "right" }}>Gross</th>
+              <th style={{ ...thS, textAlign: "right" }}>Net</th>
+              <th style={thS}>Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            {recent.map(r => (
+              <tr key={r.id} onClick={() => onOpen(r)} style={{ cursor: "pointer" }} className="sb-trow">
+                <td style={{ ...tdS, fontWeight: 600, maxWidth: 200 }}>{cleanName(r.name)}</td>
+                <td style={tdS}>{fmtDate(r.date)}</td>
+                <td style={tdS}><Tag color={REV_CHANNEL_COLOR[r.channel] || C.ink3} soft>{r.channel}</Tag></td>
+                <td style={tdR}>{money(r.gross)}</td>
+                <td style={{ ...tdR, fontWeight: 700, color: marginColor(calcNet(r) > 0 ? Math.round(calcNet(r) / Math.max(r.gross, 1) * 100) : 0) }}>{money(calcNet(r))}</td>
+                <td style={tdS}>{r.source ? <Tag color={SOURCE_COLOR[r.source] || C.ink3} soft>{r.source}</Tag> : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Panel>
+    </div>
+  );
 }
 
 /* ============================================================
