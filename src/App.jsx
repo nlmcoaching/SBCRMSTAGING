@@ -5,7 +5,7 @@ import {
   LayoutGrid, Users, Building2, CalendarDays, DollarSign, Megaphone,
   RefreshCw, Plus, X, Search, Upload, Download, Trash2, ChevronLeft,
   ChevronRight, Menu, Phone, Mail, Link2, Wind, ArrowUpRight, Check,
-  Zap, Copy, Clock, TrendingUp, BarChart2, AlertCircle, Activity, Send,
+  Zap, Copy, Clock, TrendingUp, BarChart2, AlertCircle, Activity, Send, Info, BellRing,
 } from "lucide-react";
 
 /* ============================================================
@@ -824,6 +824,237 @@ function buildActions(data, derived, today) {
   return actions.sort((a, b) => a.priority !== b.priority ? a.priority - b.priority : urgencyScore[a.urgency] - urgencyScore[b.urgency]);
 }
 
+/* ── ALERT ENGINE ── */
+const ALERT_SEVERITY = {
+  critical: { color: "#C0573F", bg: "#FFF2F0", border: "#F5C4BC", label: "Critical" },
+  warning:  { color: "#9B7A2E", bg: "#FFFBF0", border: "#F5E4A8", label: "Warning"  },
+  info:     { color: "#2E6FB0", bg: "#F0F6FF", border: "#B8D4F5", label: "Info"     },
+};
+
+function buildAlerts(data, today) {
+  const alerts = [];
+  const daysAgo  = (d) => (!d) ? 0 : Math.round((new Date(today) - new Date(d)) / 86400000);
+  const daysAway = (d) => (!d) ? 999 : Math.round((new Date(d) - new Date(today)) / 86400000);
+  const weekAgo  = (() => { const d = new Date(today); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10); })();
+
+  const sessions  = data.sessions  || [];
+  const offers    = data.offers    || [];
+  const partners  = data.partners  || [];
+  const clients   = data.clients   || [];
+  const followups = data.followups || [];
+
+  // 1 — Expired offers still open
+  offers.filter(o => OPEN_STATUSES.includes(o.status) && o.expireDate && o.expireDate < today)
+    .forEach(o => {
+      const c = clients.find(x => x.id === o.clientId);
+      alerts.push({ id: "exp_" + o.id, severity: "critical", category: "revenue",
+        title: `Offer expired — ${cleanName(c?.name || o.name)}`,
+        detail: `${o.offerType} · ${money(o.price)} · expired ${fmtDate(o.expireDate)}`,
+        db: "offers", record: o });
+    });
+
+  // 2 — No follow-up sent 24h+ after completed session
+  sessions.filter(s => s.status === "Completed" && !s.followUpSent && daysAgo(s.date) >= 1)
+    .forEach(s => {
+      const d = daysAgo(s.date);
+      alerts.push({ id: "nfu_" + s.id, severity: d >= 3 ? "critical" : "warning", category: "revenue",
+        title: `No follow-up sent — ${s.name} (${d} day${d !== 1 ? "s" : ""} ago)`,
+        detail: `Follow-up window closing · completed ${fmtDate(s.date)}`,
+        db: "sessions", record: s });
+    });
+
+  // 3 — Session < 72 h away with < 50% registration
+  sessions.filter(s => {
+    const away = daysAway(s.date);
+    const cap  = Number(s.capacity) || 0;
+    const reg  = Number(s.registered) || 0;
+    return away >= 0 && away <= 3 && cap > 0 && reg / cap < 0.5;
+  }).forEach(s => {
+    const away = daysAway(s.date);
+    const pct  = Math.round((Number(s.registered) / Number(s.capacity)) * 100);
+    alerts.push({ id: "reg_" + s.id, severity: pct < 25 ? "critical" : "warning", category: "operational",
+      title: `Low registration — ${s.name} (${pct}% full, ${away === 0 ? "today" : `${away}d away`})`,
+      detail: `${s.registered}/${s.capacity} registered · promote now`,
+      db: "sessions", record: s });
+  });
+
+  // 4 — Waivers missing on completed sessions
+  sessions.filter(s =>
+    ["Completed","Follow-up pending","Closed out"].includes(s.status) &&
+    Number(s.attendance) > 0 && Number(s.waivers) < Number(s.attendance)
+  ).forEach(s => {
+    const missing = Number(s.attendance) - Number(s.waivers);
+    alerts.push({ id: "waiv_" + s.id, severity: "warning", category: "operational",
+      title: `${missing} waiver${missing !== 1 ? "s" : ""} missing — ${s.name}`,
+      detail: `${s.waivers}/${s.attendance} collected · ${fmtDate(s.date)}`,
+      db: "sessions", record: s });
+  });
+
+  // 5 — Payment not confirmed on completed sessions with revenue
+  sessions.filter(s =>
+    ["Completed","Closed out","Follow-up pending"].includes(s.status) &&
+    !s.paymentConfirmed && Number(s.netRevenue) > 0
+  ).forEach(s => {
+    alerts.push({ id: "pay_" + s.id, severity: "critical", category: "revenue",
+      title: `Payment not confirmed — ${s.name}`,
+      detail: `${money(s.netRevenue)} net · ${fmtDate(s.date)}`,
+      db: "sessions", record: s });
+  });
+
+  // 6 — Offer open > 7 days, no follow-up date set
+  offers.filter(o => OPEN_STATUSES.includes(o.status) && daysAgo(o.dateOffered) > 7 && !o.followUpDate)
+    .forEach(o => {
+      const c = clients.find(x => x.id === o.clientId);
+      const d = daysAgo(o.dateOffered);
+      alerts.push({ id: "stale_o_" + o.id, severity: "warning", category: "revenue",
+        title: `Offer stale ${d} days — ${cleanName(c?.name || o.name)}`,
+        detail: `${o.offerType} · ${money(o.price)} · no follow-up scheduled`,
+        db: "offers", record: o });
+    });
+
+  // 7 — Studio demo done, no proposal > 7 days
+  partners.filter(p => p.stage === "Demo completed" && daysAgo(p.lastTouch) > 7)
+    .forEach(p => {
+      const d = daysAgo(p.lastTouch);
+      alerts.push({ id: "demo_" + p.id, severity: "warning", category: "revenue",
+        title: `Demo done, no proposal — ${cleanName(p.name)}`,
+        detail: `${d} days since last touch · ${p.stage}`,
+        db: "partners", record: p });
+    });
+
+  // 8 — Room/music setup not started for session < 7 days away
+  sessions.filter(s => {
+    const away = daysAway(s.date);
+    return away >= 0 && away <= 7 && (s.roomSetupStatus === "Not started" || s.musicSetupStatus === "Not started");
+  }).forEach(s => {
+    const away = daysAway(s.date);
+    const items = [s.roomSetupStatus === "Not started" && "room", s.musicSetupStatus === "Not started" && "music"].filter(Boolean);
+    alerts.push({ id: "setup_" + s.id, severity: away <= 2 ? "critical" : "warning", category: "operational",
+      title: `Setup not started — ${s.name} (${away === 0 ? "today" : `${away}d away`})`,
+      detail: `Pending: ${items.join(", ")} setup`,
+      db: "sessions", record: s });
+  });
+
+  // 9 — Active partner pipeline with no activity > 14 days
+  const inactiveCutoff = ["Lost / not a fit", "Recurring partner", "Target identified", "Researched"];
+  partners.filter(p => !inactiveCutoff.includes(p.stage) && daysAgo(p.lastTouch) > 14)
+    .forEach(p => {
+      const d = daysAgo(p.lastTouch);
+      alerts.push({ id: "stale_p_" + p.id, severity: "warning", category: "relationship",
+        title: `${cleanName(p.name)} — no activity for ${d} days`,
+        detail: `Stage: ${p.stage} · last touch: ${fmtDate(p.lastTouch)}`,
+        db: "partners", record: p });
+    });
+
+  // 10 — No outreach logged this week
+  const hasOutreach = followups.some(f => f.lastContact >= weekAgo) ||
+                      partners.some(p => p.lastTouch >= weekAgo);
+  if (!hasOutreach) {
+    alerts.push({ id: "no_reach", severity: "info", category: "relationship",
+      title: "No outreach activity this week",
+      detail: "No follow-up or partner contact logged in the last 7 days",
+      db: null, record: null });
+  }
+
+  // 11 — Referral thank-you overdue > 3 days
+  (data.referrals || []).filter(r => !r.thankYouSent && r.referrerId && daysAgo(r.date) > 3)
+    .forEach(r => {
+      const referrer = clients.find(c => c.id === r.referrerId);
+      alerts.push({ id: "rty_" + r.id, severity: "info", category: "relationship",
+        title: `Thank-you overdue — ${cleanName(referrer?.name || "referrer")} sent a referral`,
+        detail: `Referred ${cleanName(r.referredName)} · ${daysAgo(r.date)} days ago`,
+        db: "referrals", record: r });
+    });
+
+  const order = { critical: 0, warning: 1, info: 2 };
+  return alerts.sort((a, b) => order[a.severity] - order[b.severity]);
+}
+
+function AlertsPanel({ data, today, onOpen }) {
+  const [dismissed, setDismissed] = useState(new Set());
+  const [expanded, setExpanded] = useState(false);
+
+  const all     = buildAlerts(data, today).filter(a => !dismissed.has(a.id));
+  const critical = all.filter(a => a.severity === "critical").length;
+  const warning  = all.filter(a => a.severity === "warning").length;
+  const SHOW_MAX = 5;
+  const shown    = expanded ? all : all.slice(0, SHOW_MAX);
+
+  if (all.length === 0) return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px",
+      background: "#F0FAF5", border: "1px solid #A8D8BE", borderRadius: 12, color: "#1E5239" }}>
+      <Check size={16} color="#4A8C6F" strokeWidth={2.5} />
+      <span style={{ fontWeight: 600, fontSize: 13.5 }}>All clear — no active alerts</span>
+    </div>
+  );
+
+  const headerBg    = critical > 0 ? ALERT_SEVERITY.critical.bg     : ALERT_SEVERITY.warning.bg;
+  const headerBorder= critical > 0 ? ALERT_SEVERITY.critical.border  : ALERT_SEVERITY.warning.border;
+  const headerColor = critical > 0 ? ALERT_SEVERITY.critical.color   : ALERT_SEVERITY.warning.color;
+
+  return (
+    <div style={{ border: `1px solid ${headerBorder}`, borderRadius: 12, overflow: "hidden" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px",
+        background: headerBg, borderBottom: `1px solid ${headerBorder}`, flexWrap: "wrap" }}>
+        <BellRing size={15} color={headerColor} strokeWidth={2.5} />
+        <span style={{ fontWeight: 700, fontSize: 14, color: headerColor, flex: 1 }}>
+          {critical > 0 ? `${critical} critical alert${critical !== 1 ? "s" : ""}` : "Alerts"}{warning > 0 ? ` · ${warning} warning${warning !== 1 ? "s" : ""}` : ""}
+        </span>
+        {all.length > 1 && (
+          <span style={{ fontSize: 12, color: headerColor, opacity: 0.7, fontWeight: 500 }}>
+            {all.length} total
+          </span>
+        )}
+      </div>
+
+      {/* Alert rows */}
+      <div style={{ background: "#fff" }}>
+        {shown.map((a, i) => {
+          const sv = ALERT_SEVERITY[a.severity];
+          const SvIcon = a.severity === "info" ? Info : AlertCircle;
+          return (
+            <div key={a.id} style={{
+              display: "flex", alignItems: "flex-start", gap: 11, padding: "11px 14px",
+              borderBottom: i < shown.length - 1 ? `1px solid ${C.lineSoft || C.line}` : "none",
+              borderLeft: `3px solid ${sv.color}`,
+            }}>
+              <SvIcon size={14} color={sv.color} strokeWidth={2.5} style={{ marginTop: 2, flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, lineHeight: 1.35 }}>{a.title}</div>
+                <div style={{ fontSize: 11.5, color: C.ink3, marginTop: 2 }}>{a.detail}</div>
+              </div>
+              <div style={{ display: "flex", gap: 5, flexShrink: 0, marginTop: 1 }}>
+                {a.record && (
+                  <button onClick={() => onOpen({ db: a.db, record: a.record })} style={{
+                    fontSize: 11.5, fontWeight: 600, padding: "3px 10px", borderRadius: 6, cursor: "pointer",
+                    background: sv.bg, color: sv.color, border: `1px solid ${sv.border}`,
+                  }}>View</button>
+                )}
+                <button onClick={() => setDismissed(prev => new Set([...prev, a.id]))} style={{
+                  fontSize: 11.5, padding: "3px 8px", borderRadius: 6, cursor: "pointer",
+                  background: "transparent", color: C.ink3, border: `1px solid ${C.line}`,
+                }} title="Dismiss">×</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Expand / collapse */}
+      {all.length > SHOW_MAX && (
+        <button onClick={() => setExpanded(e => !e)} style={{
+          width: "100%", padding: "9px 14px", background: headerBg, border: "none",
+          borderTop: `1px solid ${headerBorder}`, cursor: "pointer",
+          fontSize: 12.5, fontWeight: 600, color: headerColor, textAlign: "center",
+        }}>
+          {expanded ? "Show fewer ↑" : `Show ${all.length - SHOW_MAX} more alerts ↓`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ── PIPELINE SNAPSHOT ── */
 function PipelineSnapshot({ data, today }) {
   const offers        = data.offers   || [];
@@ -848,7 +1079,7 @@ function PipelineSnapshot({ data, today }) {
 
   // Expected this month: upcoming sessions (not completed) + weighted open offers
   const preSessions     = sessions.filter(s =>
-    sameMonth(s.date, today) && ["Planned","Booking open","Promotion active","Almost full"].includes(s.sessionStatus));
+    sameMonth(s.date, today) && ["Planned","Booking open","Promotion active","Almost full"].includes(s.status));
   const bookedVal       = preSessions.reduce((a, s) => a + (Number(s.grossRevenue) || 0), 0);
   const expected30d     = bookedVal + openPipelineWt;
 
@@ -858,7 +1089,7 @@ function PipelineSnapshot({ data, today }) {
 
   // Delivered but unpaid — completed sessions without paymentConfirmed
   const unpaidSessions  = sessions.filter(s =>
-    ["Completed","Follow-up pending","Closed out"].includes(s.sessionStatus) && !s.paymentConfirmed);
+    ["Completed","Follow-up pending","Closed out"].includes(s.status) && !s.paymentConfirmed);
   const unpaidVal       = unpaidSessions.reduce((a, s) => a + (Number(s.netRevenue) || 0), 0);
 
   // Offers awaiting response (Sent / Viewed)
@@ -1018,6 +1249,9 @@ function Today({ data, derived, today, onOpen, onGo }) {
 
       {/* Pipeline snapshot */}
       <PipelineSnapshot data={data} today={today} />
+
+      {/* Alerts */}
+      <AlertsPanel data={data} today={today} onOpen={onOpen} />
 
       {/* ── NEXT BEST ACTIONS ── */}
       <div>
