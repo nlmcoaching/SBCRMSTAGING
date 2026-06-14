@@ -99,6 +99,43 @@ const OFFER_STATUS_COLOR = { Offered: "#5FB0F2", Accepted: "#2F6FD0", Declined: 
 const CONTENT_TYPE = ["Transformation", "Education", "Invite", "Testimonial"];
 const PLATFORM = ["IG", "TikTok", "Email"];
 
+const SESSION_STATUS = ["Planned", "Booking open", "Promotion active", "Almost full", "Completed", "Follow-up pending", "Closed out"];
+const SESSION_STATUS_COLOR = {
+  "Planned":           "#9FB2CC",
+  "Booking open":      "#6FA8E8",
+  "Promotion active":  "#D9892B",
+  "Almost full":       "#4A8C6F",
+  "Completed":         C.brand,
+  "Follow-up pending": "#C0573F",
+  "Closed out":        C.brandDeep,
+};
+const JOURNEY_TYPES = ["Reset & Release", "Letting Go & Rebirth", "Nervous System Reset", "Breathwork Basics", "Deep Surrender", "Heart Opening", "Energy Activation", "Grief & Healing", "New Moon Ceremony", "Custom"];
+const SETUP_STATUS = ["Not started", "In progress", "Ready"];
+
+const SESSION_CHECKLIST = [
+  // Pre-session
+  { id: "room_booked",        label: "Room booking confirmed with studio",    phase: "Pre-Session" },
+  { id: "capacity_set",       label: "Capacity communicated to studio",       phase: "Pre-Session" },
+  { id: "booking_live",       label: "Booking page / sign-up link live",      phase: "Pre-Session" },
+  { id: "promo_sent",         label: "Promotional push sent to studio list",  phase: "Pre-Session" },
+  { id: "equipment_packed",   label: "Equipment packed (headset, music, props)", phase: "Pre-Session" },
+  { id: "room_setup_done",    label: "Room setup confirmed",                  phase: "Pre-Session" },
+  { id: "audio_tested",       label: "Music & headset tested",                phase: "Pre-Session" },
+  { id: "waivers_shared",     label: "Waiver link sent to registered attendees", phase: "Pre-Session" },
+  // Post-session
+  { id: "attendance_logged",  label: "Attendance count logged",               phase: "Post-Session" },
+  { id: "revenue_recorded",   label: "Revenue recorded & split calculated",   phase: "Post-Session" },
+  { id: "studio_paid",        label: "Studio split paid or invoiced",         phase: "Post-Session" },
+  { id: "testimonials_done",  label: "Testimonials captured from attendees",  phase: "Post-Session" },
+  { id: "followup_sent",      label: "24h follow-up email sent to attendees", phase: "Post-Session" },
+  { id: "rebook_offered",     label: "Rebook offer made to attendees",        phase: "Post-Session" },
+  { id: "referrals_asked",    label: "Referrals requested from advocates",    phase: "Post-Session" },
+  { id: "notes_written",      label: "Session notes & learnings written",     phase: "Post-Session" },
+];
+const SESSION_CHECKLIST_PHASES = ["Pre-Session", "Post-Session"];
+const SESSION_PHASE_COLOR = { "Pre-Session": C.brand, "Post-Session": "#4A8C6F" };
+const emptySessionChecklist = () => Object.fromEntries(SESSION_CHECKLIST.map((i) => [i.id, false]));
+
 /* ---------- Seed data (from the six source files, relations wired) ---------- */
 const SEED = {
   partners: [
@@ -117,10 +154,10 @@ const SEED = {
     { id: "c6", name: "Sample - Dana Wolfe", phone: "555-0106", email: "dana@example.com", source: "Referral", status: "Advocate", firstSession: "2026-03-15", sessionsAttended: 12, lastSession: "2026-06-10", nextSession: "2026-06-17", packageType: "5-pack", lifetimeValue: 610, notes: "Has referred 3 friends; natural community builder", referral: "High" },
   ],
   sessions: [
-    { id: "se1", name: "Sample - YogaSix Thursday Reset 6/4", studioId: "sp1", date: "2026-06-04", attendance: 13, revenue: 455, netRevenue: 318.5, conversion: 0.31, packagesSold: 2, referralsGenerated: 1, notes: "Sound bath close landed well; 2 three-packs sold at door" },
-    { id: "se2", name: "Sample - YogaSix Thursday Reset 6/11", studioId: "sp1", date: "2026-06-11", attendance: 16, revenue: 560, netRevenue: 392, conversion: 0.38, packagesSold: 3, referralsGenerated: 2, notes: "Best turnout yet; Priya brought a friend" },
-    { id: "se3", name: "Sample - Lotus & Pine Sunday Slow Down 6/7", studioId: "sp5", date: "2026-06-07", attendance: 19, revenue: 665, netRevenue: 399, conversion: 0.26, packagesSold: 2, referralsGenerated: 0, notes: "Room near capacity; pitch membership earlier next time" },
-    { id: "se4", name: "Sample - Lotus & Pine New Moon Workshop 6/9", studioId: "sp5", date: "2026-06-09", attendance: 22, revenue: 1100, netRevenue: 660, conversion: 0.18, packagesSold: 1, referralsGenerated: 3, notes: "Workshop format converts slower but generates referrals" },
+    { id: "se1", name: "Sample - YogaSix Thursday Reset 6/4", studioId: "sp1", date: "2026-06-04", time: "7:00 PM", status: "Closed out", journey: "Reset & Release", capacity: 18, registered: 15, attendance: 13, paidAttendees: 13, waivers: 12, noShows: 2, revenue: 455, studioSplit: 136.5, netRevenue: 318.5, conversion: 0.31, packagesSold: 2, referralsGenerated: 1, equipmentNeeded: "Headset, portable speaker, lavender oil", roomSetupStatus: "Ready", musicSetupStatus: "Ready", testimonialsCapt: 1, followUpSent: true, rebookOfferSent: true, referralsRequested: true, notes: "Sound bath close landed well; 2 three-packs sold at door", checklist: { room_booked: true, capacity_set: true, booking_live: true, promo_sent: true, equipment_packed: true, room_setup_done: true, audio_tested: true, waivers_shared: true, attendance_logged: true, revenue_recorded: true, studio_paid: true, testimonials_done: true, followup_sent: true, rebook_offered: true, referrals_asked: true, notes_written: true } },
+    { id: "se2", name: "Sample - YogaSix Thursday Reset 6/11", studioId: "sp1", date: "2026-06-11", time: "7:00 PM", status: "Follow-up pending", journey: "Reset & Release", capacity: 18, registered: 18, attendance: 16, paidAttendees: 16, waivers: 15, noShows: 2, revenue: 560, studioSplit: 168, netRevenue: 392, conversion: 0.38, packagesSold: 3, referralsGenerated: 2, equipmentNeeded: "Headset, portable speaker, eye masks", roomSetupStatus: "Ready", musicSetupStatus: "Ready", testimonialsCapt: 2, followUpSent: false, rebookOfferSent: false, referralsRequested: false, notes: "Best turnout yet; Priya brought a friend. Room hit capacity — talk to Alyssa about expanding.", checklist: { room_booked: true, capacity_set: true, booking_live: true, promo_sent: true, equipment_packed: true, room_setup_done: true, audio_tested: true, waivers_shared: true, attendance_logged: true, revenue_recorded: true, studio_paid: false, testimonials_done: true, followup_sent: false, rebook_offered: false, referrals_asked: false, notes_written: false } },
+    { id: "se3", name: "Sample - Lotus & Pine Sunday Slow Down 6/7", studioId: "sp5", date: "2026-06-07", time: "5:00 PM", status: "Closed out", journey: "Deep Surrender", capacity: 24, registered: 21, attendance: 19, paidAttendees: 19, waivers: 18, noShows: 2, revenue: 665, studioSplit: 266, netRevenue: 399, conversion: 0.26, packagesSold: 2, referralsGenerated: 0, equipmentNeeded: "Headset, speaker, singing bowl, blankets", roomSetupStatus: "Ready", musicSetupStatus: "Ready", testimonialsCapt: 0, followUpSent: true, rebookOfferSent: true, referralsRequested: false, notes: "Room near capacity; pitch membership earlier next time. No testimonials captured — add request at end.", checklist: { room_booked: true, capacity_set: true, booking_live: true, promo_sent: true, equipment_packed: true, room_setup_done: true, audio_tested: true, waivers_shared: true, attendance_logged: true, revenue_recorded: true, studio_paid: true, testimonials_done: false, followup_sent: true, rebook_offered: true, referrals_asked: false, notes_written: true } },
+    { id: "se4", name: "Sample - Lotus & Pine New Moon Workshop 6/9", studioId: "sp5", date: "2026-06-09", time: "7:30 PM", status: "Closed out", journey: "New Moon Ceremony", capacity: 30, registered: 25, attendance: 22, paidAttendees: 20, waivers: 20, noShows: 3, revenue: 1100, studioSplit: 440, netRevenue: 660, conversion: 0.18, packagesSold: 1, referralsGenerated: 3, equipmentNeeded: "Headset, speaker, candles, intention cards, journal prompts", roomSetupStatus: "Ready", musicSetupStatus: "Ready", testimonialsCapt: 3, followUpSent: true, rebookOfferSent: true, referralsRequested: true, notes: "Workshop format converts slower but generates referrals. 2 unpaid attendees — tighten payment flow.", checklist: { room_booked: true, capacity_set: true, booking_live: true, promo_sent: true, equipment_packed: true, room_setup_done: true, audio_tested: true, waivers_shared: true, attendance_logged: true, revenue_recorded: true, studio_paid: true, testimonials_done: true, followup_sent: true, rebook_offered: true, referrals_asked: true, notes_written: true } },
   ],
   offers: [
     { id: "o1", name: "Sample - Chris Okafor / 3-pack", clientId: "c3", offerType: "3-pack", price: 105, status: "Offered", dateOffered: "2026-06-01", closeDate: "" },
@@ -328,7 +365,7 @@ function newRecord(db) {
   const m = {
     clients: { name: "", phone: "", email: "", source: "Studio", status: "Lead", firstSession: "", sessionsAttended: 0, lastSession: "", nextSession: "", packageType: "None", lifetimeValue: 0, notes: "", referral: "Low" },
     partners: { name: "", studioType: "Yoga", location: "", contact: "", role: "Owner", email: "", phone: "", stage: "Target identified", estimatedCommunitySize: 0, bestFitJourney: "", revenuePotential: 0, closeProbability: "Low", revShare: "", contractStatus: "None", outreachDate: "", lastTouch: todayISO(), nextAction: "", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "", checklist: emptyChecklist() },
-    sessions: { name: "", studioId: "", date: todayISO(), attendance: 0, revenue: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, notes: "" },
+    sessions: { name: "", studioId: "", date: todayISO(), time: "", status: "Planned", journey: "Breathwork Basics", capacity: 20, registered: 0, attendance: 0, paidAttendees: 0, waivers: 0, noShows: 0, revenue: 0, studioSplit: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, equipmentNeeded: "", roomSetupStatus: "Not started", musicSetupStatus: "Not started", testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false, referralsRequested: false, notes: "", checklist: emptySessionChecklist() },
     offers: { name: "", clientId: "", offerType: "Drop-in", price: 0, status: "Offered", dateOffered: todayISO(), closeDate: "" },
     content: { name: "", type: "Education", platform: "IG", datePosted: todayISO(), engagement: 0, leads: 0, booked: 0 },
     followups: { name: "", clientId: "", stage: "Lead", lastContact: todayISO(), futype: "24h", nextAction: "", outcome: "" },
@@ -707,6 +744,8 @@ function Section({ section, data, derived, today, view, setView, query, onOpen }
         ? <BoardView groups={processed.groups} onOpen={(r) => onOpen({ db: section, record: r })} cardKeys={v.card} ctx={{ data, derived, today }} section={section} />
         : v.layout === "partner-pipeline"
         ? <PartnerPipelineView groups={processed.groups} onOpen={(r) => onOpen({ db: section, record: r })} />
+        : v.layout === "session-perf"
+        ? <SessionPerfView rows={processed.rows} derived={derived} onOpen={(r) => onOpen({ db: section, record: r })} />
         : v.layout === "calendar"
         ? <CalendarView rows={processed.rows} today={today} derived={derived} onOpen={(r) => onOpen({ db: section, record: r })} />
         : <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => onOpen({ db: section, record: r })} ctx={{ data, derived, today }} />}
@@ -792,12 +831,16 @@ const VIEWS = {
   sessions: {
     views: [
       { name: "Calendar", layout: "calendar", run: (rows) => ({ rows }) },
+      { name: "Performance", layout: "session-perf", run: (rows) => ({ rows: [...rows].sort((a, b) => b.date.localeCompare(a.date)) }) },
       { name: "Revenue leaderboard", layout: "table",
         columns: [
           col("name", "Session", (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
           col("studioId", "Studio", (r, c) => clientShort(c.derived.partnerName[r.studioId] || "—")),
           col("date", "Date", (r) => fmtDate(r.date)),
-          col("revenue", "Revenue", (r) => money(r.revenue), { align: "right" }),
+          col("status", "Status", (r) => <Tag color={SESSION_STATUS_COLOR[r.status]} soft>{r.status}</Tag>),
+          col("attendance", "In room", (r) => `${r.attendance || 0}/${r.capacity || "?"}`, { align: "right" }),
+          col("revenue", "Gross", (r) => money(r.revenue), { align: "right" }),
+          col("studioSplit", "Studio cut", (r) => money(r.studioSplit), { align: "right" }),
           col("netRevenue", "Your net", (r) => <strong>{money(r.netRevenue)}</strong>, { align: "right", sum: "netRevenue" }),
         ],
         run: (rows) => {
@@ -808,7 +851,10 @@ const VIEWS = {
         columns: [
           col("name", "Session", (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
           col("attendance", "In room", (r) => r.attendance, { align: "right" }),
+          col("paidAttendees", "Paid", (r) => r.paidAttendees || "—", { align: "right" }),
+          col("waivers", "Waivers", (r) => r.waivers || "—", { align: "right" }),
           col("packagesSold", "Packages", (r) => r.packagesSold, { align: "right" }),
+          col("testimonialsCapt", "Testimonials", (r) => r.testimonialsCapt || 0, { align: "right" }),
           col("referralsGenerated", "Referrals", (r) => r.referralsGenerated, { align: "right" }),
           col("conversion", "Conversion", (r) => <Tag color={r.conversion >= 0.3 ? "#2F6FD0" : r.conversion >= 0.2 ? "#3F87DC" : "#9FB2CC"} soft>{pct(r.conversion)}</Tag>, { align: "right" }),
         ],
@@ -1171,10 +1217,21 @@ const FIELDS = {
   ],
   sessions: [
     f("name", "Session name", "text", { title: true }), f("studioId", "Studio", "relation", { target: "partners" }),
-    f("date", "Date", "date"), f("attendance", "Attendance count", "number"),
-    f("revenue", "Revenue", "currency"), f("netRevenue", "Your net revenue", "currency"),
-    f("conversion", "Conversion rate", "percent"), f("packagesSold", "Packages sold", "number"),
-    f("referralsGenerated", "Referrals generated", "number"), f("notes", "Notes", "textarea"),
+    f("status", "Status", "select", { options: SESSION_STATUS }),
+    f("journey", "Journey used", "select", { options: JOURNEY_TYPES }),
+    f("date", "Date", "date"), f("time", "Time", "text"),
+    f("capacity", "Room capacity", "number"), f("registered", "Registered attendees", "number"),
+    f("attendance", "Actual attendance", "number"), f("paidAttendees", "Paid attendees", "number"),
+    f("waivers", "Waivers completed", "number"), f("noShows", "No-shows", "number"),
+    f("revenue", "Gross revenue", "currency"), f("studioSplit", "Studio split (paid out)", "currency"),
+    f("netRevenue", "Your net revenue", "currency"),
+    f("conversion", "Package conversion rate", "percent"), f("packagesSold", "Packages sold", "number"),
+    f("referralsGenerated", "Referrals generated", "number"),
+    f("testimonialsCapt", "Testimonials captured", "number"),
+    f("roomSetupStatus", "Room setup status", "select", { options: SETUP_STATUS }),
+    f("musicSetupStatus", "Music/headset status", "select", { options: SETUP_STATUS }),
+    f("equipmentNeeded", "Equipment needed", "textarea"),
+    f("notes", "Session notes", "textarea"),
   ],
   offers: [
     f("name", "Offer", "text", { title: true }), f("clientId", "Client", "relation", { target: "clients" }),
@@ -1204,6 +1261,7 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
   const isNew = !data[db].some((r) => r.id === record.id);
   const hasTimeline = (db === "clients" || db === "partners") && !isNew;
   const hasChecklist = db === "partners" && !isNew;
+  const hasSessionTabs = db === "sessions" && !isNew;
 
   // related records (used in details tab)
   const related = [];
@@ -1233,15 +1291,21 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
         <div style={{ padding: "14px 20px 0", borderBottom: `1px solid ${C.line}` }}>
           <input className="sb-titleinput" style={{ marginBottom: 10 }} value={draft[titleField.key] || ""} placeholder="Untitled"
             onChange={(e) => set(titleField.key, e.target.value)} />
-          {hasTimeline && (
+          {(hasTimeline || hasSessionTabs) && (
             <div style={{ display: "flex", gap: 2 }}>
-              {[
+              {(hasSessionTabs ? [
+                ["details", "Details & Edit"],
+                ["checklist", "Run Checklist"],
+                ["performance", "Performance"],
+              ] : [
                 ["details", "Details & Edit"],
                 ...(hasChecklist ? [["checklist", "Launch Checklist"]] : []),
                 ["timeline", "Contact Timeline"],
-              ].map(([t, label]) => {
-                const done = t === "checklist" ? Object.values(draft.checklist || {}).filter(Boolean).length : null;
-                const total = t === "checklist" ? PARTNER_CHECKLIST.length : null;
+              ]).map(([t, label]) => {
+                const done = (t === "checklist" && db === "partners") ? Object.values(draft.checklist || {}).filter(Boolean).length
+                           : (t === "checklist" && db === "sessions") ? Object.values(draft.checklist || {}).filter(Boolean).length : null;
+                const total = (t === "checklist" && db === "partners") ? PARTNER_CHECKLIST.length
+                            : (t === "checklist" && db === "sessions") ? SESSION_CHECKLIST.length : null;
                 return (
                   <button key={t} onClick={() => setTab(t)} style={{
                     padding: "7px 14px", border: "none", borderRadius: "8px 8px 0 0", fontSize: 13, fontWeight: 600,
@@ -1266,8 +1330,12 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
         <div className="sb-drawerbody" style={{ paddingTop: 16 }}>
           {hasTimeline && tab === "timeline"
             ? <ContactTimeline db={db} record={draft} data={data} derived={derived} today={today} onOpenRelated={onOpenRelated} />
-            : hasChecklist && tab === "checklist"
-            ? <PartnerLaunchChecklist checklist={draft.checklist || emptyChecklist()} onChange={(cl) => set("checklist", cl)} partnerName={cleanName(draft.name)} />
+            : (hasChecklist || hasSessionTabs) && tab === "checklist"
+            ? db === "sessions"
+              ? <SessionChecklist checklist={draft.checklist || emptySessionChecklist()} onChange={(cl) => set("checklist", cl)} sessionName={cleanName(draft.name)} status={draft.status} />
+              : <PartnerLaunchChecklist checklist={draft.checklist || emptyChecklist()} onChange={(cl) => set("checklist", cl)} partnerName={cleanName(draft.name)} />
+            : hasSessionTabs && tab === "performance"
+            ? <SessionPerformance record={draft} derived={derived} data={data} />
             : (
               <>
                 <div className="sb-fields">
@@ -1308,6 +1376,323 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
   );
 }
 
+/* ============================================================
+   SESSION PERFORMANCE VIEW (list)
+   ============================================================ */
+function SessionPerfView({ rows, derived, onOpen }) {
+  if (!rows.length) return <Empty pad>No sessions logged yet.</Empty>;
+
+  const allNet = rows.map((r) => Number(r.netRevenue) || 0);
+  const avgNet = allNet.reduce((a, b) => a + b, 0) / allNet.length;
+  const allConv = rows.filter((r) => r.conversion > 0).map((r) => Number(r.conversion));
+  const avgConv = allConv.length ? allConv.reduce((a, b) => a + b, 0) / allConv.length : 0;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {/* Benchmark row */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 4 }}>
+        {[
+          { label: "Sessions", val: rows.length },
+          { label: "Total net", val: money(allNet.reduce((a, b) => a + b, 0)) },
+          { label: "Avg net/session", val: money(Math.round(avgNet)) },
+          { label: "Avg conversion", val: pct(avgConv) },
+        ].map(({ label, val }) => (
+          <div key={label} className="sb-card" style={{ padding: "12px 14px" }}>
+            <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".07em", color: C.ink3, fontWeight: 700 }}>{label}</div>
+            <div style={{ fontFamily: FONT.display, fontSize: 22, fontWeight: 600, marginTop: 4 }}>{val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Per-session cards */}
+      {rows.map((r) => {
+        const net = Number(r.netRevenue) || 0;
+        const capUtil = r.capacity ? Math.round(((r.attendance || 0) / r.capacity) * 100) : null;
+        const revPerHead = r.attendance ? Math.round(net / r.attendance) : 0;
+        const above = net >= avgNet;
+        const convColor = r.conversion >= 0.3 ? "#4A8C6F" : r.conversion >= 0.2 ? C.brand : r.conversion > 0 ? C.gold : C.ink3;
+        const studio = clientShort(derived.partnerName[r.studioId] || "");
+
+        // "Why" analysis
+        const insights = [];
+        if (r.paidAttendees && r.attendance && r.paidAttendees < r.attendance) insights.push(`${r.attendance - r.paidAttendees} unpaid attendee${r.attendance - r.paidAttendees > 1 ? "s" : ""} — tighten payment flow`);
+        if (capUtil !== null && capUtil < 60) insights.push(`Room only ${capUtil}% full — boost pre-session promotion`);
+        if (capUtil !== null && capUtil >= 95) insights.push(`Near/at capacity — explore larger room or add date`);
+        if (!r.testimonialsCapt || r.testimonialsCapt === 0) insights.push("No testimonials captured — add ask at close");
+        if (!r.followUpSent) insights.push("24h follow-up not sent yet");
+        if (!r.rebookOfferSent) insights.push("Rebook offer not sent");
+        if (r.referralsGenerated === 0) insights.push("No referrals generated — make the ask next time");
+        if (r.noShows > 2) insights.push(`${r.noShows} no-shows — consider confirmation texts`);
+
+        return (
+          <div key={r.id} className="sb-card" style={{ borderLeft: `4px solid ${above ? "#4A8C6F" : net === 0 ? "#C0573F" : C.gold}`, cursor: "pointer" }}
+            onClick={() => onOpen(r)}>
+            <div style={{ padding: "14px 16px 12px" }}>
+              {/* Header */}
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 10 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{cleanName(r.name)}</div>
+                  <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>{studio} · {fmtDate(r.date)}{r.time ? ` · ${r.time}` : ""} · {r.journey || ""}</div>
+                </div>
+                <Tag color={SESSION_STATUS_COLOR[r.status] || C.ink3} soft>{r.status || "—"}</Tag>
+              </div>
+
+              {/* Metrics row */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 8, marginBottom: insights.length ? 12 : 0 }}>
+                {[
+                  { label: "In room", val: `${r.attendance || 0}${r.capacity ? `/${r.capacity}` : ""}`, accent: capUtil !== null && capUtil < 60 ? C.gold : null },
+                  { label: "Paid", val: r.paidAttendees || r.attendance || 0 },
+                  { label: "Net rev", val: money(net), accent: above ? "#4A8C6F" : net === 0 ? "#C0573F" : null },
+                  { label: "Rev/head", val: money(revPerHead) },
+                  { label: "Conversion", val: pct(r.conversion), accent: convColor },
+                  { label: "Pkgs sold", val: r.packagesSold || 0 },
+                ].map(({ label, val, accent }) => (
+                  <div key={label} style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 700 }}>{label}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: accent || C.ink, marginTop: 2 }}>{val}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Insights */}
+              {insights.length > 0 && (
+                <div style={{ background: hexA(C.gold, 0.08), borderRadius: 8, padding: "8px 12px", display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: C.gold, marginBottom: 2 }}>What to improve</div>
+                  {insights.map((ins, i) => (
+                    <div key={i} style={{ fontSize: 12, color: C.ink2, display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ color: C.gold }}>›</span> {ins}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {insights.length === 0 && r.status === "Closed out" && (
+                <div style={{ fontSize: 12, color: "#4A8C6F", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}>
+                  <Check size={13} /> Session fully closed out — all post-session items complete.
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ============================================================
+   SESSION CHECKLIST
+   ============================================================ */
+function SessionChecklist({ checklist, onChange, sessionName, status }) {
+  const toggle = (id) => onChange({ ...checklist, [id]: !checklist[id] });
+  const done = Object.values(checklist).filter(Boolean).length;
+  const total = SESSION_CHECKLIST.length;
+  const pctDone = Math.round((done / total) * 100);
+  const isCompleted = ["Completed", "Follow-up pending", "Closed out"].includes(status);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Progress */}
+      <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: "16px 18px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{sessionName} — Run Checklist</div>
+            <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>{done} of {total} items complete</div>
+          </div>
+          <div style={{ fontFamily: FONT.display, fontSize: 28, fontWeight: 700, color: pctDone === 100 ? "#4A8C6F" : pctDone >= 50 ? C.brand : C.gold }}>
+            {pctDone}%
+          </div>
+        </div>
+        <div style={{ height: 8, background: C.line, borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ height: "100%", borderRadius: 8, transition: "width .3s", width: pctDone + "%",
+            background: pctDone === 100 ? "#4A8C6F" : pctDone >= 50 ? C.brand : C.gold }} />
+        </div>
+      </div>
+
+      {SESSION_CHECKLIST_PHASES.map((phase) => {
+        const items = SESSION_CHECKLIST.filter((i) => i.phase === phase);
+        const phaseDone = items.filter((i) => checklist[i.id]).length;
+        const color = SESSION_PHASE_COLOR[phase];
+        const isPost = phase === "Post-Session";
+        return (
+          <div key={phase} style={{ opacity: isPost && !isCompleted ? 0.55 : 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <div style={{ width: 10, height: 10, borderRadius: "50%", background: color, flexShrink: 0 }} />
+              <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color }}>{phase}</span>
+              {isPost && !isCompleted && <span style={{ fontSize: 11, color: C.ink3 }}>(available after session is Completed)</span>}
+              <span style={{ fontSize: 11, color: C.ink3, marginLeft: "auto" }}>{phaseDone}/{items.length}</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              {items.map((item) => {
+                const checked = !!checklist[item.id];
+                const disabled = isPost && !isCompleted;
+                return (
+                  <button key={item.id} onClick={() => !disabled && toggle(item.id)} disabled={disabled} style={{
+                    display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+                    background: checked ? hexA(color, 0.07) : "transparent",
+                    border: "none", borderRadius: 8, padding: "9px 10px",
+                    cursor: disabled ? "not-allowed" : "pointer", transition: "background .12s",
+                  }}>
+                    <div style={{
+                      width: 20, height: 20, borderRadius: 5, border: `2px solid ${checked ? color : C.line}`,
+                      background: checked ? color : C.surface, display: "flex", alignItems: "center",
+                      justifyContent: "center", flexShrink: 0, transition: "all .12s",
+                    }}>
+                      {checked && <Check size={12} color="#fff" strokeWidth={3} />}
+                    </div>
+                    <span style={{ fontSize: 13.5, fontWeight: checked ? 500 : 400, color: checked ? C.ink3 : C.ink, textDecoration: checked ? "line-through" : "none" }}>
+                      {item.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ============================================================
+   SESSION PERFORMANCE (drawer tab)
+   ============================================================ */
+function SessionPerformance({ record: r, derived, data }) {
+  const net = Number(r.netRevenue) || 0;
+  const gross = Number(r.revenue) || 0;
+  const split = Number(r.studioSplit) || 0;
+  const capUtil = r.capacity ? Math.round(((r.attendance || 0) / r.capacity) * 100) : null;
+  const revPerHead = r.attendance ? (net / r.attendance).toFixed(2) : 0;
+  const fillRate = r.registered ? Math.round(((r.attendance || 0) / r.registered) * 100) : null;
+  const studio = clientShort(derived.partnerName[r.studioId] || "");
+
+  // Benchmarks from all sessions
+  const allSessions = data.sessions.filter((s) => s.id !== r.id && (Number(s.netRevenue) || 0) > 0);
+  const avgNetAll = allSessions.length ? allSessions.reduce((a, s) => a + (Number(s.netRevenue) || 0), 0) / allSessions.length : null;
+  const avgConvAll = allSessions.filter((s) => s.conversion > 0).length
+    ? allSessions.filter((s) => s.conversion > 0).reduce((a, s) => a + Number(s.conversion), 0) / allSessions.filter((s) => s.conversion > 0).length
+    : null;
+
+  const metrics = [
+    { label: "Status",          val: r.status || "—", accent: SESSION_STATUS_COLOR[r.status] },
+    { label: "Journey",         val: r.journey || "—" },
+    { label: "Studio",          val: studio || "—" },
+    { label: "Date & time",     val: `${fmtDate(r.date)}${r.time ? ` · ${r.time}` : ""}` },
+    { label: "Capacity",        val: r.capacity || "—" },
+    { label: "Registered",      val: r.registered || "—" },
+    { label: "Attended",        val: `${r.attendance || 0}${capUtil !== null ? ` (${capUtil}% full)` : ""}`, accent: capUtil !== null && capUtil < 60 ? C.gold : capUtil >= 90 ? "#4A8C6F" : null },
+    { label: "Paid attendees",  val: r.paidAttendees || r.attendance || 0 },
+    { label: "Waivers",         val: r.waivers || 0 },
+    { label: "No-shows",        val: r.noShows || 0, accent: (r.noShows || 0) > 2 ? C.gold : null },
+    { label: "Gross revenue",   val: money(gross) },
+    { label: "Studio split",    val: money(split), accent: C.gold },
+    { label: "Your net",        val: money(net), accent: net > 0 ? "#4A8C6F" : "#C0573F" },
+    { label: "Rev per head",    val: money(revPerHead) },
+    { label: "Conversion rate", val: pct(r.conversion), accent: r.conversion >= 0.3 ? "#4A8C6F" : r.conversion >= 0.2 ? C.brand : C.gold },
+    { label: "Packages sold",   val: r.packagesSold || 0 },
+    { label: "Testimonials",    val: r.testimonialsCapt || 0, accent: (r.testimonialsCapt || 0) === 0 ? C.gold : null },
+    { label: "Referrals",       val: r.referralsGenerated || 0 },
+  ];
+
+  const postItems = [
+    { label: "Follow-up sent",     done: r.followUpSent },
+    { label: "Rebook offer sent",  done: r.rebookOfferSent },
+    { label: "Referrals requested",done: r.referralsRequested },
+  ];
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Metrics grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 14px", background: C.surfaceAlt, borderRadius: 12, padding: "14px 16px" }}>
+        {metrics.map(({ label, val, accent }) => (
+          <div key={label} style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".07em", color: C.ink3, fontWeight: 700 }}>{label}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: accent || C.ink }}>{val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Revenue breakdown */}
+      {gross > 0 && (
+        <div>
+          <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", color: C.ink3, fontWeight: 700, marginBottom: 10 }}>Revenue breakdown</div>
+          <div style={{ background: C.surfaceAlt, borderRadius: 10, overflow: "hidden" }}>
+            {[
+              { label: "Gross revenue", amount: gross, color: C.brand, pct: 100 },
+              { label: "Studio split (out)", amount: -split, color: C.gold, pct: gross ? Math.round((split / gross) * 100) : 0 },
+              { label: "Your net", amount: net, color: "#4A8C6F", pct: gross ? Math.round((net / gross) * 100) : 0 },
+            ].map(({ label, amount, color, pct: p }) => (
+              <div key={label} style={{ padding: "10px 14px", borderBottom: `1px solid ${C.line}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color }}>{label}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color }}>{amount < 0 ? "-" : ""}{money(Math.abs(amount))}</span>
+                </div>
+                <div style={{ height: 5, background: C.line, borderRadius: 5, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: p + "%", background: color, borderRadius: 5 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* vs. average */}
+      {avgNetAll !== null && (
+        <div style={{ background: net >= avgNetAll ? hexA("#4A8C6F", 0.08) : hexA(C.gold, 0.08), borderRadius: 10, padding: "12px 14px" }}>
+          <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", color: C.ink3, fontWeight: 700, marginBottom: 6 }}>vs. your average</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 10.5, color: C.ink3 }}>This session net</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: net >= avgNetAll ? "#4A8C6F" : C.gold }}>{money(net)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 10.5, color: C.ink3 }}>Avg net ({allSessions.length} sessions)</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: C.ink2 }}>{money(Math.round(avgNetAll))}</div>
+            </div>
+            {avgConvAll !== null && <>
+              <div>
+                <div style={{ fontSize: 10.5, color: C.ink3 }}>This session conversion</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: r.conversion >= avgConvAll ? "#4A8C6F" : C.gold }}>{pct(r.conversion)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10.5, color: C.ink3 }}>Avg conversion</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: C.ink2 }}>{pct(avgConvAll)}</div>
+              </div>
+            </>}
+          </div>
+        </div>
+      )}
+
+      {/* Post-session actions */}
+      <div>
+        <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", color: C.ink3, fontWeight: 700, marginBottom: 8 }}>Post-session actions</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {postItems.map(({ label, done }) => (
+            <div key={label} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: done ? hexA("#4A8C6F", 0.07) : hexA(C.gold, 0.07) }}>
+              <div style={{ width: 20, height: 20, borderRadius: "50%", background: done ? "#4A8C6F" : C.line, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {done && <Check size={12} color="#fff" strokeWidth={3} />}
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 500, color: done ? C.ink3 : C.ink, textDecoration: done ? "line-through" : "none" }}>{label}</span>
+              {!done && <span style={{ marginLeft: "auto", fontSize: 11, color: C.gold, fontWeight: 600 }}>Pending</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Equipment & notes */}
+      {r.equipmentNeeded && (
+        <div>
+          <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", color: C.ink3, fontWeight: 700, marginBottom: 6 }}>Equipment needed</div>
+          <div style={{ fontSize: 13, color: C.ink2, background: C.surfaceAlt, borderRadius: 8, padding: "10px 12px" }}>{r.equipmentNeeded}</div>
+        </div>
+      )}
+      {r.notes && (
+        <div>
+          <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", color: C.ink3, fontWeight: 700, marginBottom: 6 }}>Session notes</div>
+          <div style={{ fontSize: 13, color: C.ink2, background: C.surfaceAlt, borderRadius: 8, padding: "10px 12px", fontStyle: "italic", lineHeight: 1.5 }}>{r.notes}</div>
+        </div>
+      )}
+    </div>
+  );
+}
 /* ============================================================
    PARTNER LAUNCH CHECKLIST
    ============================================================ */
