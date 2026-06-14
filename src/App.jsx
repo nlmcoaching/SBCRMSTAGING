@@ -31,6 +31,44 @@ const STATUS_COLOR = {
   "Lead": "#9FB2CC", "Booked": "#6FA8E8", "Attended 1x": "#3F87DC",
   "Engaged (2-3x)": "#2F6FD0", "Member (4+)": "#234E9E", "Advocate": "#13245C",
 };
+
+/* ---------- Client segmentation ---------- */
+const CLIENT_TYPE = [
+  "First-time attendee", "Repeat attendee", "Member", "Advocate",
+  "Referral source", "Private client", "Studio attendee", "Virtual attendee",
+  "Corporate attendee", "High-value lead", "Past client — reactivate",
+];
+const CLIENT_TYPE_COLOR = {
+  "First-time attendee":       "#9FB2CC",
+  "Repeat attendee":           "#5FB0F2",
+  "Member":                    "#2F6FD0",
+  "Advocate":                  "#4A8C6F",
+  "Referral source":           "#D9892B",
+  "Private client":            C.brand,
+  "Studio attendee":           "#7B68EE",
+  "Virtual attendee":          "#6BB8A0",
+  "Corporate attendee":        "#13245C",
+  "High-value lead":           "#E1A020",
+  "Past client — reactivate":  "#C0573F",
+};
+const INTENT_TAGS = [
+  "Stress relief", "Anxiety", "Burnout", "Performance", "Grief",
+  "Letting go", "Self-confidence", "Nervous system reset",
+  "Transformation seeker", "Spiritual growth", "Corporate wellness",
+];
+const TAG_COLOR = {
+  "Stress relief":        "#3A8BCD",
+  "Anxiety":              "#5FB0F2",
+  "Burnout":              "#D9892B",
+  "Performance":          "#4A8C6F",
+  "Grief":                "#7B68EE",
+  "Letting go":           "#9B7EC8",
+  "Self-confidence":      "#E1A020",
+  "Nervous system reset": "#2F6FD0",
+  "Transformation seeker":"#C0573F",
+  "Spiritual growth":     "#8B4E9E",
+  "Corporate wellness":   "#13245C",
+};
 const STAGE = [
   "Target identified", "Researched", "Initial outreach sent", "Follow-up needed",
   "Discovery call booked", "Demo session offered", "Demo completed",
@@ -266,12 +304,12 @@ const SEED = {
     { id: "sp5", name: "Sample - Lotus & Pine", studioType: "Yoga", location: "Danville, CA", contact: "Geoff Adams", role: "Manager", email: "geoff@example.com", phone: "555-0205", stage: "Recurring partner", estimatedCommunitySize: 500, bestFitJourney: "Deep Surrender", revenuePotential: 5200, closeProbability: "Closed Won", revShare: "60/40 split (us/studio)", contractStatus: "Signed", outreachDate: "2026-01-15", lastTouch: "2026-06-10", nextAction: "2026-06-20", avgAttendance: 18, sessionsPerMonth: 8, insuranceReqs: "COI on file + annual renewal", promotionCommitments: "Co-branded social posts + monthly email feature", notes: "Two weekly slots plus monthly workshop. Best earner. Geoff wants to add a Friday morning slot.", checklist: { agreement_sent: true, agreement_signed: true, liability_waiver: true, insurance_requested: true, insurance_received: true, revenue_split: true, ticket_price: true, min_attendance: true, payment_terms: true, promotion_plan: true, qr_code: true, booking_page: true, event_assets: true, room_setup: true, followup_agreed: true } },
   ],
   clients: [
-    { id: "c1", name: "Sample - Jordan Lee", phone: "555-0101", email: "jordan@example.com", source: "Studio", status: "Lead", firstSession: "", sessionsAttended: 0, lastSession: "", nextSession: "2026-06-12", packageType: "None", lifetimeValue: 0, notes: "Found us via YogaSix flyer; anxious about first session, wants calm intro", referral: "Low" },
-    { id: "c2", name: "Sample - Maya Chen", phone: "555-0102", email: "maya@example.com", source: "IG", status: "Booked", firstSession: "", sessionsAttended: 0, lastSession: "", nextSession: "2026-06-14", packageType: "None", lifetimeValue: 0, notes: "DM'd after breathwork reel; dealing with work burnout", referral: "Medium" },
-    { id: "c3", name: "Sample - Chris Okafor", phone: "555-0103", email: "chris@example.com", source: "Referral", status: "Attended 1x", firstSession: "2026-06-01", sessionsAttended: 1, lastSession: "2026-06-01", nextSession: "2026-06-15", packageType: "Drop-in", lifetimeValue: 35, notes: "Big emotional release in first session; referred by Maya", referral: "High" },
-    { id: "c4", name: "Sample - Priya Nair", phone: "555-0104", email: "priya@example.com", source: "Ads", status: "Engaged (2-3x)", firstSession: "2026-05-10", sessionsAttended: 3, lastSession: "2026-06-07", nextSession: "2026-06-13", packageType: "3-pack", lifetimeValue: 105, notes: "Sleep issues improving; mentioned wanting partner to join", referral: "Medium" },
-    { id: "c5", name: "Sample - Sam Rivera", phone: "555-0105", email: "sam@example.com", source: "Studio", status: "Member (4+)", firstSession: "2026-04-02", sessionsAttended: 9, lastSession: "2026-06-09", nextSession: "2026-06-16", packageType: "Membership", lifetimeValue: 540, notes: "Core regular; grief processing journey, very committed", referral: "High" },
-    { id: "c6", name: "Sample - Dana Wolfe", phone: "555-0106", email: "dana@example.com", source: "Referral", status: "Advocate", firstSession: "2026-03-15", sessionsAttended: 12, lastSession: "2026-06-10", nextSession: "2026-06-17", packageType: "5-pack", lifetimeValue: 610, notes: "Has referred 3 friends; natural community builder", referral: "High" },
+    { id: "c1", name: "Sample - Jordan Lee",   phone: "555-0101", email: "jordan@example.com", source: "Studio partner",  status: "Lead",          clientType: "High-value lead",          tags: ["Anxiety","Stress relief"],                              firstSession: "",           sessionsAttended: 0,  lastSession: "",           nextSession: "2026-06-12", packageType: "None",       lifetimeValue: 0,   notes: "Found us via YogaSix flyer; anxious about first session, wants calm intro",      referral: "Low"    },
+    { id: "c2", name: "Sample - Maya Chen",    phone: "555-0102", email: "maya@example.com",   source: "Instagram",       status: "Booked",        clientType: "First-time attendee",      tags: ["Burnout","Stress relief"],                              firstSession: "",           sessionsAttended: 0,  lastSession: "",           nextSession: "2026-06-14", packageType: "None",       lifetimeValue: 0,   notes: "DM'd after breathwork reel; dealing with work burnout",                         referral: "Medium" },
+    { id: "c3", name: "Sample - Chris Okafor", phone: "555-0103", email: "chris@example.com",  source: "Referral",        status: "Attended 1x",   clientType: "Repeat attendee",          tags: ["Letting go","Transformation seeker"],                   firstSession: "2026-06-01", sessionsAttended: 1,  lastSession: "2026-06-01", nextSession: "2026-06-15", packageType: "Drop-in",    lifetimeValue: 35,  notes: "Big emotional release in first session; referred by Maya",                      referral: "High"   },
+    { id: "c4", name: "Sample - Priya Nair",   phone: "555-0104", email: "priya@example.com",  source: "Post-session",    status: "Engaged (2-3x)", clientType: "Repeat attendee",         tags: ["Nervous system reset","Stress relief"],                 firstSession: "2026-05-10", sessionsAttended: 3,  lastSession: "2026-06-07", nextSession: "2026-06-13", packageType: "3-pack",     lifetimeValue: 105, notes: "Sleep issues improving; mentioned wanting partner to join",                     referral: "Medium" },
+    { id: "c5", name: "Sample - Sam Rivera",   phone: "555-0105", email: "sam@example.com",    source: "Studio partner",  status: "Member (4+)",   clientType: "Member",                   tags: ["Grief","Letting go","Transformation seeker"],            firstSession: "2026-04-02", sessionsAttended: 9,  lastSession: "2026-06-09", nextSession: "2026-06-16", packageType: "Membership", lifetimeValue: 540, notes: "Core regular; grief processing journey, very committed",                        referral: "High"   },
+    { id: "c6", name: "Sample - Dana Wolfe",   phone: "555-0106", email: "dana@example.com",   source: "Referral",        status: "Advocate",      clientType: "Advocate",                 tags: ["Spiritual growth","Transformation seeker"],             firstSession: "2026-03-15", sessionsAttended: 12, lastSession: "2026-06-10", nextSession: "2026-06-17", packageType: "5-pack",     lifetimeValue: 610, notes: "Has referred 3 friends; natural community builder",                            referral: "High"   },
   ],
   sessions: [
     { id: "se1", name: "Sample - YogaSix Thursday Reset 6/4", studioId: "sp1", date: "2026-06-04", time: "7:00 PM", status: "Closed out", journey: "Reset & Release", capacity: 18, registered: 15, attendance: 13, paidAttendees: 13, waivers: 12, noShows: 2, revenue: 455, studioSplit: 136.5, netRevenue: 318.5, conversion: 0.31, packagesSold: 2, referralsGenerated: 1, equipmentNeeded: "Headset, portable speaker, lavender oil", roomSetupStatus: "Ready", musicSetupStatus: "Ready", testimonialsCapt: 1, followUpSent: true, rebookOfferSent: true, referralsRequested: true, notes: "Sound bath close landed well; 2 three-packs sold at door", checklist: { room_booked: true, capacity_set: true, booking_live: true, promo_sent: true, equipment_packed: true, room_setup_done: true, audio_tested: true, waivers_shared: true, attendance_logged: true, revenue_recorded: true, studio_paid: true, testimonials_done: true, followup_sent: true, rebook_offered: true, referrals_asked: true, notes_written: true } },
@@ -575,7 +613,7 @@ export default function App() {
 function newRecord(db) {
   const base = { id: uid(db) };
   const m = {
-    clients: { name: "", phone: "", email: "", source: "Studio", status: "Lead", firstSession: "", sessionsAttended: 0, lastSession: "", nextSession: "", packageType: "None", lifetimeValue: 0, notes: "", referral: "Low" },
+    clients: { name: "", phone: "", email: "", source: "Post-session", status: "Lead", clientType: "First-time attendee", tags: [], firstSession: "", sessionsAttended: 0, lastSession: "", nextSession: "", packageType: "None", lifetimeValue: 0, notes: "", referral: "Low" },
     partners: { name: "", studioType: "Yoga", location: "", contact: "", role: "Owner", email: "", phone: "", stage: "Target identified", estimatedCommunitySize: 0, bestFitJourney: "", revenuePotential: 0, closeProbability: "Low", revShare: "", contractStatus: "None", outreachDate: "", lastTouch: todayISO(), nextAction: "", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "", checklist: emptyChecklist() },
     sessions: { name: "", studioId: "", date: todayISO(), time: "", status: "Planned", journey: "Breathwork Basics", capacity: 20, registered: 0, attendance: 0, paidAttendees: 0, waivers: 0, noShows: 0, revenue: 0, studioSplit: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, equipmentNeeded: "", roomSetupStatus: "Not started", musicSetupStatus: "Not started", testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false, referralsRequested: false, notes: "", checklist: emptySessionChecklist() },
     offers:    { name: "", clientId: "", offerType: "Single session", price: 0, status: "Drafted", probability: "50%", source: "", dateOffered: todayISO(), expireDate: "", followUpDate: "", notes: "", reasonLost: "" },
@@ -973,16 +1011,72 @@ function Section({ section, data, derived, today, view, setView, query, onOpen }
 /* ---------- View configs ---------- */
 const col = (key, label, render, opts = {}) => ({ key, label, render, ...opts });
 
+function TagList({ tags, max = 3 }) {
+  if (!tags || !tags.length) return null;
+  const shown = tags.slice(0, max);
+  const rest = tags.length - max;
+  return (
+    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+      {shown.map(t => (
+        <span key={t} style={{
+          fontSize: 10.5, fontWeight: 600, padding: "2px 7px", borderRadius: 20,
+          background: hexA(TAG_COLOR[t] || C.ink3, 0.13),
+          color: TAG_COLOR[t] || C.ink3, whiteSpace: "nowrap",
+        }}>{t}</span>
+      ))}
+      {rest > 0 && <span style={{ fontSize: 11, color: C.ink3 }}>+{rest}</span>}
+    </div>
+  );
+}
+
 const clientCell = {
   name: (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>,
   status: (r) => <Tag color={STATUS_COLOR[r.status]}>{r.status}</Tag>,
+  type: (r) => r.clientType ? <Tag color={CLIENT_TYPE_COLOR[r.clientType] || C.ink3} soft>{r.clientType}</Tag> : null,
+  tags: (r) => <TagList tags={r.tags} />,
 };
 
 const VIEWS = {
   clients: {
     views: [
-      { name: "Pipeline", layout: "board", card: ["nextSession", "packageType", "referral"],
+      { name: "Pipeline", layout: "board", card: ["clientType", "tags", "nextSession", "packageType", "referral"],
         run: (rows) => ({ groups: STATUS.map((s) => ({ key: s, label: s, color: STATUS_COLOR[s], cards: rows.filter((r) => r.status === s) })) }) },
+      { name: "By segment", layout: "table",
+        columns: [
+          col("name",        "Client",   clientCell.name),
+          col("clientType",  "Segment",  clientCell.type),
+          col("tags",        "Intent",   clientCell.tags),
+          col("status",      "Status",   clientCell.status),
+          col("sessionsAttended", "Sessions", (r) => r.sessionsAttended, { align: "right" }),
+          col("lifetimeValue", "LTV",    (r) => money(r.lifetimeValue), { align: "right" }),
+        ],
+        run: (rows) => ({ rows: [...rows].sort((a, b) => (a.clientType || "").localeCompare(b.clientType || "")) }) },
+      { name: "Reactivation list", layout: "table",
+        columns: [
+          col("name",      "Client",    clientCell.name),
+          col("clientType","Segment",   clientCell.type),
+          col("tags",      "Intent",    clientCell.tags),
+          col("lastSession","Last seen", (r) => fmtDate(r.lastSession)),
+          col("sessionsAttended", "Sessions", (r) => r.sessionsAttended, { align: "right" }),
+          col("lifetimeValue", "LTV",   (r) => money(r.lifetimeValue), { align: "right" }),
+          col("notes",     "Notes",     (r) => <span style={{ fontSize: 12, color: C.ink2 }}>{r.notes}</span>),
+        ],
+        run: (rows, c) => ({
+          rows: rows.filter(r =>
+            r.clientType === "Past client — reactivate" ||
+            (r.lastSession && r.lastSession < addDays(c.today, -30))
+          ).sort((a, b) => (a.lastSession || "").localeCompare(b.lastSession || ""))
+        }) },
+      { name: "Advocates & referrers", layout: "table",
+        columns: [
+          col("name",      "Client",    clientCell.name),
+          col("status",    "Status",    clientCell.status),
+          col("tags",      "Intent",    clientCell.tags),
+          col("referral",  "Referral potential", (r) => <Tag color={REFERRAL_COLOR[r.referral]} soft>{r.referral}</Tag>),
+          col("sessionsAttended", "Sessions", (r) => r.sessionsAttended, { align: "right" }),
+          col("lifetimeValue", "LTV",   (r) => money(r.lifetimeValue), { align: "right" }),
+        ],
+        run: (rows) => ({ rows: rows.filter(r => r.referral === "High" || r.status === "Advocate" || r.clientType === "Referral source" || r.clientType === "Advocate").sort((a, b) => Number(b.lifetimeValue) - Number(a.lifetimeValue)) }) },
       { name: "Sessions due / overdue", layout: "table",
         columns: [
           col("name", "Client", clientCell.name),
@@ -995,6 +1089,7 @@ const VIEWS = {
         columns: [
           col("name", "Client", clientCell.name),
           col("status", "Status", clientCell.status),
+          col("clientType", "Segment", clientCell.type),
           col("packageType", "Package", (r) => r.packageType),
           col("sessionsAttended", "Sessions", (r) => r.sessionsAttended, { align: "right" }),
           col("lifetimeValue", "Lifetime value", (r) => <strong>{money(r.lifetimeValue)}</strong>, { align: "right" }),
@@ -1004,8 +1099,9 @@ const VIEWS = {
         columns: [
           col("name", "Client", clientCell.name),
           col("status", "Status", clientCell.status),
+          col("clientType", "Segment", clientCell.type),
           col("source", "Source", (r) => r.source),
-          col("packageType", "Package", (r) => r.packageType),
+          col("tags", "Intent", clientCell.tags),
           col("referral", "Referral", (r) => <Tag color={REFERRAL_COLOR[r.referral]} soft>{r.referral}</Tag>),
           col("lifetimeValue", "LTV", (r) => money(r.lifetimeValue), { align: "right" }),
         ],
@@ -1382,6 +1478,13 @@ function BoardView({ groups, onOpen, cardKeys, ctx, section }) {
   );
 }
 function cardChip(k, r, ctx) {
+  if (k === "clientType" && r.clientType) return <MiniChip key={k} color={CLIENT_TYPE_COLOR[r.clientType] || C.ink3}>{r.clientType}</MiniChip>;
+  if (k === "tags" && r.tags && r.tags.length) return (
+    <div key={k} style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+      {r.tags.slice(0, 2).map(t => <span key={t} style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 20, background: hexA(TAG_COLOR[t] || C.ink3, 0.15), color: TAG_COLOR[t] || C.ink3 }}>{t}</span>)}
+      {r.tags.length > 2 && <span style={{ fontSize: 10, color: C.ink3 }}>+{r.tags.length - 2}</span>}
+    </div>
+  );
   if (k === "nextSession" && r.nextSession) return <MiniChip key={k}><CalendarDays size={11} /> {fmtDate(r.nextSession)}</MiniChip>;
   if (k === "nextAction" && r.nextAction) return <MiniChip key={k}><CalendarDays size={11} /> {fmtDate(r.nextAction)}</MiniChip>;
   if (k === "packageType" && r.packageType && r.packageType !== "None") return <MiniChip key={k}>{r.packageType}</MiniChip>;
@@ -1449,11 +1552,13 @@ function CalendarView({ rows, today, derived, onOpen }) {
 const FIELDS = {
   clients: [
     f("name", "Name", "text", { title: true }), f("status", "Status", "select", { options: STATUS }),
+    f("clientType", "Client type", "select", { options: CLIENT_TYPE }),
     f("source", "Source", "select", { options: SOURCE }), f("referral", "Referral potential", "select", { options: REFERRAL }),
     f("phone", "Phone", "phone"), f("email", "Email", "email"),
     f("packageType", "Package type", "select", { options: PACKAGE }), f("sessionsAttended", "Sessions attended", "number"),
     f("firstSession", "First session", "date"), f("lastSession", "Last session", "date"),
     f("nextSession", "Next session", "date"), f("lifetimeValue", "Lifetime value", "currency"),
+    f("tags", "Intent tags", "multiselect", { options: INTENT_TAGS, colorMap: TAG_COLOR }),
     f("notes", "Emotional notes", "textarea"),
   ],
   partners: [
@@ -2152,13 +2257,15 @@ function buildClientTimeline(record, data, today) {
     events: events.filter((e) => e.date || e.type === "milestone").sort((a, b) => (a.date || "0").localeCompare(b.date || "0")),
     summary: [
       { label: "Status",        value: record.status },
+      { label: "Segment",       value: record.clientType || "—", accent: CLIENT_TYPE_COLOR[record.clientType] },
       { label: "Source",        value: record.source || "—" },
       { label: "First session", value: fmtDate(record.firstSession) || "Not yet" },
       { label: "Sessions",      value: `${record.sessionsAttended || 0} attended` },
       { label: "Package",       value: record.packageType || "None" },
       { label: "Lifetime value",value: money(record.lifetimeValue || 0) },
       { label: "Referral",      value: record.referral + " potential", accent: REFERRAL_COLOR[record.referral] },
-      { label: "Open offers",   value: clientOffers.filter((o) => o.status === "Offered").length + " pending" },
+      { label: "Open offers",   value: clientOffers.filter((o) => OPEN_STATUSES.includes(o.status)).length + " pending" },
+      { label: "Intent tags",   value: (record.tags || []).join(", ") || "None set" },
       { label: "Testimonial",   value: isAdvocate ? "Advocate — request now" : highReferral ? "High potential — not yet requested" : "Not yet requested" },
       { label: "Next follow-up",value: pendingFU ? fmtDate(pendingFU.nextAction) : "None scheduled", accent: pendingFU && pendingFU.nextAction <= today ? "#C0573F" : null },
     ],
@@ -2353,6 +2460,22 @@ function FieldInput({ fld, value, onChange, data }) {
           const cl = fld.key === "status" || fld.key === "stage" ? (STATUS_COLOR[o] || STAGE_COLOR[o]) : C.brand;
           return <button key={o} className="sb-selchip" onClick={() => onChange(o)}
             style={{ background: on ? cl : C.surface, color: on ? "#fff" : C.ink2, borderColor: on ? cl : C.line }}>{o}</button>;
+        })}
+      </div>
+    );
+  } else if (type === "multiselect") {
+    const vals = Array.isArray(value) ? value : [];
+    control = (
+      <div className="sb-chiprow" style={{ flexWrap: "wrap" }}>
+        {fld.options.map((o) => {
+          const on = vals.includes(o);
+          const cl = fld.colorMap ? (fld.colorMap[o] || C.brand) : C.brand;
+          return (
+            <button key={o} className="sb-selchip" onClick={() => onChange(on ? vals.filter(v => v !== o) : [...vals, o])}
+              style={{ background: on ? cl : C.surface, color: on ? "#fff" : C.ink2, borderColor: on ? cl : C.line }}>
+              {o}
+            </button>
+          );
         })}
       </div>
     );
