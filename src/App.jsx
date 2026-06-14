@@ -1478,79 +1478,8 @@ export default function App() {
               })}
             </div>
           </nav>
-          <div style={{ marginTop: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ marginTop: "auto", padding: 12 }}>
             {can.edit && <button className="sb-ghost" onClick={() => setImporting(true)}><Upload size={15} /> Import CSVs</button>}
-
-            {/* Profile / Logout widget */}
-            <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 10, marginTop: 4 }}>
-              {showProfile ? (
-                <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
-                  {/* Avatar + name */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 38, height: 38, borderRadius: "50%", background: currentUser?.color || C.brand, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>
-                        {(currentUser?.name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
-                      </span>
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser?.name || "Unknown"}</div>
-                      <div style={{ fontSize: 11, color: C.ink3, display: "flex", alignItems: "center", gap: 4 }}>
-                        <Shield size={10} />{currentUser?.role || "Viewer"}
-                      </div>
-                    </div>
-                    <button onClick={() => setShowProfile(false)} style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, padding: 2 }}><X size={14} /></button>
-                  </div>
-
-                  {/* Last login */}
-                  {currentUser?.lastLogin && (
-                    <div style={{ fontSize: 11, color: C.ink3, display: "flex", alignItems: "center", gap: 5 }}>
-                      <Clock size={11} /> Last login: {currentUser.lastLogin}
-                    </div>
-                  )}
-
-                  {/* Actions */}
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {can.manage && (
-                      <button className="sb-ghost" style={{ justifyContent: "flex-start", fontSize: 12 }}
-                        onClick={() => { go("users"); setShowProfile(false); }}>
-                        <Users size={13} /> Manage Users
-                      </button>
-                    )}
-                    <button
-                      onClick={() => { if (window.confirm("Log out of Simply Breathe OS?")) handleLogout(); }}
-                      style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "7px 10px", border: "none", borderRadius: 8, background: "#FEE2E2", color: "#B91C1C", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                      <LogOut size={13} /> Log Out
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <button onClick={() => setShowProfile(true)}
-                    style={{ display: "flex", alignItems: "center", gap: 9, flex: 1, padding: "7px 8px", border: "none", borderRadius: 10, background: "transparent", cursor: "pointer", transition: "background .12s", minWidth: 0 }}
-                    onMouseEnter={e => e.currentTarget.style.background = C.brandMist}
-                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                    <div style={{ width: 30, height: 30, borderRadius: "50%", background: currentUser?.color || C.brand, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: "#fff" }}>
-                        {(currentUser?.name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
-                      </span>
-                    </div>
-                    <div style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser?.name || "User"}</div>
-                      <div style={{ fontSize: 10, color: C.ink3 }}>
-                        {saved === "saving" ? "Saving…" : saved === "saved" ? "✓ Saved" : "Auto-saved"}
-                      </div>
-                    </div>
-                  </button>
-                  <button title="Log out"
-                    onClick={() => { if (window.confirm("Log out of Simply Breathe OS?")) handleLogout(); }}
-                    style={{ flexShrink: 0, width: 30, height: 30, border: "none", borderRadius: 8, background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: C.ink3, transition: "background .12s, color .12s" }}
-                    onMouseEnter={e => { e.currentTarget.style.background = "#FEE2E2"; e.currentTarget.style.color = "#B91C1C"; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.ink3; }}>
-                    <LogOut size={15} />
-                  </button>
-                </div>
-              )}
-            </div>
           </div>
         </aside>
         {navOpen && <div className="sb-scrim" onClick={() => setNavOpen(false)} />}
@@ -1594,6 +1523,66 @@ export default function App() {
                 )}
               </>
             )}
+
+            {/* Profile avatar + dropdown */}
+            <div style={{ position: "relative", flexShrink: 0 }}>
+              <button
+                onClick={() => setShowProfile(p => !p)}
+                title={currentUser?.name}
+                style={{ width: 36, height: 36, borderRadius: "50%", background: currentUser?.color || C.brand, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>
+                  {(currentUser?.name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
+                </span>
+              </button>
+
+              {showProfile && (
+                <>
+                  <div onClick={() => setShowProfile(false)} style={{ position: "fixed", inset: 0, zIndex: 49 }} />
+                  <div style={{
+                    position: "absolute", top: "calc(100% + 10px)", right: 0, zIndex: 50,
+                    background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14,
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.12)", minWidth: 220, padding: 6,
+                  }}>
+                    {/* User info header */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px 8px" }}>
+                      <div style={{ width: 38, height: 38, borderRadius: "50%", background: currentUser?.color || C.brand, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <span style={{ fontSize: 15, fontWeight: 700, color: "#fff" }}>
+                          {(currentUser?.name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
+                        </span>
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currentUser?.name || "User"}</div>
+                        <div style={{ fontSize: 11, color: C.ink3, display: "flex", alignItems: "center", gap: 4 }}>
+                          <Shield size={10} />{currentUser?.role || "Viewer"}
+                          {currentUser?.lastLogin && <>&nbsp;· {currentUser.lastLogin}</>}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ height: 1, background: C.line, margin: "4px 0" }} />
+
+                    {/* Menu items */}
+                    {can.manage && (
+                      <button onClick={() => { go("users"); setShowProfile(false); }}
+                        style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 12px", border: "none", borderRadius: 8, background: "transparent", cursor: "pointer", fontSize: 13, color: C.ink, textAlign: "left" }}
+                        onMouseEnter={e => e.currentTarget.style.background = C.brandMist}
+                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        <Users size={14} color={C.ink3} /> Manage Users
+                      </button>
+                    )}
+
+                    <div style={{ height: 1, background: C.line, margin: "4px 0" }} />
+
+                    <button
+                      onClick={() => { setShowProfile(false); if (window.confirm("Log out of Simply Breathe OS?")) handleLogout(); }}
+                      style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 12px", border: "none", borderRadius: 8, background: "transparent", cursor: "pointer", fontSize: 13, color: "#B91C1C", textAlign: "left" }}
+                      onMouseEnter={e => e.currentTarget.style.background = "#FEE2E2"}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <LogOut size={14} /> Log Out
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </header>
 
           <div className="sb-content">
