@@ -526,16 +526,19 @@ export default function App() {
   };
 
   const sections = [
-    { id: "today",    label: "Simply Breathe OS",   Icon: LayoutGrid },
-    { id: "clients",  label: "Clients",              Icon: Users },
-    { id: "partners", label: "Studio Partners",      Icon: Building2 },
-    { id: "sessions", label: "Sessions",             Icon: CalendarDays },
-    { id: "offers",   label: "Offers & Sales",       Icon: DollarSign },
-    { id: "revenue",  label: "Revenue",              Icon: TrendingUp },
-    { id: "content",  label: "Content & Referral",   Icon: Megaphone },
-    { id: "followups",label: "Follow-Ups",           Icon: RefreshCw },
-    { id: "referrals",label: "Referrals",             Icon: Users },
-    { id: "engine",   label: "Follow-up Engine",     Icon: Zap },
+    { id: "today",    label: "Command Center",     Icon: LayoutGrid,  lane: "core" },
+    // B2C — individual clients
+    { id: "clients",  label: "Clients",            Icon: Users,       lane: "b2c"  },
+    { id: "offers",   label: "Offers & Sales",     Icon: DollarSign,  lane: "b2c"  },
+    { id: "followups",label: "Follow-Ups",         Icon: RefreshCw,   lane: "b2c"  },
+    { id: "referrals",label: "Referrals",          Icon: Users,       lane: "b2c"  },
+    { id: "engine",   label: "Follow-up Engine",   Icon: Zap,         lane: "b2c"  },
+    // B2B — studio partners
+    { id: "partners", label: "Studio Partners",    Icon: Building2,   lane: "b2b"  },
+    { id: "sessions", label: "Sessions",           Icon: CalendarDays,lane: "b2b"  },
+    { id: "revenue",  label: "Revenue",            Icon: TrendingUp,  lane: "b2b"  },
+    // Shared
+    { id: "content",  label: "Content & Referral", Icon: Megaphone,   lane: "core" },
   ];
 
   const go = (id) => { setSection(id); setView(0); setQuery(""); setNavOpen(false); };
@@ -555,24 +558,80 @@ export default function App() {
             </div>
           </div>
           <nav style={{ padding: "6px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
-            {sections.map((s) => {
+            {/* Command center first */}
+            {sections.filter(s => s.id === "today").map(s => {
               const active = section === s.id;
-              const dueCount = s.id === "engine"
-                ? (data.sequences || []).flatMap(seq =>
-                    seq.status === "active" ? seq.steps.filter(st => !st.sent && st.dueDate <= today) : []
-                  ).length
-                : null;
-              const count = s.id === "today" || s.id === "engine" ? null : (data[s.id] || []).length;
               return (
                 <button key={s.id} onClick={() => go(s.id)} className="sb-navbtn"
                   style={{ background: active ? C.brandSoft : "transparent", color: active ? C.brandDeep : C.ink2, fontWeight: active ? 600 : 500 }}>
                   <s.Icon size={17} strokeWidth={2} style={{ flexShrink: 0 }} />
                   <span style={{ flex: 1, textAlign: "left" }}>{s.label}</span>
-                  {dueCount > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: "#C0573F", color: "#fff", borderRadius: 20, padding: "1px 7px" }}>{dueCount}</span>}
-                  {count != null && <span style={{ fontSize: 11, color: active ? C.brand : C.ink3 }}>{count}</span>}
                 </button>
               );
             })}
+
+            {/* Lane groups */}
+            {[{ key: "b2c", label: "B2C  ·  Clients" }, { key: "b2b", label: "B2B  ·  Studios" }].map(({ key, label }) => {
+              const lane = LANE[key];
+              const laneSections = sections.filter(s => s.lane === key);
+              return (
+                <div key={key} style={{ marginTop: 10 }}>
+                  {/* Lane divider label */}
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 7, padding: "5px 6px 4px",
+                    marginBottom: 2,
+                  }}>
+                    <div style={{ height: 1, flex: 1, background: `${lane.color}30` }} />
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, letterSpacing: "0.10em",
+                      textTransform: "uppercase", color: lane.color, opacity: 0.85,
+                    }}>{label}</span>
+                    <div style={{ height: 1, flex: 1, background: `${lane.color}30` }} />
+                  </div>
+                  {laneSections.map(s => {
+                    const active = section === s.id;
+                    const dueCount = s.id === "engine"
+                      ? (data.sequences || []).flatMap(seq =>
+                          seq.status === "active" ? seq.steps.filter(st => !st.sent && st.dueDate <= today) : []
+                        ).length
+                      : null;
+                    const count = s.id === "engine" ? null : (data[s.id] || []).length;
+                    return (
+                      <button key={s.id} onClick={() => go(s.id)} className="sb-navbtn"
+                        style={{
+                          background: active ? lane.soft : "transparent",
+                          color: active ? lane.text : C.ink2,
+                          fontWeight: active ? 600 : 500,
+                          borderLeft: active ? `2px solid ${lane.color}` : "2px solid transparent",
+                          paddingLeft: 10,
+                        }}>
+                        <s.Icon size={16} strokeWidth={2} style={{ flexShrink: 0, color: active ? lane.color : "inherit" }} />
+                        <span style={{ flex: 1, textAlign: "left" }}>{s.label}</span>
+                        {dueCount > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: "#C0573F", color: "#fff", borderRadius: 20, padding: "1px 7px" }}>{dueCount}</span>}
+                        {count != null && <span style={{ fontSize: 11, color: active ? lane.color : C.ink3 }}>{count}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+
+            {/* Shared / core at bottom */}
+            <div style={{ marginTop: 10 }}>
+              <div style={{ height: 1, background: C.line, margin: "2px 6px 6px" }} />
+              {sections.filter(s => s.lane === "core" && s.id !== "today").map(s => {
+                const active = section === s.id;
+                const count = (data[s.id] || []).length;
+                return (
+                  <button key={s.id} onClick={() => go(s.id)} className="sb-navbtn"
+                    style={{ background: active ? C.brandSoft : "transparent", color: active ? C.brandDeep : C.ink2, fontWeight: active ? 600 : 500 }}>
+                    <s.Icon size={16} strokeWidth={2} style={{ flexShrink: 0 }} />
+                    <span style={{ flex: 1, textAlign: "left" }}>{s.label}</span>
+                    {count != null && <span style={{ fontSize: 11, color: active ? C.brand : C.ink3 }}>{count}</span>}
+                  </button>
+                );
+              })}
+            </div>
           </nav>
           <div style={{ marginTop: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
             <button className="sb-ghost" onClick={() => setImporting(true)}><Upload size={15} /> Import CSVs</button>
@@ -585,12 +644,29 @@ export default function App() {
 
         {/* Main */}
         <main className="sb-main">
+          {/* Lane accent stripe */}
+          {(() => {
+            const cur = sections.find(s => s.id === section);
+            const lane = cur?.lane && cur.lane !== "core" ? LANE[cur.lane] : null;
+            return lane ? <div style={{ height: 3, background: `linear-gradient(90deg, ${lane.color}, ${lane.color}80)`, flexShrink: 0 }} /> : null;
+          })()}
           <header className="sb-header">
             <button className="sb-menu" onClick={() => setNavOpen(true)}><Menu size={20} /></button>
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10 }}>
               <h1 style={{ fontFamily: FONT.display, fontSize: 22, fontWeight: 600, margin: 0, letterSpacing: "-0.01em" }}>
                 {sections.find((s) => s.id === section).label}
               </h1>
+              {(() => {
+                const cur = sections.find(s => s.id === section);
+                const lane = cur?.lane && cur.lane !== "core" ? LANE[cur.lane] : null;
+                return lane ? (
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 20,
+                    background: lane.soft, color: lane.text, letterSpacing: "0.06em",
+                    textTransform: "uppercase", border: `1px solid ${lane.color}40`,
+                  }}>{lane.full}</span>
+                ) : null;
+              })()}
             </div>
             {section !== "today" && (
               <>
@@ -652,6 +728,11 @@ const CAT_META = {
   revenue:      { label: "Revenue",      Icon: DollarSign, color: C.brand,    bg: C.brandSoft,   text: C.brandDeep },
   relationship: { label: "Relationship", Icon: Users,      color: C.gold,     bg: "#F6EAD6",     text: "#7A4D0F"   },
   operational:  { label: "Operational",  Icon: Check,      color: "#4A8C6F",  bg: "#E2F0EA",     text: "#1E5239"   },
+};
+const LANE = {
+  b2c:  { label: "B2C", full: "Client Revenue",  color: C.brand,   bg: C.brandSoft, text: C.brandDeep, accent: C.brand,   soft: C.brandSoft  },
+  b2b:  { label: "B2B", full: "Studio Revenue",  color: "#6B5CE7", bg: "#EEEAFF",   text: "#3D2DA0",   accent: "#6B5CE7", soft: "#EEEAFF"    },
+  core: { label: "",    full: "",                color: C.ink2,    bg: C.surfaceAlt, text: C.ink2,     accent: C.ink2,    soft: C.surfaceAlt },
 };
 const URGENCY_DOT = { high: "#C0573F", medium: C.gold, low: C.ink3 };
 
@@ -822,6 +903,100 @@ function buildActions(data, derived, today) {
     });
 
   return actions.sort((a, b) => a.priority !== b.priority ? a.priority - b.priority : urgencyScore[a.urgency] - urgencyScore[b.urgency]);
+}
+
+/* ── LANE SPLIT PANEL ── */
+function LaneSplitPanel({ data, today }) {
+  const offers   = data.offers   || [];
+  const sessions = data.sessions || [];
+  const clients  = data.clients  || [];
+  const partners = data.partners || [];
+  const revenue  = data.revenue  || [];
+  const referrals= data.referrals|| [];
+
+  // ── B2C metrics ──
+  const b2cOfferTypes = ["Single session","3-pack","6-pack","12-pack","Private session","Virtual session","Group package"];
+  const b2cClosedOffers = offers.filter(o => WON_STATUSES.includes(o.status) && b2cOfferTypes.includes(o.offerType));
+  const b2cRevMTD = b2cClosedOffers.filter(o => sameMonth(o.closeDate || o.dateOffered, today))
+    .reduce((a, o) => a + (Number(o.price) || 0), 0);
+  const b2cOpenPipeline = offers.filter(o => OPEN_STATUSES.includes(o.status) && b2cOfferTypes.includes(o.offerType))
+    .reduce((a, o) => a + (Number(o.price) || 0), 0);
+  const activeClients = clients.filter(c => ["Member (4+)","Advocate","Engaged (2-3x)"].includes(c.status)).length;
+  const refRevenue   = referrals.reduce((a, r) => a + (Number(r.revenue) || 0), 0);
+  const avgLTV = clients.filter(c => Number(c.lifetimeValue) > 0).length
+    ? Math.round(clients.filter(c => Number(c.lifetimeValue) > 0).reduce((a, c) => a + Number(c.lifetimeValue), 0)
+        / clients.filter(c => Number(c.lifetimeValue) > 0).length)
+    : 0;
+
+  // ── B2B metrics ──
+  const b2bSessionRevMTD = sessions.filter(s => sameMonth(s.date, today) && ["Completed","Follow-up pending","Closed out"].includes(s.status))
+    .reduce((a, s) => a + (Number(s.netRevenue) || 0), 0);
+  const b2bRevItems = revenue.filter(r => ["Studio session","Corporate event"].includes(r.channel) && sameMonth(r.date, today));
+  const b2bRevMTD   = b2bRevItems.reduce((a, r) => a + calcNet(r), 0) || b2bSessionRevMTD;
+  const studioPipeline = partners.filter(p => p.stage !== "Lost / not a fit")
+    .reduce((a, p) => a + (Number(p.revenuePotential) || 0), 0);
+  const recurringP  = partners.filter(p => p.stage === "Recurring partner").length;
+  const activeP     = partners.filter(p => !["Lost / not a fit","Target identified"].includes(p.stage)).length;
+  const sessionsThisMonth = sessions.filter(s => sameMonth(s.date, today)).length;
+
+  const b2cLane = LANE.b2c;
+  const b2bLane = LANE.b2b;
+
+  const LaneCard = ({ lane, metrics }) => (
+    <div style={{ flex: 1, border: `1px solid ${lane.color}35`, borderRadius: 12, overflow: "hidden" }}>
+      {/* Lane header */}
+      <div style={{ padding: "11px 16px", background: lane.soft, borderBottom: `1px solid ${lane.color}30`,
+        display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ width: 8, height: 8, borderRadius: "50%", background: lane.color, flexShrink: 0 }} />
+        <span style={{ fontWeight: 700, fontSize: 13.5, color: lane.text }}>{lane.full}</span>
+        <span style={{ fontSize: 11, color: lane.text, opacity: 0.65, marginLeft: "auto",
+          fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>{lane.label}</span>
+      </div>
+      {/* Metrics grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0, background: "#fff" }}>
+        {metrics.map(({ label, value, sub }, i) => (
+          <div key={label} style={{ padding: "13px 14px",
+            borderRight: i % 2 === 0 ? `1px solid ${C.line}` : "none",
+            borderBottom: i < metrics.length - 2 ? `1px solid ${C.line}` : "none" }}>
+            <div style={{ fontSize: 11, color: C.ink3, textTransform: "uppercase",
+              letterSpacing: "0.07em", fontWeight: 600, marginBottom: 5 }}>{label}</div>
+            <div style={{ fontFamily: FONT.display, fontSize: 20, fontWeight: 700,
+              color: lane.color, lineHeight: 1.1 }}>{value}</div>
+            {sub && <div style={{ fontSize: 11, color: C.ink3, marginTop: 3 }}>{sub}</div>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+        <h3 style={{ fontFamily: FONT.display, fontSize: 17, fontWeight: 600, margin: 0 }}>Revenue by Lane</h3>
+        <span style={{ fontSize: 12, color: C.ink3 }}>B2C vs B2B breakdown</span>
+      </div>
+      <div style={{ display: "flex", gap: 14 }} className="sb-lane-split">
+        <LaneCard lane={b2cLane} metrics={[
+          { label: "Revenue MTD",      value: money(b2cRevMTD),       sub: "packages + sessions" },
+          { label: "Open pipeline",    value: money(b2cOpenPipeline), sub: `${offers.filter(o=>OPEN_STATUSES.includes(o.status)&&b2cOfferTypes.includes(o.offerType)).length} offers` },
+          { label: "Active clients",   value: activeClients,           sub: "engaged + member + advocate" },
+          { label: "Avg LTV",          value: money(avgLTV),          sub: "lifetime value" },
+          { label: "Referral revenue", value: money(refRevenue),      sub: `${referrals.filter(r=>r.status==="Attended").length} converted` },
+          { label: "Total clients",    value: clients.length,         sub: `${clients.filter(c=>c.status==="Lead").length} leads` },
+        ]} />
+        <LaneCard lane={b2bLane} metrics={[
+          { label: "Studio rev MTD",   value: money(b2bRevMTD),       sub: "net from sessions" },
+          { label: "Studio pipeline",  value: money(studioPipeline),  sub: `${partners.filter(p=>p.stage!=="Lost / not a fit").length} active` },
+          { label: "Sessions MTD",     value: sessionsThisMonth,       sub: "this calendar month" },
+          { label: "Recurring",        value: recurringP,             sub: `of ${activeP} in pipeline` },
+          { label: "Avg session rev",  value: money(sessions.filter(s=>Number(s.netRevenue)>0).length
+              ? Math.round(sessions.filter(s=>Number(s.netRevenue)>0).reduce((a,s)=>a+Number(s.netRevenue),0)/sessions.filter(s=>Number(s.netRevenue)>0).length) : 0),
+            sub: "net per session" },
+          { label: "Total studios",    value: partners.length,        sub: `${recurringP} recurring` },
+        ]} />
+      </div>
+    </div>
+  );
 }
 
 /* ── ALERT ENGINE ── */
@@ -1249,6 +1424,9 @@ function Today({ data, derived, today, onOpen, onGo }) {
 
       {/* Pipeline snapshot */}
       <PipelineSnapshot data={data} today={today} />
+
+      {/* B2C vs B2B lane split */}
+      <LaneSplitPanel data={data} today={today} />
 
       {/* Alerts */}
       <AlertsPanel data={data} today={today} onOpen={onOpen} />
@@ -4218,6 +4396,7 @@ input, textarea, select, button { font-family: inherit; }
   .sb-stats { grid-template-columns: 1fr 1fr; }
   .sb-nba-grid { grid-template-columns: 1fr !important; }
   .sb-pipeline-grid { grid-template-columns: 1fr 1fr !important; }
+  .sb-lane-split { flex-direction: column !important; }
   .sb-grid2 { grid-template-columns: 1fr; }
   .sb-content, .sb-header { padding-left: 16px; padding-right: 16px; }
   .sb-search { width: 130px; }
