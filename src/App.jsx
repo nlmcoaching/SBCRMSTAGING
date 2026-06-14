@@ -1680,7 +1680,7 @@ export default function App() {
               ? <FollowUpEngine data={data} setData={setData} today={today} onOpen={setOpen} />
               : <Section section={section} data={data} derived={derived} today={today}
                   view={view} setView={setView} query={query} onOpen={setOpen}
-                  currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} setSecUsers={setSecUsers} />}
+                  currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} setSecUsers={setSecUsers} setData={setData} />}
           </div>
         </main>
       </div>
@@ -2658,7 +2658,7 @@ function SourceBreakdown({ data }) {
 /* ============================================================
    SECTION (per database, with views)
    ============================================================ */
-function Section({ section, data, derived, today, view, setView, query, onOpen, currentUser, secUsers, masterKeyRaw, setSecUsers }) {
+function Section({ section, data, derived, today, view, setView, query, onOpen, currentUser, secUsers, masterKeyRaw, setSecUsers, setData }) {
   const cfg = VIEWS[section];
   const v = cfg.views[Math.min(view, cfg.views.length - 1)];
   let rows = data[section] || [];
@@ -2703,7 +2703,32 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         : v.layout === "admin-schema"     ? <AdminView tab="schema"     data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
         : v.layout === "admin-integrity"  ? <AdminView tab="integrity"  data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
         : v.layout === "admin-storage"    ? <AdminView tab="storage"    data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
-        : v.layout === "expense-summary"  ? <ExpenseSummaryView data={data} today={today} onOpen={(r) => onOpen({ db: "expenses", record: r })} />
+        : v.layout === "expense-summary"  ? <ExpenseSummaryView data={data} today={today} onOpen={(r) => onOpen({ db: "expenses", record: r })} onImportExpenses={(file) => {
+            Papa.parse(file, {
+              header: true, skipEmptyLines: true,
+              complete: (res) => {
+                const spec = IMPORT_MAP.expenses;
+                const rows = res.data.map((raw) => {
+                  const rec = { id: uid("exp") };
+                  const lower = {};
+                  Object.keys(raw).forEach((k) => { lower[norm(k)] = raw[k]; });
+                  Object.entries(spec.map).forEach(([csvKey, field]) => {
+                    let val = lower[csvKey] ?? "";
+                    val = Sec.sanitize(val);
+                    if (spec.nums && spec.nums.includes(field)) val = num(val);
+                    rec[field] = val;
+                  });
+                  return rec;
+                }).filter((r) => r.date || r.vendor || r.amount);
+                if (rows.length > 0) {
+                  setData((d) => ({ ...d, expenses: [...(d.expenses || []), ...rows] }));
+                  alert(`Imported ${rows.length} expense record${rows.length !== 1 ? "s" : ""} successfully.`);
+                } else {
+                  alert("No valid rows found. Check that your CSV headers match the required format.");
+                }
+              },
+            });
+          }} />
         : v.layout === "outreach-hub"
         ? <OutreachHubView rows={processed.rows} data={data} today={today} onOpen={(r) => onOpen({ db: "outreach", record: r })} />
         : v.layout === "calendar"
@@ -4763,8 +4788,9 @@ const IMPORT_MAP = {
   offers: { file: "04-Offers-Sales.csv", map: { offer: "name", "client name": "_client", "offer type": "offerType", price: "price", status: "status", "date offered": "dateOffered", "close date": "closeDate" }, nums: ["price"], rel: { field: "_client", to: "clients", set: "clientId" } },
   content: { file: "05-Content-Referral.csv", map: { "content title": "name", type: "type", platform: "platform", "date posted": "datePosted", engagement: "engagement", "leads generated": "leads", "sessions booked": "booked" }, nums: ["engagement", "leads", "booked"] },
   followups: { file: "06-Follow-Ups.csv", map: { "follow-up": "name", "client name": "_client", stage: "stage", "last contact date": "lastContact", "follow-up type": "futype", "next action date": "nextAction", outcome: "outcome" }, rel: { field: "_client", to: "clients", set: "clientId" } },
+  expenses: { file: "07-Expenses.csv", map: { date: "date", vendor: "vendor", description: "description", amount: "amount", category: "category", "payment method": "paymentMethod", "paymentmethod": "paymentMethod", "tax deductible": "taxDeductible", "taxdeductible": "taxDeductible", recurring: "recurring", "recurring freq": "recurringFreq", "recurringfreq": "recurringFreq", "linked session": "linkedSession", "linked partner": "linkedPartner", "receipt url": "receiptUrl", notes: "notes" }, nums: ["amount"] },
 };
-const DB_ORDER = ["partners", "clients", "sessions", "offers", "content", "followups"];
+const DB_ORDER = ["partners", "clients", "sessions", "offers", "content", "followups", "expenses"];
 
 /* ============================================================
    EDIT PROFILE MODAL
@@ -4776,7 +4802,7 @@ const DB_ORDER = ["partners", "clients", "sessions", "offers", "content", "follo
 /* ============================================================
    EXPENSE SUMMARY VIEW
    ============================================================ */
-function ExpenseSummaryView({ data, today, onOpen }) {
+function ExpenseSummaryView({ data, today, onOpen, onImportExpenses }) {
   const expenses = data.expenses || [];
   const mo  = today.slice(0, 7);
   const yr  = today.slice(0, 4);
@@ -4911,10 +4937,24 @@ function ExpenseSummaryView({ data, today, onOpen }) {
       </div>
 
       {/* CSV import guide */}
-      <div style={{background:C.surface,borderRadius:16,border:`1px solid ${C.line}`,padding:"18px 22px"}}>
-        <div style={{fontWeight:700,fontSize:14,color:C.ink,marginBottom:8}}>Bulk Import via CSV</div>
+      <div style={{background:C.surface,borderRadius:16,border:`2px solid ${C.brand}`,padding:"20px 22px"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:10}}>
+          <div style={{fontWeight:700,fontSize:15,color:C.ink,display:"flex",alignItems:"center",gap:8}}>
+            <Upload size={17} color={C.brand} /> Bulk Import via CSV
+          </div>
+          <label style={{
+            display:"inline-flex",alignItems:"center",gap:7,padding:"9px 18px",borderRadius:10,
+            background:C.brand,color:"#fff",fontWeight:700,fontSize:13.5,cursor:"pointer",
+            boxShadow:`0 2px 8px ${hexA(C.brand,0.35)}`,
+          }}>
+            <Upload size={15} /> Upload Expense CSV
+            <input type="file" accept=".csv" style={{display:"none"}} onChange={(e) => {
+              if (e.target.files[0] && onImportExpenses) onImportExpenses(e.target.files[0]);
+            }} />
+          </label>
+        </div>
         <div style={{fontSize:13,color:C.ink3,marginBottom:12,lineHeight:1.7}}>
-          Export your expenses from your bank, credit card statement, or accounting software as a CSV and import them directly. Use <strong>Import CSVs</strong> in the sidebar, select <strong>Expenses</strong>, and upload your file.
+          Export your expenses from your bank, credit card statement, QuickBooks, Wave, or Xero as a CSV — then click <strong style={{color:C.ink}}>Upload Expense CSV</strong> above to import all rows at once.
         </div>
         <div style={{fontWeight:600,fontSize:12,color:C.ink2,marginBottom:6}}>Required CSV column headers (in any order):</div>
         <div style={{fontFamily:"monospace",fontSize:12,background:C.surfaceAlt,padding:"10px 14px",borderRadius:10,color:C.brand,wordBreak:"break-all",marginBottom:12}}>{csvCols}</div>
