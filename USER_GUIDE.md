@@ -23,10 +23,11 @@
 14. [Email & SMS Templates](#email--sms-templates)
 15. [Referral Tracking](#referral-tracking)
 16. [Workflows — Seeing the Big Picture](#workflows--seeing-the-big-picture)
-17. [Your Profile](#your-profile)
-18. [Logging Out](#logging-out)
-19. [Tips for Daily Use](#tips-for-daily-use)
-20. [Frequently Asked Questions](#frequently-asked-questions)
+17. [Tracking Expenses](#tracking-expenses)
+18. [Your Profile](#your-profile)
+19. [Logging Out](#logging-out)
+20. [Tips for Daily Use](#tips-for-daily-use)
+21. [Frequently Asked Questions](#frequently-asked-questions)
 
 ---
 
@@ -622,6 +623,90 @@ Answers: Are referrals converting? Are referrers being acknowledged?
 - **High counts at an early stage** — something is blocking progress
 - **"Stuck" indicators** — records that haven't moved in more than 7 days are flagged
 - **Low conversion rates between stages** — a sign the handoff needs attention
+
+---
+
+## Tracking Expenses
+
+Keeping tabs on what you spend is just as important as tracking what you earn. The Expenses section helps you record, categorize, and analyze every business cost — and automatically shows you your true operating profit.
+
+### Getting to Expenses
+Click **Expenses** in the left sidebar (under the B2C section).
+
+### The Summary Dashboard
+When you open Expenses, you land on the **Summary** tab which gives you an instant financial health check:
+
+**Five key numbers at the top:**
+- **Expenses MTD** — how much you've spent so far this month
+- **Expenses YTD** — your total spending since January 1
+- **Tax Deductible YTD** — the portion you can likely claim as a business deduction
+- **Recurring / mo** — your fixed committed monthly costs (software, insurance, etc.)
+- **Operating Margin** — the percentage of your net revenue left after expenses
+
+**Spend by Category** — a visual bar chart showing where your money goes (equipment, software, marketing, etc.)
+
+**Monthly Trend** — a 6-month chart so you can see if spending is creeping up
+
+**Top Vendors** — your biggest suppliers ranked by annual spend
+
+**Profitability Panel:**
+This is the most important section. It shows you the full picture:
+- Gross Revenue this month (from completed sessions)
+- Minus studio splits
+- = Net Revenue
+- Minus your expenses
+- = **Operating Profit** (green when positive, red when you're in the red)
+
+### Adding an Expense Manually
+1. Click **New Record** in the top bar while in any Expenses view
+2. Fill in:
+   - **Date** — when was the purchase made?
+   - **Vendor** — who did you pay?
+   - **Description** — what was it for?
+   - **Amount** — the cost (just the number, no $)
+   - **Category** — pick from the 10 business categories
+   - **Payment Method** — how did you pay?
+   - **Tax Deductible** — check the box if this is a deductible business expense
+   - **Recurring** — check if this happens monthly/annually; set the frequency
+   - **Notes** — any additional context
+3. Click **Save**
+
+### Importing a Month of Expenses via CSV
+This is the fastest way to add expenses — export from your bank or accounting app and import in seconds.
+
+1. Export your expenses from your bank, credit card portal, QuickBooks, Wave, or Xero as a CSV file
+2. Rename the columns to match these headers: `date, vendor, description, amount, category, paymentMethod, taxDeductible, recurring, recurringFreq, notes`
+3. In Simply Breathe OS, click **Import CSVs** in the sidebar
+4. Choose **Expenses** as the section
+5. Upload your file
+
+**Important format notes:**
+- Dates must be in YYYY-MM-DD format (e.g. 2026-06-15)
+- Amount should be a number only — no $ sign
+- Category must exactly match one of: Equipment & Supplies, Software & Subscriptions, Marketing & Advertising, Travel & Transport, Education & Training, Professional Services, Insurance, Administrative, Studio & Venue, Other
+- Tax deductible and recurring should be `true` or `false`
+
+### Expense Categories Explained
+| Category | What goes here |
+|---|---|
+| Equipment & Supplies | Headsets, eye masks, mats, session consumables, extension cords |
+| Software & Subscriptions | Booking platforms, Spotify, Canva, this CRM |
+| Marketing & Advertising | Instagram ads, flyer printing, graphic design |
+| Travel & Transport | Mileage to studios, parking, transit costs |
+| Education & Training | Breathwork certifications, workshops, CPD |
+| Professional Services | Your accountant, lawyer, or business coach |
+| Insurance | General liability and professional indemnity |
+| Administrative | Website hosting, domain name, bank fees |
+| Studio & Venue | Room hire, venue deposits (separate from revenue splits) |
+| Other | Anything that doesn't fit above |
+
+### How Expenses Affect Your Numbers
+The system automatically uses your expense data in:
+- **Pipeline Snapshot** on the Today dashboard — shows "Expenses MTD" and "Operating Profit MTD"
+- **Profitability Panel** in Expenses Summary — full P&L breakdown for the month
+- **Operating Margin** — so you always know if you're actually making money after costs
+
+> **Tip:** Even if a session generates $500 gross, once you factor in the studio split, mileage, supplies, and your software costs, the real number might be $280. The Expenses section makes that visible.
 
 ---
 

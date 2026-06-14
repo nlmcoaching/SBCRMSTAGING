@@ -25,7 +25,7 @@
 14. [Email / SMS Templates](#email--sms-templates)
 15. [Referral Tracking](#referral-tracking)
 16. [Workflows](#workflows)
-17. [Workflows](#workflows)
+17. [Expenses](#expenses)
 18. [Admin](#admin)
 19. [Navigation & Layout](#navigation--layout)
 20. [Data Import / Export](#data-import--export)
@@ -855,6 +855,106 @@ Horizontal bar chart showing each table's share of total storage:
 | Schema data | Defined in the `DB_SCHEMA` constant in `App.jsx` — must be updated when new fields are added |
 | Export format | JSON (not encrypted) — suitable for manual backup and disaster recovery |
 | Storage calculation | Encrypted size read from `localStorage` directly; uncompressed size computed via `TextEncoder` |
+
+---
+
+## Expenses
+
+### Purpose
+Track all business-related expenditures, import them in bulk via CSV, and have them automatically factored into operating profit and margin calculations alongside session revenue.
+
+### Expense Categories
+| Category | Typical Use |
+|---|---|
+| Equipment & Supplies | Headsets, eye masks, mats, session consumables |
+| Software & Subscriptions | Booking platforms, music licensing, design tools, CRM |
+| Marketing & Advertising | Paid social ads, print materials, graphic design |
+| Travel & Transport | Mileage, parking, transit to/from studios |
+| Education & Training | Breathwork certifications, CPD courses |
+| Professional Services | Accountant, legal, business coach |
+| Insurance | General liability, professional indemnity |
+| Administrative | Website hosting, domain, banking fees |
+| Studio & Venue | Room hire fees, venue deposits (separate from revenue splits) |
+| Other | Miscellaneous business costs |
+
+### Fields Tracked
+| Field | Type | Description |
+|---|---|---|
+| date | Date | Expense date (YYYY-MM-DD) |
+| vendor | Text | Payee or vendor name |
+| description | Text | What was purchased |
+| amount | Number | Cost in USD (no currency symbol) |
+| category | Select | One of 10 expense categories |
+| paymentMethod | Select | Credit Card, Bank Transfer, Cash, Check, Other |
+| taxDeductible | Checkbox | Whether deductible as a business expense |
+| recurring | Checkbox | Whether this is a recurring charge |
+| recurringFreq | Select | One-time, Monthly, Quarterly, Annual |
+| linkedSession | Text | Session ID if attributable to a specific event |
+| linkedPartner | Text | Studio partner ID if attributable to a studio |
+| receiptUrl | Text | URL or reference to receipt/invoice |
+| notes | Textarea | Additional context |
+
+### Views Available
+| View | Description |
+|---|---|
+| Summary | Full analytics dashboard: stats row, category chart, monthly trend, top vendors, profitability panel, CSV import guide |
+| All Expenses | Complete table sorted by date (newest first) with footer total |
+| By Category | Table sorted by category with footer total |
+| Recurring | Filtered to recurring expenses only with footer total |
+| Tax Deductible | Filtered to tax-deductible items only with footer total |
+
+### Summary Dashboard
+**Stats Row (5 tiles):**
+- Expenses MTD — total operating costs for the current month
+- Expenses YTD — year-to-date total
+- Tax Deductible YTD — deductible portion with percentage
+- Recurring / mo — committed monthly fixed costs
+- Operating Margin — profit divided by net revenue (MTD)
+
+**Category Breakdown:** Horizontal bar chart showing YTD spend by category with color-coded bars and record counts.
+
+**Monthly Trend:** 6-month bar chart showing expense trajectory.
+
+**Top Vendors:** Ranked list of top 8 vendors by YTD spend.
+
+**Profitability Panel (MTD):**
+- Gross Revenue — from completed sessions
+- Studio Splits — revenue shared with partners
+- Net Revenue — gross minus splits
+- Total Expenses — all expenses for the month
+- Operating Profit — net revenue minus expenses (red when negative)
+- Operating Margin % — profit as a percentage of net revenue
+
+### CSV Import
+Expenses can be bulk-imported monthly via the **Import CSVs** sidebar button. Select **Expenses** as the target section.
+
+**Required columns (any order):**
+```
+date, vendor, description, amount, category, paymentMethod, taxDeductible, recurring, recurringFreq, notes
+```
+
+**Column formats:**
+- `date` — YYYY-MM-DD (e.g. `2026-06-15`)
+- `amount` — number only, no $ sign (e.g. `49.99`)
+- `category` — must exactly match one of the 10 allowed categories
+- `taxDeductible` / `recurring` — `true` or `false`
+- `recurringFreq` — `One-time`, `Monthly`, `Quarterly`, or `Annual`
+
+Compatible with CSV exports from QuickBooks, Wave, Xero, or any bank statement with renamed headers.
+
+### Integration with Revenue Calculations
+Expenses feed into two places:
+1. **Pipeline Snapshot** (Dashboard) — two new tiles: "Expenses MTD" and "Operating Profit MTD"
+2. **`derived` computed values** — `expensesMTD`, `expensesYTD`, `netRevMTD`, `opProfit`, `opMargin` available throughout the app
+
+### Requirements
+| Item | Detail |
+|---|---|
+| Data key | `expenses` array within the encrypted store |
+| Constants | `EXPENSE_CATEGORY`, `EXPENSE_CATEGORY_COLOR`, `EXPENSE_PAYMENT_METHOD`, `EXPENSE_RECUR_FREQ` |
+| Component | `ExpenseSummaryView` (inline in `App.jsx`) |
+| Navigation | Listed under B2C lane in sidebar |
+| Seed data | 10 example records covering common expense types |
 
 ---
 

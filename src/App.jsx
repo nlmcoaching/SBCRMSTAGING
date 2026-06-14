@@ -6,7 +6,7 @@ import {
   RefreshCw, Plus, X, Search, Upload, Download, Trash2, ChevronLeft,
   ChevronRight, Menu, Phone, Mail, Link2, Wind, ArrowUpRight, Check,
   Zap, Copy, Clock, TrendingUp, BarChart2, AlertCircle, Activity, Send, Info, BellRing, Milestone,
-  LogOut, UserCircle, Shield, KeyRound,
+  LogOut, UserCircle, Shield, KeyRound, Receipt,
 } from "lucide-react";
 
 /* ============================================================
@@ -249,6 +249,27 @@ const TMPL_CATEGORY_COLOR = {
 const TMPL_CHANNEL       = ["Email","SMS","DM"];
 const TMPL_CHANNEL_COLOR = { Email:"#D9892B", SMS:"#4A8C6F", DM:"#E1306C" };
 const TMPL_LINKED_TO     = ["clients","partners","sessions","any"];
+
+/* ── Expenses ── */
+const EXPENSE_CATEGORY = [
+  "Equipment & Supplies","Software & Subscriptions","Marketing & Advertising",
+  "Travel & Transport","Education & Training","Professional Services",
+  "Insurance","Administrative","Studio & Venue","Other",
+];
+const EXPENSE_CATEGORY_COLOR = {
+  "Equipment & Supplies":    "#2E6FB0",
+  "Software & Subscriptions":"#6B5CE7",
+  "Marketing & Advertising": "#D9892B",
+  "Travel & Transport":      "#2A9D8F",
+  "Education & Training":    "#4A8C6F",
+  "Professional Services":   "#8E44AD",
+  "Insurance":               "#C0392B",
+  "Administrative":          "#55627B",
+  "Studio & Venue":          "#16A085",
+  "Other":                   "#8A96AC",
+};
+const EXPENSE_PAYMENT_METHOD = ["Credit Card","Bank Transfer","Cash","Check","Other"];
+const EXPENSE_RECUR_FREQ     = ["One-time","Monthly","Quarterly","Annual"];
 
 function outreachScore(o, today) {
   let s = 0;
@@ -886,6 +907,18 @@ Warm,
       notes: "Respond within 24 hours. Always offer a specific call time.",
     },
   ],
+  expenses: [
+    { id: "exp1",  date: "2026-06-01", vendor: "Amazon",           description: "Wired headsets (x2)",                  amount: 189.99, category: "Equipment & Supplies",      paymentMethod: "Credit Card", taxDeductible: true,  recurring: false, recurringFreq: "One-time",  linkedSession: "", linkedPartner: "", notes: "Primary + backup headset for sessions" },
+    { id: "exp2",  date: "2026-06-01", vendor: "Mindbody",         description: "Booking software monthly subscription", amount: 129.00, category: "Software & Subscriptions", paymentMethod: "Credit Card", taxDeductible: true,  recurring: true,  recurringFreq: "Monthly",   linkedSession: "", linkedPartner: "", notes: "" },
+    { id: "exp3",  date: "2026-06-03", vendor: "Meta Ads",         description: "Instagram session promotion",           amount: 75.00,  category: "Marketing & Advertising",  paymentMethod: "Credit Card", taxDeductible: true,  recurring: false, recurringFreq: "One-time",  linkedSession: "s1", linkedPartner: "", notes: "Letting Go & Rebirth promo — 3 bookings attributed" },
+    { id: "exp4",  date: "2026-06-05", vendor: "Spotify for Artists", description: "Music licensing — monthly",          amount: 9.99,   category: "Software & Subscriptions", paymentMethod: "Credit Card", taxDeductible: true,  recurring: true,  recurringFreq: "Monthly",   linkedSession: "", linkedPartner: "", notes: "" },
+    { id: "exp5",  date: "2026-06-08", vendor: "Whole Foods",      description: "Water, tissues, mint tea — session supplies", amount: 34.50, category: "Equipment & Supplies", paymentMethod: "Credit Card", taxDeductible: true,  recurring: false, recurringFreq: "One-time",  linkedSession: "s2", linkedPartner: "sp1", notes: "YogaSix session supplies" },
+    { id: "exp6",  date: "2026-06-10", vendor: "Mileage",          description: "Driving to YogaSix Walnut Creek (22mi x2)", amount: 27.06, category: "Travel & Transport",    paymentMethod: "Cash",        taxDeductible: true,  recurring: false, recurringFreq: "One-time",  linkedSession: "s2", linkedPartner: "sp1", notes: "IRS rate $0.67/mi" },
+    { id: "exp7",  date: "2026-06-11", vendor: "Canva Pro",        description: "Design tool — annual plan (monthly equiv)", amount: 12.99, category: "Software & Subscriptions", paymentMethod: "Credit Card", taxDeductible: true, recurring: true,  recurringFreq: "Monthly",   linkedSession: "", linkedPartner: "", notes: "Flyers, social graphics" },
+    { id: "exp8",  date: "2026-05-15", vendor: "David Elliott",    description: "Advanced breathwork certification",     amount: 497.00, category: "Education & Training",     paymentMethod: "Bank Transfer", taxDeductible: true, recurring: false, recurringFreq: "One-time", linkedSession: "", linkedPartner: "", notes: "CPD hours — annual" },
+    { id: "exp9",  date: "2026-05-20", vendor: "Next Insurance",   description: "General liability — monthly",           amount: 46.00,  category: "Insurance",                paymentMethod: "Credit Card", taxDeductible: true,  recurring: true,  recurringFreq: "Monthly",   linkedSession: "", linkedPartner: "", notes: "GL + professional indemnity bundle" },
+    { id: "exp10", date: "2026-05-01", vendor: "Squarespace",      description: "Website hosting — annual (monthly equiv)", amount: 19.17, category: "Administrative",         paymentMethod: "Credit Card", taxDeductible: true,  recurring: true,  recurringFreq: "Monthly",   linkedSession: "", linkedPartner: "", notes: "" },
+  ],
 };
 
 /* ---------- Helpers ---------- */
@@ -1365,8 +1398,18 @@ export default function App() {
     });
     const sessionsByStudio = {};
     data.sessions.forEach((s) => { (sessionsByStudio[s.studioId] ||= []).push(s); });
-    return { partnerName, clientName, acceptedByClient, sessionsByStudio };
-  }, [data]);
+
+    // Expense rollups
+    const mo = today.slice(0, 7);
+    const yr = today.slice(0, 4);
+    const expensesMTD = (data.expenses||[]).filter(e => (e.date||"").startsWith(mo)).reduce((s,e) => s + (+e.amount||0), 0);
+    const expensesYTD = (data.expenses||[]).filter(e => (e.date||"").startsWith(yr)).reduce((s,e) => s + (+e.amount||0), 0);
+    const netRevMTD   = data.sessions.filter(s => (s.date||"").startsWith(mo) && s.status === "Completed").reduce((s,r) => s + (+r.netRevenue||0), 0);
+    const opProfit    = netRevMTD - expensesMTD;
+    const opMargin    = netRevMTD > 0 ? Math.round((opProfit / netRevMTD) * 100) : null;
+
+    return { partnerName, clientName, acceptedByClient, sessionsByStudio, expensesMTD, expensesYTD, netRevMTD, opProfit, opMargin };
+  }, [data, today]);
 
   if (locked) return <LockScreen onUnlock={handleUnlock} error={pinError} initialising={initialising} users={secUsers} />;
 
@@ -1409,7 +1452,8 @@ export default function App() {
     { id: "partners", label: "Studio Partners",    Icon: Building2,   lane: "b2b"  },
     { id: "outreach", label: "Outreach Hub",       Icon: Send,        lane: "b2b"  },
     { id: "sessions", label: "Sessions",           Icon: CalendarDays,lane: "b2b"  },
-    { id: "revenue",  label: "Revenue",            Icon: TrendingUp,  lane: "b2b"  },
+    { id: "revenue",  label: "Revenue",            Icon: TrendingUp,  lane: "b2c"  },
+    { id: "expenses", label: "Expenses",           Icon: BarChart2,   lane: "b2c"  },
     // Shared
     { id: "workflows", label: "Workflows",        Icon: Milestone,   lane: "core" },
     { id: "content",   label: "Content Calendar",  Icon: Megaphone,   lane: "core" },
@@ -1676,6 +1720,7 @@ function newRecord(db) {
     outreach:  { name: "", targetType: "Studio", contactName: "", email: "", phone: "", location: "", source: "Cold outreach", warmth: "Cold", priority: "Medium", status: "Not contacted", responseStatus: "Pending", outreachMessage: "", lastContact: "", nextFollowUp: "", revenuePotential: 0, partnerId: "", notes: "" },
     testimonials: { name: "", clientId: "", sessionId: "", status: "Breakthrough noted", type: "Written", content: "", bestQuote: "", beforeSummary: "", afterSummary: "", themes: [], permissionReceived: false, useOnWebsite: false, useOnSocial: false, firstNameOnly: false, videoUrl: "", dateReceived: "", datePublished: "", notes: "" },
     templates:    { name: "", category: "Post-Session", channel: "Email", subject: "", body: "", variables: "", linkedTo: "clients", usageCount: 0, notes: "" },
+    expenses:     { date: "", vendor: "", description: "", amount: 0, category: "Equipment & Supplies", paymentMethod: "Credit Card", taxDeductible: true, recurring: false, recurringFreq: "One-time", linkedSession: "", linkedPartner: "", receiptUrl: "", notes: "" },
   };
   return { ...base, ...m[db] };
 }
@@ -2312,6 +2357,29 @@ function PipelineSnapshot({ data, today }) {
       sub: `${recurringP.length} of ${studioPartners.length} recurring`,
       accent: "#4A8C6F", Icon: Check,
     },
+    {
+      label: "Expenses MTD",
+      value: money((data.expenses||[]).filter(e=>(e.date||"").startsWith(today.slice(0,7))).reduce((s,e)=>s+(+e.amount||0),0)),
+      sub: "operating costs this month",
+      accent: "#EF4444", Icon: Receipt,
+    },
+    {
+      label: "Operating profit MTD",
+      value: (() => {
+        const mo = today.slice(0,7);
+        const exp = (data.expenses||[]).filter(e=>(e.date||"").startsWith(mo)).reduce((s,e)=>s+(+e.amount||0),0);
+        const net = sessions.filter(s=>(s.date||"").startsWith(mo)&&s.status==="Completed").reduce((s,r)=>s+(+r.netRevenue||0),0);
+        return money(net - exp);
+      })(),
+      sub: "net revenue minus expenses",
+      accent: (() => {
+        const mo = today.slice(0,7);
+        const exp = (data.expenses||[]).filter(e=>(e.date||"").startsWith(mo)).reduce((s,e)=>s+(+e.amount||0),0);
+        const net = sessions.filter(s=>(s.date||"").startsWith(mo)&&s.status==="Completed").reduce((s,r)=>s+(+r.netRevenue||0),0);
+        return (net-exp) >= 0 ? "#16A34A" : "#E05454";
+      })(),
+      Icon: TrendingUp,
+    },
   ];
 
   return (
@@ -2635,6 +2703,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         : v.layout === "admin-schema"     ? <AdminView tab="schema"     data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
         : v.layout === "admin-integrity"  ? <AdminView tab="integrity"  data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
         : v.layout === "admin-storage"    ? <AdminView tab="storage"    data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
+        : v.layout === "expense-summary"  ? <ExpenseSummaryView data={data} today={today} onOpen={(r) => onOpen({ db: "expenses", record: r })} />
         : v.layout === "outreach-hub"
         ? <OutreachHubView rows={processed.rows} data={data} today={today} onOpen={(r) => onOpen({ db: "outreach", record: r })} />
         : v.layout === "calendar"
@@ -2685,6 +2754,70 @@ const VIEWS = {
       { name: "Schema Browser",  layout: "admin-schema" },
       { name: "Data Integrity",  layout: "admin-integrity" },
       { name: "Storage & Backup", layout: "admin-storage" },
+    ],
+  },
+  expenses: {
+    views: [
+      { name: "Summary",        layout: "expense-summary" },
+      {
+        name: "All Expenses", layout: "table",
+        columns: [
+          col("date",          "Date",        r => r.date),
+          col("vendor",        "Vendor",      r => <strong style={{color:C.ink}}>{r.vendor}</strong>),
+          col("description",   "Description", r => r.description),
+          col("category",      "Category",    r => <span style={{fontSize:12,padding:"2px 8px",borderRadius:8,background:hexA(EXPENSE_CATEGORY_COLOR[r.category]||C.ink3,0.12),color:EXPENSE_CATEGORY_COLOR[r.category]||C.ink3,fontWeight:600}}>{r.category}</span>),
+          col("amount",        "Amount",      r => <strong style={{color:C.ink}}>{money(r.amount)}</strong>, {align:"right"}),
+          col("paymentMethod", "Payment",     r => r.paymentMethod),
+          col("taxDeductible", "Tax Ded.",    r => r.taxDeductible ? <span style={{color:"#16A34A",fontWeight:700}}>✓ Yes</span> : <span style={{color:C.ink3}}>No</span>),
+          col("recurring",     "Recurring",   r => r.recurring ? <span style={{fontSize:11,padding:"2px 7px",borderRadius:8,background:C.brandSoft,color:C.brandDeep,fontWeight:600}}>{r.recurringFreq}</span> : ""),
+        ],
+        run: (rows) => ({
+          rows: [...rows].sort((a,b) => (b.date||"").localeCompare(a.date||"")),
+          footer: { amount: rows.reduce((s,r)=>s+(+r.amount||0),0) },
+        }),
+      },
+      {
+        name: "By Category", layout: "table",
+        columns: [
+          col("category",  "Category",      r => <span style={{fontSize:12,padding:"2px 8px",borderRadius:8,background:hexA(EXPENSE_CATEGORY_COLOR[r.category]||C.ink3,0.12),color:EXPENSE_CATEGORY_COLOR[r.category]||C.ink3,fontWeight:600}}>{r.category}</span>),
+          col("vendor",    "Vendor",        r => r.vendor),
+          col("date",      "Date",          r => r.date),
+          col("amount",    "Amount",        r => money(r.amount), {align:"right"}),
+          col("notes",     "Notes",         r => r.notes),
+        ],
+        run: (rows) => ({
+          rows: [...rows].sort((a,b)=>(a.category||"").localeCompare(b.category||"")),
+          footer: { amount: rows.reduce((s,r)=>s+(+r.amount||0),0) },
+        }),
+      },
+      {
+        name: "Recurring", layout: "table",
+        columns: [
+          col("vendor",        "Vendor",      r => <strong style={{color:C.ink}}>{r.vendor}</strong>),
+          col("description",   "Description", r => r.description),
+          col("category",      "Category",    r => r.category),
+          col("amount",        "Amount",      r => money(r.amount), {align:"right"}),
+          col("recurringFreq", "Frequency",   r => r.recurringFreq),
+        ],
+        run: (rows) => {
+          const filtered = rows.filter(r => r.recurring);
+          return { rows: filtered, footer: { amount: filtered.reduce((s,r)=>s+(+r.amount||0),0) } };
+        },
+      },
+      {
+        name: "Tax Deductible", layout: "table",
+        columns: [
+          col("date",        "Date",        r => r.date),
+          col("vendor",      "Vendor",      r => r.vendor),
+          col("description", "Description", r => r.description),
+          col("category",    "Category",    r => r.category),
+          col("amount",      "Amount",      r => money(r.amount), {align:"right"}),
+        ],
+        run: (rows) => {
+          const filtered = rows.filter(r => r.taxDeductible);
+          return { rows: filtered, footer: { amount: filtered.reduce((s,r)=>s+(+r.amount||0),0) } };
+        },
+      },
     ],
   },
   clients: {
@@ -3500,6 +3633,21 @@ const FIELDS = {
     f("body",      "Message body",       "textarea"),
     f("variables", "Variables (e.g. {{clientName}})", "text"),
     f("notes",     "Notes / usage tips", "textarea"),
+  ],
+  expenses: [
+    f("date",          "Date",             "date",     { title: true }),
+    f("vendor",        "Vendor / Payee",   "text"),
+    f("description",   "Description",      "text"),
+    f("amount",        "Amount ($)",       "number"),
+    f("category",      "Category",         "select",   { options: EXPENSE_CATEGORY }),
+    f("paymentMethod", "Payment Method",   "select",   { options: EXPENSE_PAYMENT_METHOD }),
+    f("taxDeductible", "Tax Deductible?",  "checkbox"),
+    f("recurring",     "Recurring?",       "checkbox"),
+    f("recurringFreq", "Frequency",        "select",   { options: EXPENSE_RECUR_FREQ }),
+    f("linkedSession", "Linked Session",   "text"),
+    f("linkedPartner", "Linked Studio",    "text"),
+    f("receiptUrl",    "Receipt URL",      "text"),
+    f("notes",         "Notes",            "textarea"),
   ],
 };
 function f(key, label, type, opts = {}) { return { key, label, type, ...opts }; }
@@ -4621,6 +4769,167 @@ const DB_ORDER = ["partners", "clients", "sessions", "offers", "content", "follo
 /* ============================================================
    ADMIN VIEW
    ============================================================ */
+
+/* ============================================================
+   EXPENSE SUMMARY VIEW
+   ============================================================ */
+function ExpenseSummaryView({ data, today, onOpen }) {
+  const expenses = data.expenses || [];
+  const mo  = today.slice(0, 7);
+  const yr  = today.slice(0, 4);
+
+  const mtd  = expenses.filter(e => (e.date||"").startsWith(mo));
+  const ytd  = expenses.filter(e => (e.date||"").startsWith(yr));
+  const totMTD  = mtd.reduce((s,e) => s + (+e.amount||0), 0);
+  const totYTD  = ytd.reduce((s,e) => s + (+e.amount||0), 0);
+  const taxDed  = ytd.filter(e => e.taxDeductible).reduce((s,e) => s + (+e.amount||0), 0);
+  const recurring = expenses.filter(e => e.recurring).reduce((s,e) => s + (+e.amount||0), 0);
+
+  // By category
+  const byCat = EXPENSE_CATEGORY.map(cat => {
+    const rows = ytd.filter(e => e.category === cat);
+    return { cat, total: rows.reduce((s,e) => s + (+e.amount||0), 0), count: rows.length };
+  }).filter(c => c.total > 0).sort((a,b) => b.total - a.total);
+
+  const maxCat = byCat[0]?.total || 1;
+
+  // Vendor breakdown (top 8)
+  const byVendor = Object.entries(
+    ytd.reduce((acc, e) => { acc[e.vendor] = (acc[e.vendor]||0) + (+e.amount||0); return acc; }, {})
+  ).map(([vendor, total]) => ({ vendor, total })).sort((a,b) => b.total - a.total).slice(0,8);
+
+  // Monthly trend (last 6 months)
+  const months = Array.from({length:6}, (_,i) => {
+    const d = new Date(today);
+    d.setMonth(d.getMonth() - (5-i));
+    return d.toISOString().slice(0,7);
+  });
+  const monthlyData = months.map(m => ({
+    label: new Date(m+"-01").toLocaleDateString("en-US",{month:"short"}),
+    total: expenses.filter(e=>(e.date||"").startsWith(m)).reduce((s,e)=>s+(+e.amount||0),0),
+  }));
+  const maxMonth = Math.max(...monthlyData.map(m=>m.total), 1);
+
+  // Revenue context for margin
+  const netRevMTD = (data.sessions||[])
+    .filter(s => (s.date||"").startsWith(mo) && s.status === "Completed")
+    .reduce((s,r) => s + (+r.netRevenue||0), 0);
+  const opProfit = netRevMTD - totMTD;
+  const margin = netRevMTD > 0 ? Math.round((opProfit / netRevMTD) * 100) : null;
+
+  // CSV import instructions
+  const csvCols = "date,vendor,description,amount,category,paymentMethod,taxDeductible,recurring,recurringFreq,notes";
+
+  return (
+    <div style={{maxWidth:1100,margin:"0 auto"}}>
+      {/* Stats row */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:14,marginBottom:24}}>
+        {[
+          { label:"Expenses MTD",      value: money(totMTD),           sub: "this month", color: "#EF4444" },
+          { label:"Expenses YTD",      value: money(totYTD),           sub: "this year",  color: C.ink2 },
+          { label:"Tax Deductible YTD",value: money(taxDed),           sub: `${totYTD>0?Math.round(taxDed/totYTD*100):0}% of total`, color:"#16A34A" },
+          { label:"Recurring / mo",    value: money(recurring),        sub: "committed monthly", color: "#8E44AD" },
+          { label:"Operating Margin",  value: margin !== null ? margin+"%" : "—", sub: `Profit: ${money(opProfit)} MTD`, color: opProfit >= 0 ? "#16A34A" : "#EF4444" },
+        ].map(s => (
+          <div key={s.label} style={{background:C.surface,borderRadius:14,padding:"16px 18px",border:`1px solid ${C.line}`}}>
+            <div style={{fontSize:11,color:C.ink3,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em"}}>{s.label}</div>
+            <div style={{fontSize:26,fontWeight:700,color:s.color,margin:"6px 0 2px",fontFamily:FONT.display}}>{s.value}</div>
+            <div style={{fontSize:11,color:C.ink3}}>{s.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:18,marginBottom:18}}>
+        {/* Category breakdown */}
+        <div style={{background:C.surface,borderRadius:16,border:`1px solid ${C.line}`,padding:"18px 20px"}}>
+          <div style={{fontWeight:700,fontSize:14,color:C.ink,marginBottom:14}}>Spend by Category — YTD</div>
+          {byCat.length === 0 ? <div style={{color:C.ink3,fontSize:13}}>No data</div> : byCat.map(c => (
+            <div key={c.cat} style={{marginBottom:11}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:4}}>
+                <span style={{color:C.ink,fontWeight:600}}>{c.cat} <span style={{color:C.ink3,fontWeight:400}}>({c.count})</span></span>
+                <span style={{color:EXPENSE_CATEGORY_COLOR[c.cat]||C.ink3,fontWeight:700}}>{money(c.total)}</span>
+              </div>
+              <div style={{height:7,background:C.line,borderRadius:4}}>
+                <div style={{height:"100%",width:(c.total/maxCat*100)+"%",background:EXPENSE_CATEGORY_COLOR[c.cat]||C.brand,borderRadius:4}}/>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Monthly trend */}
+        <div style={{background:C.surface,borderRadius:16,border:`1px solid ${C.line}`,padding:"18px 20px"}}>
+          <div style={{fontWeight:700,fontSize:14,color:C.ink,marginBottom:14}}>Monthly Trend</div>
+          <div style={{display:"flex",alignItems:"flex-end",gap:8,height:130}}>
+            {monthlyData.map(m => (
+              <div key={m.label} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                <div style={{fontSize:11,color:C.ink3,fontWeight:600}}>{m.total>0?money(m.total):""}</div>
+                <div style={{width:"100%",background:C.brand,borderRadius:"4px 4px 0 0",height:Math.max(4,Math.round((m.total/maxMonth)*90))+"px"}}/>
+                <div style={{fontSize:11,color:C.ink3}}>{m.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:18,marginBottom:18}}>
+        {/* Top vendors */}
+        <div style={{background:C.surface,borderRadius:16,border:`1px solid ${C.line}`,padding:"18px 20px"}}>
+          <div style={{fontWeight:700,fontSize:14,color:C.ink,marginBottom:14}}>Top Vendors — YTD</div>
+          {byVendor.map((v,i) => (
+            <div key={v.vendor} style={{display:"flex",alignItems:"center",gap:10,marginBottom:9}}>
+              <span style={{fontSize:11,fontWeight:700,color:C.ink3,width:16,textAlign:"right"}}>{i+1}</span>
+              <span style={{flex:1,fontSize:13,color:C.ink}}>{v.vendor}</span>
+              <span style={{fontSize:13,fontWeight:700,color:C.ink}}>{money(v.total)}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Margin summary */}
+        <div style={{background:C.surface,borderRadius:16,border:`1px solid ${C.line}`,padding:"18px 20px"}}>
+          <div style={{fontWeight:700,fontSize:14,color:C.ink,marginBottom:14}}>Profitability — MTD</div>
+          {[
+            { label:"Gross Revenue MTD",    value: (data.sessions||[]).filter(s=>(s.date||"").startsWith(mo)&&s.status==="Completed").reduce((s,r)=>s+(+r.grossRevenue||0),0), positive:true },
+            { label:"Studio Splits MTD",    value: -(data.sessions||[]).filter(s=>(s.date||"").startsWith(mo)&&s.status==="Completed").reduce((s,r)=>s+(+r.studioSplit||0),0), positive:false },
+            { label:"Net Revenue MTD",      value: netRevMTD, positive:true, bold:true },
+            { label:"Total Expenses MTD",   value: -totMTD,   positive:false },
+            { label:"Operating Profit MTD", value: opProfit,  positive:opProfit>=0, bold:true, big:true },
+          ].map(r => (
+            <div key={r.label} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.line}`,fontSize:r.big?15:13}}>
+              <span style={{color:r.bold?C.ink:C.ink3,fontWeight:r.bold?700:400}}>{r.label}</span>
+              <span style={{fontWeight:r.bold||r.big?700:600,color:r.value>=0?"#16A34A":"#EF4444"}}>{r.value>=0?money(r.value):"-"+money(Math.abs(r.value))}</span>
+            </div>
+          ))}
+          {margin !== null && (
+            <div style={{marginTop:10,textAlign:"center",fontSize:12,color:C.ink3}}>
+              Operating margin: <strong style={{color:margin>=0?"#16A34A":"#EF4444"}}>{margin}%</strong>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* CSV import guide */}
+      <div style={{background:C.surface,borderRadius:16,border:`1px solid ${C.line}`,padding:"18px 22px"}}>
+        <div style={{fontWeight:700,fontSize:14,color:C.ink,marginBottom:8}}>Bulk Import via CSV</div>
+        <div style={{fontSize:13,color:C.ink3,marginBottom:12,lineHeight:1.7}}>
+          Export your expenses from your bank, credit card statement, or accounting software as a CSV and import them directly. Use <strong>Import CSVs</strong> in the sidebar, select <strong>Expenses</strong>, and upload your file.
+        </div>
+        <div style={{fontWeight:600,fontSize:12,color:C.ink2,marginBottom:6}}>Required CSV column headers (in any order):</div>
+        <div style={{fontFamily:"monospace",fontSize:12,background:C.surfaceAlt,padding:"10px 14px",borderRadius:10,color:C.brand,wordBreak:"break-all",marginBottom:12}}>{csvCols}</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,fontSize:12,color:C.ink3}}>
+          <div><strong style={{color:C.ink2}}>date</strong> — YYYY-MM-DD format (e.g. 2026-06-15)</div>
+          <div><strong style={{color:C.ink2}}>amount</strong> — number only, no $ sign (e.g. 49.99)</div>
+          <div><strong style={{color:C.ink2}}>category</strong> — must match an allowed category exactly</div>
+          <div><strong style={{color:C.ink2}}>taxDeductible</strong> — true or false</div>
+          <div><strong style={{color:C.ink2}}>recurring</strong> — true or false</div>
+          <div><strong style={{color:C.ink2}}>recurringFreq</strong> — One-time, Monthly, Quarterly, or Annual</div>
+        </div>
+        <div style={{marginTop:12,fontSize:12,color:C.ink3,fontStyle:"italic"}}>
+          Tip: Export directly from QuickBooks, Wave, or your bank statement. Rename the columns to match the headers above before importing.
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const DB_SCHEMA = [
   {
