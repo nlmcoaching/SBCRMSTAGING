@@ -218,6 +218,23 @@ const OUTREACH_SOURCE       = ["Instagram DM","Email","Cold outreach","Referral"
 const OUTREACH_PRIORITY     = ["High","Medium","Low"];
 const OUTREACH_PRIORITY_COLOR = { High: "#C0573F", Medium: "#E09040", Low: "#9E9E9E" };
 
+/* ── TESTIMONIALS ── */
+const TESTIMONIAL_STATUS = ["Breakthrough noted","Request sent","Received","Approved","Published","Declined"];
+const TESTIMONIAL_STATUS_COLOR = {
+  "Breakthrough noted": "#D9892B",
+  "Request sent":       "#5FB0F2",
+  "Received":           "#3F87DC",
+  "Approved":           "#6B5CE7",
+  "Published":          "#4A8C6F",
+  "Declined":           "#C0573F",
+};
+const TESTIMONIAL_TYPE   = ["Written","Video","Audio","Quote only"];
+const TESTIMONIAL_THEMES = [
+  "Stress relief","Emotional release","Mental clarity","Emotional breakthrough",
+  "Improved sleep","Performance","Grief processing","Anxiety relief",
+  "Confidence","Spiritual growth","Nervous system reset","Physical release",
+];
+
 function outreachScore(o, today) {
   let s = 0;
   if (o.warmth === "Hot") s += 40; else if (o.warmth === "Warm") s += 20;
@@ -524,6 +541,13 @@ const SEED = {
     { id: "ot6", name: "Sample - Zen Den Studio",       targetType: "Studio",  contactName: "Naomi Chase",   email: "naomi@zenden.com",  phone: "555-0306", location: "Concord, CA",     source: "Google",        warmth: "Cold", priority: "Low",    status: "Not contacted",     responseStatus: "Pending",     outreachMessage: "",               lastContact: "",           nextFollowUp: "2026-06-20", revenuePotential: 800,  partnerId: "", notes: "Found via Google Maps. Small studio. Low priority but nearby." },
     { id: "ot7", name: "Sample - Sacred Space",         targetType: "Studio",  contactName: "Leah Odom",     email: "leah@sacred.com",   phone: "555-0307", location: "Martinez, CA",     source: "Instagram DM",  warmth: "Cold", priority: "Low",    status: "Messaged",          responseStatus: "Ghosted",     outreachMessage: "template_intro", lastContact: "2026-05-28", nextFollowUp: "2026-06-12", revenuePotential: 1000, partnerId: "", notes: "Sent two messages. No reply. May re-engage next month." },
   ],
+  testimonials: [
+    { id: "tm1", name: "Sample - Dana Wolfe — Letting Go",         clientId: "c6", sessionId: "s1", status: "Published", type: "Written",    content: "I didn't expect to cry. I didn't expect to feel that much. But somewhere in the middle of that session, something I had been holding for years finally moved. I left the room feeling lighter than I had in a long time. This isn't just breathwork — it's a doorway.",                                                                                          bestQuote: "Something I had been holding for years finally moved.",          beforeSummary: "Grieving a loss, carrying unexpressed emotion, feeling stuck", afterSummary: "Deep release, emotional lightness, renewed sense of clarity",   themes: ["Emotional release","Grief processing","Emotional breakthrough"], permissionReceived: true,  useOnWebsite: true,  useOnSocial: true,  firstNameOnly: false, videoUrl: "",   dateReceived: "2026-06-02", datePublished: "2026-06-05", notes: "Used on homepage hero section" },
+    { id: "tm2", name: "Sample - Sam Rivera — New Moon ceremony",  clientId: "c5", sessionId: "s3", status: "Published", type: "Written",    content: "I've tried meditation, therapy, and journaling. Nothing prepared me for how quickly breathwork cut through the noise. Within 15 minutes I was somewhere I hadn't been in years — fully present, no anxiety, just breath. I've been back four times since.",                                                                                     bestQuote: "Within 15 minutes I was somewhere I hadn't been in years.",      beforeSummary: "Chronic anxiety, difficulty being present",                  afterSummary: "Immediate calm, commitment to practice, bought 3-pack",        themes: ["Anxiety relief","Stress relief","Nervous system reset"],         permissionReceived: true,  useOnWebsite: true,  useOnSocial: true,  firstNameOnly: false, videoUrl: "",   dateReceived: "2026-04-08", datePublished: "2026-04-12", notes: "Top converting testimonial on booking page" },
+    { id: "tm3", name: "Sample - Maya Chen — June 10 session",     clientId: "c2", sessionId: "s2", status: "Approved",  type: "Written",    content: "I came in burned out and skeptical. I left with a full body reset. I slept better that night than I had in months and woke up actually looking forward to my day. Whatever this is, more people need to know about it.",                                                                                                              bestQuote: "I came in burned out and skeptical. I left with a full body reset.", beforeSummary: "Burnout, poor sleep, high stress job",                    afterSummary: "Deep sleep that night, energy shift, interest in private session", themes: ["Stress relief","Improved sleep","Emotional breakthrough"],      permissionReceived: true,  useOnWebsite: true,  useOnSocial: false, firstNameOnly: false, videoUrl: "",   dateReceived: "2026-06-11", datePublished: "",           notes: "Approved — schedule for social this week" },
+    { id: "tm4", name: "Sample - Priya Nair — Sunday Slow Down",   clientId: "c4", sessionId: "s3", status: "Received",  type: "Written",    content: "I came because Sam wouldn't stop talking about it. I stayed because something in me woke up. I've never cried and laughed in the same breath before. My body knew things my mind had forgotten.",                                                                                                                          bestQuote: "My body knew things my mind had forgotten.",                      beforeSummary: "Skeptical, came via referral",                               afterSummary: "Emotional awakening, high referral potential",                  themes: ["Emotional release","Spiritual growth","Mental clarity"],        permissionReceived: false, useOnWebsite: false, useOnSocial: false, firstNameOnly: false, videoUrl: "",   dateReceived: "2026-06-08", datePublished: "",           notes: "Need to confirm permission before using" },
+    { id: "tm5", name: "Sample - Chris Okafor — first session",    clientId: "c3", sessionId: "s1", status: "Breakthrough noted", type: "Written", content: "",                                                                                                                                                                                                                                                                                                               bestQuote: "",                                                               beforeSummary: "First-timer, strong nervous system response during session",  afterSummary: "Hasn't been asked yet — testimonial request overdue",          themes: ["Stress relief","Nervous system reset"],                          permissionReceived: false, useOnWebsite: false, useOnSocial: false, firstNameOnly: false, videoUrl: "",   dateReceived: "",           datePublished: "",           notes: "Breakthrough observed 6/1. Request not yet sent." },
+  ],
 };
 
 /* ---------- Helpers ---------- */
@@ -629,11 +653,12 @@ export default function App() {
   const sections = [
     { id: "today",    label: "Command Center",     Icon: LayoutGrid,  lane: "core" },
     // B2C — individual clients
-    { id: "clients",  label: "Clients",            Icon: Users,       lane: "b2c"  },
-    { id: "offers",   label: "Offers & Sales",     Icon: DollarSign,  lane: "b2c"  },
-    { id: "followups",label: "Follow-Ups",         Icon: RefreshCw,   lane: "b2c"  },
-    { id: "referrals",label: "Referrals",          Icon: Users,       lane: "b2c"  },
-    { id: "engine",   label: "Follow-up Engine",   Icon: Zap,         lane: "b2c"  },
+    { id: "clients",      label: "Clients",            Icon: Users,       lane: "b2c"  },
+    { id: "offers",       label: "Offers & Sales",     Icon: DollarSign,  lane: "b2c"  },
+    { id: "testimonials", label: "Testimonials",       Icon: ArrowUpRight, lane: "b2c" },
+    { id: "followups",    label: "Follow-Ups",         Icon: RefreshCw,   lane: "b2c"  },
+    { id: "referrals",    label: "Referrals",          Icon: Users,       lane: "b2c"  },
+    { id: "engine",       label: "Follow-up Engine",   Icon: Zap,         lane: "b2c"  },
     // B2B — studio partners
     { id: "partners", label: "Studio Partners",    Icon: Building2,   lane: "b2b"  },
     { id: "outreach", label: "Outreach Hub",       Icon: Send,        lane: "b2b"  },
@@ -812,13 +837,14 @@ function newRecord(db) {
   const m = {
     clients: { name: "", phone: "", email: "", source: "Post-session", status: "Lead", clientType: "First-time attendee", tags: [], firstSession: "", sessionsAttended: 0, lastSession: "", nextSession: "", packageType: "None", lifetimeValue: 0, notes: "", referral: "Low" },
     partners: { name: "", studioType: "Yoga", location: "", contact: "", role: "Owner", email: "", phone: "", stage: "Target identified", estimatedCommunitySize: 0, bestFitJourney: "", revenuePotential: 0, closeProbability: "Low", revShare: "", contractStatus: "None", outreachDate: "", lastTouch: todayISO(), nextAction: "", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "", checklist: emptyChecklist() },
-    sessions: { name: "", studioId: "", date: todayISO(), time: "", status: "Planned", journey: "Breathwork Basics", capacity: 20, registered: 0, attendance: 0, paidAttendees: 0, waivers: 0, noShows: 0, revenue: 0, studioSplit: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, equipmentNeeded: "", roomSetupStatus: "Not started", musicSetupStatus: "Not started", testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false, referralsRequested: false, notes: "", checklist: emptySessionChecklist() },
+    sessions: { name: "", studioId: "", date: todayISO(), time: "", status: "Planned", journey: "Breathwork Basics", capacity: 20, registered: 0, attendance: 0, paidAttendees: 0, waivers: 0, noShows: 0, revenue: 0, studioSplit: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, equipmentNeeded: "", roomSetupStatus: "Not started", musicSetupStatus: "Not started", testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false, referralsRequested: false, breakthroughNoted: false, notes: "", checklist: emptySessionChecklist() },
     offers:    { name: "", clientId: "", offerType: "Single session", price: 0, status: "Drafted", probability: "50%", source: "", dateOffered: todayISO(), expireDate: "", followUpDate: "", notes: "", reasonLost: "" },
     revenue:   { name: "", date: todayISO(), channel: "Studio session", source: "", campaign: "", sessionId: "", clientId: "", gross: 0, stripeFee: 0, studioSplit: 0, facilitatorCost: 0, refunds: 0, costCenter: "Studio sessions", notes: "" },
     content: { name: "", category: "Breathwork education", status: "Idea", platform: "Instagram", scheduledDate: "", datePosted: "", body: "", cta: "Book a session", sessionId: "", partnerId: "", reused: false, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0, engagement: 0, leads: 0, booked: 0, revenue: 0, notes: "" },
     followups: { name: "", clientId: "", stage: "Lead", lastContact: todayISO(), futype: "24h", nextAction: "", outcome: "" },
     referrals: { referrerId: "", referredName: "", referredId: "", date: todayISO(), status: "Referred", revenue: 0, thankYouSent: false, rewardGiven: false, notes: "" },
     outreach:  { name: "", targetType: "Studio", contactName: "", email: "", phone: "", location: "", source: "Cold outreach", warmth: "Cold", priority: "Medium", status: "Not contacted", responseStatus: "Pending", outreachMessage: "", lastContact: "", nextFollowUp: "", revenuePotential: 0, partnerId: "", notes: "" },
+    testimonials: { name: "", clientId: "", sessionId: "", status: "Breakthrough noted", type: "Written", content: "", bestQuote: "", beforeSummary: "", afterSummary: "", themes: [], permissionReceived: false, useOnWebsite: false, useOnSocial: false, firstNameOnly: false, videoUrl: "", dateReceived: "", datePublished: "", notes: "" },
   };
   return { ...base, ...m[db] };
 }
@@ -1233,6 +1259,20 @@ function buildAlerts(data, today) {
       detail: "No follow-up or partner contact logged in the last 7 days",
       db: null, record: null });
   }
+
+  // 12 — Breakthrough noted but no testimonial request yet
+  const testimonialSessionIds = new Set((data.testimonials || []).map(t => t.sessionId).filter(Boolean));
+  sessions.filter(s =>
+    s.breakthroughNoted &&
+    ["Completed","Follow-up pending","Closed out"].includes(s.status) &&
+    !testimonialSessionIds.has(s.id)
+  ).forEach(s => {
+    const d = daysAgo(s.date);
+    alerts.push({ id: "bkt_" + s.id, severity: d > 7 ? "warning" : "info", category: "relationship",
+      title: `Testimonial not requested — breakthrough noted at ${s.name}`,
+      detail: `Session was ${d} day${d !== 1 ? "s" : ""} ago · window closing`,
+      db: "sessions", record: s });
+  });
 
   // 11 — Referral thank-you overdue > 3 days
   (data.referrals || []).filter(r => !r.thankYouSent && r.referrerId && daysAgo(r.date) > 3)
@@ -1752,6 +1792,8 @@ function Section({ section, data, derived, today, view, setView, query, onOpen }
         ? <ReferralTreeView data={data} derived={derived} today={today} onOpen={(r) => onOpen({ db: "referrals", record: r })} />
         : v.layout === "content-analytics"
         ? <ContentAnalyticsView data={data} onOpen={onOpen} />
+        : v.layout === "testimonial-library"
+        ? <TestimonialLibraryView data={data} onOpen={onOpen} />
         : v.layout === "outreach-hub"
         ? <OutreachHubView rows={processed.rows} data={data} today={today} onOpen={(r) => onOpen({ db: "outreach", record: r })} />
         : v.layout === "calendar"
@@ -2028,6 +2070,42 @@ const VIEWS = {
           col("outcome", "Outcome", (r) => r.outcome ? <span style={{ color: C.brand }}>{r.outcome}</span> : <span style={{ color: C.ink3 }}>pending</span>),
         ],
         run: (rows) => ({ rows }) },
+    ],
+  },
+  testimonials: {
+    views: [
+      { name: "Library", layout: "testimonial-library" },
+      { name: "All", layout: "table",
+        columns: [
+          col("name",       "Testimonial",  (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
+          col("clientId",   "Client",       (r, c) => clientShort(c.derived.clientName[r.clientId] || "—")),
+          col("status",     "Status",       (r) => <Tag color={TESTIMONIAL_STATUS_COLOR[r.status]} soft>{r.status}</Tag>),
+          col("type",       "Type",         (r) => r.type),
+          col("themes",     "Themes",       (r) => <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>{(r.themes||[]).slice(0,2).map(t=><Tag key={t} soft>{t}</Tag>)}</div>),
+          col("useOnWebsite","Web",         (r) => r.useOnWebsite ? <span style={{ color:"#4A8C6F" }}>✓</span> : "—", { align:"center" }),
+          col("useOnSocial", "Social",      (r) => r.useOnSocial  ? <span style={{ color:"#6B5CE7" }}>✓</span> : "—", { align:"center" }),
+          col("datePublished","Published",  (r) => fmtDate(r.datePublished)),
+        ],
+        run: (rows) => ({ rows: [...rows].sort((a,b) => {
+          const ord = { Published:0, Approved:1, Received:2, "Request sent":3, "Breakthrough noted":4, Declined:5 };
+          return (ord[a.status]??9) - (ord[b.status]??9);
+        }) }) },
+      { name: "Action needed", layout: "table",
+        columns: [
+          col("name",     "Testimonial",  (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
+          col("clientId", "Client",       (r, c) => clientShort(c.derived.clientName[r.clientId] || "—")),
+          col("status",   "Status",       (r) => <Tag color={TESTIMONIAL_STATUS_COLOR[r.status]} soft>{r.status}</Tag>),
+          col("notes",    "Notes",        (r) => r.notes),
+        ],
+        run: (rows) => ({ rows: rows.filter(r => ["Breakthrough noted","Request sent"].includes(r.status)) }) },
+      { name: "By theme", layout: "board",
+        card: ["clientId","status","bestQuote"],
+        run: (rows) => ({
+          groups: TESTIMONIAL_THEMES.map(th => ({
+            key: th, label: th, color: "#6B5CE7",
+            cards: rows.filter(r => (r.themes||[]).includes(th)),
+          })).filter(g => g.cards.length > 0),
+        }) },
     ],
   },
   referrals: {
@@ -2445,6 +2523,7 @@ const FIELDS = {
     f("roomSetupStatus", "Room setup status", "select", { options: SETUP_STATUS }),
     f("musicSetupStatus", "Music/headset status", "select", { options: SETUP_STATUS }),
     f("equipmentNeeded", "Equipment needed", "textarea"),
+    f("breakthroughNoted", "Breakthrough noted?", "checkbox"),
     f("notes", "Session notes", "textarea"),
   ],
   offers: [
@@ -2521,6 +2600,26 @@ const FIELDS = {
     f("revenuePotential", "Revenue potential",    "currency"),
     f("partnerId",        "Linked studio partner","relation",  { target: "partners" }),
     f("notes",            "Notes",                "textarea"),
+  ],
+  testimonials: [
+    f("name",            "Testimonial title",      "text",       { title: true }),
+    f("clientId",        "Client",                 "relation",   { target: "clients" }),
+    f("sessionId",       "Session attended",       "relation",   { target: "sessions" }),
+    f("status",          "Status",                 "select",     { options: TESTIMONIAL_STATUS }),
+    f("type",            "Type",                   "select",     { options: TESTIMONIAL_TYPE }),
+    f("content",         "Full testimonial",       "textarea"),
+    f("bestQuote",       "Best quote",             "textarea"),
+    f("beforeSummary",   "Before (client state)",  "textarea"),
+    f("afterSummary",    "After (what shifted)",   "textarea"),
+    f("themes",          "Themes",                 "multiselect",{ options: TESTIMONIAL_THEMES }),
+    f("permissionReceived","Permission received?", "checkbox"),
+    f("useOnWebsite",    "Use on website?",        "checkbox"),
+    f("useOnSocial",     "Use on social?",         "checkbox"),
+    f("firstNameOnly",   "First name only?",       "checkbox"),
+    f("videoUrl",        "Video URL",              "text"),
+    f("dateReceived",    "Date received",          "date"),
+    f("datePublished",   "Date published",         "date"),
+    f("notes",           "Notes",                  "textarea"),
   ],
 };
 function f(key, label, type, opts = {}) { return { key, label, type, ...opts }; }
@@ -3816,6 +3915,165 @@ function OutreachHubView({ rows, data, today, onOpen }) {
 /* ============================================================
    REFERRAL TREE
    ============================================================ */
+
+/* ── TESTIMONIAL LIBRARY ── */
+function TestimonialLibraryView({ data, onOpen }) {
+  const testimonials = data.testimonials || [];
+  const clients      = data.clients || [];
+
+  const published    = testimonials.filter(t => t.status === "Published");
+  const approved     = testimonials.filter(t => t.status === "Approved");
+  const actionNeeded = testimonials.filter(t =>
+    ["Breakthrough noted","Request sent"].includes(t.status)
+  );
+  const withVideo    = testimonials.filter(t => t.type === "Video" && t.status === "Published");
+  const readyForWeb  = published.filter(t => t.useOnWebsite);
+  const readyForSocial = published.filter(t => t.useOnSocial);
+
+  const clientName = (id) => {
+    const c = clients.find(x => x.id === id);
+    return c ? cleanName(c.name) : "—";
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+      {/* Stats */}
+      <div className="sb-stats">
+        <Stat label="Published"       value={published.length}       hint="approved + live" accent={C.brand} />
+        <Stat label="Ready for web"   value={readyForWeb.length}     hint="permission confirmed" accent="#4A8C6F" />
+        <Stat label="Ready for social"value={readyForSocial.length}  hint="approved to post" accent="#6B5CE7" />
+        <Stat label="Action needed"   value={actionNeeded.length}    hint="request or follow-up" accent={actionNeeded.length ? C.gold : C.ink3} />
+      </div>
+
+      {/* Action needed banner */}
+      {actionNeeded.length > 0 && (
+        <div style={{ border: `1px solid #F5E4A8`, borderRadius: 12, overflow: "hidden" }}>
+          <div style={{ padding: "11px 16px", background: "#FFFBF0", borderBottom: "1px solid #F5E4A8",
+            display: "flex", alignItems: "center", gap: 8 }}>
+            <BellRing size={14} color={C.gold} strokeWidth={2.5} />
+            <span style={{ fontWeight: 700, fontSize: 13.5, color: "#7A4D0F" }}>
+              {actionNeeded.length} testimonial{actionNeeded.length !== 1 ? "s" : ""} need attention
+            </span>
+          </div>
+          {actionNeeded.map((t, i) => {
+            const sv = t.status === "Breakthrough noted" ? "#D9892B" : "#5FB0F2";
+            return (
+              <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px",
+                background: "#fff", borderBottom: i < actionNeeded.length - 1 ? `1px solid ${C.line}` : "none",
+                borderLeft: `3px solid ${sv}` }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{clientName(t.clientId)}</div>
+                  <div style={{ fontSize: 11.5, color: C.ink3 }}>{t.notes || t.status}</div>
+                </div>
+                <Tag color={TESTIMONIAL_STATUS_COLOR[t.status]} soft>{t.status}</Tag>
+                <button onClick={() => onOpen({ db: "testimonials", record: t })} style={{
+                  fontSize: 11.5, fontWeight: 600, padding: "4px 12px", borderRadius: 7, cursor: "pointer",
+                  background: C.brandSoft, color: C.brandDeep, border: `1px solid ${C.brand}40`,
+                }}>View</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Published quote cards */}
+      {published.length > 0 && (
+        <div>
+          <h3 style={{ fontFamily: FONT.display, fontSize: 16, fontWeight: 600, margin: "0 0 12px" }}>
+            Published Testimonials
+          </h3>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }} className="sb-grid2">
+            {published.map(t => {
+              const themeColor = TESTIMONIAL_STATUS_COLOR["Published"];
+              return (
+                <div key={t.id} style={{ background: C.surface, border: `1px solid ${C.line}`,
+                  borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                  {/* Colored top bar */}
+                  <div style={{ height: 4, background: `linear-gradient(90deg, ${C.brand}, #6B5CE7)` }} />
+                  <div style={{ padding: "14px 16px", flex: 1 }}>
+                    {t.bestQuote ? (
+                      <blockquote style={{ margin: 0, fontFamily: FONT.display, fontSize: 14.5, fontWeight: 500,
+                        color: C.ink, lineHeight: 1.5, fontStyle: "italic" }}>
+                        "{t.bestQuote}"
+                      </blockquote>
+                    ) : t.content ? (
+                      <blockquote style={{ margin: 0, fontFamily: FONT.display, fontSize: 13.5, fontWeight: 400,
+                        color: C.ink, lineHeight: 1.5, fontStyle: "italic" }}>
+                        "{t.content.slice(0, 160)}{t.content.length > 160 ? "…" : ""}"
+                      </blockquote>
+                    ) : null}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+                      <div style={{ width: 28, height: 28, borderRadius: "50%", background: C.brandSoft,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 13, fontWeight: 700, color: C.brand, flexShrink: 0 }}>
+                        {(clientName(t.clientId) || "?")[0]}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, color: C.ink }}>
+                          {t.firstNameOnly ? clientName(t.clientId).split(" ")[0] : clientName(t.clientId)}
+                        </div>
+                        <div style={{ fontSize: 11, color: C.ink3 }}>{fmtDate(t.datePublished)}</div>
+                      </div>
+                    </div>
+                    {t.themes?.length > 0 && (
+                      <div style={{ display: "flex", gap: 5, marginTop: 10, flexWrap: "wrap" }}>
+                        {t.themes.slice(0, 3).map(th => (
+                          <span key={th} style={{ fontSize: 10.5, fontWeight: 600, padding: "2px 8px",
+                            borderRadius: 20, background: C.surfaceAlt, color: C.ink2 }}>{th}</span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {/* Permission chips + edit */}
+                  <div style={{ padding: "10px 14px", borderTop: `1px solid ${C.line}`,
+                    display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    {t.useOnWebsite && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#E2F0EA", color: "#1E5239" }}>Website ✓</span>}
+                    {t.useOnSocial  && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#EEEAFF", color: "#3D2DA0" }}>Social ✓</span>}
+                    {t.type === "Video" && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#FFF2F0", color: "#C0573F" }}>📹 Video</span>}
+                    <div style={{ flex: 1 }} />
+                    <button onClick={() => onOpen({ db: "testimonials", record: t })} style={{
+                      fontSize: 11, padding: "3px 10px", borderRadius: 6, cursor: "pointer",
+                      background: "transparent", color: C.ink3, border: `1px solid ${C.line}`,
+                    }}>Edit</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Approved not yet published */}
+      {approved.length > 0 && (
+        <div className="sb-card">
+          <div className="sb-panelhead">
+            <span style={{ fontFamily: FONT.display, fontSize: 15, fontWeight: 600 }}>Approved — Ready to Publish</span>
+            <span className="sb-badge">{approved.length}</span>
+          </div>
+          <div className="sb-panelbody">
+            {approved.map(t => (
+              <button key={t.id} className="sb-listrow" onClick={() => onOpen({ db: "testimonials", record: t })}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{clientName(t.clientId)}</div>
+                  <div style={{ fontSize: 12, color: C.ink2, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    "{t.bestQuote || t.content?.slice(0, 100) || "—"}"
+                  </div>
+                  <div style={{ display: "flex", gap: 5, marginTop: 5 }}>
+                    {t.themes?.slice(0, 2).map(th => <Tag key={th} soft>{th}</Tag>)}
+                    {t.useOnWebsite && <Tag color="#4A8C6F" soft>Website OK</Tag>}
+                    {t.useOnSocial  && <Tag color="#6B5CE7" soft>Social OK</Tag>}
+                  </div>
+                </div>
+                <ChevronRight size={14} color={C.ink3} />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ContentAnalyticsView({ data, onOpen }) {
   const posts    = data.content || [];
