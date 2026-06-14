@@ -894,6 +894,28 @@ const STORE_KEY_ENC = "simplybreathe:data:v5:enc";       // encrypted storage
 const SEC_META_KEY  = "sb:security:v1";                  // { pinHash, salt }
 const DEFAULT_PIN   = "Letmein26!";
 
+// Unified storage — uses window.storage (Cursor canvas) when available, falls back to localStorage
+const store = {
+  async get(key) {
+    try {
+      if (typeof window !== "undefined" && window.storage) {
+        return window.storage.get(key);
+      }
+      const val = localStorage.getItem(key);
+      return { value: val };
+    } catch { return { value: null }; }
+  },
+  async set(key, value) {
+    try {
+      if (typeof window !== "undefined" && window.storage) {
+        return window.storage.set(key, value);
+      }
+      localStorage.setItem(key, value);
+    } catch { /* storage unavailable */ }
+  },
+  available() { return true; }, // store always works via localStorage fallback
+};
+
 /* ── SECURITY UTILITIES ── */
 const Sec = {
   async hashPin(pin) {
@@ -1159,42 +1181,40 @@ export default function App() {
     let alive = true;
     (async () => {
       try {
-        if (typeof window !== "undefined" && window.storage) {
-          const sec = await window.storage.get(SEC_META_KEY);
-          if (sec?.value) {
-            const parsed = JSON.parse(sec.value);
-            // v2 multi-user format
-            if (parsed.version === 2 && Array.isArray(parsed.users)) {
-              if (alive) setSecUsers(parsed.users.filter(u => u.active !== false));
-            } else {
-              // v1 single-user format — show a placeholder tile so the screen is interactive
-              // handleUnlock will auto-migrate to v2 on successful PIN entry
-              if (alive) setSecUsers([{
-                id: "v1_migration", name: "Admin", role: "Owner",
-                permissions: ROLE_PERMISSIONS.Owner, active: true, color: USER_COLORS[0],
-              }]);
-            }
+        const sec = await store.get(SEC_META_KEY);
+        if (sec?.value) {
+          const parsed = JSON.parse(sec.value);
+          // v2 multi-user format
+          if (parsed.version === 2 && Array.isArray(parsed.users)) {
+            if (alive) setSecUsers(parsed.users.filter(u => u.active !== false));
           } else {
-            // First ever run — seed owner with default PIN
-            const pinSalt       = Sec.newSalt();
-            const pinHash       = await Sec.hashPin(DEFAULT_PIN);
-            const masterKeyB64  = await Sec.generateMasterKeyB64();
-            const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyB64, DEFAULT_PIN, pinSalt);
-            const owner = {
-              id: "u_owner", name: "Admin", role: "Owner",
-              pinHash, pinSalt, wrappedMasterKey,
-              permissions: ROLE_PERMISSIONS.Owner,
-              active: true, color: USER_COLORS[0],
-              createdAt: todayISO(), lastLogin: "",
-            };
-            const newSec = { version: 2, users: [owner] };
-            await window.storage.set(SEC_META_KEY, JSON.stringify(newSec));
-            if (alive) setSecUsers([owner]);
+            // v1 single-user format — show a placeholder tile so the screen is interactive
+            // handleUnlock will auto-migrate to v2 on successful PIN entry
+            if (alive) setSecUsers([{
+              id: "v1_migration", name: "Admin", role: "Owner",
+              permissions: ROLE_PERMISSIONS.Owner, active: true, color: USER_COLORS[0],
+            }]);
           }
+        } else {
+          // First ever run — seed owner with default PIN
+          const pinSalt       = Sec.newSalt();
+          const pinHash       = await Sec.hashPin(DEFAULT_PIN);
+          const masterKeyB64  = await Sec.generateMasterKeyB64();
+          const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyB64, DEFAULT_PIN, pinSalt);
+          const owner = {
+            id: "u_owner", name: "Admin", role: "Owner",
+            pinHash, pinSalt, wrappedMasterKey,
+            permissions: ROLE_PERMISSIONS.Owner,
+            active: true, color: USER_COLORS[0],
+            createdAt: todayISO(), lastLogin: "",
+          };
+          const newSec = { version: 2, users: [owner] };
+          await store.set(SEC_META_KEY, JSON.stringify(newSec));
+          if (alive) setSecUsers([owner]);
         }
       } catch (_) { /* storage unavailable */ }
       finally {
-        // If storage is unavailable or errored, ensure at least one tile shows
+        // Ensure at least one tile shows even if something errored
         if (alive) {
           setSecUsers(prev => prev.length > 0 ? prev : [{
             id: "v1_migration", name: "Admin", role: "Owner",
@@ -1211,15 +1231,7 @@ export default function App() {
   const handleUnlock = async (userId, pin) => {
     setPinError("");
     try {
-      if (!window.storage) {
-        // No storage (dev mode) — pass through
-        const fallbackUser = secUsers[0] || { id: "u_owner", name: "Admin", role: "Owner", permissions: ROLE_PERMISSIONS.Owner };
-        setCurrentUser(fallbackUser);
-        setLocked(false);
-        loaded.current = true;
-        return;
-      }
-      const secRaw = await window.storage.get(SEC_META_KEY);
+      const secRaw = await store.get(SEC_META_KEY);
       if (!secRaw?.value) throw new Error("No security config");
       const sec = JSON.parse(secRaw.value);
 
@@ -1239,17 +1251,17 @@ export default function App() {
           createdAt: todayISO(), lastLogin: todayISO(),
         };
         const newSec = { version: 2, users: [owner] };
-        await window.storage.set(SEC_META_KEY, JSON.stringify(newSec));
+        await store.set(SEC_META_KEY, JSON.stringify(newSec));
         setSecUsers([owner]);
         const masterKey = await Sec.importMasterKey(masterKeyB64);
         // Migrate encrypted data: re-encrypt with new master key
-        const encRaw = await window.storage.get(STORE_KEY_ENC);
+        const encRaw = await store.get(STORE_KEY_ENC);
         if (encRaw?.value) {
           const oldKey = await Sec.deriveKey(pin, sec.salt);
           try {
             const dec = await Sec.decrypt(encRaw.value, oldKey);
             const reenc = await Sec.encrypt(dec, masterKey);
-            await window.storage.set(STORE_KEY_ENC, reenc);
+            await store.set(STORE_KEY_ENC, reenc);
             if (Sec.validate(dec)) setData(dec);
           } catch (_) {}
         }
@@ -1270,7 +1282,7 @@ export default function App() {
       const { raw: mkB64, key: masterKey } = await Sec.unwrapKeyForUser(user.wrappedMasterKey, pin, user.pinSalt);
 
       // Load data
-      const encRaw = await window.storage.get(STORE_KEY_ENC);
+      const encRaw = await store.get(STORE_KEY_ENC);
       if (encRaw?.value) {
         try {
           const dec = await Sec.decrypt(encRaw.value, masterKey);
@@ -1282,7 +1294,7 @@ export default function App() {
         }
       } else {
         // Check for legacy v4 unencrypted data
-        const legacyRaw = await window.storage.get(STORE_KEY);
+        const legacyRaw = await store.get(STORE_KEY);
         if (legacyRaw?.value) {
           try { const l = JSON.parse(legacyRaw.value); if (Sec.validate(l)) setData(l); } catch (_) {}
         }
@@ -1290,7 +1302,7 @@ export default function App() {
 
       // Update lastLogin
       const updatedUsers = sec.users.map(u => u.id === userId ? { ...u, lastLogin: todayISO() } : u);
-      await window.storage.set(SEC_META_KEY, JSON.stringify({ ...sec, users: updatedUsers }));
+      await store.set(SEC_META_KEY, JSON.stringify({ ...sec, users: updatedUsers }));
       setSecUsers(updatedUsers.filter(u => u.active !== false));
 
       setMasterKeyRaw(mkB64);
@@ -1317,13 +1329,13 @@ export default function App() {
     const updated = { ...currentUser, ...updates };
     setCurrentUser(updated);
     setSecUsers(prev => prev.map(u => u.id === currentUser.id ? updated : u));
-    if (!window?.storage) return;
+    
     try {
-      const secRaw = await window.storage.get(SEC_META_KEY);
+      const secRaw = await store.get(SEC_META_KEY);
       const sec = JSON.parse(secRaw?.value || "{}");
       if (!Array.isArray(sec.users)) return;
       const newSec = { ...sec, users: sec.users.map(u => u.id === currentUser.id ? updated : u) };
-      await window.storage.set(SEC_META_KEY, JSON.stringify(newSec));
+      await store.set(SEC_META_KEY, JSON.stringify(newSec));
     } catch (e) { console.error("handleSaveProfile:", e); }
   };
 
@@ -1334,10 +1346,8 @@ export default function App() {
     setSaved("saving");
     (async () => {
       try {
-        if (typeof window !== "undefined" && window.storage) {
-          const enc = await Sec.encrypt(data, cryptoKey);
-          if (alive) await window.storage.set(STORE_KEY_ENC, enc);
-        }
+        const enc = await Sec.encrypt(data, cryptoKey);
+        if (alive) await store.set(STORE_KEY_ENC, enc);
       } catch (_) {}
       finally { if (alive) { setSaved("saved"); setTimeout(() => alive && setSaved("idle"), 1400); } }
     })();
@@ -6108,7 +6118,6 @@ function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdate
   const handleAdd = async () => {
     if (!newName.trim() || !newPin.trim()) return;
     if (!masterKeyRaw)    { flash("Session key unavailable — please log out and back in."); return; }
-    if (!window?.storage) { flash("Persistent storage unavailable in this environment."); return; }
     setSaving(true);
     try {
       const pinSalt  = Sec.newSalt();
@@ -6122,11 +6131,11 @@ function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdate
         permissions: { ...newPerm },
         active: true, color, createdAt: todayISO(), lastLogin: "",
       };
-      const secRaw = await window.storage.get(SEC_META_KEY);
+      const secRaw = await store.get(SEC_META_KEY);
       const sec    = JSON.parse(secRaw?.value || "{}");
       if (!Array.isArray(sec.users)) sec.users = [];
       const updated = { ...sec, version: 2, users: [...sec.users, nu] };
-      await window.storage.set(SEC_META_KEY, JSON.stringify(updated));
+      await store.set(SEC_META_KEY, JSON.stringify(updated));
       onUsersUpdated(updated.users.filter(u => u.active !== false));
       setShowAdd(false); setNewName(""); setNewPin(""); setNewRole("Editor");
       flash(`✓ ${nu.name} added successfully`);
@@ -6135,16 +6144,16 @@ function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdate
   };
 
   const handleUpdatePerms = async (userId, updatedPerms, updatedRole) => {
-    if (!window?.storage) { flash("Persistent storage unavailable."); return; }
+    
     setSaving(true);
     try {
-      const secRaw = await window.storage.get(SEC_META_KEY);
+      const secRaw = await store.get(SEC_META_KEY);
       const sec    = JSON.parse(secRaw?.value || "{}");
       if (!Array.isArray(sec.users)) { flash("No user config found."); setSaving(false); return; }
       const updated = { ...sec, users: sec.users.map(u =>
         u.id === userId ? { ...u, permissions: updatedPerms, role: updatedRole } : u
       )};
-      await window.storage.set(SEC_META_KEY, JSON.stringify(updated));
+      await store.set(SEC_META_KEY, JSON.stringify(updated));
       onUsersUpdated(updated.users.filter(u => u.active !== false));
       setEditUser(null);
       flash("✓ Permissions updated");
@@ -6153,34 +6162,34 @@ function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdate
   };
 
   const handleResetPin = async (userId, newPinVal) => {
-    if (!newPinVal.trim() || !masterKeyRaw || !window?.storage) return;
+    if (!newPinVal.trim() || !masterKeyRaw) return;
     setSaving(true);
     try {
       const pinSalt  = Sec.newSalt();
       const pinHash  = await Sec.hashPin(newPinVal);
       const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyRaw, newPinVal, pinSalt);
-      const secRaw = await window.storage.get(SEC_META_KEY);
+      const secRaw = await store.get(SEC_META_KEY);
       const sec    = JSON.parse(secRaw?.value || "{}");
       if (!Array.isArray(sec.users)) { flash("No user config found."); setSaving(false); return; }
       const updated = { ...sec, users: sec.users.map(u =>
         u.id === userId ? { ...u, pinHash, pinSalt, wrappedMasterKey } : u
       )};
-      await window.storage.set(SEC_META_KEY, JSON.stringify(updated));
+      await store.set(SEC_META_KEY, JSON.stringify(updated));
       flash("✓ PIN reset successfully");
     } catch (e) { console.error("handleResetPin:", e); flash("Error: " + (e?.message || e)); }
     setSaving(false);
   };
 
   const handleDeactivate = async (userId) => {
-    if (userId === currentUser?.id || !window?.storage) return;
+    if (userId === currentUser?.id) return;
     if (!window.confirm("Deactivate this user? They will no longer be able to log in.")) return;
     setSaving(true);
     try {
-      const secRaw = await window.storage.get(SEC_META_KEY);
+      const secRaw = await store.get(SEC_META_KEY);
       const sec    = JSON.parse(secRaw?.value || "{}");
       if (!Array.isArray(sec.users)) { setSaving(false); return; }
       const updated = { ...sec, users: sec.users.map(u => u.id === userId ? { ...u, active: false } : u) };
-      await window.storage.set(SEC_META_KEY, JSON.stringify(updated));
+      await store.set(SEC_META_KEY, JSON.stringify(updated));
       onUsersUpdated(updated.users.filter(u => u.active !== false));
       flash("User deactivated");
     } catch (e) { console.error("handleDeactivate:", e); }
@@ -7932,3 +7941,5 @@ input, textarea, select, button { font-family: inherit; }
   .sb-hero { flex-direction: column; text-align: center; }
 }
 `;
+
+
