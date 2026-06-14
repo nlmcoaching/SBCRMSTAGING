@@ -1033,9 +1033,8 @@ function LockScreen({ onUnlock, error, initialising, users }) {
         padding: "44px 40px 36px", width: "100%", maxWidth: 400, textAlign: "center",
         boxShadow: "0 8px 40px rgba(22,33,58,0.10)",
       }}>
-        <div style={{ width: 60, height: 60, borderRadius: "50%", background: C.brandSoft,
-          display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px" }}>
-          <Wind size={26} color={C.brand} />
+        <div style={{ width: 72, height: 72, margin: "0 auto 18px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <img src="/sb-heart-wave.png" alt="Simply Breathe" style={{ width: 72, height: 72, objectFit: "contain" }} />
         </div>
         <h1 style={{ fontFamily: FONT.display, fontSize: 21, fontWeight: 700, color: C.ink, margin: "0 0 4px" }}>
           Simply Breathe OS
