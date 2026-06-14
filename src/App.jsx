@@ -153,6 +153,16 @@ const OPEN_STATUSES = ["Drafted", "Sent", "Viewed", "Follow-up due"];
 const WON_STATUSES  = ["Accepted", "Paid"];
 const LOST_STATUSES = ["Declined", "Expired"];
 
+/* ---------- Referral tracking constants ---------- */
+const REF_STATUS = ["Referred", "Contacted", "Attended", "Purchased", "Inactive"];
+const REF_STATUS_COLOR = {
+  "Referred":  "#9FB2CC",
+  "Contacted": "#5FB0F2",
+  "Attended":  "#3F87DC",
+  "Purchased": "#4A8C6F",
+  "Inactive":  "#C0573F",
+};
+
 /* ---------- Revenue constants ---------- */
 const REV_CHANNEL = [
   "Studio session", "Virtual session", "Private client", "Group package",
@@ -359,6 +369,14 @@ const SEED = {
     { id: "f4", name: "Sample - Jordan reactivation", clientId: "c1", stage: "Lead", lastContact: "2026-06-05", futype: "Reactivation", nextAction: "2026-06-19", outcome: "" },
     { id: "f5", name: "Sample - Priya 72h post-session", clientId: "c4", stage: "Engaged (2-3x)", lastContact: "2026-06-07", futype: "72h", nextAction: "2026-06-10", outcome: "Confirmed Friday session" },
   ],
+  referrals: [
+    { id: "rf1", referrerId: "c6", referredName: "Sample - Chris Okafor",       referredId: "c3", date: "2026-05-25", status: "Attended",  revenue: 35,  thankYouSent: true,  rewardGiven: false, notes: "Dana mentioned breathwork at yoga class" },
+    { id: "rf2", referrerId: "c3", referredName: "Sample - Maya Chen",           referredId: "c2", date: "2026-06-02", status: "Contacted", revenue: 0,   thankYouSent: true,  rewardGiven: false, notes: "Chris shared the IG post with Maya" },
+    { id: "rf3", referrerId: "c6", referredName: "Sample - Sam Rivera",          referredId: "c5", date: "2026-04-01", status: "Purchased", revenue: 540, thankYouSent: true,  rewardGiven: true,  notes: "Long-time friend of Dana — signed up same week" },
+    { id: "rf4", referrerId: "c5", referredName: "Sample - Priya Nair",          referredId: "c4", date: "2026-05-08", status: "Purchased", revenue: 105, thankYouSent: true,  rewardGiven: false, notes: "Sam mentioned it to Priya at work" },
+    { id: "rf5", referrerId: "c6", referredName: "Sample - Alex Kim (new lead)", referredId: "",   date: "2026-06-11", status: "Referred",  revenue: 0,   thankYouSent: false, rewardGiven: false, notes: "Dana mentioned the June workshop" },
+    { id: "rf6", referrerId: "c4", referredName: "Sample - Priya's partner",     referredId: "",   date: "2026-06-07", status: "Referred",  revenue: 0,   thankYouSent: false, rewardGiven: false, notes: "Mentioned wanting partner to join at Sunday session" },
+  ],
   sequences: [
     {
       id: "sq1", clientId: "c5", sessionDate: "2026-06-09",
@@ -516,6 +534,7 @@ export default function App() {
     { id: "revenue",  label: "Revenue",              Icon: TrendingUp },
     { id: "content",  label: "Content & Referral",   Icon: Megaphone },
     { id: "followups",label: "Follow-Ups",           Icon: RefreshCw },
+    { id: "referrals",label: "Referrals",             Icon: Users },
     { id: "engine",   label: "Follow-up Engine",     Icon: Zap },
   ];
 
@@ -620,6 +639,7 @@ function newRecord(db) {
     revenue:   { name: "", date: todayISO(), channel: "Studio session", source: "", campaign: "", sessionId: "", clientId: "", gross: 0, stripeFee: 0, studioSplit: 0, facilitatorCost: 0, refunds: 0, costCenter: "Studio sessions", notes: "" },
     content: { name: "", type: "Education", platform: "IG", datePosted: todayISO(), engagement: 0, leads: 0, booked: 0 },
     followups: { name: "", clientId: "", stage: "Lead", lastContact: todayISO(), futype: "24h", nextAction: "", outcome: "" },
+    referrals: { referrerId: "", referredName: "", referredId: "", date: todayISO(), status: "Referred", revenue: 0, thankYouSent: false, rewardGiven: false, notes: "" },
   };
   return { ...base, ...m[db] };
 }
@@ -1001,6 +1021,8 @@ function Section({ section, data, derived, today, view, setView, query, onOpen }
         ? <OfferConversionView data={data} derived={derived} today={today} onOpen={(r) => onOpen({ db: "offers", record: r })} />
         : v.layout === "revenue-analytics"
         ? <RevenueAttributionView data={data} derived={derived} today={today} onOpen={(r) => onOpen({ db: "revenue", record: r })} />
+        : v.layout === "referral-tree"
+        ? <ReferralTreeView data={data} derived={derived} today={today} onOpen={(r) => onOpen({ db: "referrals", record: r })} />
         : v.layout === "calendar"
         ? <CalendarView rows={processed.rows} today={today} derived={derived} onOpen={(r) => onOpen({ db: section, record: r })} />
         : <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => onOpen({ db: section, record: r })} ctx={{ data, derived, today }} />}
@@ -1244,6 +1266,20 @@ const VIEWS = {
         run: (rows) => ({ rows }) },
     ],
   },
+  referrals: {
+    views: [
+      { name: "Referral tree", layout: "referral-tree" },
+      { name: "Action needed", layout: "table",
+        columns: refCols(),
+        run: (rows, c) => ({
+          rows: rows.filter(r =>
+            !r.thankYouSent ||
+            (r.status === "Referred" && (!r.referredId))
+          ).sort((a, b) => (a.date || "").localeCompare(b.date || ""))
+        }) },
+      { name: "All referrals", layout: "table", columns: refCols(), run: (rows) => ({ rows: [...rows].sort((a, b) => b.date.localeCompare(a.date)) }) },
+    ],
+  },
 };
 
 function partnerCols() {
@@ -1269,6 +1305,25 @@ function offerCols() {
     col("dateOffered", "Offered", (r) => fmtDate(r.dateOffered)),
     col("expireDate", "Expires", (r, c) => <DateChip iso={r.expireDate} today={c.today} />),
     col("followUpDate", "Follow-up", (r, c) => <DateChip iso={r.followUpDate} today={c.today} />),
+  ];
+}
+function refCols() {
+  return [
+    col("referrerId", "Referred by", (r, c) => {
+      const n = c.derived.clientName[r.referrerId];
+      return n ? <span style={{ fontWeight: 600 }}>{clientShort(n)}</span> : "—";
+    }),
+    col("referredName", "Referred person", (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.referredName)}</span>),
+    col("status", "Status", (r) => <Tag color={REF_STATUS_COLOR[r.status]}>{r.status}</Tag>),
+    col("date", "Date", (r) => fmtDate(r.date)),
+    col("revenue", "Revenue", (r) => r.revenue ? <strong style={{ color: "#4A8C6F" }}>{money(r.revenue)}</strong> : "—", { align: "right" }),
+    col("thankYouSent", "Thank-you", (r) => r.thankYouSent
+      ? <span style={{ color: "#4A8C6F", fontWeight: 600 }}>✓ Sent</span>
+      : <span style={{ color: "#D9892B", fontWeight: 600 }}>Needed</span>),
+    col("rewardGiven", "Reward", (r) => r.rewardGiven
+      ? <span style={{ color: "#4A8C6F" }}>✓ Given</span>
+      : <span style={{ color: C.ink3 }}>—</span>),
+    col("notes", "Notes", (r) => <span style={{ fontSize: 12, color: C.ink2 }}>{r.notes}</span>),
   ];
 }
 function revCols() {
@@ -1627,6 +1682,17 @@ const FIELDS = {
     f("name", "Follow-up", "text", { title: true }), f("clientId", "Client", "relation", { target: "clients" }),
     f("stage", "Stage", "select", { options: STATUS }), f("futype", "Follow-up type", "select", { options: FUTYPE }),
     f("lastContact", "Last contact", "date"), f("nextAction", "Next action", "date"), f("outcome", "Outcome", "textarea"),
+  ],
+  referrals: [
+    f("referrerId", "Referred by (client)", "relation", { target: "clients" }),
+    f("referredName", "Referred person", "text", { title: true }),
+    f("referredId", "Referred client (if joined)", "relation", { target: "clients" }),
+    f("date", "Referral date", "date"),
+    f("status", "Status", "select", { options: REF_STATUS }),
+    f("revenue", "Revenue from referral", "currency"),
+    f("thankYouSent", "Thank-you sent?", "checkbox"),
+    f("rewardGiven", "Reward given?", "checkbox"),
+    f("notes", "Notes", "textarea"),
   ],
 };
 function f(key, label, type, opts = {}) { return { key, label, type, ...opts }; }
@@ -2488,6 +2554,19 @@ function FieldInput({ fld, value, onChange, data }) {
     );
   } else if (type === "textarea") {
     control = <textarea className="sb-input" rows={3} value={value || ""} onChange={(e) => onChange(e.target.value)} />;
+  } else if (type === "checkbox") {
+    control = (
+      <div style={{ display: "flex", gap: 8 }}>
+        {[true, false].map(v => (
+          <button key={String(v)} onClick={() => onChange(v)} style={{
+            padding: "6px 16px", borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer",
+            background: value === v ? (v ? "#4A8C6F" : C.ink3) : C.surface,
+            color: value === v ? "#fff" : C.ink2,
+            border: `1px solid ${value === v ? (v ? "#4A8C6F" : C.ink3) : C.line}`,
+          }}>{v ? "Yes ✓" : "No"}</button>
+        ))}
+      </div>
+    );
   } else if (type === "date") {
     control = <input className="sb-input" type="date" value={value || ""} onChange={(e) => onChange(e.target.value)} />;
   } else if (type === "number" || type === "currency" || type === "percent") {
@@ -2678,6 +2757,128 @@ function sectionLabel(db) { return { clients: "Clients", partners: "Studio Partn
 function hexA(hex, a) {
   const h = (hex || "#000").replace("#", ""); const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
   return `rgba(${r},${g},${b},${a})`;
+}
+
+/* ============================================================
+   REFERRAL TREE VIEW
+   ============================================================ */
+
+function ReferralTreeView({ data, derived, today, onOpen }) {
+  const refs = data.referrals || [];
+  const clients = data.clients || [];
+
+  // ── Build per-referrer stats ─────────────────────────────────
+  const byReferrer = {};
+  refs.forEach(r => {
+    if (!r.referrerId) return;
+    if (!byReferrer[r.referrerId]) byReferrer[r.referrerId] = { refs: [], totalRev: 0, attended: 0, purchased: 0, actionNeeded: 0 };
+    const b = byReferrer[r.referrerId];
+    b.refs.push(r);
+    b.totalRev += Number(r.revenue) || 0;
+    if (["Attended", "Purchased"].includes(r.status)) b.attended++;
+    if (r.status === "Purchased") b.purchased++;
+    if (!r.thankYouSent || r.status === "Referred") b.actionNeeded++;
+  });
+
+  const sorted = Object.entries(byReferrer)
+    .sort(([, a], [, b]) => b.totalRev - a.totalRev || b.refs.length - a.refs.length);
+
+  // ── Top-level stats ──────────────────────────────────────────
+  const totalRev    = refs.reduce((s, r) => s + (Number(r.revenue) || 0), 0);
+  const totalPurch  = refs.filter(r => r.status === "Purchased").length;
+  const totalRefs   = refs.length;
+  const convRate    = totalRefs > 0 ? Math.round((totalPurch / totalRefs) * 100) : 0;
+  const needAction  = refs.filter(r => !r.thankYouSent || r.status === "Referred").length;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+      {/* Stats */}
+      <div className="sb-stats">
+        <Stat label="Referral revenue"  value={money(totalRev)}   accent={C.brand} hint="total from all referrals" />
+        <Stat label="Conversion rate"   value={convRate + "%"}    accent={convRate >= 50 ? "#4A8C6F" : C.gold} hint={`${totalPurch} purchased of ${totalRefs}`} />
+        <Stat label="Active referrers"  value={sorted.length}     hint="clients who have referred" />
+        <Stat label="Action needed"     value={needAction}        accent={needAction > 0 ? "#D9892B" : C.ink3} hint="thank-you or follow-up" />
+      </div>
+
+      {/* Action needed banner */}
+      {needAction > 0 && (
+        <div style={{ background: hexA("#D9892B", 0.09), border: `1px solid ${hexA("#D9892B", 0.3)}`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 13, color: "#7A4D0F", fontWeight: 600 }}>
+            {needAction} referral{needAction !== 1 ? "s" : ""} need attention — thank-you not sent or follow-up pending
+          </span>
+          <div style={{ flex: 1 }} />
+          <span style={{ fontSize: 12, color: "#D9892B" }}>Check "Action needed" view →</span>
+        </div>
+      )}
+
+      {/* Tree */}
+      {!sorted.length ? (
+        <div style={{ textAlign: "center", padding: "48px 24px", color: C.ink3 }}>
+          <Users size={32} style={{ opacity: 0.3, marginBottom: 12 }} />
+          <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>No referrals yet</div>
+          <div style={{ fontSize: 13 }}>Add a referral when a client introduces someone to your work.</div>
+        </div>
+      ) : sorted.map(([refId, stats]) => {
+        const referrer = clients.find(c => c.id === refId);
+        const convPct  = stats.refs.length > 0 ? Math.round((stats.purchased / stats.refs.length) * 100) : 0;
+        return (
+          <div key={refId} style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden" }}>
+            {/* Referrer header */}
+            <div style={{ padding: "14px 16px", background: hexA(C.brand, 0.04), borderBottom: `1px solid ${C.line}`, display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ width: 36, height: 36, borderRadius: "50%", background: C.brand, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 14, flexShrink: 0 }}>
+                {(referrer?.name || "?").replace(/^Sample - /, "").trim()[0]?.toUpperCase()}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{(referrer?.name || refId).replace(/^Sample - /, "").trim()}</div>
+                <div style={{ fontSize: 12, color: C.ink3 }}>
+                  {stats.refs.length} referral{stats.refs.length !== 1 ? "s" : ""} · {stats.attended} attended · {stats.purchased} purchased
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: stats.totalRev > 0 ? "#4A8C6F" : C.ink3 }}>{money(stats.totalRev)}</div>
+                <div style={{ fontSize: 11, color: C.ink3 }}>referral revenue</div>
+              </div>
+              {stats.totalRev >= 300 && (
+                <Tag color="#4A8C6F" soft>Advocate ⭐</Tag>
+              )}
+            </div>
+
+            {/* Referral branches */}
+            <div style={{ padding: "8px 0" }}>
+              {stats.refs.map((r, i) => {
+                const refClient = r.referredId ? clients.find(c => c.id === r.referredId) : null;
+                const isLast = i === stats.refs.length - 1;
+                return (
+                  <div key={r.id} style={{ display: "flex", alignItems: "flex-start", padding: "10px 16px", gap: 0, borderBottom: isLast ? "none" : `1px solid ${C.lineSoft}` }}>
+                    {/* Tree connector */}
+                    <div style={{ width: 36, display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 3, flexShrink: 0 }}>
+                      <div style={{ width: 1, height: 10, background: C.line }} />
+                      <div style={{ width: 16, height: 1, background: C.line }} />
+                    </div>
+                    {/* Branch content */}
+                    <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <div style={{ flex: 1, minWidth: 140 }}>
+                        <span style={{ fontWeight: 600, fontSize: 13 }}>{cleanName(r.referredName)}</span>
+                        {refClient && <span style={{ fontSize: 11, color: C.ink3, marginLeft: 6 }}>in system</span>}
+                      </div>
+                      <Tag color={REF_STATUS_COLOR[r.status]}>{r.status}</Tag>
+                      {r.revenue > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: "#4A8C6F" }}>{money(r.revenue)}</span>}
+                      <span style={{ fontSize: 11, color: C.ink3 }}>{fmtDate(r.date)}</span>
+                      {!r.thankYouSent && (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#D9892B", background: hexA("#D9892B", 0.1), padding: "2px 7px", borderRadius: 20 }}>Thank-you needed</span>
+                      )}
+                      {r.notes && <span style={{ fontSize: 11, color: C.ink3, fontStyle: "italic" }}>{r.notes}</span>}
+                    </div>
+                    <button onClick={() => onOpen(r)} style={{ padding: "4px 10px", fontSize: 11, background: C.surfaceAlt, border: `1px solid ${C.line}`, borderRadius: 7, cursor: "pointer", color: C.ink2, flexShrink: 0 }}>Edit</button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 /* ============================================================
