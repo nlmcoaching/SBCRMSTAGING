@@ -342,6 +342,49 @@ const SESSION_CHECKLIST = [
   { id: "referrals_asked",    label: "Referrals requested from advocates",    phase: "Post-Session" },
   { id: "notes_written",      label: "Session notes & learnings written",     phase: "Post-Session" },
 ];
+
+/* ── EQUIPMENT & SETUP CHECKLIST ── */
+const EQUIP_CHECKLIST_PHASES = [
+  {
+    id: "pack", label: "Pack & Equipment", color: "#2E6FB0", icon: "🎒",
+    items: [
+      { id: "eq_headsets",       label: "Primary headsets packed & charged"          },
+      { id: "eq_backup_headset", label: "Backup headset packed"                       },
+      { id: "eq_chargers",       label: "Chargers & power banks in bag"              },
+      { id: "eq_extension",      label: "Extension cords packed"                     },
+      { id: "eq_eye_masks",      label: "Eye masks (count matches registration)"      },
+      { id: "eq_mats",           label: "Mats/blankets confirmed (studio provided or packed)" },
+      { id: "eq_speaker",        label: "Speaker / audio backup ready"               },
+    ],
+  },
+  {
+    id: "content", label: "Content & Tech", color: "#6B5CE7", icon: "🎵",
+    items: [
+      { id: "eq_playlist",       label: "Playlist/journey downloaded offline"         },
+      { id: "eq_wifi",           label: "Wi-Fi confirmed at venue (or offline ready)" },
+      { id: "eq_waiver_qr",      label: "Waiver QR code printed or accessible"       },
+      { id: "eq_checkin_list",   label: "Check-in list printed or on device"         },
+    ],
+  },
+  {
+    id: "venue", label: "Venue & Day-Of", color: "#D9892B", icon: "📍",
+    items: [
+      { id: "eq_arrival_time",   label: "Arrival time confirmed (45–60 min early)"   },
+      { id: "eq_room_lighting",  label: "Room lighting tested & adjusted"            },
+      { id: "eq_water_tissues",  label: "Water & tissues available in room"          },
+    ],
+  },
+  {
+    id: "safety", label: "Safety & Facilitation", color: "#4A8C6F", icon: "🛡️",
+    items: [
+      { id: "eq_emergency",      label: "Emergency contact process confirmed"         },
+      { id: "eq_contraindication", label: "Contraindication reminder shared with attendees" },
+      { id: "eq_closing_script", label: "Closing/integration script reviewed"        },
+    ],
+  },
+];
+const EQUIP_CHECKLIST = EQUIP_CHECKLIST_PHASES.flatMap(p => p.items.map(i => ({ ...i, phase: p.id })));
+const emptyEquipChecklist = () => Object.fromEntries(EQUIP_CHECKLIST.map(i => [i.id, false]));
 const SESSION_CHECKLIST_PHASES = ["Pre-Session", "Post-Session"];
 const SESSION_PHASE_COLOR = { "Pre-Session": C.brand, "Post-Session": "#4A8C6F" };
 const emptySessionChecklist = () => Object.fromEntries(SESSION_CHECKLIST.map((i) => [i.id, false]));
@@ -1132,7 +1175,7 @@ function newRecord(db) {
   const m = {
     clients: { name: "", phone: "", email: "", source: "Post-session", status: "Lead", clientType: "First-time attendee", tags: [], firstSession: "", sessionsAttended: 0, lastSession: "", nextSession: "", packageType: "None", lifetimeValue: 0, notes: "", referral: "Low" },
     partners: { name: "", studioType: "Yoga", location: "", contact: "", role: "Owner", email: "", phone: "", stage: "Target identified", estimatedCommunitySize: 0, bestFitJourney: "", revenuePotential: 0, closeProbability: "Low", revShare: "", contractStatus: "None", outreachDate: "", lastTouch: todayISO(), nextAction: "", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "", checklist: emptyChecklist() },
-    sessions: { name: "", studioId: "", date: todayISO(), time: "", status: "Planned", journey: "Breathwork Basics", capacity: 20, registered: 0, attendance: 0, paidAttendees: 0, waivers: 0, noShows: 0, revenue: 0, studioSplit: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, equipmentNeeded: "", roomSetupStatus: "Not started", musicSetupStatus: "Not started", testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false, referralsRequested: false, breakthroughNoted: false, notes: "", checklist: emptySessionChecklist() },
+    sessions: { name: "", studioId: "", date: todayISO(), time: "", status: "Planned", journey: "Breathwork Basics", capacity: 20, registered: 0, attendance: 0, paidAttendees: 0, waivers: 0, noShows: 0, revenue: 0, studioSplit: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, equipmentNeeded: "", roomSetupStatus: "Not started", musicSetupStatus: "Not started", testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false, referralsRequested: false, breakthroughNoted: false, notes: "", checklist: emptySessionChecklist(), equipChecklist: emptyEquipChecklist() },
     offers:    { name: "", clientId: "", offerType: "Single session", price: 0, status: "Drafted", probability: "50%", source: "", dateOffered: todayISO(), expireDate: "", followUpDate: "", notes: "", reasonLost: "" },
     revenue:   { name: "", date: todayISO(), channel: "Studio session", source: "", campaign: "", sessionId: "", clientId: "", gross: 0, stripeFee: 0, studioSplit: 0, facilitatorCost: 0, refunds: 0, costCenter: "Studio sessions", notes: "" },
     content: { name: "", category: "Breathwork education", status: "Idea", platform: "Instagram", scheduledDate: "", datePosted: "", body: "", cta: "Book a session", sessionId: "", partnerId: "", reused: false, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0, engagement: 0, leads: 0, booked: 0, revenue: 0, notes: "" },
@@ -2990,6 +3033,7 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
             <div style={{ display: "flex", gap: 2 }}>
               {(hasSessionTabs ? [
                 ["details", "Details & Edit"],
+                ["equipment", "Equipment Setup"],
                 ["checklist", "Run Checklist"],
                 ["performance", "Performance"],
               ] : [
@@ -2998,9 +3042,11 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                 ["timeline", "Contact Timeline"],
               ]).map(([t, label]) => {
                 const done = (t === "checklist" && db === "partners") ? Object.values(draft.checklist || {}).filter(Boolean).length
-                           : (t === "checklist" && db === "sessions") ? Object.values(draft.checklist || {}).filter(Boolean).length : null;
+                           : (t === "checklist" && db === "sessions") ? Object.values(draft.checklist || {}).filter(Boolean).length
+                           : (t === "equipment" && db === "sessions") ? Object.values(draft.equipChecklist || {}).filter(Boolean).length : null;
                 const total = (t === "checklist" && db === "partners") ? PARTNER_CHECKLIST.length
-                            : (t === "checklist" && db === "sessions") ? SESSION_CHECKLIST.length : null;
+                            : (t === "checklist" && db === "sessions") ? SESSION_CHECKLIST.length
+                            : (t === "equipment" && db === "sessions") ? EQUIP_CHECKLIST.length : null;
                 return (
                   <button key={t} onClick={() => setTab(t)} style={{
                     padding: "7px 14px", border: "none", borderRadius: "8px 8px 0 0", fontSize: 13, fontWeight: 600,
@@ -3029,6 +3075,8 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
             ? db === "sessions"
               ? <SessionChecklist checklist={draft.checklist || emptySessionChecklist()} onChange={(cl) => set("checklist", cl)} sessionName={cleanName(draft.name)} status={draft.status} />
               : <PartnerLaunchChecklist checklist={draft.checklist || emptyChecklist()} onChange={(cl) => set("checklist", cl)} partnerName={cleanName(draft.name)} />
+            : hasSessionTabs && tab === "equipment"
+            ? <EquipmentChecklist equipChecklist={draft.equipChecklist || emptyEquipChecklist()} onChange={(cl) => set("equipChecklist", cl)} sessionName={cleanName(draft.name)} sessionDate={draft.date} />
             : hasSessionTabs && tab === "performance"
             ? <SessionPerformance record={draft} derived={derived} data={data} />
             : (
@@ -3194,6 +3242,113 @@ function SessionPerfView({ rows, derived, onOpen }) {
 /* ============================================================
    SESSION CHECKLIST
    ============================================================ */
+/* ── EQUIPMENT & SETUP CHECKLIST COMPONENT ── */
+function EquipmentChecklist({ equipChecklist, onChange, sessionName, sessionDate }) {
+  const toggle = (id) => onChange({ ...equipChecklist, [id]: !equipChecklist[id] });
+  const done  = Object.values(equipChecklist).filter(Boolean).length;
+  const total = EQUIP_CHECKLIST.length;
+  const pct   = Math.round((done / total) * 100);
+
+  const criticalIds = ["eq_headsets","eq_backup_headset","eq_playlist","eq_waiver_qr","eq_emergency","eq_contraindication"];
+  const criticalMissing = criticalIds.filter(id => !equipChecklist[id]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+
+      {/* Progress header */}
+      <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: "16px 18px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{sessionName} — Equipment & Setup</div>
+            <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>
+              {sessionDate ? `Session: ${sessionDate}  ·  ` : ""}{done} of {total} items ready
+            </div>
+          </div>
+          <div style={{ fontFamily: FONT.display, fontSize: 28, fontWeight: 700, color: pct === 100 ? "#4A8C6F" : pct >= 60 ? C.brand : C.gold }}>
+            {pct}%
+          </div>
+        </div>
+        <div style={{ height: 8, background: C.line, borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ height: "100%", borderRadius: 8, transition: "width .3s", width: pct + "%",
+            background: pct === 100 ? "#4A8C6F" : pct >= 60 ? C.brand : C.gold }} />
+        </div>
+      </div>
+
+      {/* Critical items alert */}
+      {criticalMissing.length > 0 && (
+        <div style={{ background: hexA("#D9892B", 0.1), border: `1px solid ${hexA("#D9892B", 0.35)}`, borderRadius: 10, padding: "10px 14px" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#9A5D10", marginBottom: 5 }}>⚠️ Critical items not yet checked</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+            {criticalMissing.map(id => {
+              const item = EQUIP_CHECKLIST.find(i => i.id === id);
+              return <span key={id} style={{ fontSize: 11, background: "#fff", border: `1px solid ${hexA("#D9892B", 0.4)}`, borderRadius: 5, padding: "2px 8px", color: "#9A5D10", fontWeight: 600 }}>{item?.label}</span>;
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Phase sections */}
+      {EQUIP_CHECKLIST_PHASES.map(phase => {
+        const phaseDone = phase.items.filter(i => equipChecklist[i.id]).length;
+        const allDone   = phaseDone === phase.items.length;
+        return (
+          <div key={phase.id}>
+            {/* Phase header */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "6px 10px", borderRadius: 8, background: hexA(phase.color, 0.07) }}>
+              <span style={{ fontSize: 16 }}>{phase.icon}</span>
+              <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: phase.color, flex: 1 }}>{phase.label}</span>
+              {allDone
+                ? <span style={{ fontSize: 11, fontWeight: 700, color: "#4A8C6F" }}>✓ All done</span>
+                : <span style={{ fontSize: 11, color: C.ink3 }}>{phaseDone}/{phase.items.length}</span>
+              }
+            </div>
+
+            {/* Items */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              {phase.items.map(item => {
+                const checked   = !!equipChecklist[item.id];
+                const isCritical = criticalIds.includes(item.id);
+                return (
+                  <button key={item.id} onClick={() => toggle(item.id)} style={{
+                    display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+                    background: checked ? hexA(phase.color, 0.07) : "transparent",
+                    border: "none", borderRadius: 8, padding: "9px 10px",
+                    cursor: "pointer", transition: "background .12s",
+                  }}>
+                    <div style={{
+                      width: 20, height: 20, borderRadius: 5, flexShrink: 0, transition: "all .12s",
+                      border: `2px solid ${checked ? phase.color : isCritical && !checked ? "#D9892B" : C.line}`,
+                      background: checked ? phase.color : C.surface,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      {checked && <Check size={12} color="#fff" strokeWidth={3} />}
+                    </div>
+                    <span style={{ fontSize: 13.5, flex: 1, fontWeight: checked ? 500 : 400, color: checked ? C.ink3 : C.ink, textDecoration: checked ? "line-through" : "none" }}>
+                      {item.label}
+                    </span>
+                    {isCritical && !checked && (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: "#D9892B", background: hexA("#D9892B", 0.12), borderRadius: 4, padding: "1px 6px" }}>CRITICAL</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* All clear state */}
+      {pct === 100 && (
+        <div style={{ background: hexA("#4A8C6F", 0.1), border: `1px solid ${hexA("#4A8C6F", 0.3)}`, borderRadius: 10, padding: "14px 16px", textAlign: "center" }}>
+          <div style={{ fontSize: 22, marginBottom: 6 }}>✅</div>
+          <div style={{ fontWeight: 700, fontSize: 14, color: "#2D6A50" }}>You're fully set up</div>
+          <div style={{ fontSize: 12, color: "#4A8C6F", marginTop: 3 }}>All equipment and setup items are confirmed. Go hold space. 🌿</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SessionChecklist({ checklist, onChange, sessionName, status }) {
   const toggle = (id) => onChange({ ...checklist, [id]: !checklist[id] });
   const done = Object.values(checklist).filter(Boolean).length;
