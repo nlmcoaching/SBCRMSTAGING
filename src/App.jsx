@@ -3803,10 +3803,8 @@ const VIEWS = {
       { name: "Action needed", layout: "table",
         columns: refActionCols(),
         run: (rows, c) => ({
-          rows: rows.filter(r =>
-            !r.thankYouSent ||
-            (r.status === "Referred" && (!r.referredId))
-          ).sort((a, b) => (a.date || "").localeCompare(b.date || ""))
+          rows: rows.filter(r => !r.thankYouSent || !r.rewardGiven)
+                    .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
         }) },
       { name: "All referrals", layout: "table", columns: refCols(), run: (rows) => ({ rows: [...rows].sort((a, b) => b.date.localeCompare(a.date)) }) },
     ],
