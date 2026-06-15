@@ -1403,11 +1403,11 @@ export default function App() {
         // Generate master key and re-wrap with this PIN
         const masterKeyB64 = await Sec.generateMasterKeyB64();
         const pinSalt      = sec.salt;
-        const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyB64, pin, pinSalt);
+        const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyB64, pin, pinSalt, Sec.PBKDF2_ITERATIONS);
         const owner = {
           id: "u_owner", name: "Admin", role: "Owner",
           // pinHash intentionally omitted — v2 verification uses PBKDF2 unwrap only
-          pinSalt, wrappedMasterKey,
+          pinSalt, wrappedMasterKey, pbkdf2Iterations: Sec.PBKDF2_ITERATIONS,
           permissions: ROLE_PERMISSIONS.Owner,
           active: true, color: USER_COLORS[0],
           createdAt: todayISO(), lastLogin: todayISO(),
@@ -1532,10 +1532,10 @@ export default function App() {
       }
       const pinSalt      = Sec.newSalt();
       const masterKeyB64 = await Sec.generateMasterKeyB64();
-      const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyB64, pin, pinSalt);
+      const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyB64, pin, pinSalt, Sec.PBKDF2_ITERATIONS);
       const owner = {
         id: "u_owner", name: name.trim(), role: "Owner",
-        pinSalt, wrappedMasterKey,
+        pinSalt, wrappedMasterKey, pbkdf2Iterations: Sec.PBKDF2_ITERATIONS,
         permissions: ROLE_PERMISSIONS.Owner,
         active: true, color: USER_COLORS[0],
         createdAt: todayISO(), lastLogin: todayISO(),
