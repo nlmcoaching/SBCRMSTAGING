@@ -1268,6 +1268,8 @@ function LockScreen({ onUnlock, error, initialising, users }) {
   );
 }
 
+const DISMISSED_ALERTS_KEY = "sb:dismissed-alerts:v1";
+
 export default function App() {
   const [data, setData] = useState(SEED);
   const [section, setSection] = useState("today");
@@ -1277,6 +1279,13 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [navOpen, setNavOpen] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [showAlerts,  setShowAlerts]  = useState(false);
+  const [dismissedAlerts, setDismissedAlerts] = useState(() => {
+    try {
+      const stored = localStorage.getItem(DISMISSED_ALERTS_KEY);
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch { return new Set(); }
+  });
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [confirm, setConfirm] = useState(null); // { message, onOk, okLabel?, danger? }
   const [saved, setSaved] = useState("idle"); // idle | saving | saved
@@ -1528,14 +1537,24 @@ export default function App() {
 
         const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x.toISOString().slice(0,10); };
 
-        // Always retroactively fix Calendly-synced sessions missing a studioId
+        // Always retroactively fix Calendly-synced sessions missing a studioId or with wrong capacity
         sessions.forEach((s, i) => {
-          if (s.calendlyEventUri && !s.studioId) {
-            // Also pull in locationAddress from any linked registration
+          if (!s.calendlyEventUri) return;
+          let updated = { ...s };
+          let changed = false;
+
+          // Fix missing studioId
+          if (!s.studioId) {
             const linkedReg = registrations.find(r => r.sessionId === s.id);
             const match = resolvePartner(partners, s.name, s.notes || "", linkedReg?.locationAddress || "");
-            if (match) sessions[i] = { ...s, studioId: match.id };
+            if (match) { updated.studioId = match.id; changed = true; }
           }
+
+          // Fix capacity: all virtual Calendly 1:1 sessions should have capacity 1
+          const isVirtualSession = !updated.studioId && (updated.locationType === "zoom" || updated.locationType === "custom" || !updated.locationType);
+          if (isVirtualSession && s.capacity !== 1) { updated.capacity = 1; changed = true; }
+
+          if (changed) sessions[i] = updated;
         });
 
         if (!events.length) return { ...next, sessions, partners };
@@ -1631,7 +1650,7 @@ export default function App() {
                   time: sessionTime,
                   status: "Planned",
                   journey: evt.eventName || "Breathwork Basics",
-                  capacity: 20,
+                  capacity: isVirtual ? 1 : 20,
                   registered: 1,
                   attendance: 0, paidAttendees: 0, waivers: 0, noShows: 0,
                   revenue: 0, studioSplit: 0, netRevenue: 0,
@@ -2066,6 +2085,49 @@ export default function App() {
               </>
             )}
 
+            {/* Alerts bell */}
+            {(() => {
+              const alertList = buildAlerts(data, today).filter(a => !dismissedAlerts.has(a.id));
+              const criticalCount = alertList.filter(a => a.severity === "critical").length;
+              const warningCount  = alertList.filter(a => a.severity === "warning").length;
+              const totalCount    = alertList.length;
+              return (
+                <div style={{ position: "relative", flexShrink: 0 }}>
+                  <button
+                    onClick={() => { setShowAlerts(p => !p); setShowProfile(false); }}
+                    title={totalCount ? `${criticalCount} critical · ${warningCount} warnings` : "No alerts"}
+                    style={{ width: 36, height: 36, borderRadius: "50%", background: hexA(C.brand, 0.1), border: `1px solid ${hexA(C.brand, 0.25)}`, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <BellRing size={16} color={C.brand} strokeWidth={1.8} />
+                  </button>
+                  {totalCount > 0 && (
+                    <span style={{ position: "absolute", top: -3, right: -3, minWidth: 16, height: 16, borderRadius: 8, background: "#C0573F", color: "#fff", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px", border: `2px solid ${C.surface}` }}>
+                      {totalCount}
+                    </span>
+                  )}
+
+                  {showAlerts && (
+                    <>
+                      <div onClick={() => setShowAlerts(false)} style={{ position: "fixed", inset: 0, zIndex: 49 }} />
+                      <div style={{ position: "absolute", top: "calc(100% + 10px)", right: 0, zIndex: 50, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.14)", width: 420, maxWidth: "92vw", maxHeight: "70vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                        {/* Header */}
+                        <div style={{ padding: "14px 16px 10px", borderBottom: `1px solid ${C.line}`, display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                          <BellRing size={15} color={criticalCount > 0 ? "#C0573F" : C.ink3} />
+                          <span style={{ fontWeight: 700, fontSize: 14, color: C.ink, flex: 1 }}>
+                            {totalCount ? `${criticalCount > 0 ? `${criticalCount} critical` : ""}${criticalCount > 0 && warningCount > 0 ? " · " : ""}${warningCount > 0 ? `${warningCount} warnings` : ""}` : "All clear"}
+                          </span>
+                          <button onClick={() => setShowAlerts(false)} style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, padding: 2 }}><X size={14} /></button>
+                        </div>
+                        {/* Alert list */}
+                        <div style={{ overflowY: "auto", flex: 1 }}>
+                          <AlertsPanel data={data} today={today} onOpen={(args) => { setShowAlerts(false); setOpen(args); }} compact dismissed={dismissedAlerts} setDismissed={setDismissedAlerts} />
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Profile avatar + dropdown */}
             <div style={{ position: "relative", flexShrink: 0 }}>
               <button
@@ -2144,9 +2206,9 @@ export default function App() {
               ? <Today data={data} derived={derived} today={today} onOpen={setOpen} onGo={go} />
               : section === "engine"
               ? <FollowUpEngine data={data} setData={setData} today={today} onOpen={setOpen} canEdit={can.edit} />
-              : <Section section={section} data={data} derived={derived} today={today}
+              :               <Section section={section} data={data} derived={derived} today={today}
                   view={view} setView={setView} query={query} onOpen={setOpen}
-                  currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} setSecUsers={setSecUsers} setData={setData} canEdit={can.edit} />}
+                  currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} setSecUsers={setSecUsers} setData={setData} canEdit={can.edit} setConfirm={setConfirm} />}
           </div>
         </main>
       </div>
@@ -2639,46 +2701,34 @@ function buildAlerts(data, today) {
   return alerts.sort((a, b) => order[a.severity] - order[b.severity]);
 }
 
-function AlertsPanel({ data, today, onOpen }) {
-  const [dismissed, setDismissed] = useState(new Set());
+function AlertsPanel({ data, today, onOpen, compact, dismissed: dismissedProp, setDismissed: setDismissedProp }) {
+  const [localDismissed, setLocalDismissed] = useState(() => {
+    try {
+      const stored = localStorage.getItem(DISMISSED_ALERTS_KEY);
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch { return new Set(); }
+  });
+  const dismissed    = dismissedProp    ?? localDismissed;
+  const setDismissed = setDismissedProp ?? setLocalDismissed;
   const [expanded, setExpanded] = useState(false);
 
   const all     = buildAlerts(data, today).filter(a => !dismissed.has(a.id));
   const critical = all.filter(a => a.severity === "critical").length;
   const warning  = all.filter(a => a.severity === "warning").length;
-  const SHOW_MAX = 5;
-  const shown    = expanded ? all : all.slice(0, SHOW_MAX);
+  const SHOW_MAX = expanded ? all.length : (compact ? all.length : 5);
+  const shown    = all.slice(0, SHOW_MAX);
 
   if (all.length === 0) return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px",
-      background: "#F0FAF5", border: "1px solid #A8D8BE", borderRadius: 12, color: "#1E5239" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 18px", color: "#1E5239" }}>
       <Check size={16} color="#4A8C6F" strokeWidth={1.5} />
-      <span style={{ fontWeight: 600, fontSize: 13.5 }}>All clear — no active alerts</span>
+      <span style={{ fontWeight: 600, fontSize: 13 }}>All clear — no active alerts</span>
     </div>
   );
 
-  const headerBg    = critical > 0 ? ALERT_SEVERITY.critical.bg     : ALERT_SEVERITY.warning.bg;
-  const headerBorder= critical > 0 ? ALERT_SEVERITY.critical.border  : ALERT_SEVERITY.warning.border;
-  const headerColor = critical > 0 ? ALERT_SEVERITY.critical.color   : ALERT_SEVERITY.warning.color;
-
   return (
-    <div style={{ border: `1px solid ${headerBorder}`, borderRadius: 12, overflow: "hidden" }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px",
-        background: headerBg, borderBottom: `1px solid ${headerBorder}`, flexWrap: "wrap" }}>
-        <BellRing size={15} color={headerColor} strokeWidth={1.5} />
-        <span style={{ fontWeight: 700, fontSize: 14, color: headerColor, flex: 1 }}>
-          {critical > 0 ? `${critical} critical alert${critical !== 1 ? "s" : ""}` : "Alerts"}{warning > 0 ? ` · ${warning} warning${warning !== 1 ? "s" : ""}` : ""}
-        </span>
-        {all.length > 1 && (
-          <span style={{ fontSize: 12, color: headerColor, opacity: 0.7, fontWeight: 500 }}>
-            {all.length} total
-          </span>
-        )}
-      </div>
-
+    <div style={compact ? {} : { border: `1px solid ${critical > 0 ? ALERT_SEVERITY.critical.border : ALERT_SEVERITY.warning.border}`, borderRadius: 12, overflow: "hidden" }}>
       {/* Alert rows */}
-      <div style={{ background: "#fff" }}>
+      <div style={{ background: compact ? "transparent" : "#fff" }}>
         {shown.map((a, i) => {
           const sv = ALERT_SEVERITY[a.severity];
           const SvIcon = a.severity === "info" ? Info : AlertCircle;
@@ -2700,7 +2750,11 @@ function AlertsPanel({ data, today, onOpen }) {
                     background: sv.bg, color: sv.color, border: `1px solid ${sv.border}`,
                   }}>View</button>
                 )}
-                <button onClick={() => setDismissed(prev => new Set([...prev, a.id]))} style={{
+                <button onClick={() => setDismissed(prev => {
+                  const next = new Set([...prev, a.id]);
+                  try { localStorage.setItem(DISMISSED_ALERTS_KEY, JSON.stringify([...next])); } catch {}
+                  return next;
+                })} style={{
                   fontSize: 11.5, padding: "3px 8px", borderRadius: 6, cursor: "pointer",
                   background: "transparent", color: C.ink3, border: `1px solid ${C.line}`,
                 }} title="Dismiss">×</button>
@@ -2711,13 +2765,17 @@ function AlertsPanel({ data, today, onOpen }) {
       </div>
 
       {/* Expand / collapse */}
-      {all.length > SHOW_MAX && (
+      {!compact && all.length > 5 && (
         <button onClick={() => setExpanded(e => !e)} style={{
-          width: "100%", padding: "9px 14px", background: headerBg, border: "none",
-          borderTop: `1px solid ${headerBorder}`, cursor: "pointer",
-          fontSize: 12.5, fontWeight: 600, color: headerColor, textAlign: "center",
+          width: "100%", padding: "9px 14px",
+          background: critical > 0 ? ALERT_SEVERITY.critical.bg : ALERT_SEVERITY.warning.bg,
+          border: "none",
+          borderTop: `1px solid ${critical > 0 ? ALERT_SEVERITY.critical.border : ALERT_SEVERITY.warning.border}`,
+          cursor: "pointer", fontSize: 12.5, fontWeight: 600,
+          color: critical > 0 ? ALERT_SEVERITY.critical.color : ALERT_SEVERITY.warning.color,
+          textAlign: "center",
         }}>
-          {expanded ? "Show fewer ↑" : `Show ${all.length - SHOW_MAX} more alerts ↓`}
+          {expanded ? "Show fewer ↑" : `Show ${all.length - 5} more alerts ↓`}
         </button>
       )}
     </div>
@@ -2892,10 +2950,26 @@ function PipelineSnapshot({ data, today }) {
   );
 }
 
+const DISMISSED_ACTIONS_KEY = "sb:dismissed-actions:v1";
+
 function Today({ data, derived, today, onOpen, onGo }) {
   const [showAll, setShowAll] = useState(null); // null | "revenue" | "relationship" | "operational"
+  const [dismissedActions, setDismissedActions] = useState(() => {
+    try {
+      const stored = localStorage.getItem(DISMISSED_ACTIONS_KEY);
+      if (!stored) return new Set();
+      const { date, ids } = JSON.parse(stored);
+      return date === today ? new Set(ids) : new Set(); // reset each day
+    } catch { return new Set(); }
+  });
 
-  const actions = buildActions(data, derived, today);
+  const dismissAction = (id) => setDismissedActions(prev => {
+    const next = new Set([...prev, id]);
+    try { localStorage.setItem(DISMISSED_ACTIONS_KEY, JSON.stringify({ date: today, ids: [...next] })); } catch {}
+    return next;
+  });
+
+  const actions = buildActions(data, derived, today).filter(a => !dismissedActions.has(a.id));
   const byCategory = {
     revenue:      actions.filter(a => a.category === "revenue"),
     relationship: actions.filter(a => a.category === "relationship"),
@@ -2969,31 +3043,47 @@ function Today({ data, derived, today, onOpen, onGo }) {
                       <div style={{ marginTop: 4, fontWeight: 500 }}>All clear</div>
                     </div>
                   ) : shown.map((a, i) => (
-                    <button key={a.id}
-                      onClick={() => a.record ? onOpen({ db: a.db, record: a.record }) : null}
-                      style={{
-                        width: "100%", display: "flex", alignItems: "flex-start", gap: 9,
-                        padding: "11px 13px",
-                        background: "transparent", border: "none",
+                    <div key={a.id} style={{
+                        display: "flex", alignItems: "flex-start",
                         borderBottom: i < shown.length - 1 ? `1px solid ${C.lineSoft}` : "none",
-                        cursor: a.record ? "pointer" : "default", textAlign: "left",
-                      }}
-                      className={a.record ? "sb-nba-row" : ""}
-                    >
-                      {/* Urgency dot + number */}
-                      <span style={{
-                        width: 22, height: 22, borderRadius: "50%",
-                        background: URGENCY_DOT[a.urgency],
-                        color: "#fff", fontSize: 10, fontWeight: 800,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        flexShrink: 0, marginTop: 1,
-                      }}>{i + 1}</span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, lineHeight: 1.35 }}>{a.text}</div>
-                        {a.sub && <div style={{ fontSize: 11.5, color: C.ink3, marginTop: 2, lineHeight: 1.4 }}>{a.sub}</div>}
-                      </div>
-                      {a.record && <ChevronRight size={13} color={C.ink3} style={{ flexShrink: 0, marginTop: 3 }} />}
-                    </button>
+                      }}>
+                      <button
+                        onClick={() => a.record ? onOpen({ db: a.db, record: a.record }) : null}
+                        style={{
+                          flex: 1, display: "flex", alignItems: "flex-start", gap: 9,
+                          padding: "11px 6px 11px 13px",
+                          background: "transparent", border: "none",
+                          cursor: a.record ? "pointer" : "default", textAlign: "left",
+                        }}
+                        className={a.record ? "sb-nba-row" : ""}
+                      >
+                        {/* Urgency dot + number */}
+                        <span style={{
+                          width: 22, height: 22, borderRadius: "50%",
+                          background: URGENCY_DOT[a.urgency],
+                          color: "#fff", fontSize: 10, fontWeight: 800,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          flexShrink: 0, marginTop: 1,
+                        }}>{i + 1}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, lineHeight: 1.35 }}>{a.text}</div>
+                          {a.sub && <div style={{ fontSize: 11.5, color: C.ink3, marginTop: 2, lineHeight: 1.4 }}>{a.sub}</div>}
+                        </div>
+                        {a.record && <ChevronRight size={13} color={C.ink3} style={{ flexShrink: 0, marginTop: 3 }} />}
+                      </button>
+                      <button
+                        onClick={() => dismissAction(a.id)}
+                        title="Dismiss for today"
+                        style={{
+                          padding: "11px 10px", background: "transparent", border: "none",
+                          cursor: "pointer", color: C.ink3, fontSize: 14, lineHeight: 1,
+                          flexShrink: 0, alignSelf: "stretch", display: "flex", alignItems: "center",
+                          opacity: 0.5,
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.opacity = "1"}
+                        onMouseLeave={e => e.currentTarget.style.opacity = "0.5"}
+                      >×</button>
+                    </div>
                   ))}
                 </div>
 
@@ -3035,9 +3125,6 @@ function Today({ data, derived, today, onOpen, onGo }) {
 
       {/* B2C vs B2B lane split */}
       <LaneSplitPanel data={data} today={today} />
-
-      {/* Alerts */}
-      <AlertsPanel data={data} today={today} onOpen={onOpen} />
 
       {/* Charts */}
       <div className="sb-grid2">
@@ -3130,7 +3217,7 @@ function SourceBreakdown({ data }) {
 /* ============================================================
    SECTION (per database, with views)
    ============================================================ */
-function Section({ section, data, derived, today, view, setView, query, onOpen, currentUser, secUsers, masterKeyRaw, setSecUsers, setData, canEdit }) {
+function Section({ section, data, derived, today, view, setView, query, onOpen, currentUser, secUsers, masterKeyRaw, setSecUsers, setData, canEdit, setConfirm }) {
   const cfg = VIEWS[section];
   const v = cfg.views[Math.min(view, cfg.views.length - 1)];
   let rows = data[section] || [];
