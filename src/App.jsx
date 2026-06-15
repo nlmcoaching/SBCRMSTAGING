@@ -1543,13 +1543,17 @@ export default function App() {
   };
 
   /* ── Calendly Sync ── */
-  const CALENDLY_BACKEND = "";
+  const CALENDLY_BACKEND   = "";
+  const FRONTEND_SECRET    = import.meta.env.VITE_FRONTEND_SECRET || "";
+  const calendlyHeaders    = () => ({
+    ...(FRONTEND_SECRET ? { "x-frontend-secret": FRONTEND_SECRET } : {}),
+  });
 
   const syncCalendly = async () => {
     if (locked) return;
     setCalendlyStatus({ syncing: true });
     try {
-      const res = await fetch(`${CALENDLY_BACKEND}/api/calendly/pending`);
+      const res = await fetch(`${CALENDLY_BACKEND}/api/calendly/pending`, { headers: calendlyHeaders() });
       if (!res.ok) throw new Error("Backend unavailable");
       const { events } = await res.json();
 
@@ -1812,7 +1816,7 @@ export default function App() {
       if (ids.length) {
         await fetch(`${CALENDLY_BACKEND}/api/calendly/acknowledge`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...calendlyHeaders() },
           body: JSON.stringify({ ids }),
         }).catch(() => {});
       }
@@ -1821,7 +1825,7 @@ export default function App() {
     } catch {
       // Backend not running or unreachable — check silently and surface pending count only
       try {
-        const res = await fetch(`${CALENDLY_BACKEND}/api/calendly/pending`);
+        const res = await fetch(`${CALENDLY_BACKEND}/api/calendly/pending`, { headers: calendlyHeaders() });
         const { total } = await res.json();
         if (total > 0) setCalendlyStatus({ pending: total });
         else setCalendlyStatus(null);
@@ -1829,13 +1833,27 @@ export default function App() {
     }
   };
 
-  // Poll for pending Calendly events every 2 minutes when logged in
+  // Poll for pending Calendly events every 5 minutes when logged in
   useEffect(() => {
     if (locked) return;
     syncCalendly();
     const interval = setInterval(syncCalendly, 5 * 60 * 1000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locked]);
+
+  // Auto-lock after 15 minutes of inactivity
+  useEffect(() => {
+    if (locked) return;
+    const IDLE_MS = 15 * 60 * 1000;
+    let timer = setTimeout(() => setLocked(true), IDLE_MS);
+    const reset = () => { clearTimeout(timer); timer = setTimeout(() => setLocked(true), IDLE_MS); };
+    const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"];
+    events.forEach(e => window.addEventListener(e, reset, { passive: true }));
+    return () => {
+      clearTimeout(timer);
+      events.forEach(e => window.removeEventListener(e, reset));
+    };
   }, [locked]);
 
   /* ── Save profile edits ── */
@@ -1897,7 +1915,7 @@ export default function App() {
 
   const update = (db, fn) => setData((d) => ({ ...d, [db]: fn(d[db]) }));
   const can = {
-    view:   currentUser?.permissions?.view   ?? true,
+    view:   currentUser?.permissions?.view   ?? false,
     edit:   currentUser?.permissions?.edit   ?? false,
     delete: currentUser?.permissions?.delete ?? false,
     manage: currentUser?.role === "Owner" || !!(currentUser?.permissions?.manage),
@@ -6233,13 +6251,21 @@ function AdminView({ tab, data, secUsers, currentUser, today, crmSettings, onSav
   // ── export all data (Owner only) ──
   const exportAll = () => {
     if (currentUser?.role !== "Owner") return;
+    const ok = window.confirm(
+      "⚠️ Security reminder\n\n" +
+      "This backup file contains ALL your CRM data in plain text — client names, emails, phone numbers, and financial records.\n\n" +
+      "• Store it in a secure location (encrypted drive or password manager).\n" +
+      "• Do not share it or leave it in Downloads.\n\n" +
+      "Download anyway?"
+    );
+    if (!ok) return;
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a"); a.href = url;
     a.download = `sbcrm-backup-${today}.json`; a.click();
     URL.revokeObjectURL(url);
-    setExportMsg("✓ Backup downloaded");
-    setTimeout(() => setExportMsg(""), 3000);
+    setExportMsg("✓ Backup downloaded — store it securely");
+    setTimeout(() => setExportMsg(""), 5000);
   };
 
   const SEV_COLOR = { high: "#EF4444", medium: "#F59E0B", low: C.ink3 };
@@ -6475,8 +6501,14 @@ function AdminView({ tab, data, secUsers, currentUser, today, crmSettings, onSav
             {/* Export */}
             <div style={{ background: C.surface, borderRadius: 16, border: `1px solid ${C.line}`, padding: "22px 24px" }}>
               <div style={{ fontWeight: 700, fontSize: 15, color: C.ink, marginBottom: 6 }}>Export Backup</div>
-              <div style={{ fontSize: 13, color: C.ink3, marginBottom: 18, lineHeight: 1.6 }}>
-                Downloads a full JSON backup of all CRM data. Keep this file secure — it contains your unencrypted records.
+              <div style={{ fontSize: 13, color: C.ink3, marginBottom: 12, lineHeight: 1.6 }}>
+                Downloads a full JSON backup of all CRM data.
+              </div>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 12px", marginBottom: 18 }}>
+                <span style={{ fontSize: 15, lineHeight: 1 }}>⚠️</span>
+                <div style={{ fontSize: 12, color: "#92400E", lineHeight: 1.5 }}>
+                  <strong>Plain-text file.</strong> The downloaded file is <em>not encrypted</em>. It contains client names, emails, phone numbers, and financial records. Store it securely and do not leave it in your Downloads folder.
+                </div>
               </div>
               <div style={{ fontSize: 12, color: C.ink2, marginBottom: 16 }}>
                 <strong>{totalRecords}</strong> records · <strong>{totalKB} KB</strong> uncompressed

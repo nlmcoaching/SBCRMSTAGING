@@ -11,14 +11,37 @@
 //      Events: invitee.created, invitee.canceled, invitee_no_show.created
 
 require("dotenv").config();
-const express  = require("express");
-const crypto   = require("crypto");
-const cors     = require("cors");
-const fs       = require("fs");
-const path     = require("path");
+const express    = require("express");
+const crypto     = require("crypto");
+const cors       = require("cors");
+const helmet     = require("helmet");
+const rateLimit  = require("express-rate-limit");
+const fs         = require("fs");
+const path       = require("path");
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
+
+// ── Security headers ──
+app.use(helmet());
+
+// ── Rate limiting ──
+const generalLimiter = rateLimit({
+  windowMs: 60 * 1000,  // 1 minute
+  max: 60,              // 60 requests per IP per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests — please slow down" },
+});
+const webhookLimiter = rateLimit({
+  windowMs: 60 * 1000,  // 1 minute
+  max: 30,              // Calendly sends bursts; 30/min is generous but bounded
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many webhook requests" },
+});
+app.use("/api/webhooks/calendly", webhookLimiter);
+app.use("/api/", generalLimiter);
 
 // ── CORS: only allow the React dev server and production origin ──
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:5173").split(",");
@@ -174,11 +197,25 @@ app.post("/api/webhooks/calendly", (req, res) => {
   res.status(200).json({ status: "queued", id: extracted.id });
 });
 
+// ── Frontend secret guard (for CRM-facing endpoints) ──
+function requireFrontendSecret(req, res, next) {
+  const secret = process.env.FRONTEND_SECRET;
+  if (!secret) {
+    // If not configured, allow in dev mode but warn loudly
+    console.warn("[WARN] FRONTEND_SECRET not set — /pending and /acknowledge are unauthenticated");
+    return next();
+  }
+  if (req.headers["x-frontend-secret"] !== secret) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  next();
+}
+
 // ────────────────────────────────────────────────────────────────
 // GET /api/calendly/pending
 // React CRM polls this to retrieve unprocessed events
 // ────────────────────────────────────────────────────────────────
-app.get("/api/calendly/pending", (_req, res) => {
+app.get("/api/calendly/pending", requireFrontendSecret, (_req, res) => {
   const queue   = readQueue();
   const pending = queue.filter(e => !e.processed);
   res.json({ events: pending, total: pending.length });
@@ -189,7 +226,7 @@ app.get("/api/calendly/pending", (_req, res) => {
 // React CRM calls this after processing events so they're not re-sent
 // Body: { ids: ["evt_...", "evt_..."] }
 // ────────────────────────────────────────────────────────────────
-app.post("/api/calendly/acknowledge", (req, res) => {
+app.post("/api/calendly/acknowledge", requireFrontendSecret, (req, res) => {
   const { ids } = req.body;
   if (!Array.isArray(ids)) return res.status(400).json({ error: "ids must be an array" });
 
