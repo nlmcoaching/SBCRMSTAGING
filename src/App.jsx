@@ -2583,24 +2583,7 @@ function Today({ data, derived, today, onOpen, onGo }) {
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="sb-stats">
-        <Stat label="Net revenue MTD"   value={money(mtdRevenue)}  hint="completed sessions this month"      onClick={() => onGo("revenue", 1)} />
-        <Stat label="Referral revenue"  value={money(refRevenue)}  hint="from all referrals" accent={refRevenue > 0 ? "#4A8C6F" : C.ink3} onClick={() => onGo("referrals")} />
-        <Stat label="Active clients"    value={activeMembers}      hint="total clients in system"            onClick={() => onGo("clients")} />
-        <Stat label="Active sequences"  value={activeSeqs}         hint="clients in follow-up nurture"       onClick={() => onGo("engine")} />
-      </div>
-
-      {/* Pipeline snapshot */}
-      <PipelineSnapshot data={data} today={today} />
-
-      {/* B2C vs B2B lane split */}
-      <LaneSplitPanel data={data} today={today} />
-
-      {/* Alerts */}
-      <AlertsPanel data={data} today={today} onOpen={onOpen} />
-
-      {/* ── NEXT BEST ACTIONS ── */}
+      {/* ── NEXT BEST ACTIONS (above stats) ── */}
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
           <h3 style={{ fontFamily: FONT.display, fontSize: 20, fontWeight: 600, letterSpacing: "-0.01em", margin: 0 }}>
@@ -2693,6 +2676,23 @@ function Today({ data, derived, today, onOpen, onGo }) {
           })}
         </div>
       </div>
+
+      {/* Stats */}
+      <div className="sb-stats">
+        <Stat label="Net revenue MTD"   value={money(mtdRevenue)}  hint="completed sessions this month"      onClick={() => onGo("revenue", 1)} />
+        <Stat label="Referral revenue"  value={money(refRevenue)}  hint="from all referrals" accent={refRevenue > 0 ? "#4A8C6F" : C.ink3} onClick={() => onGo("referrals")} />
+        <Stat label="Active clients"    value={activeMembers}      hint="total clients in system"            onClick={() => onGo("clients")} />
+        <Stat label="Active sequences"  value={activeSeqs}         hint="clients in follow-up nurture"       onClick={() => onGo("engine")} />
+      </div>
+
+      {/* Pipeline snapshot */}
+      <PipelineSnapshot data={data} today={today} />
+
+      {/* B2C vs B2B lane split */}
+      <LaneSplitPanel data={data} today={today} />
+
+      {/* Alerts */}
+      <AlertsPanel data={data} today={today} onOpen={onOpen} />
 
       {/* Charts */}
       <div className="sb-grid2">
