@@ -14,20 +14,21 @@
 5. [Managing Your Clients](#managing-your-clients)
 6. [Managing Studio Partners](#managing-studio-partners)
 7. [Running Sessions](#running-sessions)
-8. [Offers & Sales](#offers--sales)
-9. [Follow-Up Engine](#follow-up-engine)
-10. [Outreach Hub](#outreach-hub)
-11. [Tracking Revenue](#tracking-revenue)
-12. [Content Calendar](#content-calendar)
-13. [Testimonial Library](#testimonial-library)
-14. [Email & SMS Templates](#email--sms-templates)
-15. [Referral Tracking](#referral-tracking)
-16. [Workflows — Seeing the Big Picture](#workflows--seeing-the-big-picture)
-17. [Tracking Expenses](#tracking-expenses)
-18. [Your Profile](#your-profile)
-19. [Logging Out](#logging-out)
-20. [Tips for Daily Use](#tips-for-daily-use)
-21. [Frequently Asked Questions](#frequently-asked-questions)
+8. [Calendly Bookings](#calendly-bookings)
+9. [Offers & Sales](#offers--sales)
+10. [Follow-Up Engine](#follow-up-engine)
+11. [Outreach Hub](#outreach-hub)
+12. [Tracking Revenue](#tracking-revenue)
+13. [Content Calendar](#content-calendar)
+14. [Testimonial Library](#testimonial-library)
+15. [Email & SMS Templates](#email--sms-templates)
+16. [Referral Tracking](#referral-tracking)
+17. [Workflows — Seeing the Big Picture](#workflows--seeing-the-big-picture)
+18. [Tracking Expenses](#tracking-expenses)
+19. [Your Profile](#your-profile)
+20. [Logging Out](#logging-out)
+21. [Tips for Daily Use](#tips-for-daily-use)
+22. [Frequently Asked Questions](#frequently-asked-questions)
 
 ---
 
@@ -317,6 +318,79 @@ Before every session, open the **Equipment** tab. You'll find a checklist organi
 - **Admin & Check-In** — Waiver QR code, check-in list, arrival time, integration script
 
 Check items off before you leave for the venue. This ensures you never forget something important.
+
+### Session Calendar View
+
+The Sessions calendar shows one month at a time. Each session appears as a colored pill. The color tells you the session type at a glance — a **legend in the top-right corner** of the calendar explains it:
+
+- **Purple pill — Studio session:** `Studio Name · Journey · X spots left`
+  - The left edge of the pill turns **red** when only 3 or fewer spots remain — a quick visual alert that the session is nearly full
+- **Blue pill — Virtual or Private session:** `Client Name · Journey Name`
+  - Booking platform prefixes (e.g. "9D Breathwork Virtual - ") are automatically stripped
+
+Hover over any pill to see the full session name, studio, client name, and exact spots remaining. Click any pill to open that session's record drawer.
+
+> **Note:** Studio sessions booked through Calendly are automatically linked to the correct studio partner by matching the studio name in the event name. If no matching partner exists, one is created automatically. Any previously synced sessions without a studio link are corrected on the next sync.
+
+### Session Bookings Tab
+
+When you open a session record and click the **Bookings** tab, you'll see everyone who has registered for that session via Calendly:
+
+- **Status badges** — booked, attended, canceled, rescheduled, no-show
+- **Waiver warnings** — yellow warning if a waiver hasn't been signed yet
+- **Payment status** — green checkmark for paid, red for unpaid
+- **Contact details** — email, phone, Zoom link (for virtual sessions)
+- **Health concerns** — shown in red if the client noted any concerns at booking
+- **Arrow button** — jump straight to the client's record
+
+---
+
+## Calendly Bookings
+
+**Navigate to:** Sidebar → Calendly Bookings
+
+When a client books through your Calendly link, the CRM automatically:
+1. Creates or updates their **client record** (matched by email address)
+2. Creates or updates the **session record** for that event
+3. **Creates a new Studio Partner** if the event is in-person and the studio isn't already in your system — no manual setup needed
+4. Creates a **booking record** under Calendly Bookings with the **waiver pre-marked as signed** (since clients accept it during booking)
+5. Queues **3 follow-up tasks** for that client (same-day confirmation, 24-hour follow-up, 72-hour rebooking offer)
+
+### Staying in Sync
+
+At the bottom of the sidebar you'll see a **Calendly sync status indicator**. The CRM syncs automatically every **5 minutes** in the background — no action needed.
+
+The indicator shows:
+- **Spinning icon + "Syncing Calendly…"** — sync is running
+- **"3 records synced · Last sync 9:45 AM"** — new bookings were just imported
+- **"Calendly up to date · Last sync 9:45 AM"** — sync ran, nothing new
+- **"2 bookings pending…"** — bookings are queued and will be imported on the next cycle
+
+**Hover over the indicator** at any time to see exactly how many records were imported in the last sync and what time it ran.
+
+### New Studio Partners from Calendly
+When a booking arrives for a studio that isn't in your CRM yet, the system reads the Calendly event name (e.g. "Indiga Yoga - Walnut Creek, CA"), extracts the studio name and location, and creates a new Studio Partner record automatically. You can find and edit it under **Studio Partners** in the sidebar — fill in the contact details, revenue share, and other information when you're ready.
+
+### Waivers
+All bookings that come through Calendly are automatically marked as **waiver signed**, since clients accept your waiver during the booking process. The "Pending Waivers" view and waiver warning badges will only show for bookings you create manually.
+
+### Calendly Bookings Views
+
+| View | What it shows |
+|---|---|
+| All Bookings | Every registration, newest first |
+| Pending Waivers | Manually-created registrations without a signed waiver |
+| Unpaid | Clients who haven't paid |
+| Cancellations | Canceled and rescheduled bookings |
+
+### Booking Record Fields
+
+Each booking record captures everything from the Calendly confirmation:
+- Session date and event name
+- Status (booked, attended, canceled, rescheduled, no-show)
+- Waiver status (auto-signed for Calendly bookings) and payment status
+- Location type and Zoom link (for virtual sessions)
+- Custom question answers: how they heard about you, health concerns, prior breathwork experience, referral source
 
 ---
 
@@ -756,6 +830,9 @@ After logging out, the login screen is shown and your data is locked until the c
 
 ## Tips for Daily Use
 
+**Start your computer session by double-clicking `start.bat`.**
+This launches the backend, frontend, and ngrok tunnel all at once. Everything the CRM needs will be running before you open your browser.
+
 **Start every day on the Today dashboard.**
 The Next Best Actions list is ranked automatically. Work through it top to bottom and your most important business tasks are handled.
 
@@ -811,7 +888,16 @@ Go to **Admin** in the sidebar, click the **Storage & Backup** tab, and click **
 **The app is showing old data or not updating. What should I do?**
 Try refreshing the page. If the problem persists, log out and log back in. If you continue to see issues, contact your system administrator.
 
+**A new Calendly booking isn't appearing in the CRM. What should I do?**
+The CRM syncs every 5 minutes automatically — wait a moment and check again. If it still doesn't appear, check that the backend server is running (double-click `start.bat` or run `.\start.ps1` from the project folder). If using ngrok for local testing, make sure the ngrok tunnel is still active — ngrok sessions expire after a few hours on the free plan.
+
+**Can I manually create a booking without Calendly?**
+Yes. Go to **Calendly Bookings** and click **New** to create a registration record manually. You'll need to link it to an existing client and session.
+
+**A client booked twice and I have a duplicate. How do I fix it?**
+The system matches clients by email address. If a duplicate client was created (e.g. the client used two different email addresses), open the older record and merge the information into the primary record manually, then delete the duplicate.
+
 ---
 
-*Simply Breathe OS User Guide — June 2026*
+*Simply Breathe OS User Guide — updated June 2026*
 *For technical documentation, see DOCUMENTATION.md*

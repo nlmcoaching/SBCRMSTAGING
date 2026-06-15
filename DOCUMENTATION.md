@@ -1,7 +1,7 @@
 # Simply Breathe OS — CRM Documentation
 
-> **Version:** 5.1 (June 2026)
-> **Stack:** React 18 · Vite · Recharts · Lucide React · PapaParse
+> **Version:** 6.0 (June 2026)
+> **Stack:** React 18 · Vite · Recharts · Lucide React · PapaParse · Node.js/Express (backend)
 > **Storage:** Browser `localStorage` (encrypted) + Cursor canvas `window.storage`
 > **Security:** AES-256-GCM encryption · PBKDF2 key derivation · PIN-based auth
 
@@ -26,12 +26,13 @@
 15. [Referral Tracking](#referral-tracking)
 16. [Workflows](#workflows)
 17. [Expenses](#expenses)
-18. [Admin](#admin)
-19. [Navigation & Layout](#navigation--layout)
-20. [Data Import / Export](#data-import--export)
-21. [Profile & Account](#profile--account)
-22. [Seed Data](#seed-data)
-23. [Technical Architecture](#technical-architecture)
+18. [Calendly Integration](#calendly-integration)
+19. [Admin](#admin)
+20. [Navigation & Layout](#navigation--layout)
+21. [Data Import / Export](#data-import--export)
+22. [Profile & Account](#profile--account)
+23. [Seed Data](#seed-data)
+24. [Technical Architecture](#technical-architecture)
 
 ---
 
@@ -365,10 +366,68 @@ Waiver QR code · Check-in list printed · Arrival time confirmed · Closing / i
 
 ### Views Available
 
-- **All Sessions** — Full table
-- **Upcoming** — Future sessions
-- **Completed** — Past sessions with performance data
-- **Session Performance** — Analytics view
+- **Calendar** — Monthly calendar showing all sessions. Pills display `Studio · Journey` for studio sessions and `Client · Journey` for virtual/Calendly sessions.
+- **Performance** — Revenue and attendance analytics
+- **Revenue Leaderboard** — Sessions ranked by revenue
+- **Conversion** — Package and offer conversion rates
+
+### Session Record Drawer — Tabs
+
+| Tab | Contents |
+|---|---|
+| Details & Edit | All session fields, editable |
+| Bookings | All registrants for this session (see below) |
+| Equipment Setup | Per-session gear checklist |
+| Run Checklist | Full pre/during/post session checklist |
+| Performance | Revenue, attendance, conversion metrics |
+
+#### Bookings Tab
+Shows every client registration linked to this session (synced from Calendly or manually linked). Displays per registrant:
+- Name, booking status (booked / attended / canceled / no-show)
+- Waiver status (pending / signed) with warning badges
+- Payment status (paid / unpaid / unknown)
+- Email, phone, attendance type (virtual / in-person)
+- Zoom join link (if virtual)
+- Health concerns (flagged in red)
+- "How they heard about us"
+- Quick-jump arrow to open the client record
+
+#### Calendar Pill Format
+- **Studio sessions:** `Studio Name · Journey · X spots left` — rendered in **purple/indigo** (B2B lane color) with a left accent border
+  - Border turns **red** when ≤ 3 spots remain
+- **Virtual / Private sessions:** `Client Name · Journey Name` — rendered in **brand blue**
+  - Product prefixes like `"9D Breathwork Virtual - "` are automatically stripped from the journey label
+- A **color legend** (Studio / Virtual & Private) is shown in the calendar header
+- **Studio header in drawer:** Shows `Studio Name — Session Name` above the editable title for quick identification
+- **Hover tooltip:** Full session name, studio, client name, and `X of Y spots remaining`
+
+#### Calendly-Created Sessions
+When a booking arrives via Calendly webhook, a session record is automatically created or updated:
+- `name` = Calendly event name
+- `journey` = Calendly event name (overrides default)
+- `studioId` = auto-matched from partner list (see Studio Auto-Matching below)
+- `locationType` / `locationJoinUrl` stored for virtual sessions
+- `registered` increments for each new invitee on the same event
+- Cancellations decrement `registered`; no-shows update `noShows`
+
+#### Studio Auto-Matching & Auto-Creation (`resolvePartner` / `extractStudio`)
+Every sync attempt (even when there are no pending events) runs a retroactive pass to set `studioId` on any Calendly session that is missing it.
+
+**Matching logic (`resolvePartner`):**
+- Matches partner name only (with `"Sample - "` prefix stripped) — full name must appear in the event name or location address
+- City-only matching is intentionally excluded to prevent false positives across studios in the same city (e.g. multiple studios in Walnut Creek)
+
+**Auto-creation (`extractStudio`):**
+When a physical in-person booking arrives and no existing partner matches, the sync automatically:
+1. Parses the Calendly event name — `"Studio Name - Location"` or `"Studio Name · Journey"` formats are supported
+2. Creates a new Studio Partner record with `stage: "Recurring partner"` and a note recording the auto-creation date
+3. Links the session and all future bookings for that event to the new partner
+4. Prevents duplicates — checks name uniqueness before creating
+
+This means new studios are discovered and added to your CRM the moment the first booking arrives, with no manual setup required.
+
+#### Waiver Auto-Sign
+All registrations created via Calendly receive `waiverStatus: "signed"` automatically, since clients accept the waiver during the Calendly booking flow. The "Pending Waivers" view and waiver warning badges only trigger for manually-created registrations.
 
 ---
 
@@ -968,6 +1027,132 @@ Expenses feed into two places:
 
 ---
 
+## Calendly Integration
+
+### Overview
+Simply Breathe OS integrates with Calendly via a lightweight Node.js/Express webhook backend. When a client books a session in Calendly, the CRM automatically creates or updates the client record, creates a session record, creates a Calendly registration record, and queues follow-up tasks — with no manual data entry required.
+
+### Architecture
+
+```
+Calendly → POST /api/webhooks/calendly (backend/server.js)
+         → pending-events.json queue
+         → React CRM polls GET /api/calendly/pending every 5 min
+         → Runs retroactive studio-matching pass on all sessions
+         → Processes new events → updates data state
+         → POST /api/calendly/acknowledge (marks events done)
+```
+
+The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoiding CORS entirely.
+
+### Backend (`backend/server.js`)
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/webhooks/calendly` | POST | Receives Calendly events; verifies HMAC-SHA256 signature if signing key is configured |
+| `/api/calendly/pending` | GET | Returns unprocessed events for the CRM to consume |
+| `/api/calendly/acknowledge` | POST | Marks event IDs as processed |
+| `/api/calendly/events` | GET | All events (debug/admin) |
+| `/api/calendly/events` | DELETE | Clear queue (dev only) |
+| `/health` | GET | Uptime check |
+
+**Environment variables (`backend/.env`):**
+- `PORT` — server port (default 3001)
+- `CALENDLY_WEBHOOK_SIGNING_KEY` — HMAC signing key from Calendly webhook subscription; if blank, signature verification is skipped (dev mode only)
+- `ALLOWED_ORIGINS` — comma-separated CORS origins (default `http://localhost:5173`)
+
+### Supported Calendly Events
+
+| Event | CRM Action |
+|---|---|
+| `invitee.created` | Create/update client · upsert session · create registration · create 3 follow-up tasks |
+| `invitee.canceled` | Set registration status to `canceled` (or `rescheduled` if `payload.rescheduled = true`) · decrement session registered count |
+| `invitee_no_show.created` | Set registration `noShow: true`, status `no_show` · increment session noShows |
+| `invitee_no_show.deleted` | Revert no-show flag · decrement noShows |
+
+### Client Deduplication
+Email address (normalized to lowercase) is the primary deduplication key. On `invitee.created`:
+- **New email** → creates client with `source: "Calendly"`, `status: "Booked"`
+- **Existing email** → updates name, phone, next session date, status (Lead → Booked)
+
+### Registrations Data Table
+Each individual Calendly booking is stored as a `registration` record:
+
+| Field | Description |
+|---|---|
+| `clientId` | Links to the client record |
+| `sessionId` | Links to the auto-created session record |
+| `calendlyInviteeUri` | Unique Calendly invitee identifier (used for deduplication/upsert) |
+| `calendlyEventUri` | Unique Calendly event identifier (groups bookings into one session) |
+| `eventName` | Calendly event type name |
+| `status` | `booked` · `attended` · `canceled` · `rescheduled` · `no_show` |
+| `paymentStatus` | `paid` · `unpaid` · `unknown` |
+| `waiverStatus` | `pending` · `signed` |
+| `scheduledAt` | ISO 8601 start time |
+| `timezone` | Invitee's timezone |
+| `locationType` | `zoom` · `physical` · `custom` · `phone` |
+| `locationJoinUrl` | Zoom or virtual meeting link |
+| `doneBreathworkBefore` | Custom question answer |
+| `howHeard` | Custom question answer |
+| `referredBy` | Custom question answer |
+| `concerns` | Health/emotional concerns from custom questions |
+| `reviewedContraindications` | Custom question answer |
+| `attendanceType` | Virtual or in-person |
+
+### Calendly Bookings Sidebar Section
+**Navigation:** Sidebar → Calendly Bookings
+
+Views:
+- **All Bookings** — all registrations sorted by session date (newest first)
+- **Pending Waivers** — active registrations where waiver is not yet signed
+- **Unpaid** — active registrations with unpaid status
+- **Cancellations** — canceled and rescheduled registrations
+
+### Auto-Created Follow-Up Tasks
+On each new `invitee.created` event, 3 follow-up tasks are created for the client (if not already existing):
+1. "Send same-day session confirmation/check-in" — due on session date
+2. "Send 24-hour post-session follow-up" — due day after session
+3. "Send 72-hour rebooking or package offer" — due 3 days after session
+
+### Sync Status Indicator
+A read-only status line at the bottom of the sidebar auto-syncs every **5 minutes**. Hovering it shows a tooltip with the exact record count and time of the last sync.
+
+| State | Display | Hover tooltip |
+|---|---|---|
+| Syncing | Spinning icon + "Syncing Calendly…" | "Sync in progress…" |
+| Synced with new data | "**N records synced**" + last sync time | "Last sync: HH:MM:SS · N records imported" |
+| Synced, nothing new | "Calendly up to date" + last sync time | "Last sync: HH:MM:SS · No new bookings" |
+| Events queued | "**N bookings pending…**" | "N bookings queued — will sync within 5 minutes" |
+| Initial load | "Calendly sync active" | "Syncs automatically every 5 minutes" |
+
+The retroactive studio-matching pass runs on every sync cycle regardless of whether new events are pending.
+
+### Startup Scripts
+Two scripts in the project root start all services in one step:
+
+| File | Usage |
+|---|---|
+| `start.bat` | **Double-click** in Windows Explorer — bypasses PowerShell execution policy |
+| `start.ps1` | Run `.\start.ps1` in a PowerShell terminal |
+
+Both scripts:
+1. Check Node.js is installed; abort with instructions if not
+2. Check ngrok is installed; skip tunnel gracefully if not (prints install command)
+3. Auto-copy `backend/.env.example` → `backend/.env` if missing
+4. Run `npm install` in both root and `backend/` if `node_modules` is absent
+5. Create `backend/data/` directory if missing
+6. Open three labelled terminal windows: `SB Backend :3001`, `SB Frontend :5173`, `SB ngrok tunnel`
+7. Print all local URLs and remind you to register the ngrok URL in Calendly
+
+### Setup Requirements
+1. Double-click `start.bat` (or run `.\start.ps1`)
+2. Register webhook URL shown in the ngrok window in Calendly Dashboard → Integrations → Webhooks
+3. Add signing key from that subscription to `backend/.env` as `CALENDLY_WEBHOOK_SIGNING_KEY`
+
+See `backend/README.md` for manual setup instructions.
+
+---
+
 ## Navigation & Layout
 
 ### Sidebar Structure
@@ -1119,16 +1304,27 @@ Seed data is loaded on first run only. All subsequent loads use the encrypted st
 
 ```
 simply-breathe-app/
+├── backend/                     # Calendly webhook backend (Node.js/Express)
+│   ├── server.js                # Webhook endpoint + event queue API
+│   ├── package.json
+│   ├── .env.example             # Environment variable template
+│   ├── .env                     # Local config (gitignored)
+│   ├── README.md                # Backend setup instructions
+│   └── data/
+│       └── pending-events.json  # Event queue (gitignored)
 ├── public/
-│   ├── sb logo.png          # Sidebar logo
-│   ├── sb-heart-wave.png    # Lock screen logo
+│   ├── sb logo.png              # Sidebar logo
+│   ├── sb-heart-wave.png        # Lock screen logo
 │   └── favicon.ico
 ├── src/
-│   ├── App.jsx              # All components, logic, styles (single-file architecture)
-│   └── index.css            # Global CSS + responsive rules
-├── vite.config.js           # CSP headers, server config
+│   ├── App.jsx                  # All components, logic, styles (single-file architecture)
+│   └── index.css                # Global CSS + responsive rules
+├── vite.config.js               # CSP headers, Vite proxy (/api → localhost:3001)
 ├── package.json
-└── DOCUMENTATION.md
+├── start.bat                    # Double-click launcher (Windows, bypasses PS execution policy)
+├── start.ps1                    # PowerShell startup script (backend + frontend + ngrok)
+├── DOCUMENTATION.md
+└── USER_GUIDE.md
 ```
 
 ### Key Constants
@@ -1143,6 +1339,7 @@ simply-breathe-app/
 | `VIEWS` | View definitions (table, kanban, custom) per section |
 | `STORE_KEY_ENC` | `simplybreathe:data:v5:enc` — encrypted data key |
 | `SEC_META_KEY` | `sb:security:v1` — security/user config key |
+| `CALENDLY_BACKEND` | `""` — base URL for backend API (empty = use Vite proxy) |
 
 ### State Management
 
@@ -1160,6 +1357,7 @@ All state is managed via React `useState` and `useMemo` in the root `App` compon
 | `EditProfileModal` | Profile photo + info + PIN change |
 | `UserManagementView` | Multi-user CRUD and permissions |
 | `AdminView` | 4-tab admin panel: overview, schema browser, integrity check, storage |
+| `SessionBookingsTab` | Bookings tab inside session drawer — lists all Calendly registrants |
 | `WorkflowsView` | Five workflow pipeline visualizations |
 | `TemplateLibraryView` | Template browsing and copy |
 | `TestimonialLibraryView` | Testimonial cards and action tracking |
@@ -1189,4 +1387,4 @@ Sec.validate(data)                        // Schema validation on load
 
 ---
 
-*Documentation generated June 2026. Simply Breathe OS is a living system — update this document as features are added.*
+*Documentation updated June 2026 (v6.0). Simply Breathe OS is a living system — update this document as features are added.*

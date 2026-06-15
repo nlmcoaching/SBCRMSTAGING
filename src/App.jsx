@@ -1471,7 +1471,28 @@ export default function App() {
       const res = await fetch(`${CALENDLY_BACKEND}/api/calendly/pending`);
       if (!res.ok) throw new Error("Backend unavailable");
       const { events } = await res.json();
-      if (!events.length) { setCalendlyStatus({ synced: 0, at: new Date().toLocaleTimeString() }); return; }
+
+      // Match a studio partner by name only (strips "Sample - " prefix).
+      // City-level matching removed — too prone to false positives across studios in the same city.
+      const resolvePartner = (partnersList, ...textFields) => {
+        const haystack = textFields.join(" ").toLowerCase();
+        return partnersList.find(p => {
+          if (!p.name) return false;
+          const pName = p.name.replace(/^sample\s*-\s*/i, "").toLowerCase();
+          return pName.length > 2 && haystack.includes(pName);
+        });
+      };
+
+      // Extract studio name + location from a Calendly event name.
+      // Handles "Studio Name - Location" and "Studio Name · Journey" formats.
+      const extractStudio = (eventName, locationAddress) => {
+        if (!eventName) return null;
+        const dashIdx = eventName.indexOf(" - ");
+        if (dashIdx > 0) return { name: eventName.slice(0, dashIdx).trim(), location: eventName.slice(dashIdx + 3).trim() || locationAddress || "" };
+        const dotIdx = eventName.indexOf(" · ");
+        if (dotIdx > 0) return { name: eventName.slice(0, dotIdx).trim(), location: locationAddress || "" };
+        return null;
+      };
 
       let processed = 0;
       const ids = [];
@@ -1481,8 +1502,21 @@ export default function App() {
         const registrations = [...(next.registrations || [])];
         const sessions      = [...(next.sessions      || [])];
         const followups     = [...(next.followups     || [])];
+        const partners      = [...(next.partners      || [])];
 
         const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x.toISOString().slice(0,10); };
+
+        // Always retroactively fix Calendly-synced sessions missing a studioId
+        sessions.forEach((s, i) => {
+          if (s.calendlyEventUri && !s.studioId) {
+            // Also pull in locationAddress from any linked registration
+            const linkedReg = registrations.find(r => r.sessionId === s.id);
+            const match = resolvePartner(partners, s.name, s.notes || "", linkedReg?.locationAddress || "");
+            if (match) sessions[i] = { ...s, studioId: match.id };
+          }
+        });
+
+        if (!events.length) return { ...next, sessions, partners };
 
         events.forEach(evt => {
           if (evt.eventType === "invitee.created") {
@@ -1519,19 +1553,58 @@ export default function App() {
             // 2. Upsert session record (one per unique Calendly event URI)
             let sessionId = "";
             if (evt.calendlyEventUri) {
+              const isPhysical = evt.locationType === "physical" || (!evt.locationType && evt.locationAddress && evt.locationType !== "zoom");
+              let matchedPartner = resolvePartner(partners, evt.eventName || "", evt.locationAddress || "");
+
+              // No match — if the event looks like a studio event, auto-create the partner
+              if (!matchedPartner && isPhysical) {
+                const extracted = extractStudio(evt.eventName || "", evt.locationAddress || "");
+                if (extracted?.name) {
+                  // Only create if no partner already has this name
+                  const alreadyExists = partners.find(p => p.name.replace(/^sample\s*-\s*/i, "").toLowerCase() === extracted.name.toLowerCase());
+                  if (!alreadyExists) {
+                    const newPartner = {
+                      id: uid("sp"),
+                      name: extracted.name,
+                      location: extracted.location,
+                      studioType: "Yoga",
+                      contact: "", role: "", email: "", phone: "",
+                      stage: "Recurring partner",
+                      estimatedCommunitySize: 0, bestFitJourney: "", revenuePotential: 0,
+                      closeProbability: "Closed Won", revShare: "",
+                      contractStatus: "None", outreachDate: "", lastTouch: sessionDate,
+                      nextAction: "", avgAttendance: 0, sessionsPerMonth: 0,
+                      insuranceReqs: "", promotionCommitments: "",
+                      notes: `Auto-created from Calendly booking on ${sessionDate}`,
+                      checklist: emptyChecklist(),
+                    };
+                    partners.push(newPartner);
+                    matchedPartner = newPartner;
+                  } else {
+                    matchedPartner = alreadyExists;
+                  }
+                }
+              }
+
+              const resolvedStudioId = matchedPartner?.id || "";
+
               const existingSessionIdx = sessions.findIndex(s => s.calendlyEventUri === evt.calendlyEventUri);
               if (existingSessionIdx >= 0) {
-                // Update registered count
+                // Update registered count; also backfill studioId if we now have a match
                 const regsForEvent = registrations.filter(r => r.calendlyEventUri === evt.calendlyEventUri && r.status !== "canceled").length + 1;
-                sessions[existingSessionIdx] = { ...sessions[existingSessionIdx], registered: regsForEvent };
+                sessions[existingSessionIdx] = {
+                  ...sessions[existingSessionIdx],
+                  registered: regsForEvent,
+                  studioId: sessions[existingSessionIdx].studioId || resolvedStudioId,
+                };
                 sessionId = sessions[existingSessionIdx].id;
               } else {
                 // Detect if virtual vs studio based on location type
-                const isVirtual = evt.locationType === "zoom" || evt.locationType === "custom" || !evt.locationAddress;
+                const isVirtual = !resolvedStudioId && !isPhysical;
                 const newSession = {
                   id: uid("se"),
                   name: evt.eventName || "Calendly Session",
-                  studioId: "",
+                  studioId: resolvedStudioId,
                   date: sessionDate,
                   time: sessionTime,
                   status: "Planned",
@@ -1567,7 +1640,7 @@ export default function App() {
               eventName:          evt.eventName,
               status:             "booked",
               paymentStatus:      "unknown",
-              waiverStatus:       "pending",
+              waiverStatus:       "signed", // client accepts waiver during Calendly booking
               scheduledAt:        evt.startTime,
               timezone:           evt.timezone,
               locationType:       evt.locationType,
@@ -1641,7 +1714,7 @@ export default function App() {
           }
         });
 
-        return { ...next, clients, registrations, sessions, followups };
+        return { ...next, clients, registrations, sessions, followups, partners };
       });
 
       // Acknowledge processed events
@@ -1669,7 +1742,7 @@ export default function App() {
   useEffect(() => {
     if (locked) return;
     syncCalendly();
-    const interval = setInterval(syncCalendly, 2 * 60 * 1000);
+    const interval = setInterval(syncCalendly, 5 * 60 * 1000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locked]);
@@ -1893,22 +1966,37 @@ export default function App() {
             </div>
           </nav>
           <div style={{ marginTop: "auto", padding: 12 }}>
-            {/* Calendly sync status / button */}
+            {/* Calendly sync status indicator */}
             {!locked && (
-              <div style={{ marginBottom: 8 }}>
-                <button
-                  onClick={syncCalendly}
-                  className="sb-ghost"
-                  title="Sync Calendly bookings from backend"
-                  style={{ width: "100%", justifyContent: "flex-start", gap: 6, fontSize: 12,
-                    color: calendlyStatus?.pending > 0 ? C.brand : C.ink3 }}>
-                  <RefreshCw size={13} strokeWidth={1.5}
-                    style={{ animation: calendlyStatus?.syncing ? "spin 1s linear infinite" : "none" }} />
+              <div
+                title={
+                  calendlyStatus?.syncing
+                    ? "Sync in progress…"
+                    : calendlyStatus?.synced != null
+                      ? `Last sync: ${calendlyStatus.at}${calendlyStatus.synced > 0 ? ` · ${calendlyStatus.synced} record${calendlyStatus.synced !== 1 ? "s" : ""} imported` : " · No new bookings"}`
+                      : calendlyStatus?.pending > 0
+                        ? `${calendlyStatus.pending} booking${calendlyStatus.pending !== 1 ? "s" : ""} queued — will sync within 5 minutes`
+                        : "Syncs automatically every 5 minutes"
+                }
+                style={{ marginBottom: 8, padding: "6px 10px", display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: C.ink3, cursor: "default" }}>
+                <RefreshCw size={11} strokeWidth={1.5}
+                  style={{ flexShrink: 0, animation: calendlyStatus?.syncing ? "spin 1s linear infinite" : "none", color: calendlyStatus?.pending > 0 ? C.brand : C.ink3 }} />
+                <span>
                   {calendlyStatus?.syncing && "Syncing Calendly…"}
-                  {calendlyStatus?.pending > 0 && !calendlyStatus?.syncing && `${calendlyStatus.pending} new booking${calendlyStatus.pending !== 1 ? "s" : ""}`}
-                  {calendlyStatus?.synced != null && !calendlyStatus?.syncing && `Calendly synced${calendlyStatus.synced > 0 ? ` (${calendlyStatus.synced})` : ""}`}
-                  {!calendlyStatus && "Sync Calendly"}
-                </button>
+                  {calendlyStatus?.synced != null && !calendlyStatus?.syncing && (
+                    <>
+                      {calendlyStatus.synced > 0
+                        ? <span style={{ color: C.brand, fontWeight: 600 }}>{calendlyStatus.synced} record{calendlyStatus.synced !== 1 ? "s" : ""} synced</span>
+                        : "Calendly up to date"
+                      }
+                      <span style={{ display: "block", fontSize: 10, marginTop: 1 }}>Last sync {calendlyStatus.at}</span>
+                    </>
+                  )}
+                  {calendlyStatus?.pending > 0 && !calendlyStatus?.syncing && (
+                    <span style={{ color: C.brand, fontWeight: 600 }}>{calendlyStatus.pending} booking{calendlyStatus.pending !== 1 ? "s" : ""} pending…</span>
+                  )}
+                  {!calendlyStatus && "Calendly sync active"}
+                </span>
               </div>
             )}
             {can.edit && <button className="sb-ghost" onClick={() => setImporting(true)}><Upload size={15} /> Import CSVs</button>}
@@ -3904,46 +3992,101 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
     }
   });
 
+  const isStudio = (s) => !!(s.studioId && derived.partnerName[s.studioId]);
+
+  const spotsLeft = (s) => {
+    const cap = Number(s.capacity) || 0;
+    const reg = Number(s.registered) || 0;
+    if (!cap) return null;
+    return Math.max(0, cap - reg);
+  };
+
   const pillLabel = (s) => {
     const partner = derived.partnerName[s.studioId] ? cleanName(derived.partnerName[s.studioId]) : "";
     const clientName = sessionClientName[s.id] || "";
     const rawName = cleanName(s.name);
-    // For virtual/Calendly sessions strip the product prefix (everything before " - ")
     const journeyLabel = partner
       ? (s.journey || rawName)
       : (rawName.includes(" - ") ? rawName.slice(rawName.indexOf(" - ") + 3) : rawName);
-    return clientName ? `${journeyLabel} · ${clientName}` : journeyLabel;
+    const spots = spotsLeft(s);
+    const spotsTag = spots != null ? `${spots} spot${spots !== 1 ? "s" : ""} left` : "";
+    // Studio: Studio · Journey · spots left  |  Virtual: Client · Journey
+    const parts = partner
+      ? [partner, journeyLabel, spotsTag]
+      : [clientName, journeyLabel];
+    return parts.filter(Boolean).join(" · ");
   };
 
   const pillTitle = (s) => {
     const partner = derived.partnerName[s.studioId] ? `@ ${cleanName(derived.partnerName[s.studioId])}` : "";
     const clientName = sessionClientName[s.id] || "";
-    return [cleanName(s.name), partner, clientName].filter(Boolean).join(" · ");
+    const spots = spotsLeft(s);
+    const spotsInfo = spots != null ? `${spots} of ${s.capacity} spots remaining` : "";
+    return [cleanName(s.name), partner, clientName, spotsInfo].filter(Boolean).join(" · ");
   };
 
   return (
-    <div className="sb-card" style={{ padding: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+    <div className="sb-card" style={{ padding: 16, display: "flex", flexDirection: "column", height: "calc(100vh - 160px)", minHeight: 480 }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexShrink: 0 }}>
         <div style={{ fontFamily: FONT.display, fontSize: 17, fontWeight: 600 }}>{MONTHS[m - 1]} {y}</div>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <span style={{ fontSize: 10.5, color: C.ink3, display: "flex", alignItems: "center", gap: 10, marginRight: 6 }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: LANE.b2b.color, display: "inline-block" }} />Studio
+            </span>
+            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: C.brand, display: "inline-block" }} />Virtual / Private
+            </span>
+          </span>
           <button className="sb-iconbtn" onClick={() => shift(-1)}><ChevronLeft size={16} /></button>
           <button className="sb-iconbtn" onClick={() => setCursor(today.slice(0, 7))} style={{ width: "auto", padding: "0 12px", fontSize: 13 }}>Today</button>
           <button className="sb-iconbtn" onClick={() => shift(1)}><ChevronRight size={16} /></button>
         </div>
       </div>
-      <div className="sb-cal">
-        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <div key={d} className="sb-caldow">{d}</div>)}
+
+      {/* Day-of-week labels — fixed row, not part of the stretching grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6, flexShrink: 0, marginBottom: 4 }}>
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => (
+          <div key={d} className="sb-caldow">{d}</div>
+        ))}
+      </div>
+
+      {/* Date cells — flex:1 so rows fill remaining height */}
+      <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gridAutoRows: "1fr", gap: 6, overflow: "hidden" }}>
         {cells.map((d, i) => {
           const iso = d ? `${cursor}-${String(d).padStart(2, "0")}` : null;
           const isToday = iso === today;
           return (
-            <div key={i} className="sb-calcell" style={{ background: d ? (isToday ? C.brandMist : C.surface) : "transparent", border: d ? `1px solid ${isToday ? C.brand : C.line}` : "none" }}>
+            <div key={i} className="sb-calcell" style={{
+              background: d ? (isToday ? C.brandMist : C.surface) : "transparent",
+              border: d ? `1px solid ${isToday ? C.brand : C.line}` : "none",
+              minHeight: 0,
+            }}>
               {d && <div style={{ fontSize: 11, color: isToday ? C.brand : C.ink3, fontWeight: isToday ? 700 : 500, marginBottom: 4 }}>{d}</div>}
-              {(byDay[d] || []).map((s) => (
-                <button key={s.id} className="sb-calev" onClick={() => onOpen(s)} title={pillTitle(s)}>
-                  {pillLabel(s)}
-                </button>
-              ))}
+              {(byDay[d] || []).map((s) => {
+                const studio = isStudio(s);
+                const spots = spotsLeft(s);
+                const almostFull = spots != null && spots <= 3;
+                return (
+                  <button key={s.id}
+                    onClick={() => onOpen(s)}
+                    title={pillTitle(s)}
+                    style={{
+                      fontSize: 10.5, fontWeight: 600, border: "none", borderRadius: 5,
+                      padding: "3px 5px", cursor: "pointer", textAlign: "left",
+                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                      width: "100%", display: "block",
+                      background: studio ? hexA(LANE.b2b.color, 0.15) : C.brandSoft,
+                      color: studio ? LANE.b2b.text : C.brandDeep,
+                      borderLeft: studio ? `3px solid ${almostFull ? "#C0573F" : LANE.b2b.color}` : `3px solid ${C.brand}`,
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = studio ? LANE.b2b.color : C.brand; e.currentTarget.style.color = "#fff"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = studio ? hexA(LANE.b2b.color, 0.15) : C.brandSoft; e.currentTarget.style.color = studio ? LANE.b2b.text : C.brandDeep; }}>
+                    {pillLabel(s)}
+                  </button>
+                );
+              })}
             </div>
           );
         })}
@@ -8848,7 +8991,7 @@ input, textarea, select, button { font-family: inherit; }
 .sb-navbtn:hover { background: ${C.brandMist}; }
 .sb-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .sb-header { display: flex; align-items: center; gap: 12px; padding: 16px 28px; border-bottom: 1px solid ${C.line}; background: ${hexA(C.bg, 0.85)}; backdrop-filter: blur(8px); position: sticky; top: 0; z-index: 20; }
-.sb-content { padding: 22px 28px 60px; max-width: 1280px; width: 100%; }
+.sb-content { padding: 22px 28px 28px; max-width: 1280px; width: 100%; }
 .sb-menu { display: none; background: none; border: none; cursor: pointer; color: ${C.ink}; padding: 4px; }
 .sb-scrim { display: none; }
 .sb-search { display: flex; align-items: center; gap: 7px; background: ${C.surface}; border: 1px solid ${C.line}; border-radius: 9px; padding: 7px 11px; width: 220px; }
@@ -8904,7 +9047,7 @@ input, textarea, select, button { font-family: inherit; }
 
 .sb-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
 .sb-caldow { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: ${C.ink3}; text-align: center; padding-bottom: 4px; font-weight: 600; }
-.sb-calcell { border-radius: 9px; min-height: 78px; padding: 6px; display: flex; flex-direction: column; gap: 3px; }
+.sb-calcell { border-radius: 9px; padding: 6px; display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
 .sb-calev { font-size: 10.5px; font-weight: 600; background: ${C.brandSoft}; color: ${C.brandDeep}; border: none; border-radius: 5px; padding: 3px 5px; cursor: pointer; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sb-calev:hover { background: ${C.brand}; color: #fff; }
 
