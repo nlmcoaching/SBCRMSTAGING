@@ -1,6 +1,6 @@
 # Simply Breathe OS — CRM Documentation
 
-> **Version:** 6.0 (June 2026)
+> **Version:** 6.1 (June 2026)
 > **Stack:** React 18 · Vite · Recharts · Lucide React · PapaParse · Node.js/Express (backend)
 > **Storage:** Browser `localStorage` (encrypted) + Cursor canvas `window.storage`
 > **Security:** AES-256-GCM encryption · PBKDF2 key derivation · PIN-based auth
@@ -166,7 +166,10 @@ Nine key business metrics in a 3×3 grid:
 
 ### Smart Alerts Panel
 
-Automatically generated warnings when something is slipping. Each alert has a severity level (high / medium / low) and a "View" action.
+Automatically generated warnings when something is slipping. Alerts are accessed via the **bell icon** (blue, with a red badge showing the unread count) in the top-right header, next to the profile avatar. Clicking the icon opens a popup panel. Each alert has a severity level (critical / warning / info) and a "View" action to jump directly to the related record.
+
+- **Dismiss button (×):** Each alert can be individually dismissed. Dismissed alerts do not reappear (persisted to `localStorage`).
+- **Badge count:** Updates immediately when alerts are dismissed — reflects only undismissed alerts.
 
 | Alert | Trigger |
 |---|---|
@@ -186,6 +189,8 @@ Automatically generated warnings when something is slipping. Each alert has a se
 ### Next Best Actions
 
 Three-column ranked action list (Revenue · Relationship · Operational), showing the top 3 items per category with the contact name, action description, and urgency context. Expand/collapse per column.
+
+Each action row has a **× dismiss button** (right side, fades in on hover). Dismissed actions are hidden for the rest of the day and automatically reset at midnight. Dismissals are persisted to `localStorage` under `sb:dismissed-actions:v1`.
 
 **Revenue actions include:**
 - Follow up on expiring open offers
@@ -209,7 +214,7 @@ Three-column ranked action list (Revenue · Relationship · Operational), showin
 
 ## Clients (B2C)
 
-**Navigation:** Sidebar → Clients (B2C lane)
+**Navigation:** Sidebar → Clients (B2C lane, first item)
 
 ### Fields Tracked
 
@@ -316,7 +321,7 @@ Same as Clients — full history of all touchpoints, sessions, agreements, and c
 
 ## Sessions
 
-**Navigation:** Sidebar → Sessions (B2C lane)
+**Navigation:** Sidebar → Sessions (Core section)
 
 ### Fields Tracked
 
@@ -433,7 +438,7 @@ All registrations created via Calendly receive `waiverStatus: "signed"` automati
 
 ## Offers & Sales Pipeline
 
-**Navigation:** Sidebar → Offers (B2C lane)
+**Navigation:** Sidebar → Offers & Sales (Core section)
 
 ### Fields Tracked
 
@@ -531,7 +536,7 @@ Manages proactive studio and referral outreach — separate from the reactive St
 
 ## Revenue Attribution
 
-**Navigation:** Sidebar → Revenue (B2C lane)
+**Navigation:** Sidebar → Revenue (Core section)
 
 ### Revenue Channels Tracked
 
@@ -560,7 +565,7 @@ This allows quick verification that the Net Revenue MTD card on the dashboard ma
 
 ## Content Calendar
 
-**Navigation:** Sidebar → Content (B2C lane)
+**Navigation:** Sidebar → Content Calendar (Core section)
 
 ### Fields Tracked
 
@@ -1162,11 +1167,9 @@ Sections are grouped into three visual lanes rendered in this order:
 **B2B — Studio Partners** (teal left border accent)
 - Studio Partners
 - Outreach Hub
-- Sessions
 
 **B2C — Personal Clients** (brand left border accent)
 - Clients
-- Offers & Sales
 - Testimonials
 - Follow-Ups
 - Referrals
@@ -1174,8 +1177,11 @@ Sections are grouped into three visual lanes rendered in this order:
 
 **Core — Operations** (no accent, always visible)
 - Today (Command Center) — pinned at top
+- Sessions
+- Offers & Sales
 - Revenue
 - Expenses
+- Calendly Bookings
 - Workflows
 - Content Calendar
 - Templates

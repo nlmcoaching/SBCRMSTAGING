@@ -68,13 +68,12 @@ If your PIN is correct, you'll go straight to your dashboard. If you forget your
 The left sidebar is your main navigation. It is organized into three groups:
 
 **Studio Partners (B2B)**
-Everything related to studios and business-to-business relationships — shown first because studio partnerships drive the core of the business.
+Everything related to studios and business-to-business relationships.
 
 | Section | What It's For |
 |---|---|
 | Studio Partners | Your full studio pipeline — from first contact to recurring partner |
 | Outreach Hub | Your proactive outreach list for new studios and referral sources |
-| Sessions | Every breathwork session you've run or planned |
 
 **Personal Clients (B2C)**
 Everything related to individual clients and leads.
@@ -82,7 +81,6 @@ Everything related to individual clients and leads.
 | Section | What It's For |
 |---|---|
 | Clients | All your individual clients and leads |
-| Offers & Sales | Packages and proposals you've made to clients |
 | Testimonials | Client testimonials and social proof |
 | Follow-Ups | Manual follow-up records |
 | Referrals | Who's referring who and the value they generate |
@@ -94,8 +92,11 @@ System-wide tools that support everything else.
 | Section | What It's For |
 |---|---|
 | Today | Your daily dashboard and action list |
+| Sessions | Every breathwork session you've run or planned |
+| Offers & Sales | Packages and proposals you've made to clients |
 | Revenue | Revenue tracking and attribution |
 | Expenses | Business expense tracking and P&L |
+| Calendly Bookings | Bookings synced automatically from Calendly |
 | Workflows | A visual view of your five core business pipelines |
 | Content Calendar | Your content calendar and social post planning |
 | Templates | Pre-written email and SMS templates ready to use |
@@ -110,6 +111,7 @@ At the top of every page you'll find:
 - The name of the section you're in
 - A **search bar** to filter records on that page
 - A **New** button to add a new record (if you have edit access)
+- A **bell icon** (blue) showing your alert count — click it to see all active alerts in a popup
 - Your **profile avatar** in the top-right corner
 
 ### Opening a Record
@@ -158,24 +160,25 @@ Nine business metrics in one view:
 
 ### Smart Alerts
 
-The alerts panel warns you when something needs attention. Examples:
+Alerts live in a **popup panel** accessible via the **blue bell icon** in the top-right header. A red badge shows the number of active (undismissed) alerts.
+
+Examples of alerts:
 - An offer is expiring in the next 3 days
 - A session was completed but no follow-up was sent
 - A session is coming up in 72 hours with low registration
-- An approved testimonial has no permission on file
 - No outreach activity this week
 
-Each alert shows a severity level (High / Medium / Low) and a **View** link to jump straight to the relevant record.
+Each alert shows a severity level and a **View** link to jump straight to the relevant record. Click the **× button** on any alert to dismiss it — dismissed alerts won't appear again (even after a page refresh). The badge count updates immediately.
 
 ### Next Best Actions
 
-Below the alerts, you'll see your three most important actions for today, organized into three columns:
+Your three most important actions for today, organized into three columns:
 
 - **Revenue** — Follow up on expiring offers, chase unpaid sessions, re-engage clients who haven't rebooked
 - **Relationship** — Thank referral sources, check in with studios, request testimonials
 - **Operational** — Sessions happening today, missing waivers, setup checklists not started
 
-These are ranked automatically based on urgency and due dates. Your job each morning is to work through this list.
+These are ranked automatically based on urgency and due dates. Click any action to open the related record. Use the **× button** on the right side of each action to dismiss it for the day — dismissed actions reset automatically at midnight.
 
 ---
 
