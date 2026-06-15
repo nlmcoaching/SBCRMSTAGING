@@ -345,24 +345,29 @@ const JOURNEY_TYPES = ["Reset & Release", "Letting Go & Rebirth", "Nervous Syste
 const SETUP_STATUS = ["Not started", "In progress", "Ready"];
 
 const SESSION_CHECKLIST = [
-  // Pre-session
-  { id: "room_booked",        label: "Room booking confirmed with studio",    phase: "Pre-Session" },
-  { id: "capacity_set",       label: "Capacity communicated to studio",       phase: "Pre-Session" },
-  { id: "booking_live",       label: "Booking page / sign-up link live",      phase: "Pre-Session" },
-  { id: "promo_sent",         label: "Promotional push sent to studio list",  phase: "Pre-Session" },
-  { id: "equipment_packed",   label: "Equipment packed (headset, music, props)", phase: "Pre-Session" },
-  { id: "room_setup_done",    label: "Room setup confirmed",                  phase: "Pre-Session" },
-  { id: "audio_tested",       label: "Music & headset tested",                phase: "Pre-Session" },
-  { id: "waivers_shared",     label: "Waiver link sent to registered attendees", phase: "Pre-Session" },
-  // Post-session
-  { id: "attendance_logged",  label: "Attendance count logged",               phase: "Post-Session" },
-  { id: "revenue_recorded",   label: "Revenue recorded & split calculated",   phase: "Post-Session" },
-  { id: "studio_paid",        label: "Studio split paid or invoiced",         phase: "Post-Session" },
-  { id: "testimonials_done",  label: "Testimonials captured from attendees",  phase: "Post-Session" },
-  { id: "followup_sent",      label: "24h follow-up email sent to attendees", phase: "Post-Session" },
-  { id: "rebook_offered",     label: "Rebook offer made to attendees",        phase: "Post-Session" },
-  { id: "referrals_asked",    label: "Referrals requested from advocates",    phase: "Post-Session" },
-  { id: "notes_written",      label: "Session notes & learnings written",     phase: "Post-Session" },
+  // Pre-session — studio
+  { id: "room_booked",        label: "Room booking confirmed with studio",          phase: "Pre-Session",  virtual: false },
+  { id: "capacity_set",       label: "Capacity communicated to studio",             phase: "Pre-Session",  virtual: false },
+  { id: "booking_live",       label: "Booking page / sign-up link live",            phase: "Pre-Session",  virtual: true  },
+  { id: "promo_sent",         label: "Promotional push sent to studio list",        phase: "Pre-Session",  virtual: false },
+  { id: "promo_sent_virtual", label: "Promotional push sent (email/social)",        phase: "Pre-Session",  virtual: true  },
+  { id: "equipment_packed",   label: "Equipment packed (headset, music, props)",    phase: "Pre-Session",  virtual: false },
+  { id: "zoom_link_sent",     label: "Zoom link sent to all registered attendees",  phase: "Pre-Session",  virtual: true  },
+  { id: "zoom_tested",        label: "Zoom setup & audio tested",                  phase: "Pre-Session",  virtual: true  },
+  { id: "room_setup_done",    label: "Room setup confirmed",                        phase: "Pre-Session",  virtual: false },
+  { id: "audio_tested",       label: "Music & headset tested",                     phase: "Pre-Session",  virtual: false },
+  { id: "space_prepared",     label: "Personal space prepared (quiet, good light)", phase: "Pre-Session",  virtual: true  },
+  { id: "waivers_shared",     label: "Waiver link sent to registered attendees",    phase: "Pre-Session",  virtual: true  },
+  // Post-session — shared
+  { id: "attendance_logged",  label: "Attendance count logged",                     phase: "Post-Session", virtual: true  },
+  { id: "revenue_recorded",   label: "Revenue recorded & split calculated",         phase: "Post-Session", virtual: false },
+  { id: "revenue_virtual",    label: "Revenue recorded",                            phase: "Post-Session", virtual: true  },
+  { id: "studio_paid",        label: "Studio split paid or invoiced",               phase: "Post-Session", virtual: false },
+  { id: "testimonials_done",  label: "Testimonials captured from attendees",        phase: "Post-Session", virtual: true  },
+  { id: "followup_sent",      label: "24h follow-up email sent to attendees",       phase: "Post-Session", virtual: true  },
+  { id: "rebook_offered",     label: "Rebook offer made to attendees",              phase: "Post-Session", virtual: true  },
+  { id: "referrals_asked",    label: "Referrals requested from advocates",          phase: "Post-Session", virtual: true  },
+  { id: "notes_written",      label: "Session notes & learnings written",           phase: "Post-Session", virtual: true  },
 ];
 
 /* ── EQUIPMENT & SETUP CHECKLIST ── */
@@ -370,38 +375,55 @@ const EQUIP_CHECKLIST_PHASES = [
   {
     id: "pack", label: "Pack & Equipment", color: "#2E6FB0", icon: "🎒",
     items: [
-      { id: "eq_headsets",       label: "Primary headsets packed & charged"          },
-      { id: "eq_backup_headset", label: "Backup headset packed"                       },
-      { id: "eq_chargers",       label: "Chargers & power banks in bag"              },
-      { id: "eq_extension",      label: "Extension cords packed"                     },
-      { id: "eq_eye_masks",      label: "Eye masks (count matches registration)"      },
-      { id: "eq_mats",           label: "Mats/blankets confirmed (studio provided or packed)" },
-      { id: "eq_speaker",        label: "Speaker / audio backup ready"               },
+      { id: "eq_headsets",       label: "Primary headsets packed & charged",          virtual: false },
+      { id: "eq_backup_headset", label: "Backup headset packed",                      virtual: false },
+      { id: "eq_chargers",       label: "Chargers & power banks in bag",              virtual: false },
+      { id: "eq_extension",      label: "Extension cords packed",                     virtual: false },
+      { id: "eq_eye_masks",      label: "Eye masks (count matches registration)",      virtual: false },
+      { id: "eq_mats",           label: "Mats/blankets confirmed (studio provided or packed)", virtual: false },
+      { id: "eq_speaker",        label: "Speaker / audio backup ready",               virtual: false },
+    ],
+  },
+  {
+    id: "virtual_setup", label: "Virtual Setup", color: "#2E6FB0", icon: "💻",
+    items: [
+      { id: "eq_zoom_account",   label: "Zoom account & meeting link confirmed",      virtual: true  },
+      { id: "eq_zoom_tested",    label: "Zoom audio, video & screen share tested",    virtual: true  },
+      { id: "eq_headset_v",      label: "Headset or microphone plugged in & tested",  virtual: true  },
+      { id: "eq_camera",         label: "Camera positioned, background clean & lit",  virtual: true  },
+      { id: "eq_do_not_disturb", label: "Phone on DND, notifications silenced",       virtual: true  },
     ],
   },
   {
     id: "content", label: "Content & Tech", color: "#6B5CE7", icon: "🎵",
     items: [
-      { id: "eq_playlist",       label: "Playlist/journey downloaded offline"         },
-      { id: "eq_wifi",           label: "Wi-Fi confirmed at venue (or offline ready)" },
-      { id: "eq_waiver_qr",      label: "Waiver QR code printed or accessible"       },
-      { id: "eq_checkin_list",   label: "Check-in list printed or on device"         },
+      { id: "eq_playlist",       label: "Playlist/journey downloaded offline",         virtual: false },
+      { id: "eq_playlist_v",     label: "Playlist/journey ready & queued",             virtual: true  },
+      { id: "eq_wifi",           label: "Wi-Fi confirmed at venue (or offline ready)", virtual: false },
+      { id: "eq_wifi_v",         label: "Strong Wi-Fi connection confirmed",           virtual: true  },
+      { id: "eq_waiver_qr",      label: "Waiver QR code printed or accessible",       virtual: false },
+      { id: "eq_checkin_list",   label: "Check-in list printed or on device",         virtual: false },
+      { id: "eq_zoom_link_sent", label: "Zoom link sent to all registered attendees",  virtual: true  },
     ],
   },
   {
     id: "venue", label: "Venue & Day-Of", color: "#D9892B", icon: "📍",
     items: [
-      { id: "eq_arrival_time",   label: "Arrival time confirmed (45–60 min early)"   },
-      { id: "eq_room_lighting",  label: "Room lighting tested & adjusted"            },
-      { id: "eq_water_tissues",  label: "Water & tissues available in room"          },
+      { id: "eq_arrival_time",   label: "Arrival time confirmed (45–60 min early)",   virtual: false },
+      { id: "eq_space_v",        label: "Personal space quiet, door locked/sign posted", virtual: true },
+      { id: "eq_room_lighting",  label: "Room lighting tested & adjusted",            virtual: false },
+      { id: "eq_lighting_v",     label: "Lighting flattering and distraction-free",   virtual: true  },
+      { id: "eq_water_tissues",  label: "Water & tissues available in room",          virtual: false },
+      { id: "eq_water_v",        label: "Water nearby for you",                       virtual: true  },
     ],
   },
   {
     id: "safety", label: "Safety & Facilitation", color: "#4A8C6F", icon: "🛡️",
     items: [
-      { id: "eq_emergency",      label: "Emergency contact process confirmed"         },
-      { id: "eq_contraindication", label: "Contraindication reminder shared with attendees" },
-      { id: "eq_closing_script", label: "Closing/integration script reviewed"        },
+      { id: "eq_emergency",      label: "Emergency contact process confirmed",         virtual: false },
+      { id: "eq_contraindication", label: "Contraindication reminder shared with attendees", virtual: true },
+      { id: "eq_closing_script", label: "Closing/integration script reviewed",        virtual: true  },
+      { id: "eq_recording_note", label: "Recording policy communicated (if applicable)", virtual: true },
     ],
   },
 ];
@@ -3303,7 +3325,8 @@ const VIEWS = {
         name: "All Bookings", layout: "table",
         columns: [
           col("scheduledAt", "Session Date/Time", r => r.scheduledAt ? new Date(r.scheduledAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"),
-          col("eventName",   "Event",        r => <strong style={{color:C.ink}}>{r.eventName || "—"}</strong>),
+          col("clientId",    "Client",       (r, ctx) => { const c = (ctx.data.clients||[]).find(x => x.id === r.clientId); return c ? <strong style={{color:C.ink}}>{cleanName(c.name)}</strong> : <span style={{color:C.ink3}}>—</span>; }),
+          col("eventName",   "Event",        r => r.eventName || "—"),
           col("status",      "Status",       r => {
             const clr = { booked: C.brand, attended: "#4A8C6F", canceled: "#C0573F", rescheduled: C.gold, no_show: "#8A96AC" }[r.status] || C.ink3;
             return <span style={{fontSize:12,padding:"2px 8px",borderRadius:8,background:hexA(clr,0.12),color:clr,fontWeight:600}}>{r.status}</span>;
@@ -3325,6 +3348,7 @@ const VIEWS = {
         name: "Pending Waivers", layout: "table",
         columns: [
           col("scheduledAt", "Session Date", r => r.scheduledAt ? new Date(r.scheduledAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"),
+          col("clientId",    "Client",       (r, ctx) => { const c = (ctx.data.clients||[]).find(x => x.id === r.clientId); return cleanName(c?.name || "—"); }),
           col("eventName",   "Event",        r => r.eventName || "—"),
           col("status",      "Status",       r => r.status),
           col("waiverStatus","Waiver",       r => <span style={{color:"#C0573F",fontWeight:600}}>⚠ Pending</span>),
@@ -3336,6 +3360,7 @@ const VIEWS = {
         name: "Unpaid", layout: "table",
         columns: [
           col("scheduledAt", "Session Date", r => r.scheduledAt ? new Date(r.scheduledAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"),
+          col("clientId",    "Client",       (r, ctx) => { const c = (ctx.data.clients||[]).find(x => x.id === r.clientId); return cleanName(c?.name || "—"); }),
           col("eventName",   "Event",        r => r.eventName || "—"),
           col("status",      "Booking",      r => r.status),
           col("paymentStatus","Payment",     r => <span style={{color:"#C0573F",fontWeight:700}}>Unpaid</span>),
@@ -3346,6 +3371,7 @@ const VIEWS = {
         name: "Cancellations", layout: "table",
         columns: [
           col("scheduledAt", "Session Date", r => r.scheduledAt ? new Date(r.scheduledAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"),
+          col("clientId",    "Client",       (r, ctx) => { const c = (ctx.data.clients||[]).find(x => x.id === r.clientId); return cleanName(c?.name || "—"); }),
           col("eventName",   "Event",        r => r.eventName || "—"),
           col("status",      "Status",       r => {
             const clr = r.status === "canceled" ? "#C0573F" : C.gold;
@@ -4372,13 +4398,17 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                 ["timeline", "Contact Timeline"],
               ]).map(([t, label]) => {
                 const sessionBookings = t === "bookings" ? (data.registrations || []).filter(r => r.sessionId === draft.id && r.status !== "canceled") : null;
+                const isVirtualSession = db === "sessions" && !draft.studioId && (draft.locationType === "zoom" || draft.locationType === "custom" || !draft.locationType);
+                const activeSessionChecklist = SESSION_CHECKLIST.filter(i => isVirtualSession ? i.virtual : !i.virtual);
+                const activeEquipPhases = EQUIP_CHECKLIST_PHASES.map(p => ({ ...p, items: p.items.filter(i => isVirtualSession ? i.virtual : !i.virtual) })).filter(p => p.items.length);
+                const activeEquipItems = activeEquipPhases.flatMap(p => p.items);
                 const done = (t === "checklist" && db === "partners") ? Object.values(draft.checklist || {}).filter(Boolean).length
-                           : (t === "checklist" && db === "sessions") ? Object.values(draft.checklist || {}).filter(Boolean).length
-                           : (t === "equipment" && db === "sessions") ? Object.values(draft.equipChecklist || {}).filter(Boolean).length
+                           : (t === "checklist" && db === "sessions") ? activeSessionChecklist.filter(i => draft.checklist?.[i.id]).length
+                           : (t === "equipment" && db === "sessions") ? activeEquipItems.filter(i => draft.equipChecklist?.[i.id]).length
                            : (t === "bookings") ? sessionBookings.length : null;
                 const total = (t === "checklist" && db === "partners") ? PARTNER_CHECKLIST.length
-                            : (t === "checklist" && db === "sessions") ? SESSION_CHECKLIST.length
-                            : (t === "equipment" && db === "sessions") ? EQUIP_CHECKLIST.length
+                            : (t === "checklist" && db === "sessions") ? activeSessionChecklist.length
+                            : (t === "equipment" && db === "sessions") ? activeEquipItems.length
                             : (t === "bookings") ? (data.registrations || []).filter(r => r.sessionId === draft.id).length : null;
                 return (
                   <button key={t} onClick={() => setTab(t)} style={{
@@ -4406,12 +4436,12 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
             ? <ContactTimeline db={db} record={draft} data={data} derived={derived} today={today} onOpenRelated={onOpenRelated} />
             : (hasChecklist || hasSessionTabs) && tab === "checklist"
             ? db === "sessions"
-              ? <SessionChecklist checklist={draft.checklist || emptySessionChecklist()} onChange={(cl) => set("checklist", cl)} sessionName={cleanName(draft.name)} status={draft.status} />
+              ? <SessionChecklist checklist={draft.checklist || emptySessionChecklist()} onChange={(cl) => set("checklist", cl)} sessionName={cleanName(draft.name)} status={draft.status} isVirtual={!draft.studioId && (draft.locationType === "zoom" || draft.locationType === "custom" || !draft.locationType)} />
               : <PartnerLaunchChecklist checklist={draft.checklist || emptyChecklist()} onChange={(cl) => set("checklist", cl)} partnerName={cleanName(draft.name)} />
             : hasSessionTabs && tab === "bookings"
             ? <SessionBookingsTab record={draft} data={data} onOpenRelated={onOpenRelated} />
             : hasSessionTabs && tab === "equipment"
-            ? <EquipmentChecklist equipChecklist={draft.equipChecklist || emptyEquipChecklist()} onChange={(cl) => set("equipChecklist", cl)} sessionName={cleanName(draft.name)} sessionDate={draft.date} />
+            ? <EquipmentChecklist equipChecklist={draft.equipChecklist || emptyEquipChecklist()} onChange={(cl) => set("equipChecklist", cl)} sessionName={cleanName(draft.name)} sessionDate={draft.date} isVirtual={!draft.studioId && (draft.locationType === "zoom" || draft.locationType === "custom" || !draft.locationType)} />
             : hasSessionTabs && tab === "performance"
             ? <SessionPerformance record={draft} derived={derived} data={data} />
             : (
@@ -4578,13 +4608,21 @@ function SessionPerfView({ rows, derived, onOpen }) {
    SESSION CHECKLIST
    ============================================================ */
 /* ── EQUIPMENT & SETUP CHECKLIST COMPONENT ── */
-function EquipmentChecklist({ equipChecklist, onChange, sessionName, sessionDate }) {
+function EquipmentChecklist({ equipChecklist, onChange, sessionName, sessionDate, isVirtual }) {
   const toggle = (id) => onChange({ ...equipChecklist, [id]: !equipChecklist[id] });
-  const done  = Object.values(equipChecklist).filter(Boolean).length;
-  const total = EQUIP_CHECKLIST.length;
-  const pct   = Math.round((done / total) * 100);
 
-  const criticalIds = ["eq_headsets","eq_backup_headset","eq_playlist","eq_waiver_qr","eq_emergency","eq_contraindication"];
+  const activePhases = EQUIP_CHECKLIST_PHASES
+    .map(p => ({ ...p, items: p.items.filter(i => isVirtual ? i.virtual : !i.virtual) }))
+    .filter(p => p.items.length > 0);
+  const allActiveItems = activePhases.flatMap(p => p.items);
+
+  const done  = allActiveItems.filter(i => equipChecklist[i.id]).length;
+  const total = allActiveItems.length;
+  const pct   = total ? Math.round((done / total) * 100) : 0;
+
+  const criticalIds = isVirtual
+    ? ["eq_zoom_account","eq_zoom_tested","eq_headset_v","eq_do_not_disturb","eq_contraindication"]
+    : ["eq_headsets","eq_backup_headset","eq_playlist","eq_waiver_qr","eq_emergency","eq_contraindication"];
   const criticalMissing = criticalIds.filter(id => !equipChecklist[id]);
 
   return (
@@ -4594,7 +4632,9 @@ function EquipmentChecklist({ equipChecklist, onChange, sessionName, sessionDate
       <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: "16px 18px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{sessionName} — Equipment & Setup</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>
+              {sessionName} — {isVirtual ? "Virtual Setup" : "Equipment & Setup"}
+            </div>
             <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>
               {sessionDate ? `Session: ${sessionDate}  ·  ` : ""}{done} of {total} items ready
             </div>
@@ -4615,15 +4655,15 @@ function EquipmentChecklist({ equipChecklist, onChange, sessionName, sessionDate
           <div style={{ fontSize: 12, fontWeight: 700, color: "#9A5D10", marginBottom: 5 }}>⚠️ Critical items not yet checked</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
             {criticalMissing.map(id => {
-              const item = EQUIP_CHECKLIST.find(i => i.id === id);
-              return <span key={id} style={{ fontSize: 11, background: "#fff", border: `1px solid ${hexA("#D9892B", 0.4)}`, borderRadius: 5, padding: "2px 8px", color: "#9A5D10", fontWeight: 600 }}>{item?.label}</span>;
+              const item = allActiveItems.find(i => i.id === id);
+              return item ? <span key={id} style={{ fontSize: 11, background: "#fff", border: `1px solid ${hexA("#D9892B", 0.4)}`, borderRadius: 5, padding: "2px 8px", color: "#9A5D10", fontWeight: 600 }}>{item.label}</span> : null;
             })}
           </div>
         </div>
       )}
 
       {/* Phase sections */}
-      {EQUIP_CHECKLIST_PHASES.map(phase => {
+      {activePhases.map(phase => {
         const phaseDone = phase.items.filter(i => equipChecklist[i.id]).length;
         const allDone   = phaseDone === phase.items.length;
         return (
@@ -4786,11 +4826,12 @@ function SessionBookingsTab({ record, data, onOpenRelated }) {
   );
 }
 
-function SessionChecklist({ checklist, onChange, sessionName, status }) {
+function SessionChecklist({ checklist, onChange, sessionName, status, isVirtual }) {
   const toggle = (id) => onChange({ ...checklist, [id]: !checklist[id] });
-  const done = Object.values(checklist).filter(Boolean).length;
-  const total = SESSION_CHECKLIST.length;
-  const pctDone = Math.round((done / total) * 100);
+  const activeItems = SESSION_CHECKLIST.filter(i => isVirtual ? i.virtual : !i.virtual);
+  const done = activeItems.filter(i => checklist[i.id]).length;
+  const total = activeItems.length;
+  const pctDone = total ? Math.round((done / total) * 100) : 0;
   const isCompleted = ["Completed", "Follow-up pending", "Closed out"].includes(status);
 
   return (
@@ -4813,7 +4854,8 @@ function SessionChecklist({ checklist, onChange, sessionName, status }) {
       </div>
 
       {SESSION_CHECKLIST_PHASES.map((phase) => {
-        const items = SESSION_CHECKLIST.filter((i) => i.phase === phase);
+        const items = activeItems.filter((i) => i.phase === phase);
+        if (!items.length) return null;
         const phaseDone = items.filter((i) => checklist[i.id]).length;
         const color = SESSION_PHASE_COLOR[phase];
         const isPost = phase === "Post-Session";
