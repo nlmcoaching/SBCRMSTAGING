@@ -3803,7 +3803,7 @@ const VIEWS = {
       { name: "Action needed", layout: "table",
         columns: refActionCols(),
         run: (rows, c) => ({
-          rows: rows.filter(r => !r.thankYouSent || !r.rewardGiven)
+          rows: rows.filter(r => !r.rewardGiven)
                     .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
         }) },
       { name: "All referrals", layout: "table", columns: refCols(), run: (rows) => ({ rows: [...rows].sort((a, b) => b.date.localeCompare(a.date)) }) },
@@ -3892,14 +3892,6 @@ function refActionCols() {
     col("referredName", "Referred person", (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.referredName)}</span>),
     col("status", "Status", (r) => <Tag color={REF_STATUS_COLOR[r.status]}>{r.status}</Tag>),
     col("date", "Date", (r, c) => <DateChip iso={r.date} today={c.today} />),
-    col("thankYouSent", "Thank-you", (r, c) => r.thankYouSent
-      ? <span style={{ color: "#4A8C6F", fontWeight: 600 }}>✓ Sent</span>
-      : <button
-          onClick={e => { e.stopPropagation(); updateRef(c, r, { thankYouSent: true }); }}
-          style={{ fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 6, cursor: "pointer",
-            background: hexA("#D9892B", 0.1), color: "#D9892B", border: `1px solid ${hexA("#D9892B", 0.3)}` }}>
-          Mark sent
-        </button>),
     col("rewardGiven", "Action Status", (r, c) => r.rewardGiven
       ? <span style={{ color: "#4A8C6F" }}>✓ Completed</span>
       : <button
