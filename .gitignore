@@ -12,7 +12,10 @@ dist
 dist-ssr
 *.local
 
-# Backend
+# Environment files (contain secrets)
+.env
+.env.local
+.env.*.local
 backend/.env
 backend/data/pending-events.json
 

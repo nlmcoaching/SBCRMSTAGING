@@ -6768,14 +6768,15 @@ function EditProfileModal({ user, masterKeyRaw, onSave, onClose }) {
         if (!curPin)              { setPinMsg("Enter your current PIN."); setSaving(false); return; }
         if (newPin.length < 6)    { setPinMsg("New PIN must be at least 6 characters."); setSaving(false); return; }
         if (newPin !== confirmPin){ setPinMsg("New PINs don't match."); setSaving(false); return; }
-        // Verify current PIN via PBKDF2 unwrap (no hash oracle)
-        try { await Sec.unwrapKeyForUser(user.wrappedMasterKey, curPin, user.pinSalt); }
+        // Verify current PIN using the stored iteration count (may be legacy 100k)
+        const storedIter = user.pbkdf2Iterations ?? 100_000;
+        try { await Sec.unwrapKeyForUser(user.wrappedMasterKey, curPin, user.pinSalt, storedIter); }
         catch (_) { setPinMsg("Current PIN is incorrect."); setSaving(false); return; }
         const pinSalt = Sec.newSalt();
         const wrappedMasterKey = masterKeyRaw
-          ? await Sec.wrapKeyForUser(masterKeyRaw, newPin, pinSalt)
+          ? await Sec.wrapKeyForUser(masterKeyRaw, newPin, pinSalt, Sec.PBKDF2_ITERATIONS)
           : user.wrappedMasterKey;
-        Object.assign(updates, { pinSalt, wrappedMasterKey });
+        Object.assign(updates, { pinSalt, wrappedMasterKey, pbkdf2Iterations: Sec.PBKDF2_ITERATIONS });
         setPinMsg(""); setCurPin(""); setNewPin(""); setConfirmPin("");
       }
       await onSave(updates);
@@ -7670,12 +7671,12 @@ function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdate
     setSaving(true);
     try {
       const pinSalt  = Sec.newSalt();
-      const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyRaw, newPin, pinSalt);
+      const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyRaw, newPin, pinSalt, Sec.PBKDF2_ITERATIONS);
       const color    = USER_COLORS[secUsers.length % USER_COLORS.length];
       const nu = {
         id: "u_" + Math.random().toString(36).slice(2, 9),
         name: newName.trim(), role: newRole,
-        pinSalt, wrappedMasterKey,
+        pinSalt, wrappedMasterKey, pbkdf2Iterations: Sec.PBKDF2_ITERATIONS,
         permissions: { ...newPerm },
         active: true, color, createdAt: todayISO(), lastLogin: "",
       };
@@ -7715,12 +7716,12 @@ function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdate
     setSaving(true);
     try {
       const pinSalt  = Sec.newSalt();
-      const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyRaw, newPinVal, pinSalt);
+      const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyRaw, newPinVal, pinSalt, Sec.PBKDF2_ITERATIONS);
       const secRaw = await store.get(SEC_META_KEY);
       const sec    = JSON.parse(secRaw?.value || "{}");
       if (!Array.isArray(sec.users)) { flash("No user config found."); setSaving(false); return; }
       const updated = { ...sec, users: sec.users.map(u =>
-        u.id === userId ? { ...u, pinSalt, wrappedMasterKey } : u
+        u.id === userId ? { ...u, pinSalt, wrappedMasterKey, pbkdf2Iterations: Sec.PBKDF2_ITERATIONS } : u
       )};
       await store.set(SEC_META_KEY, JSON.stringify(updated));
       flash("✓ PIN reset successfully");
