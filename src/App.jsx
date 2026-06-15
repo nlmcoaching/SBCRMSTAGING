@@ -6739,14 +6739,13 @@ function EditProfileModal({ user, masterKeyRaw, onSave, onClose }) {
   const handleImage = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const knownImageExts = /\.(jpe?g|png|gif|webp|bmp|svg|avif|heic)$/i;
-    const isImage = file.type.startsWith("image/") || (!file.type && knownImageExts.test(file.name));
-    if (!isImage) { setMsg("Please select an image file (JPEG, PNG, GIF, WebP, etc.)."); return; }
     if (file.size > 5 * 1024 * 1024) { setMsg("Image must be under 5 MB."); return; }
     setMsg("");
     const reader = new FileReader();
+    reader.onerror = () => setMsg("Could not read the file. Please try another image.");
     reader.onload = (ev) => {
       const img = new Image();
+      img.onerror = () => setMsg("File does not appear to be a valid image. Please try a JPEG or PNG.");
       img.onload = () => {
         const MAX = 240;
         const ratio = Math.min(MAX / img.width, MAX / img.height, 1);
