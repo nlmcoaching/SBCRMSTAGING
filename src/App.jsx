@@ -1875,7 +1875,6 @@ export default function App() {
     { id: "today",    label: "Command Center",     Icon: LayoutGrid,  lane: "core" },
     // B2C — individual clients
     { id: "clients",      label: "Clients",            Icon: Users,       lane: "b2c"  },
-    { id: "offers",       label: "Offers & Sales",     Icon: DollarSign,  lane: "b2c"  },
     { id: "testimonials", label: "Testimonials",       Icon: ArrowUpRight, lane: "b2c" },
     { id: "followups",    label: "Follow-Ups",         Icon: RefreshCw,   lane: "b2c"  },
     { id: "referrals",    label: "Referrals",          Icon: Users,       lane: "b2c"  },
@@ -1883,8 +1882,9 @@ export default function App() {
     // B2B — studio partners
     { id: "partners", label: "Studio Partners",    Icon: Building2,   lane: "b2b"  },
     { id: "outreach", label: "Outreach Hub",       Icon: Send,        lane: "b2b"  },
-    { id: "sessions", label: "Sessions",           Icon: CalendarDays,lane: "b2b"  },
     // Shared — financial & ops
+    { id: "sessions", label: "Sessions",           Icon: CalendarDays,lane: "core" },
+    { id: "offers",   label: "Offers & Sales",     Icon: DollarSign,  lane: "core" },
     { id: "revenue",  label: "Revenue",            Icon: TrendingUp,  lane: "core" },
     { id: "expenses", label: "Expenses",           Icon: BarChart2,   lane: "core" },
     { id: "registrations", label: "Calendly Bookings", Icon: CalendarCheck, lane: "core" },
