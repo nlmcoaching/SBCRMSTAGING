@@ -1915,14 +1915,14 @@ export default function App() {
   /* ── Lock gate ── */
   // Derived rollups — must be called unconditionally (Rules of Hooks)
   const derived = useMemo(() => {
-    const partnerName = Object.fromEntries(data.partners.map((p) => [p.id, p.name]));
-    const clientName = Object.fromEntries(data.clients.map((c) => [c.id, c.name]));
+    const partnerName = Object.fromEntries((data.partners || []).map((p) => [p.id, p.name]));
+    const clientName = Object.fromEntries((data.clients || []).map((c) => [c.id, c.name]));
     const acceptedByClient = {};
-    data.offers.forEach((o) => {
+    (data.offers || []).forEach((o) => {
       if (o.status === "Accepted") acceptedByClient[o.clientId] = (acceptedByClient[o.clientId] || 0) + (Number(o.price) || 0);
     });
     const sessionsByStudio = {};
-    data.sessions.forEach((s) => { (sessionsByStudio[s.studioId] ||= []).push(s); });
+    (data.sessions || []).forEach((s) => { (sessionsByStudio[s.studioId] ||= []).push(s); });
 
     // Expense rollups
     const mo = today.slice(0, 7);
@@ -2622,14 +2622,6 @@ function LaneSplitPanel({ data, today }) {
         <span style={{ fontSize: 12, color: C.ink3 }}>B2C vs B2B breakdown</span>
       </div>
       <div style={{ display: "flex", gap: 14 }} className="sb-lane-split">
-        <LaneCard lane={b2cLane} metrics={[
-          { label: "Revenue MTD",      value: money(b2cRevMTD),       sub: "packages + sessions" },
-          { label: "Open pipeline",    value: money(b2cOpenPipeline), sub: `${offers.filter(o=>OPEN_STATUSES.includes(o.status)&&b2cOfferTypes.includes(o.offerType)).length} offers` },
-          { label: "Active clients",   value: activeClients,           sub: "engaged + member + advocate" },
-          { label: "Avg LTV",          value: money(avgLTV),          sub: "lifetime value" },
-          { label: "Referral revenue", value: money(refRevenue),      sub: `${referrals.filter(r=>r.status==="Attended").length} converted` },
-          { label: "Total clients",    value: clients.length,         sub: `${clients.filter(c=>c.status==="Lead").length} leads` },
-        ]} />
         <LaneCard lane={b2bLane} metrics={[
           { label: "Studio rev MTD",   value: money(b2bRevMTD),       sub: "net from sessions" },
           { label: "Studio pipeline",  value: money(studioPipeline),  sub: `${partners.filter(p=>p.stage!=="Lost / not a fit").length} active` },
@@ -2639,6 +2631,14 @@ function LaneSplitPanel({ data, today }) {
               ? Math.round(sessions.filter(s=>Number(s.netRevenue)>0).reduce((a,s)=>a+Number(s.netRevenue),0)/sessions.filter(s=>Number(s.netRevenue)>0).length) : 0),
             sub: "net per session" },
           { label: "Total studios",    value: partners.length,        sub: `${recurringP} recurring` },
+        ]} />
+        <LaneCard lane={b2cLane} metrics={[
+          { label: "Revenue MTD",      value: money(b2cRevMTD),       sub: "packages + sessions" },
+          { label: "Open pipeline",    value: money(b2cOpenPipeline), sub: `${offers.filter(o=>OPEN_STATUSES.includes(o.status)&&b2cOfferTypes.includes(o.offerType)).length} offers` },
+          { label: "Active clients",   value: activeClients,           sub: "engaged + member + advocate" },
+          { label: "Avg LTV",          value: money(avgLTV),          sub: "lifetime value" },
+          { label: "Referral revenue", value: money(refRevenue),      sub: `${referrals.filter(r=>r.status==="Attended").length} converted` },
+          { label: "Total clients",    value: clients.length,         sub: `${clients.filter(c=>c.status==="Lead").length} leads` },
         ]} />
       </div>
     </div>
