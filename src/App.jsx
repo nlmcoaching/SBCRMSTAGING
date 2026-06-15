@@ -3326,7 +3326,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         ? <OutreachHubView rows={processed.rows} data={data} today={today} onOpen={(r) => onOpen({ db: "outreach", record: r })} />
         : v.layout === "calendar"
         ? <CalendarView rows={processed.rows} today={today} derived={derived} data={data} onOpen={(r) => onOpen({ db: section, record: r })} />
-        : <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => onOpen({ db: section, record: r })} ctx={{ data, derived, today }} />}
+        : <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => onOpen({ db: section, record: r })} ctx={{ data, derived, today, setData, section }} />}
     </div>
   );
 }
@@ -3801,7 +3801,7 @@ const VIEWS = {
     views: [
       { name: "Referral tree", layout: "referral-tree" },
       { name: "Action needed", layout: "table",
-        columns: refCols(),
+        columns: refActionCols(),
         run: (rows, c) => ({
           rows: rows.filter(r =>
             !r.thankYouSent ||
@@ -3874,6 +3874,42 @@ function refCols() {
     col("rewardGiven", "Reward", (r) => r.rewardGiven
       ? <span style={{ color: "#4A8C6F" }}>✓ Given</span>
       : <span style={{ color: C.ink3 }}>—</span>),
+    col("notes", "Notes", (r) => <span style={{ fontSize: 12, color: C.ink2 }}>{r.notes}</span>),
+  ];
+}
+
+function refActionCols() {
+  const updateRef = (c, r, patch) => {
+    if (!c.setData) return;
+    c.setData(d => ({
+      ...d,
+      referrals: d.referrals.map(x => x.id === r.id ? { ...x, ...patch } : x),
+    }));
+  };
+  return [
+    col("referrerId", "Referred by", (r, c) => {
+      const n = c.derived.clientName[r.referrerId];
+      return n ? <span style={{ fontWeight: 600 }}>{clientShort(n)}</span> : "—";
+    }),
+    col("referredName", "Referred person", (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.referredName)}</span>),
+    col("status", "Status", (r) => <Tag color={REF_STATUS_COLOR[r.status]}>{r.status}</Tag>),
+    col("date", "Date", (r, c) => <DateChip iso={r.date} today={c.today} />),
+    col("thankYouSent", "Thank-you", (r, c) => r.thankYouSent
+      ? <span style={{ color: "#4A8C6F", fontWeight: 600 }}>✓ Sent</span>
+      : <button
+          onClick={e => { e.stopPropagation(); updateRef(c, r, { thankYouSent: true }); }}
+          style={{ fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 6, cursor: "pointer",
+            background: hexA("#D9892B", 0.1), color: "#D9892B", border: `1px solid ${hexA("#D9892B", 0.3)}` }}>
+          Mark sent
+        </button>),
+    col("rewardGiven", "Reward", (r, c) => r.rewardGiven
+      ? <span style={{ color: "#4A8C6F" }}>✓ Given</span>
+      : <button
+          onClick={e => { e.stopPropagation(); updateRef(c, r, { rewardGiven: true }); }}
+          style={{ fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 6, cursor: "pointer",
+            background: hexA("#4A8C6F", 0.1), color: "#4A8C6F", border: `1px solid ${hexA("#4A8C6F", 0.3)}` }}>
+          Mark given
+        </button>),
     col("notes", "Notes", (r) => <span style={{ fontSize: 12, color: C.ink2 }}>{r.notes}</span>),
   ];
 }
