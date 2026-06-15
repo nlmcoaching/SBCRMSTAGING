@@ -3869,9 +3869,9 @@ function refCols() {
     col("thankYouSent", "Thank-you", (r) => r.thankYouSent
       ? <span style={{ color: "#4A8C6F", fontWeight: 600 }}>✓ Sent</span>
       : <span style={{ color: "#D9892B", fontWeight: 600 }}>Needed</span>),
-    col("rewardGiven", "Reward", (r) => r.rewardGiven
-      ? <span style={{ color: "#4A8C6F" }}>✓ Given</span>
-      : <span style={{ color: C.ink3 }}>—</span>),
+    col("rewardGiven", "Action Status", (r) => r.rewardGiven
+      ? <span style={{ color: "#4A8C6F", fontWeight: 600 }}>✓ Completed</span>
+      : <span style={{ color: C.ink3 }}>Pending</span>),
     col("notes", "Notes", (r) => <span style={{ fontSize: 12, color: C.ink2 }}>{r.notes}</span>),
   ];
 }
