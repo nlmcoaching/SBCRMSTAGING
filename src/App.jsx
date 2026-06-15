@@ -6,7 +6,7 @@ import {
   RefreshCw, Plus, X, Search, Upload, Download, Trash2, ChevronLeft,
   ChevronRight, Menu, Phone, Mail, Link2, Wind, ArrowUpRight, Check,
   Zap, Copy, Clock, TrendingUp, BarChart2, AlertCircle, Activity, Send, Info, BellRing, Milestone,
-  LogOut, UserCircle, Shield, KeyRound, Receipt, ClipboardList, FileSignature, CalendarCheck, CheckCircle,
+  LogOut, UserCircle, Shield, KeyRound, Receipt, ClipboardList, FileSignature, CalendarCheck, CheckCircle, Save,
 } from "lucide-react";
 
 /* ============================================================
@@ -162,6 +162,30 @@ const PARTNER_CHECKLIST = PARTNER_CHECKLIST_PHASES.flatMap(p => p.items.map(i =>
 const emptyChecklist = () => Object.fromEntries(PARTNER_CHECKLIST.map(i => [i.id, false]));
 const FUTYPE = ["24h", "72h", "Referral", "Reactivation"];
 const FUTYPE_COLOR = { "24h": "#3F87DC", "72h": "#2F6FD0", "Referral": "#D9892B", "Reactivation": "#9FB2CC" };
+/* ---------- CRM Settings (configurable lists) ---------- */
+const CRM_SETTINGS_KEY = "sb:crm-settings:v1";
+const DEFAULT_CRM_SETTINGS = {
+  sources:       ["Post-session", "Referral", "Studio partner", "Instagram", "TikTok", "Email", "LinkedIn", "Direct outreach", "Walk-in", "Other"],
+  clientTypes:   ["First-time attendee", "Repeat attendee", "Member", "Advocate", "Referral source", "Private client", "Studio attendee", "Virtual attendee", "Corporate attendee", "High-value lead", "Past client — reactivate"],
+  packageTypes:  ["None", "Drop-in", "3-pack", "5-pack", "Membership"],
+  referralLevels:["Low", "Medium", "High"],
+  offerTypes:    ["Single session", "3-pack", "6-pack", "12-pack", "Private session", "Studio pilot", "Studio recurring agreement", "Corporate event", "Group event", "Referral partner offer"],
+  journeys:      ["Breathwork Basics", "Reset & Release", "Nervous System Reset", "Letting Go & Rebirth", "Deep Surrender", "New Moon Ceremony", "Welcome Journey", "Breakthrough Session"],
+  clientStatuses:["Lead", "Booked", "Attended 1x", "Engaged (2-3x)", "Member (4+)", "Advocate", "Inactive"],
+};
+function loadCrmSettings() {
+  try {
+    const stored = localStorage.getItem(CRM_SETTINGS_KEY);
+    if (!stored) return { ...DEFAULT_CRM_SETTINGS };
+    const parsed = JSON.parse(stored);
+    // Merge: keep defaults for any missing keys
+    return Object.fromEntries(Object.keys(DEFAULT_CRM_SETTINGS).map(k => [k, parsed[k] || DEFAULT_CRM_SETTINGS[k]]));
+  } catch { return { ...DEFAULT_CRM_SETTINGS }; }
+}
+// Module-level mutable references (updated when settings load/change)
+let _crmSettings = loadCrmSettings();
+const getS = () => _crmSettings;
+
 const SOURCE = ["Post-session", "Referral", "Studio partner", "Instagram", "TikTok", "Email", "LinkedIn", "Direct outreach", "Walk-in", "Other"];
 const SOURCE_COLOR = { "Post-session": C.brand, "Referral": "#4A8C6F", "Studio partner": "#2F6FD0", "Instagram": "#E1306C", "TikTok": "#010101", "Email": "#D9892B", "LinkedIn": "#0077B5", "Direct outreach": "#7B68EE", "Walk-in": "#9FB2CC", "Other": C.ink3 };
 const PACKAGE = ["None", "Drop-in", "3-pack", "5-pack", "Membership"];
@@ -1280,6 +1304,7 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showAlerts,  setShowAlerts]  = useState(false);
+  const [crmSettings, setCrmSettings] = useState(() => loadCrmSettings());
   const [dismissedAlerts, setDismissedAlerts] = useState(() => {
     try {
       const stored = localStorage.getItem(DISMISSED_ALERTS_KEY);
@@ -1856,6 +1881,12 @@ export default function App() {
     update(db, (rows) => (rows.some((r) => r.id === rec.id) ? rows.map((r) => (r.id === rec.id ? rec : r)) : [...rows, rec]));
   const deleteRecord = (db, id) => { update(db, (rows) => rows.filter((r) => r.id !== id)); setOpen(null); };
 
+  const saveCrmSettings = (next) => {
+    _crmSettings = next;
+    try { localStorage.setItem(CRM_SETTINGS_KEY, JSON.stringify(next)); } catch {}
+    setCrmSettings(next);
+  };
+
   const startSequence = (client) => {
     const startDate = client.lastSession || today;
     const already = (data.sequences || []).some(s => s.clientId === client.id && s.status === "active");
@@ -2208,7 +2239,7 @@ export default function App() {
               ? <FollowUpEngine data={data} setData={setData} today={today} onOpen={setOpen} canEdit={can.edit} />
               :               <Section section={section} data={data} derived={derived} today={today}
                   view={view} setView={setView} query={query} onOpen={setOpen}
-                  currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} setSecUsers={setSecUsers} setData={setData} canEdit={can.edit} setConfirm={setConfirm} />}
+                  currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} setSecUsers={setSecUsers} setData={setData} canEdit={can.edit} setConfirm={setConfirm} crmSettings={crmSettings} saveCrmSettings={saveCrmSettings} />}
           </div>
         </main>
       </div>
@@ -3217,7 +3248,7 @@ function SourceBreakdown({ data }) {
 /* ============================================================
    SECTION (per database, with views)
    ============================================================ */
-function Section({ section, data, derived, today, view, setView, query, onOpen, currentUser, secUsers, masterKeyRaw, setSecUsers, setData, canEdit, setConfirm }) {
+function Section({ section, data, derived, today, view, setView, query, onOpen, currentUser, secUsers, masterKeyRaw, setSecUsers, setData, canEdit, setConfirm, crmSettings, saveCrmSettings }) {
   const cfg = VIEWS[section];
   const v = cfg.views[Math.min(view, cfg.views.length - 1)];
   let rows = data[section] || [];
@@ -3285,10 +3316,11 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         ? <WorkflowsView data={data} derived={derived} today={today} />
         : v.layout === "user-management"
         ? <UserManagementView currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} onUsersUpdated={setSecUsers} onConfirm={setConfirm} />
-        : v.layout === "admin-overview"   ? <AdminView tab="overview"   data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
-        : v.layout === "admin-schema"     ? <AdminView tab="schema"     data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
-        : v.layout === "admin-integrity"  ? <AdminView tab="integrity"  data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
-        : v.layout === "admin-storage"    ? <AdminView tab="storage"    data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
+        : v.layout === "admin-overview"   ? <AdminView tab="overview"   data={data} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
+        : v.layout === "admin-schema"     ? <AdminView tab="schema"     data={data} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
+        : v.layout === "admin-integrity"  ? <AdminView tab="integrity"  data={data} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
+        : v.layout === "admin-storage"    ? <AdminView tab="storage"    data={data} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
+        : v.layout === "admin-settings"   ? <AdminView tab="settings"   data={data} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
         : v.layout === "expense-summary"  ? <ExpenseSummaryView data={data} today={today} canEdit={canEdit} onOpen={(r) => onOpen({ db: "expenses", record: r })} onImportExpenses={handleImportExpenses} />
         : v.layout === "outreach-hub"
         ? <OutreachHubView rows={processed.rows} data={data} today={today} onOpen={(r) => onOpen({ db: "outreach", record: r })} />
@@ -3337,6 +3369,7 @@ const VIEWS = {
   admin: {
     views: [
       { name: "Overview",        layout: "admin-overview" },
+      { name: "Settings",        layout: "admin-settings" },
       { name: "Schema Browser",  layout: "admin-schema" },
       { name: "Data Integrity",  layout: "admin-integrity" },
       { name: "Storage & Backup", layout: "admin-storage" },
@@ -4213,11 +4246,11 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
    ============================================================ */
 const FIELDS = {
   clients: [
-    f("name", "Name", "text", { title: true }), f("status", "Status", "select", { options: STATUS }),
-    f("clientType", "Client type", "select", { options: CLIENT_TYPE }),
-    f("source", "Source", "select", { options: SOURCE }), f("referral", "Referral potential", "select", { options: REFERRAL }),
+    f("name", "Name", "text", { title: true }), f("status", "Status", "select", { options: () => getS().clientStatuses }),
+    f("clientType", "Client type", "select", { options: () => getS().clientTypes }),
+    f("source", "Source", "select", { options: () => getS().sources }), f("referral", "Referral potential", "select", { options: () => getS().referralLevels }),
     f("phone", "Phone", "phone"), f("email", "Email", "email"),
-    f("packageType", "Package type", "select", { options: PACKAGE }), f("sessionsAttended", "Sessions attended", "number"),
+    f("packageType", "Package type", "select", { options: () => getS().packageTypes }), f("sessionsAttended", "Sessions attended", "number"),
     f("firstSession", "First session", "date"), f("lastSession", "Last session", "date"),
     f("nextSession", "Next session", "date"), f("lifetimeValue", "Lifetime value", "currency"),
     f("tags", "Intent tags", "multiselect", { options: INTENT_TAGS, colorMap: TAG_COLOR }),
@@ -4265,10 +4298,10 @@ const FIELDS = {
   ],
   offers: [
     f("name", "Offer", "text", { title: true }), f("clientId", "Client", "relation", { target: "clients" }),
-    f("offerType", "Offer type", "select", { options: OFFER_TYPE }), f("price", "Amount", "currency"),
+    f("offerType", "Offer type", "select", { options: () => getS().offerTypes }), f("price", "Amount", "currency"),
     f("status", "Status", "select", { options: OFFER_STATUS }),
     f("probability", "Close probability", "select", { options: OFFER_PROB }),
-    f("source", "Source", "select", { options: SOURCE }),
+    f("source", "Source", "select", { options: () => getS().sources }),
     f("dateOffered", "Date offered", "date"), f("expireDate", "Expiration date", "date"), f("followUpDate", "Follow-up date", "date"),
     f("notes", "Notes", "textarea"), f("reasonLost", "Reason lost", "text"),
   ],
@@ -5578,11 +5611,12 @@ function ContactTimeline({ db, record, data, derived, today, onOpenRelated }) {
 
 function FieldInput({ fld, value, onChange, data }) {
   const { type } = fld;
+  const resolvedOptions = typeof fld.options === "function" ? fld.options() : (fld.options || []);
   let control;
   if (type === "select") {
     control = (
       <div className="sb-chiprow">
-        {fld.options.map((o) => {
+        {resolvedOptions.map((o) => {
           const on = value === o;
           const cl = fld.key === "status" || fld.key === "stage" ? (STATUS_COLOR[o] || STAGE_COLOR[o]) : C.brand;
           return <button key={o} className="sb-selchip" onClick={() => onChange(o)}
@@ -5594,7 +5628,7 @@ function FieldInput({ fld, value, onChange, data }) {
     const vals = Array.isArray(value) ? value : [];
     control = (
       <div className="sb-chiprow" style={{ flexWrap: "wrap" }}>
-        {fld.options.map((o) => {
+        {resolvedOptions.map((o) => {
           const on = vals.includes(o);
           const cl = fld.colorMap ? (fld.colorMap[o] || C.brand) : C.brand;
           return (
@@ -6066,7 +6100,7 @@ const DB_SCHEMA = [
   },
 ];
 
-function AdminView({ tab, data, secUsers, currentUser, today }) {
+function AdminView({ tab, data, secUsers, currentUser, today, crmSettings, onSaveSettings }) {
   const [integrityResults, setIntegrityResults] = useState(null);
   const [runningCheck, setRunningCheck]         = useState(false);
   const [schemaTable,  setSchemaTable]          = useState(DB_SCHEMA[0].table);
@@ -6446,6 +6480,124 @@ function AdminView({ tab, data, secUsers, currentUser, today }) {
           </div>
         </>
       )}
+
+      {tab === "settings" && crmSettings && (
+        <CrmSettingsView settings={crmSettings} onSave={onSaveSettings} />
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   CRM SETTINGS VIEW
+   ============================================================ */
+const SETTINGS_META = [
+  { key: "sources",        label: "Lead Sources",        hint: "Where clients and studio leads come from. Shown in client & offer forms." },
+  { key: "clientTypes",    label: "Client Types",         hint: "Client segment labels used in the client form and analytics." },
+  { key: "clientStatuses", label: "Client Statuses",      hint: "Status options for a client record (e.g. Lead, Booked, Member)." },
+  { key: "packageTypes",   label: "Package Types",        hint: "Package options available to clients (e.g. Drop-in, 3-pack, Membership)." },
+  { key: "offerTypes",     label: "Offer Types",          hint: "Types of offers/products you can create in the Offers & Sales section." },
+  { key: "referralLevels", label: "Referral Potential",   hint: "Referral strength levels used on client records (e.g. Low, Medium, High)." },
+  { key: "journeys",       label: "Breathwork Journeys",  hint: "Session journey/program names. Used in session records and calendar pills." },
+];
+
+function CrmSettingsView({ settings, onSave }) {
+  const [draft, setDraft] = useState(() => JSON.parse(JSON.stringify(settings)));
+  const [saved, setSaved] = useState(false);
+  const [newVal, setNewVal] = useState({});
+
+  const addItem = (key) => {
+    const v = (newVal[key] || "").trim();
+    if (!v || draft[key].includes(v)) return;
+    setDraft(d => ({ ...d, [key]: [...d[key], v] }));
+    setNewVal(n => ({ ...n, [key]: "" }));
+  };
+
+  const removeItem = (key, item) => {
+    setDraft(d => ({ ...d, [key]: d[key].filter(x => x !== item) }));
+  };
+
+  const moveItem = (key, idx, dir) => {
+    setDraft(d => {
+      const arr = [...d[key]];
+      const swap = idx + dir;
+      if (swap < 0 || swap >= arr.length) return d;
+      [arr[idx], arr[swap]] = [arr[swap], arr[idx]];
+      return { ...d, [key]: arr };
+    });
+  };
+
+  const handleSave = () => {
+    onSave(draft);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  const handleReset = (key) => {
+    setDraft(d => ({ ...d, [key]: [...DEFAULT_CRM_SETTINGS[key]] }));
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>CRM Settings</div>
+          <div style={{ fontSize: 12.5, color: C.ink3, marginTop: 3 }}>Customise dropdown options throughout the CRM. Changes apply immediately after saving.</div>
+        </div>
+        <button onClick={handleSave} style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 20px", background: saved ? "#4A8C6F" : C.brand, color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 700, transition: "background 0.2s" }}>
+          {saved ? <><Check size={14} /> Saved</> : <><Save size={14} /> Save Changes</>}
+        </button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        {SETTINGS_META.map(({ key, label, hint }) => (
+          <div key={key} style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "16px 18px" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 8 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 13.5, color: C.ink }}>{label}</div>
+                <div style={{ fontSize: 11.5, color: C.ink3, marginTop: 2 }}>{hint}</div>
+              </div>
+              <button onClick={() => handleReset(key)} title="Reset to defaults"
+                style={{ fontSize: 10.5, color: C.ink3, background: "transparent", border: `1px solid ${C.line}`, borderRadius: 6, padding: "3px 8px", cursor: "pointer", flexShrink: 0, marginLeft: 8 }}>
+                Reset
+              </button>
+            </div>
+
+            {/* Item list */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>
+              {draft[key].map((item, idx) => (
+                <div key={item} style={{ display: "flex", alignItems: "center", gap: 6, background: C.surfaceAlt || "#F8F9FB", borderRadius: 7, padding: "5px 8px" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                    <button onClick={() => moveItem(key, idx, -1)} disabled={idx === 0}
+                      style={{ background: "none", border: "none", cursor: idx === 0 ? "default" : "pointer", color: idx === 0 ? C.line : C.ink3, padding: 0, lineHeight: 1, fontSize: 9 }}>▲</button>
+                    <button onClick={() => moveItem(key, idx, 1)} disabled={idx === draft[key].length - 1}
+                      style={{ background: "none", border: "none", cursor: idx === draft[key].length - 1 ? "default" : "pointer", color: idx === draft[key].length - 1 ? C.line : C.ink3, padding: 0, lineHeight: 1, fontSize: 9 }}>▼</button>
+                  </div>
+                  <span style={{ flex: 1, fontSize: 12.5, color: C.ink, fontWeight: 500 }}>{item}</span>
+                  <button onClick={() => removeItem(key, item)}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "#C0573F", fontSize: 14, lineHeight: 1, padding: "0 2px", opacity: 0.7 }}
+                    onMouseEnter={e => e.currentTarget.style.opacity = "1"}
+                    onMouseLeave={e => e.currentTarget.style.opacity = "0.7"}
+                    title="Remove">×</button>
+                </div>
+              ))}
+            </div>
+
+            {/* Add new */}
+            <div style={{ display: "flex", gap: 6 }}>
+              <input
+                value={newVal[key] || ""}
+                onChange={e => setNewVal(n => ({ ...n, [key]: e.target.value }))}
+                onKeyDown={e => e.key === "Enter" && addItem(key)}
+                placeholder={`Add ${label.toLowerCase().replace(/s$/, "")}…`}
+                style={{ flex: 1, padding: "6px 10px", border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 12.5, color: C.ink }}
+              />
+              <button onClick={() => addItem(key)}
+                style={{ padding: "6px 12px", background: hexA(C.brand, 0.1), border: `1px solid ${hexA(C.brand, 0.3)}`, borderRadius: 7, cursor: "pointer", color: C.brand, fontWeight: 700, fontSize: 13 }}>+</button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

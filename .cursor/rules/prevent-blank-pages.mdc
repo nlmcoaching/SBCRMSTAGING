@@ -1,0 +1,54 @@
+---
+description: Prevent blank page bugs in the Simply Breathe CRM React app
+globs: src/App.jsx
+alwaysApply: false
+---
+
+# Prevent Blank Page Bugs — Simply Breathe CRM
+
+This app uses a single large `App.jsx`. Blank pages are almost always caused by a **ReferenceError** from a variable being used inside a component without being passed as a prop.
+
+## The Root Pattern to Avoid
+
+The `Section` component renders all sub-views. Any variable used inside `Section`'s JSX **must** be in its props destructuring AND passed at the call site.
+
+### Known required Section props (keep in sync)
+```jsx
+function Section({
+  section, data, derived, today, view, setView, query, onOpen,
+  currentUser, secUsers, masterKeyRaw, setSecUsers, setData,
+  canEdit, setConfirm, crmSettings, saveCrmSettings
+}) { ... }
+```
+
+And at the call site in App:
+```jsx
+<Section
+  ...
+  setConfirm={setConfirm}
+  crmSettings={crmSettings}
+  saveCrmSettings={saveCrmSettings}
+/>
+```
+
+## Checklist — After Every New Feature
+
+Before finishing any change that adds a new prop/state to App and uses it inside Section or its sub-views:
+
+1. **Is the variable declared in App?** (useState, const, function)
+2. **Is it in Section's destructured props list?**
+3. **Is it passed at the `<Section ... />` call site?**
+4. **Does any sub-view (AdminView, UserManagementView, etc.) need it as its own prop?** If so, add it to that component's signature too.
+
+## Past Bugs Fixed (for reference)
+
+| Variable | Bug | Fix |
+|---|---|---|
+| `setConfirm` | UserManagement screen blank | Added to Section props + call site |
+| `crmSettings` / `saveCrmSettings` | Admin page blank | Added to Section props + call site |
+
+## Quick Self-Check Command
+
+After any change, search for variables used in JSX inside Section that aren't in props:
+- Look for any `{variableName}` or `variableName={variableName}` inside the Section return block
+- Verify each one is either a local variable, a prop, or imported from module scope (not App state)
