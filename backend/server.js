@@ -29,8 +29,9 @@ app.use(cors({
   },
 }));
 
-// ── Raw body needed for HMAC signature verification ──
+// ── Raw body needed for HMAC signature verification (256 KB cap) ──
 app.use(express.json({
+  limit: "256kb",
   verify: (req, _res, buf) => { req.rawBody = buf; },
 }));
 
@@ -62,6 +63,13 @@ function verifySignature(req) {
   const parts  = Object.fromEntries(header.split(",").map(p => p.split("=")));
   const { t, v1 } = parts;
   if (!t || !v1) return false;
+
+  // Reject replayed webhooks older than 5 minutes
+  const MAX_AGE_MS = 5 * 60 * 1000;
+  if (Math.abs(Date.now() - parseInt(t, 10) * 1000) > MAX_AGE_MS) {
+    console.warn("[WARN] Calendly webhook timestamp too old — possible replay attack");
+    return false;
+  }
 
   const toSign = `${t}.${req.rawBody}`;
   const hmac   = crypto.createHmac("sha256", signingKey);
@@ -193,17 +201,25 @@ app.post("/api/calendly/acknowledge", (req, res) => {
   res.json({ acknowledged: ids.length });
 });
 
+// ── Admin token guard (for debug endpoints) ──
+function requireAdminToken(req, res, next) {
+  const token = process.env.ADMIN_SECRET;
+  if (!token) return res.status(503).json({ error: "Admin endpoints disabled — ADMIN_SECRET not configured" });
+  if (req.headers["x-admin-token"] !== token) return res.status(403).json({ error: "Forbidden" });
+  next();
+}
+
 // ────────────────────────────────────────────────────────────────
 // GET /api/calendly/events  (debug/admin view of all events)
 // ────────────────────────────────────────────────────────────────
-app.get("/api/calendly/events", (_req, res) => {
+app.get("/api/calendly/events", requireAdminToken, (_req, res) => {
   res.json({ events: readQueue() });
 });
 
 // ────────────────────────────────────────────────────────────────
 // DELETE /api/calendly/events  (clear queue — dev/admin only)
 // ────────────────────────────────────────────────────────────────
-app.delete("/api/calendly/events", (_req, res) => {
+app.delete("/api/calendly/events", requireAdminToken, (_req, res) => {
   writeQueue([]);
   res.json({ status: "cleared" });
 });

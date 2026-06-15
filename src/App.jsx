@@ -1325,6 +1325,7 @@ export default function App() {
   const [masterKeyRaw, setMasterKeyRaw] = useState(null); // raw b64 for user mgmt
   const [currentUser,  setCurrentUser]  = useState(null); // logged-in user object
   const [pinError,     setPinError]    = useState("");
+  const [pinAttempts,  setPinAttempts]  = useState({});   // { userId: { count, lockedUntil } }
   const [initialising, setInitialising] = useState(true);
   const [secUsers,     setSecUsers]    = useState([]);    // loaded from SEC_META_KEY
 
@@ -1368,8 +1369,20 @@ export default function App() {
   }, []);
 
   /* ── PIN unlock handler ── */
+  const PIN_MAX_ATTEMPTS = 5;
+  const PIN_LOCKOUT_MS   = 5 * 60 * 1000; // 5 minutes
+
   const handleUnlock = async (userId, pin) => {
     setPinError("");
+
+    // ── Brute-force lockout check ──
+    const now = Date.now();
+    const rec = pinAttempts[userId] || { count: 0, lockedUntil: 0 };
+    if (rec.lockedUntil > now) {
+      const remaining = Math.ceil((rec.lockedUntil - now) / 60000);
+      setPinError(`Too many failed attempts. Try again in ${remaining} minute${remaining !== 1 ? "s" : ""}.`);
+      return;
+    }
     try {
       const secRaw = await store.get(SEC_META_KEY);
       if (!secRaw?.value) throw new Error("No security config");
@@ -1378,7 +1391,13 @@ export default function App() {
       // ── Migrate v1 → v2 ──
       if (!sec.version || sec.version < 2) {
         const hash = await Sec.hashPin(pin);
-        if (hash !== sec.pinHash) { setPinError("Incorrect PIN. Please try again."); return; }
+        if (hash !== sec.pinHash) {
+          const newCount = (rec.count || 0) + 1;
+          const lockedUntil = newCount >= PIN_MAX_ATTEMPTS ? Date.now() + PIN_LOCKOUT_MS : 0;
+          setPinAttempts(p => ({ ...p, [userId]: { count: newCount, lockedUntil } }));
+          setPinError(lockedUntil ? `Too many failed attempts. Try again in 5 minutes.` : `Incorrect PIN. ${PIN_MAX_ATTEMPTS - newCount} attempt${PIN_MAX_ATTEMPTS - newCount !== 1 ? "s" : ""} remaining.`);
+          return;
+        }
         // Generate master key and re-wrap with this PIN
         const masterKeyB64 = await Sec.generateMasterKeyB64();
         const pinSalt      = sec.salt;
@@ -1425,7 +1444,10 @@ export default function App() {
         mkB64 = result.raw;
         masterKey = result.key;
       } catch (_) {
-        setPinError("Incorrect PIN. Please try again.");
+        const newCount = (rec.count || 0) + 1;
+        const lockedUntil = newCount >= PIN_MAX_ATTEMPTS ? Date.now() + PIN_LOCKOUT_MS : 0;
+        setPinAttempts(p => ({ ...p, [userId]: { count: newCount, lockedUntil } }));
+        setPinError(lockedUntil ? `Too many failed attempts. Try again in 5 minutes.` : `Incorrect PIN. ${PIN_MAX_ATTEMPTS - newCount} attempt${PIN_MAX_ATTEMPTS - newCount !== 1 ? "s" : ""} remaining.`);
         return;
       }
 
@@ -1463,6 +1485,9 @@ export default function App() {
       setMasterKeyRaw(mkB64);
       setCryptoKey(masterKey);
       setCurrentUser(user);
+      setPinAttempts(p => { const n = { ...p }; delete n[userId]; return n; }); // reset on success
+      // Fix 5: clean up legacy unencrypted storage
+      try { localStorage.removeItem(STORE_KEY); } catch (_) {}
       loaded.current = true;
       setLocked(false);
     } catch (e) {
