@@ -133,9 +133,9 @@ Start every working day here. The Today dashboard is designed to answer one ques
 ### Stats Row
 
 Four numbers at the top give you an instant health check:
-- **Net Revenue MTD** — How much you've earned this month after studio splits
+- **Net Revenue MTD** — How much you've earned net this month (after studio splits, fees, and refunds). Click this card to jump directly to Revenue → **This month** tab.
 - **Referral Revenue** — Revenue that came from referrals
-- **Active Members** — Clients with an active membership
+- **Active Clients** — Total number of clients in the system
 - **Active Sequences** — Clients currently in a follow-up sequence
 
 ### B2C vs B2B Split
@@ -425,6 +425,12 @@ Every session or payment should have a revenue record. Click **New** and enter:
 - **Studio Split** — what you paid the studio (if applicable)
 - **Stripe Fee** — payment processing fee
 - **Net Revenue** — what you actually keep
+
+### Reading the Revenue Table
+
+The **This month** and **All transactions** tabs show a table with individual Gross and Net values per entry. The footer row at the bottom shows totals for both **Gross** and **Net** for all displayed rows. The Net total in the footer matches the **Net Revenue MTD** figure on your Today dashboard.
+
+> **Gross vs Net:** Gross is what was charged. Net is what you keep after deducting studio splits, Stripe fees, facilitator costs, and refunds. Always focus on Net when evaluating true earnings.
 
 ### Why This Matters
 

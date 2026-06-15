@@ -139,9 +139,9 @@ The dashboard is the daily starting point. It surfaces the most important inform
 
 | Metric | Source |
 |---|---|
-| Net Revenue MTD | Sessions this calendar month, net of studio split |
+| Net Revenue MTD | Sum of net revenue from `data.revenue` records in the current calendar month (gross − fees − splits − refunds). Clicking the card navigates directly to Revenue → **This month** tab. |
 | Referral Revenue | Revenue from clients whose source is "Referral" |
-| Active Members | Clients with type "Member" |
+| Active Clients | Total number of clients in the system |
 | Active Sequences | Follow-up sequences with pending steps |
 
 ### Lane Split Panel
@@ -488,6 +488,14 @@ Gross revenue · Stripe/processing fee · Studio split · Facilitator cost · Re
 - Gross vs net comparison
 - Month-over-month trend (area chart)
 - Top revenue sources ranked
+
+### Table Footer Totals
+
+Both the **This month** and **All transactions** table views display footer rows showing:
+- **Gross** — sum of all gross revenue for the filtered rows
+- **Net** — sum of all net revenue (after fees, splits, refunds) for the filtered rows
+
+This allows quick verification that the Net Revenue MTD card on the dashboard matches the Revenue → This month view.
 
 ---
 
@@ -947,6 +955,8 @@ Expenses feed into two places:
 1. **Pipeline Snapshot** (Dashboard) — two new tiles: "Expenses MTD" and "Operating Profit MTD"
 2. **`derived` computed values** — `expensesMTD`, `expensesYTD`, `netRevMTD`, `opProfit`, `opMargin` available throughout the app
 
+`netRevMTD` is calculated from `data.revenue` records in the current calendar month using `calcNet(r)` (gross − stripeFee − studioSplit − facilitatorCost − refunds). This is the same source as the Revenue → This month table, ensuring the dashboard card and the revenue table always show consistent numbers.
+
 ### Requirements
 | Item | Detail |
 |---|---|
@@ -1008,6 +1018,12 @@ Each page has a sticky header with:
 - "New" button (permission-gated)
 - Profile avatar (top-right)
 
+### Confirmation Modal
+
+All destructive or irreversible actions (logout, deactivate user) use a **custom confirmation modal** instead of the browser's native `confirm()` dialog. The modal:
+- Displays an icon in a soft blue circle (brand color palette — consistent with the rest of the UI)
+- Shows a bold action title and descriptive message
+- Offers **Cancel** and a primary action button (brand blue)
 ### Profile Avatar Dropdown
 
 Click the avatar in the top-right to open the dropdown:

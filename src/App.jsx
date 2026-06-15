@@ -924,8 +924,7 @@ Warm,
 /* ---------- Helpers ---------- */
 const STORE_KEY     = "simplybreathe:data:v4";           // legacy (unencrypted)
 const STORE_KEY_ENC = "simplybreathe:data:v5:enc";       // encrypted storage
-const SEC_META_KEY  = "sb:security:v1";                  // { pinHash, salt }
-const DEFAULT_PIN   = "Letmein26!";
+const SEC_META_KEY  = "sb:security:v1";                  // { users: [...] }
 
 // Unified storage — uses window.storage (Cursor canvas) when available, falls back to localStorage
 const store = {
@@ -1052,6 +1051,66 @@ const onOrBefore = (iso, t) => !!iso && iso <= t;
 const sameMonth = (iso, ref) => !!iso && iso.slice(0, 7) === ref.slice(0, 7);
 const num = (v) => { const n = parseFloat(String(v).replace(/[^0-9.\-]/g, "")); return isNaN(n) ? "" : n; };
 const norm = (s) => String(s || "").trim().toLowerCase();
+
+/* ============================================================ */
+/* ── FIRST-RUN SETUP SCREEN ── */
+function FirstRunSetup({ onSetup, error }) {
+  const [name, setName]         = useState("");
+  const [pin, setPin]           = useState("");
+  const [confirm, setConfirm]   = useState("");
+  const [msg, setMsg]           = useState("");
+  const [busy, setBusy]         = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!name.trim())        { setMsg("Please enter your name."); return; }
+    if (pin.length < 6)      { setMsg("PIN must be at least 6 characters."); return; }
+    if (pin !== confirm)     { setMsg("PINs don't match."); return; }
+    setBusy(true);
+    setMsg("");
+    await onSetup(name, pin);
+    setBusy(false);
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT.body }}>
+      <div style={{ background: C.surface, borderRadius: 22, padding: "40px 40px 36px", width: 420, maxWidth: "92vw",
+        boxShadow: `0 24px 80px ${hexA(C.brandDeep, 0.18)}`, textAlign: "center" }}>
+        <img src={LOGO} alt="Simply Breathe" style={{ height: 64, marginBottom: 20 }} />
+        <div style={{ fontFamily: FONT.display, fontSize: 22, fontWeight: 800, color: C.ink, marginBottom: 6 }}>Welcome to Simply Breathe OS</div>
+        <div style={{ fontSize: 14, color: C.ink3, marginBottom: 28, lineHeight: 1.6 }}>
+          Let's set up your owner account. You'll use this name and PIN every time you log in.
+        </div>
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14, textAlign: "left" }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.ink2, display: "block", marginBottom: 5 }}>Your Name</label>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Sarah Johnson"
+              style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `1.5px solid ${C.line}`, fontSize: 14, outline: "none", boxSizing: "border-box", fontFamily: FONT.body }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.ink2, display: "block", marginBottom: 5 }}>Create PIN <span style={{ color: C.ink3, fontWeight: 400 }}>(min. 6 characters)</span></label>
+            <input type="password" value={pin} onChange={e => setPin(e.target.value)} placeholder="Choose a strong PIN"
+              style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `1.5px solid ${C.line}`, fontSize: 14, outline: "none", boxSizing: "border-box", fontFamily: FONT.body }} />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.ink2, display: "block", marginBottom: 5 }}>Confirm PIN</label>
+            <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Re-enter your PIN"
+              style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `1.5px solid ${C.line}`, fontSize: 14, outline: "none", boxSizing: "border-box", fontFamily: FONT.body }} />
+          </div>
+          {(msg || error) && <div style={{ fontSize: 13, color: "#C0573F", fontWeight: 600 }}>{msg || error}</div>}
+          <button type="submit" disabled={busy}
+            style={{ marginTop: 4, padding: "12px", borderRadius: 10, border: "none", background: C.brand, color: "#fff",
+              fontSize: 15, fontWeight: 700, cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.7 : 1, fontFamily: FONT.body }}>
+            {busy ? "Setting up…" : "Create Account & Enter"}
+          </button>
+        </form>
+        <div style={{ marginTop: 20, fontSize: 12, color: C.ink3, lineHeight: 1.6 }}>
+          Your PIN encrypts all data stored in this browser. Store it somewhere safe — it cannot be recovered if lost.
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* ============================================================ */
 /* ── LOCK SCREEN ── */
@@ -1203,6 +1262,7 @@ export default function App() {
 
   /* ── Auth state ── */
   const [locked,       setLocked]      = useState(true);
+  const [needsSetup,   setNeedsSetup]  = useState(false); // true on first-ever launch
   const [cryptoKey,    setCryptoKey]   = useState(null);
   const [masterKeyRaw, setMasterKeyRaw] = useState(null); // raw b64 for user mgmt
   const [currentUser,  setCurrentUser]  = useState(null); // logged-in user object
@@ -1230,30 +1290,18 @@ export default function App() {
             }]);
           }
         } else {
-          // First ever run — seed owner with default PIN
-          const pinSalt       = Sec.newSalt();
-          const pinHash       = await Sec.hashPin(DEFAULT_PIN);
-          const masterKeyB64  = await Sec.generateMasterKeyB64();
-          const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyB64, DEFAULT_PIN, pinSalt);
-          const owner = {
-            id: "u_owner", name: "Admin", role: "Owner",
-            pinHash, pinSalt, wrappedMasterKey,
-            permissions: ROLE_PERMISSIONS.Owner,
-            active: true, color: USER_COLORS[0],
-            createdAt: todayISO(), lastLogin: "",
-          };
-          const newSec = { version: 2, users: [owner] };
-          await store.set(SEC_META_KEY, JSON.stringify(newSec));
-          if (alive) setSecUsers([owner]);
+          // First ever run — prompt user to create their account
+          if (alive) setNeedsSetup(true);
         }
       } catch (_) { /* storage unavailable */ }
       finally {
-        // Ensure at least one tile shows even if something errored
         if (alive) {
-          setSecUsers(prev => prev.length > 0 ? prev : [{
-            id: "v1_migration", name: "Admin", role: "Owner",
-            permissions: ROLE_PERMISSIONS.Owner, active: true, color: USER_COLORS[0],
-          }]);
+          // Only add fallback tile if not in first-run setup mode
+          setSecUsers(prev => {
+            if (prev.length > 0) return prev;
+            return [{ id: "v1_migration", name: "Admin", role: "Owner",
+              permissions: ROLE_PERMISSIONS.Owner, active: true, color: USER_COLORS[0] }];
+          });
           setInitialising(false);
         }
       }
@@ -1279,7 +1327,8 @@ export default function App() {
         const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyB64, pin, pinSalt);
         const owner = {
           id: "u_owner", name: "Admin", role: "Owner",
-          pinHash: hash, pinSalt, wrappedMasterKey,
+          // pinHash intentionally omitted — v2 verification uses PBKDF2 unwrap only
+          pinSalt, wrappedMasterKey,
           permissions: ROLE_PERMISSIONS.Owner,
           active: true, color: USER_COLORS[0],
           createdAt: todayISO(), lastLogin: todayISO(),
@@ -1310,21 +1359,32 @@ export default function App() {
       // ── v2 unlock ──
       const user = sec.users.find(u => u.id === userId && u.active !== false);
       if (!user) throw new Error("User not found");
-      const hash = await Sec.hashPin(pin);
-      if (hash !== user.pinHash) { setPinError("Incorrect PIN. Please try again."); return; }
 
-      const { raw: mkB64, key: masterKey } = await Sec.unwrapKeyForUser(user.wrappedMasterKey, pin, user.pinSalt);
+      // Verify PIN via PBKDF2 unwrap — cryptographically strong, no hash oracle
+      let mkB64, masterKey;
+      try {
+        const result = await Sec.unwrapKeyForUser(user.wrappedMasterKey, pin, user.pinSalt);
+        mkB64 = result.raw;
+        masterKey = result.key;
+      } catch (_) {
+        setPinError("Incorrect PIN. Please try again.");
+        return;
+      }
 
       // Load data
       const encRaw = await store.get(STORE_KEY_ENC);
       if (encRaw?.value) {
         try {
           const dec = await Sec.decrypt(encRaw.value, masterKey);
-          if (Sec.validate(dec)) setData(dec);
-          else setData(SEED);
+          if (Sec.validate(dec)) {
+            setData(dec);
+          } else {
+            setPinError("Data integrity check failed. Please restore from a JSON backup.");
+            return;
+          }
         } catch (_) {
-          setPinError("Data could not be decrypted — reset to defaults.");
-          setData(SEED);
+          setPinError("Data could not be decrypted. Please try again, or restore from a JSON backup.");
+          return;
         }
       } else {
         // Check for legacy v4 unencrypted data
@@ -1334,8 +1394,11 @@ export default function App() {
         }
       }
 
-      // Update lastLogin
-      const updatedUsers = sec.users.map(u => u.id === userId ? { ...u, lastLogin: todayISO() } : u);
+      // Update lastLogin and scrub legacy pinHash (PBKDF2 unwrap is the only verifier now)
+      const updatedUsers = sec.users.map(u => {
+        const { pinHash: _dropped, ...rest } = u; // remove legacy SHA-256 hash
+        return u.id === userId ? { ...rest, lastLogin: todayISO() } : rest;
+      });
       await store.set(SEC_META_KEY, JSON.stringify({ ...sec, users: updatedUsers }));
       setSecUsers(updatedUsers.filter(u => u.active !== false));
 
@@ -1349,12 +1412,50 @@ export default function App() {
     }
   };
 
+  /* ── First-launch owner account setup ── */
+  const handleSetupOwner = async (name, pin) => {
+    try {
+      // Guard: if encrypted data already exists, refuse to overwrite without a full page reload
+      const existingEnc = await store.get(STORE_KEY_ENC);
+      if (existingEnc?.value) {
+        setPinError("Encrypted data already exists. Reload the page and log in — or restore from a JSON backup before setting up a new account.");
+        return;
+      }
+      const pinSalt      = Sec.newSalt();
+      const masterKeyB64 = await Sec.generateMasterKeyB64();
+      const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyB64, pin, pinSalt);
+      const owner = {
+        id: "u_owner", name: name.trim(), role: "Owner",
+        pinSalt, wrappedMasterKey,
+        permissions: ROLE_PERMISSIONS.Owner,
+        active: true, color: USER_COLORS[0],
+        createdAt: todayISO(), lastLogin: todayISO(),
+      };
+      const newSec = { version: 2, users: [owner] };
+      await store.set(SEC_META_KEY, JSON.stringify(newSec));
+      const masterKey = await Sec.importMasterKey(masterKeyB64);
+      setSecUsers([owner]);
+      setMasterKeyRaw(masterKeyB64);
+      setCryptoKey(masterKey);
+      setCurrentUser(owner);
+      setData(SEED);
+      loaded.current = true;
+      setNeedsSetup(false);
+      setLocked(false);
+    } catch (e) {
+      setPinError("Setup failed. Please try again.");
+    }
+  };
+
   /* ── Logout ── */
   const handleLogout = () => {
     setLocked(true);
     setCryptoKey(null);
     setMasterKeyRaw(null);
     setCurrentUser(null);
+    setData({}); // clear decrypted data from memory
+    setOpen(null);
+    loaded.current = false;
     setPinError("");
   };
 
@@ -1405,13 +1506,14 @@ export default function App() {
     const yr = today.slice(0, 4);
     const expensesMTD = (data.expenses||[]).filter(e => (e.date||"").startsWith(mo)).reduce((s,e) => s + (+e.amount||0), 0);
     const expensesYTD = (data.expenses||[]).filter(e => (e.date||"").startsWith(yr)).reduce((s,e) => s + (+e.amount||0), 0);
-    const netRevMTD   = data.sessions.filter(s => (s.date||"").startsWith(mo) && s.status === "Completed").reduce((s,r) => s + (+r.netRevenue||0), 0);
+    const netRevMTD   = (data.revenue||[]).filter(r => (r.date||"").startsWith(mo)).reduce((s,r) => s + calcNet(r), 0);
     const opProfit    = netRevMTD - expensesMTD;
     const opMargin    = netRevMTD > 0 ? Math.round((opProfit / netRevMTD) * 100) : null;
 
     return { partnerName, clientName, acceptedByClient, sessionsByStudio, expensesMTD, expensesYTD, netRevMTD, opProfit, opMargin };
   }, [data, today]);
 
+  if (needsSetup) return <FirstRunSetup onSetup={handleSetupOwner} error={pinError} />;
   if (locked) return <LockScreen onUnlock={handleUnlock} error={pinError} initialising={initialising} users={secUsers} />;
 
   const update = (db, fn) => setData((d) => ({ ...d, [db]: fn(d[db]) }));
@@ -1463,7 +1565,7 @@ export default function App() {
     { id: "users",     label: "User Management",    Icon: Users,       lane: "core", parent: "admin" },
   ];
 
-  const go = (id) => { setSection(id); setView(0); setQuery(""); setNavOpen(false); };
+  const go = (id, view = 0) => { setSection(id); setView(view); setQuery(""); setNavOpen(false); };
 
   return (
     <div style={{ background: C.bg, color: C.ink, fontFamily: FONT.body, minHeight: 600 }}>
@@ -1697,10 +1799,10 @@ export default function App() {
             {section === "today"
               ? <Today data={data} derived={derived} today={today} onOpen={setOpen} onGo={go} />
               : section === "engine"
-              ? <FollowUpEngine data={data} setData={setData} today={today} onOpen={setOpen} />
+              ? <FollowUpEngine data={data} setData={setData} today={today} onOpen={setOpen} canEdit={can.edit} />
               : <Section section={section} data={data} derived={derived} today={today}
                   view={view} setView={setView} query={query} onOpen={setOpen}
-                  currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} setSecUsers={setSecUsers} setData={setData} />}
+                  currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} setSecUsers={setSecUsers} setData={setData} canEdit={can.edit} />}
           </div>
         </main>
       </div>
@@ -1709,7 +1811,7 @@ export default function App() {
         <RecordDrawer db={open.db} record={open.record} data={data} derived={derived} today={today}
           onClose={() => setOpen(null)} onSave={can.edit ? (rec) => { saveRecord(open.db, rec); setOpen(null); } : null}
           onDelete={can.delete ? (id) => deleteRecord(open.db, id) : null} onOpenRelated={setOpen}
-          sequences={data.sequences || []} onStartSequence={startSequence} />
+          sequences={data.sequences || []} onStartSequence={can.edit ? startSequence : null} />
       )}
 
       {importing && <ImportModal data={data} setData={setData} onClose={() => setImporting(false)} />}
@@ -2455,10 +2557,7 @@ function Today({ data, derived, today, onOpen, onGo }) {
     operational:  actions.filter(a => a.category === "operational"),
   };
 
-  const mtdRevenue = (
-    data.sessions.filter(s => sameMonth(s.date, today)).reduce((a, s) => a + (Number(s.netRevenue) || 0), 0) +
-    (data.revenue?.filter(r => sameMonth(r.date, today)).reduce((a, r) => a + calcNet(r), 0) || 0)
-  );
+  const mtdRevenue = derived.netRevMTD;
   const activeSeqs   = (data.sequences || []).filter(s => s.status === "active").length;
   const refRevenue   = (data.referrals || []).reduce((a, r) => a + (Number(r.revenue) || 0), 0);
   const activeMembers = (data.clients || []).length;
@@ -2486,7 +2585,7 @@ function Today({ data, derived, today, onOpen, onGo }) {
 
       {/* Stats */}
       <div className="sb-stats">
-        <Stat label="Net revenue MTD"   value={money(mtdRevenue)}  hint="sessions + closed offers"           onClick={() => onGo("revenue")} />
+        <Stat label="Net revenue MTD"   value={money(mtdRevenue)}  hint="completed sessions this month"      onClick={() => onGo("revenue", 1)} />
         <Stat label="Referral revenue"  value={money(refRevenue)}  hint="from all referrals" accent={refRevenue > 0 ? "#4A8C6F" : C.ink3} onClick={() => onGo("referrals")} />
         <Stat label="Active clients"    value={activeMembers}      hint="total clients in system"            onClick={() => onGo("clients")} />
         <Stat label="Active sequences"  value={activeSeqs}         hint="clients in follow-up nurture"       onClick={() => onGo("engine")} />
@@ -2686,7 +2785,7 @@ function SourceBreakdown({ data }) {
 /* ============================================================
    SECTION (per database, with views)
    ============================================================ */
-function Section({ section, data, derived, today, view, setView, query, onOpen, currentUser, secUsers, masterKeyRaw, setSecUsers, setData }) {
+function Section({ section, data, derived, today, view, setView, query, onOpen, currentUser, secUsers, masterKeyRaw, setSecUsers, setData, canEdit }) {
   const cfg = VIEWS[section];
   const v = cfg.views[Math.min(view, cfg.views.length - 1)];
   let rows = data[section] || [];
@@ -2697,6 +2796,33 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
     rows = rows.filter((r) => Object.values(r).some((val) => norm(val).includes(q)));
   }
   const processed = v.run ? v.run(rows, { data, derived, today }) : { rows };
+
+  const handleImportExpenses = !canEdit ? null : (file) => {
+    Papa.parse(file, {
+      header: true, skipEmptyLines: true,
+      complete: (res) => {
+        const spec = IMPORT_MAP.expenses;
+        const rows = res.data.map((raw) => {
+          const rec = { id: uid("exp") };
+          const lower = {};
+          Object.keys(raw).forEach((k) => { lower[norm(k)] = raw[k]; });
+          Object.entries(spec.map).forEach(([csvKey, field]) => {
+            let val = lower[csvKey] ?? "";
+            val = Sec.sanitize(val);
+            if (spec.nums && spec.nums.includes(field)) val = num(val);
+            rec[field] = val;
+          });
+          return rec;
+        }).filter((r) => r.date || r.vendor || r.amount);
+        if (rows.length > 0) {
+          setData((d) => ({ ...d, expenses: [...(d.expenses || []), ...rows] }));
+          alert(`Imported ${rows.length} expense record${rows.length !== 1 ? "s" : ""} successfully.`);
+        } else {
+          alert("No valid rows found. Check that your CSV headers match the required format.");
+        }
+      },
+    });
+  };
 
   return (
     <div>
@@ -2731,32 +2857,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         : v.layout === "admin-schema"     ? <AdminView tab="schema"     data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
         : v.layout === "admin-integrity"  ? <AdminView tab="integrity"  data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
         : v.layout === "admin-storage"    ? <AdminView tab="storage"    data={data} secUsers={secUsers} currentUser={currentUser} today={today} />
-        : v.layout === "expense-summary"  ? <ExpenseSummaryView data={data} today={today} onOpen={(r) => onOpen({ db: "expenses", record: r })} onImportExpenses={(file) => {
-            Papa.parse(file, {
-              header: true, skipEmptyLines: true,
-              complete: (res) => {
-                const spec = IMPORT_MAP.expenses;
-                const rows = res.data.map((raw) => {
-                  const rec = { id: uid("exp") };
-                  const lower = {};
-                  Object.keys(raw).forEach((k) => { lower[norm(k)] = raw[k]; });
-                  Object.entries(spec.map).forEach(([csvKey, field]) => {
-                    let val = lower[csvKey] ?? "";
-                    val = Sec.sanitize(val);
-                    if (spec.nums && spec.nums.includes(field)) val = num(val);
-                    rec[field] = val;
-                  });
-                  return rec;
-                }).filter((r) => r.date || r.vendor || r.amount);
-                if (rows.length > 0) {
-                  setData((d) => ({ ...d, expenses: [...(d.expenses || []), ...rows] }));
-                  alert(`Imported ${rows.length} expense record${rows.length !== 1 ? "s" : ""} successfully.`);
-                } else {
-                  alert("No valid rows found. Check that your CSV headers match the required format.");
-                }
-              },
-            });
-          }} />
+        : v.layout === "expense-summary"  ? <ExpenseSummaryView data={data} today={today} canEdit={canEdit} onOpen={(r) => onOpen({ db: "expenses", record: r })} onImportExpenses={handleImportExpenses} />
         : v.layout === "outreach-hub"
         ? <OutreachHubView rows={processed.rows} data={data} today={today} onOpen={(r) => onOpen({ db: "outreach", record: r })} />
         : v.layout === "calendar"
@@ -3040,12 +3141,14 @@ const VIEWS = {
       { name: "This month", layout: "table", columns: revCols(),
         run: (rows, c) => {
           const r = [...rows].filter(x => sameMonth(x.date, c.today)).sort((a, b) => b.date.localeCompare(a.date));
-          return { rows: r, footer: { gross: money(sum(r, "gross")), label: "Gross this month" } };
+          const netTotal = r.reduce((s, row) => s + calcNet(row), 0);
+          return { rows: r, footer: { gross: money(sum(r, "gross")), net: money(netTotal), label: "Gross this month" } };
         } },
       { name: "All transactions", layout: "table", columns: revCols(),
         run: (rows) => {
           const r = [...rows].sort((a, b) => b.date.localeCompare(a.date));
-          return { rows: r, footer: { gross: money(sum(r, "gross")), label: "Total gross" } };
+          const netTotal = r.reduce((s, row) => s + calcNet(row), 0);
+          return { rows: r, footer: { gross: money(sum(r, "gross")), net: money(netTotal), label: "Total gross" } };
         } },
     ],
   },
@@ -3257,7 +3360,7 @@ function revCols() {
     col("net", "Net", (r) => {
       const n = calcNet(r);
       return <strong style={{ color: n > 0 ? "#4A8C6F" : n < 0 ? "#C0573F" : C.ink3 }}>{money(n)}</strong>;
-    }, { align: "right" }),
+    }, { align: "right", sum: "net" }),
     col("source", "Source", (r) => r.source ? <Tag color={SOURCE_COLOR[r.source] || C.ink3} soft>{r.source}</Tag> : "—"),
   ];
 }
@@ -3838,7 +3941,7 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                 <Zap size={13} /> Sequence active · step {activeSeq.steps.filter(s=>s.sent).length}/{activeSeq.steps.length}
               </div>
             );
-            return (
+            return onStartSequence ? (
               <button onClick={() => onStartSequence(draft)} style={{
                 display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 8,
                 background: hexA(C.brand, 0.1), border: `1px solid ${hexA(C.brand, 0.3)}`,
@@ -3846,7 +3949,7 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
               }}>
                 <Zap size={13} /> {completed ? "Restart Sequence" : "Start Follow-up Sequence"}
               </button>
-            );
+            ) : null;
           })()}
           <div style={{ flex: 1 }} />
           <button className="sb-ghost" onClick={onClose}>Cancel</button>
@@ -4830,7 +4933,7 @@ const DB_ORDER = ["partners", "clients", "sessions", "offers", "content", "follo
 /* ============================================================
    EXPENSE SUMMARY VIEW
    ============================================================ */
-function ExpenseSummaryView({ data, today, onOpen, onImportExpenses }) {
+function ExpenseSummaryView({ data, today, onOpen, onImportExpenses, canEdit = true }) {
   const expenses = data.expenses || [];
   const mo  = today.slice(0, 7);
   const yr  = today.slice(0, 4);
@@ -4868,9 +4971,9 @@ function ExpenseSummaryView({ data, today, onOpen, onImportExpenses }) {
   const maxMonth = Math.max(...monthlyData.map(m=>m.total), 1);
 
   // Revenue context for margin
-  const netRevMTD = (data.sessions||[])
-    .filter(s => (s.date||"").startsWith(mo) && s.status === "Completed")
-    .reduce((s,r) => s + (+r.netRevenue||0), 0);
+  const netRevMTD = (data.revenue||[])
+    .filter(r => (r.date||"").startsWith(mo))
+    .reduce((s,r) => s + calcNet(r), 0);
   const opProfit = netRevMTD - totMTD;
   const margin = netRevMTD > 0 ? Math.round((opProfit / netRevMTD) * 100) : null;
 
@@ -4970,6 +5073,7 @@ function ExpenseSummaryView({ data, today, onOpen, onImportExpenses }) {
           <div style={{fontWeight:700,fontSize:15,color:C.ink,display:"flex",alignItems:"center",gap:8}}>
             <Upload size={17} color={C.brand} /> Bulk Import via CSV
           </div>
+          {canEdit && (
           <label style={{
             display:"inline-flex",alignItems:"center",gap:7,padding:"9px 18px",borderRadius:10,
             background:C.brand,color:"#fff",fontWeight:700,fontSize:13.5,cursor:"pointer",
@@ -4980,6 +5084,7 @@ function ExpenseSummaryView({ data, today, onOpen, onImportExpenses }) {
               if (e.target.files[0] && onImportExpenses) onImportExpenses(e.target.files[0]);
             }} />
           </label>
+          )}
         </div>
         <div style={{fontSize:13,color:C.ink3,marginBottom:12,lineHeight:1.7}}>
           Export your expenses from your bank, credit card statement, QuickBooks, Wave, or Xero as a CSV — then click <strong style={{color:C.ink}}>Upload Expense CSV</strong> above to import all rows at once.
@@ -5296,8 +5401,9 @@ function AdminView({ tab, data, secUsers, currentUser, today }) {
     setTimeout(() => { setIntegrityResults(issues); setRunningCheck(false); }, 300);
   };
 
-  // ── export all data ──
+  // ── export all data (Owner only) ──
   const exportAll = () => {
+    if (currentUser?.role !== "Owner") return;
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a"); a.href = url;
@@ -5546,10 +5652,14 @@ function AdminView({ tab, data, secUsers, currentUser, today }) {
               <div style={{ fontSize: 12, color: C.ink2, marginBottom: 16 }}>
                 <strong>{totalRecords}</strong> records · <strong>{totalKB} KB</strong> uncompressed
               </div>
-              <button onClick={exportAll}
-                style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", borderRadius: 10, border: "none", background: C.brand, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                <Download size={14} /> Download Backup
-              </button>
+              {currentUser?.role === "Owner" ? (
+                <button onClick={exportAll}
+                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", borderRadius: 10, border: "none", background: C.brand, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                  <Download size={14} /> Download Backup
+                </button>
+              ) : (
+                <div style={{ fontSize: 12, color: C.ink3, padding: "8px 0" }}>Only the Owner account can export data.</div>
+              )}
               {exportMsg && <div style={{ marginTop: 10, fontSize: 13, color: "#16A34A", fontWeight: 600 }}>{exportMsg}</div>}
             </div>
 
@@ -5644,16 +5754,16 @@ function EditProfileModal({ user, masterKeyRaw, onSave, onClose }) {
 
       if (tab === "security" && (curPin || newPin || confirmPin)) {
         if (!curPin)              { setPinMsg("Enter your current PIN."); setSaving(false); return; }
-        if (newPin.length < 4)    { setPinMsg("New PIN must be at least 4 characters."); setSaving(false); return; }
+        if (newPin.length < 6)    { setPinMsg("New PIN must be at least 6 characters."); setSaving(false); return; }
         if (newPin !== confirmPin){ setPinMsg("New PINs don't match."); setSaving(false); return; }
-        const curHash = await Sec.hashPin(curPin);
-        if (curHash !== user.pinHash) { setPinMsg("Current PIN is incorrect."); setSaving(false); return; }
+        // Verify current PIN via PBKDF2 unwrap (no hash oracle)
+        try { await Sec.unwrapKeyForUser(user.wrappedMasterKey, curPin, user.pinSalt); }
+        catch (_) { setPinMsg("Current PIN is incorrect."); setSaving(false); return; }
         const pinSalt = Sec.newSalt();
-        const pinHash = await Sec.hashPin(newPin);
         const wrappedMasterKey = masterKeyRaw
           ? await Sec.wrapKeyForUser(masterKeyRaw, newPin, pinSalt)
           : user.wrappedMasterKey;
-        Object.assign(updates, { pinHash, pinSalt, wrappedMasterKey });
+        Object.assign(updates, { pinSalt, wrappedMasterKey });
         setPinMsg(""); setCurPin(""); setNewPin(""); setConfirmPin("");
       }
       await onSave(updates);
@@ -5818,11 +5928,11 @@ function ConfirmModal({ message, okLabel = "OK", danger = false, onOk, onCancel 
         boxShadow: `0 24px 80px ${hexA(C.brandDeep, 0.28)}, 0 4px 16px ${hexA(C.brandDeep, 0.1)}`,
         animation: "sb-pop .2s cubic-bezier(.22,.68,0,1.2)",
       }}>
-        <div style={{ width: 52, height: 52, borderRadius: "50%", background: danger ? "#DC2626" : C.brand,
+        <div style={{ width: 52, height: 52, borderRadius: "50%", background: C.brandSoft,
           display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
           {danger
-            ? <LogOut size={22} color={C.bg} strokeWidth={1.5} />
-            : <Info size={22} color={C.bg} strokeWidth={1.5} />}
+            ? <LogOut size={22} color={C.brand} strokeWidth={1.5} />
+            : <Info size={22} color={C.brand} strokeWidth={1.5} />}
         </div>
         <div style={{ fontFamily: FONT.display, fontSize: 17, fontWeight: 700, color: C.ink, marginBottom: 8 }}>
           {okLabel}?
@@ -5835,8 +5945,8 @@ function ConfirmModal({ message, okLabel = "OK", danger = false, onOk, onCancel 
           <button onClick={onOk} style={{
             minWidth: 120, padding: "9px 20px", borderRadius: 10, border: "none", cursor: "pointer",
             fontWeight: 700, fontSize: 14, justifyContent: "center",
-            background: danger ? "#DC2626" : C.brand, color: "#fff",
-            boxShadow: `0 2px 8px ${hexA(danger ? "#DC2626" : C.brand, 0.35)}`,
+            background: C.brand, color: "#fff",
+            boxShadow: `0 2px 8px ${hexA(C.brand, 0.35)}`,
           }}>
             {okLabel}
           </button>
@@ -6542,17 +6652,17 @@ function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdate
 
   const handleAdd = async () => {
     if (!newName.trim() || !newPin.trim()) return;
+    if (newPin.length < 6) { flash("PIN must be at least 6 characters."); return; }
     if (!masterKeyRaw)    { flash("Session key unavailable — please log out and back in."); return; }
     setSaving(true);
     try {
       const pinSalt  = Sec.newSalt();
-      const pinHash  = await Sec.hashPin(newPin);
       const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyRaw, newPin, pinSalt);
       const color    = USER_COLORS[secUsers.length % USER_COLORS.length];
       const nu = {
         id: "u_" + Math.random().toString(36).slice(2, 9),
         name: newName.trim(), role: newRole,
-        pinHash, pinSalt, wrappedMasterKey,
+        pinSalt, wrappedMasterKey,
         permissions: { ...newPerm },
         active: true, color, createdAt: todayISO(), lastLogin: "",
       };
@@ -6588,16 +6698,16 @@ function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdate
 
   const handleResetPin = async (userId, newPinVal) => {
     if (!newPinVal.trim() || !masterKeyRaw) return;
+    if (newPinVal.length < 6) { flash("New PIN must be at least 6 characters."); return; }
     setSaving(true);
     try {
       const pinSalt  = Sec.newSalt();
-      const pinHash  = await Sec.hashPin(newPinVal);
       const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyRaw, newPinVal, pinSalt);
       const secRaw = await store.get(SEC_META_KEY);
       const sec    = JSON.parse(secRaw?.value || "{}");
       if (!Array.isArray(sec.users)) { flash("No user config found."); setSaving(false); return; }
       const updated = { ...sec, users: sec.users.map(u =>
-        u.id === userId ? { ...u, pinHash, pinSalt, wrappedMasterKey } : u
+        u.id === userId ? { ...u, pinSalt, wrappedMasterKey } : u
       )};
       await store.set(SEC_META_KEY, JSON.stringify(updated));
       flash("✓ PIN reset successfully");
@@ -7923,7 +8033,7 @@ function OfferConversionView({ data, derived, today, onOpen }) {
    FOLLOW-UP ENGINE COMPONENTS
    ============================================================ */
 
-function FollowUpEngine({ data, setData, today, onOpen }) {
+function FollowUpEngine({ data, setData, today, onOpen, canEdit = true }) {
   const [tab, setTab] = useState("queue");
 
   const sequences = data.sequences || [];
@@ -7948,6 +8058,7 @@ function FollowUpEngine({ data, setData, today, onOpen }) {
   const totalDue      = overdueItems.length + todayItems.length;
 
   const markSent = (seqId, stepId) => {
+    if (!canEdit) return;
     setData(d => ({
       ...d,
       sequences: (d.sequences || []).map(seq => {
@@ -7960,6 +8071,7 @@ function FollowUpEngine({ data, setData, today, onOpen }) {
   };
 
   const togglePause = (seqId) => {
+    if (!canEdit) return;
     setData(d => ({
       ...d,
       sequences: (d.sequences || []).map(seq =>
