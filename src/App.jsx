@@ -6739,8 +6739,11 @@ function EditProfileModal({ user, masterKeyRaw, onSave, onClose }) {
   const handleImage = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!file.type.startsWith("image/")) { setMsg("Please select an image file."); return; }
+    const knownImageExts = /\.(jpe?g|png|gif|webp|bmp|svg|avif|heic)$/i;
+    const isImage = file.type.startsWith("image/") || (!file.type && knownImageExts.test(file.name));
+    if (!isImage) { setMsg("Please select an image file (JPEG, PNG, GIF, WebP, etc.)."); return; }
     if (file.size > 5 * 1024 * 1024) { setMsg("Image must be under 5 MB."); return; }
+    setMsg("");
     const reader = new FileReader();
     reader.onload = (ev) => {
       const img = new Image();
