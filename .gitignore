@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Backend
+backend/.env
+backend/data/pending-events.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

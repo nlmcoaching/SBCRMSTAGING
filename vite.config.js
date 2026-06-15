@@ -5,17 +5,22 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
+    proxy: {
+      // Proxy /api requests to the backend — avoids CORS entirely
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+    },
     headers: {
-      // Security measure #4: Content Security Policy
-      // Prevents XSS by restricting which scripts/styles/resources can load.
       "Content-Security-Policy": [
         "default-src 'self'",
-        "script-src 'self' 'unsafe-inline'",   // unsafe-inline required by Vite HMR in dev
+        "script-src 'self' 'unsafe-inline'",
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob:",
         "font-src 'self' data:",
-        "connect-src 'self' ws: wss:",          // ws/wss for Vite HMR websocket
-        "frame-ancestors 'none'",               // prevents clickjacking
+        "connect-src 'self' ws: wss: http://localhost:3001",
+        "frame-ancestors 'none'",
         "base-uri 'self'",
         "form-action 'self'",
       ].join("; "),

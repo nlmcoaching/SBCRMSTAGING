@@ -919,6 +919,7 @@ Warm,
     { id: "exp9",  date: "2026-05-20", vendor: "Next Insurance",   description: "General liability — monthly",           amount: 46.00,  category: "Insurance",                paymentMethod: "Credit Card", taxDeductible: true,  recurring: true,  recurringFreq: "Monthly",   linkedSession: "", linkedPartner: "", notes: "GL + professional indemnity bundle" },
     { id: "exp10", date: "2026-05-01", vendor: "Squarespace",      description: "Website hosting — annual (monthly equiv)", amount: 19.17, category: "Administrative",         paymentMethod: "Credit Card", taxDeductible: true,  recurring: true,  recurringFreq: "Monthly",   linkedSession: "", linkedPartner: "", notes: "" },
   ],
+  registrations: [],
 };
 
 /* ---------- Helpers ---------- */
@@ -1257,6 +1258,7 @@ export default function App() {
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [confirm, setConfirm] = useState(null); // { message, onOk, okLabel?, danger? }
   const [saved, setSaved] = useState("idle"); // idle | saving | saved
+  const [calendlyStatus, setCalendlyStatus] = useState(null); // null | { pending: n } | { syncing: true } | { synced: n, at: time }
   const loaded = useRef(false);
   const today = todayISO();
 
@@ -1459,6 +1461,219 @@ export default function App() {
     setPinError("");
   };
 
+  /* ── Calendly Sync ── */
+  const CALENDLY_BACKEND = "";
+
+  const syncCalendly = async () => {
+    if (locked) return;
+    setCalendlyStatus({ syncing: true });
+    try {
+      const res = await fetch(`${CALENDLY_BACKEND}/api/calendly/pending`);
+      if (!res.ok) throw new Error("Backend unavailable");
+      const { events } = await res.json();
+      if (!events.length) { setCalendlyStatus({ synced: 0, at: new Date().toLocaleTimeString() }); return; }
+
+      let processed = 0;
+      const ids = [];
+      setData(prev => {
+        let next = { ...prev };
+        const clients       = [...(next.clients       || [])];
+        const registrations = [...(next.registrations || [])];
+        const sessions      = [...(next.sessions      || [])];
+        const followups     = [...(next.followups     || [])];
+
+        const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x.toISOString().slice(0,10); };
+
+        events.forEach(evt => {
+          if (evt.eventType === "invitee.created") {
+            // 1. Create or update client by email
+            const emailNorm = (evt.email || "").toLowerCase();
+            let client = clients.find(c => (c.email || "").toLowerCase() === emailNorm);
+            const sessionDate = evt.startTime ? evt.startTime.slice(0, 10) : "";
+            const sessionTime = evt.startTime ? new Date(evt.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
+
+            if (!client) {
+              client = {
+                id: uid("c"), name: evt.name, email: emailNorm,
+                phone: evt.phone || "", source: "Calendly", status: "Booked",
+                clientType: "First-time attendee", tags: [],
+                firstSession: sessionDate, sessionsAttended: 0,
+                lastSession: "", nextSession: sessionDate,
+                packageType: "None", lifetimeValue: 0,
+                notes: evt.doneBreathworkBefore ? `Done breathwork before: ${evt.doneBreathworkBefore}` : "",
+                referral: evt.referredBy ? "High" : "Low",
+              };
+              clients.push(client);
+            } else {
+              const idx = clients.indexOf(client);
+              clients[idx] = {
+                ...client,
+                name: evt.name || client.name,
+                phone: evt.phone || client.phone,
+                status: client.status === "Lead" ? "Booked" : client.status,
+                nextSession: sessionDate || client.nextSession,
+              };
+              client = clients[idx];
+            }
+
+            // 2. Upsert session record (one per unique Calendly event URI)
+            let sessionId = "";
+            if (evt.calendlyEventUri) {
+              const existingSessionIdx = sessions.findIndex(s => s.calendlyEventUri === evt.calendlyEventUri);
+              if (existingSessionIdx >= 0) {
+                // Update registered count
+                const regsForEvent = registrations.filter(r => r.calendlyEventUri === evt.calendlyEventUri && r.status !== "canceled").length + 1;
+                sessions[existingSessionIdx] = { ...sessions[existingSessionIdx], registered: regsForEvent };
+                sessionId = sessions[existingSessionIdx].id;
+              } else {
+                // Detect if virtual vs studio based on location type
+                const isVirtual = evt.locationType === "zoom" || evt.locationType === "custom" || !evt.locationAddress;
+                const newSession = {
+                  id: uid("se"),
+                  name: evt.eventName || "Calendly Session",
+                  studioId: "",
+                  date: sessionDate,
+                  time: sessionTime,
+                  status: "Planned",
+                  journey: evt.eventName || "Breathwork Basics",
+                  capacity: 20,
+                  registered: 1,
+                  attendance: 0, paidAttendees: 0, waivers: 0, noShows: 0,
+                  revenue: 0, studioSplit: 0, netRevenue: 0,
+                  conversion: 0, packagesSold: 0, referralsGenerated: 0,
+                  equipmentNeeded: isVirtual ? "Headset, Zoom setup" : "Headset, portable speaker",
+                  roomSetupStatus: "Not started", musicSetupStatus: "Not started",
+                  testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false,
+                  referralsRequested: false, breakthroughNoted: false,
+                  notes: `${isVirtual ? "Virtual" : "In-person"} — booked via Calendly`,
+                  calendlyEventUri: evt.calendlyEventUri,
+                  locationType: evt.locationType,
+                  locationJoinUrl: evt.locationJoinUrl,
+                  checklist: emptySessionChecklist(),
+                  equipChecklist: emptyEquipChecklist(),
+                };
+                sessions.push(newSession);
+                sessionId = newSession.id;
+              }
+            }
+
+            // 3. Upsert registration record (one per unique invitee URI)
+            const existingRegIdx = registrations.findIndex(r => r.calendlyInviteeUri === evt.calendlyInviteeUri && evt.calendlyInviteeUri);
+            const regRecord = {
+              id: existingRegIdx >= 0 ? registrations[existingRegIdx].id : uid("reg"),
+              clientId: client.id, sessionId,
+              calendlyInviteeUri: evt.calendlyInviteeUri,
+              calendlyEventUri:   evt.calendlyEventUri,
+              eventName:          evt.eventName,
+              status:             "booked",
+              paymentStatus:      "unknown",
+              waiverStatus:       "pending",
+              scheduledAt:        evt.startTime,
+              timezone:           evt.timezone,
+              locationType:       evt.locationType,
+              locationJoinUrl:    evt.locationJoinUrl,
+              locationAddress:    evt.locationAddress,
+              attendanceType:     evt.attendanceType,
+              checkedIn: false, attended: false, noShow: false,
+              doneBreathworkBefore: evt.doneBreathworkBefore,
+              howHeard:           evt.howHeard,
+              referredBy:         evt.referredBy,
+              concerns:           evt.concerns,
+              reviewedContraindications: evt.reviewedContraindications,
+              notes: "",
+            };
+            if (existingRegIdx >= 0) registrations[existingRegIdx] = regRecord;
+            else registrations.push(regRecord);
+
+            // 4. Create follow-up tasks (only for brand-new registrations)
+            if (existingRegIdx < 0 && evt.startTime) {
+              const base = new Date(evt.startTime);
+              [
+                { label: "Send same-day session confirmation/check-in", days: 0 },
+                { label: "Send 24-hour post-session follow-up",         days: 1 },
+                { label: "Send 72-hour rebooking or package offer",     days: 3 },
+              ].forEach(({ label, days }) => {
+                if (!followups.some(f => f.clientId === client.id && f.name === label)) {
+                  followups.push({ id: uid("f"), name: label, clientId: client.id, stage: client.status, lastContact: todayISO(), futype: "24h", nextAction: addDays(base, days), outcome: "" });
+                }
+              });
+            }
+            processed++;
+            ids.push(evt.id);
+
+          } else if (evt.eventType === "invitee.canceled") {
+            const regIdx = registrations.findIndex(r => r.calendlyInviteeUri === evt.calendlyInviteeUri && evt.calendlyInviteeUri);
+            if (regIdx >= 0) {
+              registrations[regIdx] = { ...registrations[regIdx], status: evt.rescheduled ? "rescheduled" : "canceled" };
+              // Decrement session registered count
+              const reg = registrations[regIdx];
+              const sessIdx = sessions.findIndex(s => s.id === reg.sessionId);
+              if (sessIdx >= 0 && sessions[sessIdx].registered > 0) {
+                sessions[sessIdx] = { ...sessions[sessIdx], registered: sessions[sessIdx].registered - 1 };
+              }
+            }
+            processed++;
+            ids.push(evt.id);
+
+          } else if (evt.eventType === "invitee_no_show.created") {
+            const regIdx = registrations.findIndex(r => r.calendlyInviteeUri === evt.calendlyInviteeUri && evt.calendlyInviteeUri);
+            if (regIdx >= 0) {
+              registrations[regIdx] = { ...registrations[regIdx], noShow: true, status: "no_show" };
+              const reg = registrations[regIdx];
+              const sessIdx = sessions.findIndex(s => s.id === reg.sessionId);
+              if (sessIdx >= 0) sessions[sessIdx] = { ...sessions[sessIdx], noShows: (sessions[sessIdx].noShows || 0) + 1 };
+            }
+            processed++;
+            ids.push(evt.id);
+
+          } else if (evt.eventType === "invitee_no_show.deleted") {
+            const regIdx = registrations.findIndex(r => r.calendlyInviteeUri === evt.calendlyInviteeUri && evt.calendlyInviteeUri);
+            if (regIdx >= 0) {
+              registrations[regIdx] = { ...registrations[regIdx], noShow: false, status: "booked" };
+              const reg = registrations[regIdx];
+              const sessIdx = sessions.findIndex(s => s.id === reg.sessionId);
+              if (sessIdx >= 0 && sessions[sessIdx].noShows > 0) {
+                sessions[sessIdx] = { ...sessions[sessIdx], noShows: sessions[sessIdx].noShows - 1 };
+              }
+            }
+            processed++;
+            ids.push(evt.id);
+          }
+        });
+
+        return { ...next, clients, registrations, sessions, followups };
+      });
+
+      // Acknowledge processed events
+      if (ids.length) {
+        await fetch(`${CALENDLY_BACKEND}/api/calendly/acknowledge`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids }),
+        }).catch(() => {});
+      }
+
+      setCalendlyStatus({ synced: processed, at: new Date().toLocaleTimeString() });
+    } catch {
+      // Backend not running or unreachable — check silently and surface pending count only
+      try {
+        const res = await fetch(`${CALENDLY_BACKEND}/api/calendly/pending`);
+        const { total } = await res.json();
+        if (total > 0) setCalendlyStatus({ pending: total });
+        else setCalendlyStatus(null);
+      } catch { setCalendlyStatus(null); }
+    }
+  };
+
+  // Poll for pending Calendly events every 2 minutes when logged in
+  useEffect(() => {
+    if (locked) return;
+    syncCalendly();
+    const interval = setInterval(syncCalendly, 2 * 60 * 1000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locked]);
+
   /* ── Save profile edits ── */
   const handleSaveProfile = async (updates) => {
     const updated = { ...currentUser, ...updates };
@@ -1558,6 +1773,7 @@ export default function App() {
     // Shared — financial & ops
     { id: "revenue",  label: "Revenue",            Icon: TrendingUp,  lane: "core" },
     { id: "expenses", label: "Expenses",           Icon: BarChart2,   lane: "core" },
+    { id: "registrations", label: "Calendly Bookings", Icon: CalendarCheck, lane: "core" },
     { id: "workflows", label: "Workflows",        Icon: Milestone,   lane: "core" },
     { id: "content",   label: "Content Calendar",  Icon: Megaphone,   lane: "core" },
     { id: "templates", label: "Templates",          Icon: Copy,        lane: "core" },
@@ -1677,6 +1893,24 @@ export default function App() {
             </div>
           </nav>
           <div style={{ marginTop: "auto", padding: 12 }}>
+            {/* Calendly sync status / button */}
+            {!locked && (
+              <div style={{ marginBottom: 8 }}>
+                <button
+                  onClick={syncCalendly}
+                  className="sb-ghost"
+                  title="Sync Calendly bookings from backend"
+                  style={{ width: "100%", justifyContent: "flex-start", gap: 6, fontSize: 12,
+                    color: calendlyStatus?.pending > 0 ? C.brand : C.ink3 }}>
+                  <RefreshCw size={13} strokeWidth={1.5}
+                    style={{ animation: calendlyStatus?.syncing ? "spin 1s linear infinite" : "none" }} />
+                  {calendlyStatus?.syncing && "Syncing Calendly…"}
+                  {calendlyStatus?.pending > 0 && !calendlyStatus?.syncing && `${calendlyStatus.pending} new booking${calendlyStatus.pending !== 1 ? "s" : ""}`}
+                  {calendlyStatus?.synced != null && !calendlyStatus?.syncing && `Calendly synced${calendlyStatus.synced > 0 ? ` (${calendlyStatus.synced})` : ""}`}
+                  {!calendlyStatus && "Sync Calendly"}
+                </button>
+              </div>
+            )}
             {can.edit && <button className="sb-ghost" onClick={() => setImporting(true)}><Upload size={15} /> Import CSVs</button>}
           </div>
         </aside>
@@ -1841,7 +2075,7 @@ function newRecord(db) {
   const m = {
     clients: { name: "", phone: "", email: "", source: "Post-session", status: "Lead", clientType: "First-time attendee", tags: [], firstSession: "", sessionsAttended: 0, lastSession: "", nextSession: "", packageType: "None", lifetimeValue: 0, notes: "", referral: "Low" },
     partners: { name: "", studioType: "Yoga", location: "", contact: "", role: "Owner", email: "", phone: "", stage: "Target identified", estimatedCommunitySize: 0, bestFitJourney: "", revenuePotential: 0, closeProbability: "Low", revShare: "", contractStatus: "None", outreachDate: "", lastTouch: todayISO(), nextAction: "", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "", checklist: emptyChecklist() },
-    sessions: { name: "", studioId: "", date: todayISO(), time: "", status: "Planned", journey: "Breathwork Basics", capacity: 20, registered: 0, attendance: 0, paidAttendees: 0, waivers: 0, noShows: 0, revenue: 0, studioSplit: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, equipmentNeeded: "", roomSetupStatus: "Not started", musicSetupStatus: "Not started", testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false, referralsRequested: false, breakthroughNoted: false, notes: "", checklist: emptySessionChecklist(), equipChecklist: emptyEquipChecklist() },
+    sessions: { name: "", studioId: "", date: todayISO(), time: "", status: "Planned", journey: "Breathwork Basics", capacity: 20, registered: 0, attendance: 0, paidAttendees: 0, waivers: 0, noShows: 0, revenue: 0, studioSplit: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, equipmentNeeded: "", roomSetupStatus: "Not started", musicSetupStatus: "Not started", testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false, referralsRequested: false, breakthroughNoted: false, notes: "", calendlyEventUri: "", locationType: "", locationJoinUrl: "", checklist: emptySessionChecklist(), equipChecklist: emptyEquipChecklist() },
     offers:    { name: "", clientId: "", offerType: "Single session", price: 0, status: "Drafted", probability: "50%", source: "", dateOffered: todayISO(), expireDate: "", followUpDate: "", notes: "", reasonLost: "" },
     revenue:   { name: "", date: todayISO(), channel: "Studio session", source: "", campaign: "", sessionId: "", clientId: "", gross: 0, stripeFee: 0, studioSplit: 0, facilitatorCost: 0, refunds: 0, costCenter: "Studio sessions", notes: "" },
     content: { name: "", category: "Breathwork education", status: "Idea", platform: "Instagram", scheduledDate: "", datePosted: "", body: "", cta: "Book a session", sessionId: "", partnerId: "", reused: false, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0, engagement: 0, leads: 0, booked: 0, revenue: 0, notes: "" },
@@ -1851,6 +2085,7 @@ function newRecord(db) {
     testimonials: { name: "", clientId: "", sessionId: "", status: "Breakthrough noted", type: "Written", content: "", bestQuote: "", beforeSummary: "", afterSummary: "", themes: [], permissionReceived: false, useOnWebsite: false, useOnSocial: false, firstNameOnly: false, videoUrl: "", dateReceived: "", datePublished: "", notes: "" },
     templates:    { name: "", category: "Post-Session", channel: "Email", subject: "", body: "", variables: "", linkedTo: "clients", usageCount: 0, notes: "" },
     expenses:     { date: "", vendor: "", description: "", amount: 0, category: "Equipment & Supplies", paymentMethod: "Credit Card", taxDeductible: true, recurring: false, recurringFreq: "One-time", linkedSession: "", linkedPartner: "", receiptUrl: "", notes: "" },
+    registrations: { clientId: "", sessionId: "", calendlyInviteeUri: "", calendlyEventUri: "", eventName: "", status: "booked", paymentStatus: "unknown", waiverStatus: "pending", scheduledAt: "", timezone: "", locationType: "", locationJoinUrl: "", locationAddress: "", attendanceType: "", checkedIn: false, attended: false, noShow: false, doneBreathworkBefore: "", howHeard: "", referredBy: "", concerns: "", reviewedContraindications: "", notes: "" },
   };
   return { ...base, ...m[db] };
 }
@@ -2861,7 +3096,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         : v.layout === "outreach-hub"
         ? <OutreachHubView rows={processed.rows} data={data} today={today} onOpen={(r) => onOpen({ db: "outreach", record: r })} />
         : v.layout === "calendar"
-        ? <CalendarView rows={processed.rows} today={today} derived={derived} onOpen={(r) => onOpen({ db: section, record: r })} />
+        ? <CalendarView rows={processed.rows} today={today} derived={derived} data={data} onOpen={(r) => onOpen({ db: section, record: r })} />
         : <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => onOpen({ db: section, record: r })} ctx={{ data, derived, today }} />}
     </div>
   );
@@ -2971,6 +3206,67 @@ const VIEWS = {
           const filtered = rows.filter(r => r.taxDeductible);
           return { rows: filtered, footer: { amount: filtered.reduce((s,r)=>s+(+r.amount||0),0) } };
         },
+      },
+    ],
+  },
+  registrations: {
+    views: [
+      {
+        name: "All Bookings", layout: "table",
+        columns: [
+          col("scheduledAt", "Session Date/Time", r => r.scheduledAt ? new Date(r.scheduledAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"),
+          col("eventName",   "Event",        r => <strong style={{color:C.ink}}>{r.eventName || "—"}</strong>),
+          col("status",      "Status",       r => {
+            const clr = { booked: C.brand, attended: "#4A8C6F", canceled: "#C0573F", rescheduled: C.gold, no_show: "#8A96AC" }[r.status] || C.ink3;
+            return <span style={{fontSize:12,padding:"2px 8px",borderRadius:8,background:hexA(clr,0.12),color:clr,fontWeight:600}}>{r.status}</span>;
+          }),
+          col("paymentStatus","Payment",     r => {
+            const clr = { paid: "#4A8C6F", unpaid: "#C0573F", unknown: C.ink3 }[r.paymentStatus] || C.ink3;
+            return <span style={{fontSize:12,padding:"2px 8px",borderRadius:8,background:hexA(clr,0.12),color:clr,fontWeight:600}}>{r.paymentStatus}</span>;
+          }),
+          col("waiverStatus", "Waiver",      r => r.waiverStatus === "signed"
+            ? <span style={{color:"#4A8C6F",fontWeight:700}}>✓ Signed</span>
+            : <span style={{color:C.ink3}}>Pending</span>),
+          col("attendanceType","Attendance", r => r.attendanceType || "—"),
+          col("locationType", "Location",   r => r.locationType || "—"),
+          col("howHeard",     "How Heard",  r => r.howHeard || "—"),
+        ],
+        run: (rows) => ({ rows: [...rows].sort((a,b) => (b.scheduledAt||"").localeCompare(a.scheduledAt||"")) }),
+      },
+      {
+        name: "Pending Waivers", layout: "table",
+        columns: [
+          col("scheduledAt", "Session Date", r => r.scheduledAt ? new Date(r.scheduledAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"),
+          col("eventName",   "Event",        r => r.eventName || "—"),
+          col("status",      "Status",       r => r.status),
+          col("waiverStatus","Waiver",       r => <span style={{color:"#C0573F",fontWeight:600}}>⚠ Pending</span>),
+          col("concerns",    "Concerns",     r => r.concerns || "—"),
+        ],
+        run: (rows) => ({ rows: rows.filter(r => r.waiverStatus !== "signed" && r.status !== "canceled") }),
+      },
+      {
+        name: "Unpaid", layout: "table",
+        columns: [
+          col("scheduledAt", "Session Date", r => r.scheduledAt ? new Date(r.scheduledAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"),
+          col("eventName",   "Event",        r => r.eventName || "—"),
+          col("status",      "Booking",      r => r.status),
+          col("paymentStatus","Payment",     r => <span style={{color:"#C0573F",fontWeight:700}}>Unpaid</span>),
+        ],
+        run: (rows) => ({ rows: rows.filter(r => r.paymentStatus === "unpaid" && r.status !== "canceled") }),
+      },
+      {
+        name: "Cancellations", layout: "table",
+        columns: [
+          col("scheduledAt", "Session Date", r => r.scheduledAt ? new Date(r.scheduledAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"),
+          col("eventName",   "Event",        r => r.eventName || "—"),
+          col("status",      "Status",       r => {
+            const clr = r.status === "canceled" ? "#C0573F" : C.gold;
+            return <span style={{fontSize:12,padding:"2px 8px",borderRadius:8,background:hexA(clr,0.12),color:clr,fontWeight:600}}>{r.status}</span>;
+          }),
+          col("howHeard",    "How Heard",    r => r.howHeard || "—"),
+          col("referredBy",  "Referred By",  r => r.referredBy || "—"),
+        ],
+        run: (rows) => ({ rows: rows.filter(r => r.status === "canceled" || r.status === "rescheduled").sort((a,b) => (b.scheduledAt||"").localeCompare(a.scheduledAt||"")) }),
       },
     ],
   },
@@ -3586,7 +3882,7 @@ function cardChip(k, r, ctx) {
 /* ============================================================
    CALENDAR (month)
    ============================================================ */
-function CalendarView({ rows, today, derived, onOpen }) {
+function CalendarView({ rows, today, derived, data, onOpen }) {
   const [cursor, setCursor] = useState(today.slice(0, 7));
   const [y, m] = cursor.split("-").map(Number);
   const first = new Date(y, m - 1, 1);
@@ -3598,6 +3894,32 @@ function CalendarView({ rows, today, derived, onOpen }) {
   const cells = [];
   for (let i = 0; i < startDow; i++) cells.push(null);
   for (let d = 1; d <= daysIn; d++) cells.push(d);
+
+  // Build a map of sessionId → first client name (via registrations)
+  const sessionClientName = {};
+  (data?.registrations || []).forEach(reg => {
+    if (reg.sessionId && !sessionClientName[reg.sessionId]) {
+      const client = (data?.clients || []).find(c => c.id === reg.clientId);
+      if (client) sessionClientName[reg.sessionId] = cleanName(client.name);
+    }
+  });
+
+  const pillLabel = (s) => {
+    const partner = derived.partnerName[s.studioId] ? cleanName(derived.partnerName[s.studioId]) : "";
+    const clientName = sessionClientName[s.id] || "";
+    const rawName = cleanName(s.name);
+    // For virtual/Calendly sessions strip the product prefix (everything before " - ")
+    const journeyLabel = partner
+      ? (s.journey || rawName)
+      : (rawName.includes(" - ") ? rawName.slice(rawName.indexOf(" - ") + 3) : rawName);
+    return clientName ? `${journeyLabel} · ${clientName}` : journeyLabel;
+  };
+
+  const pillTitle = (s) => {
+    const partner = derived.partnerName[s.studioId] ? `@ ${cleanName(derived.partnerName[s.studioId])}` : "";
+    const clientName = sessionClientName[s.id] || "";
+    return [cleanName(s.name), partner, clientName].filter(Boolean).join(" · ");
+  };
 
   return (
     <div className="sb-card" style={{ padding: 16 }}>
@@ -3618,8 +3940,8 @@ function CalendarView({ rows, today, derived, onOpen }) {
             <div key={i} className="sb-calcell" style={{ background: d ? (isToday ? C.brandMist : C.surface) : "transparent", border: d ? `1px solid ${isToday ? C.brand : C.line}` : "none" }}>
               {d && <div style={{ fontSize: 11, color: isToday ? C.brand : C.ink3, fontWeight: isToday ? 700 : 500, marginBottom: 4 }}>{d}</div>}
               {(byDay[d] || []).map((s) => (
-                <button key={s.id} className="sb-calev" onClick={() => onOpen(s)} title={cleanName(s.name)}>
-                  {clientShort(derived.partnerName[s.studioId] || cleanName(s.name))}
+                <button key={s.id} className="sb-calev" onClick={() => onOpen(s)} title={pillTitle(s)}>
+                  {pillLabel(s)}
                 </button>
               ))}
             </div>
@@ -3805,6 +4127,30 @@ const FIELDS = {
     f("receiptUrl",    "Receipt URL",      "text"),
     f("notes",         "Notes",            "textarea"),
   ],
+  registrations: [
+    f("eventName",      "Event / Session Name",        "text",     { title: true }),
+    f("clientId",       "Client",                      "relation", { target: "clients" }),
+    f("status",         "Booking Status",              "select",   { options: ["booked", "attended", "canceled", "rescheduled", "no_show"] }),
+    f("paymentStatus",  "Payment Status",              "select",   { options: ["paid", "unpaid", "unknown"] }),
+    f("waiverStatus",   "Waiver Status",               "select",   { options: ["pending", "signed"] }),
+    f("scheduledAt",    "Session Date/Time",           "text"),
+    f("timezone",       "Timezone",                    "text"),
+    f("locationType",   "Location Type",               "select",   { options: ["zoom", "physical", "custom", "phone", "other"] }),
+    f("locationJoinUrl","Zoom / Join URL",             "text"),
+    f("locationAddress","In-Person Address",           "text"),
+    f("attendanceType", "Attending Virtually or In Person", "text"),
+    f("checkedIn",      "Checked In?",                 "checkbox"),
+    f("attended",       "Attended?",                   "checkbox"),
+    f("noShow",         "No Show?",                    "checkbox"),
+    f("doneBreathworkBefore", "Done Breathwork Before?", "text"),
+    f("howHeard",       "How Did They Hear About Us?", "text"),
+    f("referredBy",     "Referred By",                 "text"),
+    f("concerns",       "Physical / Emotional Concerns", "textarea"),
+    f("reviewedContraindications", "Reviewed Contraindications?", "text"),
+    f("calendlyInviteeUri", "Calendly Invitee URI",    "text"),
+    f("calendlyEventUri",   "Calendly Event URI",      "text"),
+    f("notes",          "Notes",                       "textarea"),
+  ],
 };
 function f(key, label, type, opts = {}) { return { key, label, type, ...opts }; }
 
@@ -3849,12 +4195,31 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
 
         {/* Title + tab switcher */}
         <div style={{ padding: "14px 22px 0", borderBottom: `1px solid ${C.line}` }}>
+          {/* Session: show studio + cleaned session name as formatted header */}
+          {hasSessionTabs && derived.partnerName[draft.studioId] && (() => {
+            const studioName = cleanName(derived.partnerName[draft.studioId]);
+            const rawName = cleanName(draft.name || "");
+            // Strip known prefixes ("Sample - ") and date suffixes (" 6/9", " 6/11" etc.)
+            const stripped = rawName
+              .replace(/^sample\s*[-–]\s*/i, "")
+              .replace(/\s+\d{1,2}\/\d{1,2}(\/\d{2,4})?$/i, "")
+              .replace(new RegExp(`^${studioName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*[-–]\\s*`, "i"), "")
+              .trim();
+            return (
+              <div style={{ fontSize: 13, color: C.ink2, fontWeight: 600, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ color: C.brand }}>{studioName}</span>
+                <span style={{ color: C.ink3 }}>—</span>
+                <span>{stripped}</span>
+              </div>
+            );
+          })()}
           <input className="sb-titleinput" style={{ marginBottom: 10 }} value={draft[titleField.key] || ""} placeholder="Untitled"
             onChange={(e) => set(titleField.key, e.target.value)} />
           {(hasTimeline || hasSessionTabs) && (
             <div style={{ display: "flex", gap: 2 }}>
               {(hasSessionTabs ? [
                 ["details", "Details & Edit"],
+                ["bookings", "Bookings"],
                 ["equipment", "Equipment Setup"],
                 ["checklist", "Run Checklist"],
                 ["performance", "Performance"],
@@ -3863,12 +4228,15 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                 ...(hasChecklist ? [["checklist", "Launch Checklist"]] : []),
                 ["timeline", "Contact Timeline"],
               ]).map(([t, label]) => {
+                const sessionBookings = t === "bookings" ? (data.registrations || []).filter(r => r.sessionId === draft.id && r.status !== "canceled") : null;
                 const done = (t === "checklist" && db === "partners") ? Object.values(draft.checklist || {}).filter(Boolean).length
                            : (t === "checklist" && db === "sessions") ? Object.values(draft.checklist || {}).filter(Boolean).length
-                           : (t === "equipment" && db === "sessions") ? Object.values(draft.equipChecklist || {}).filter(Boolean).length : null;
+                           : (t === "equipment" && db === "sessions") ? Object.values(draft.equipChecklist || {}).filter(Boolean).length
+                           : (t === "bookings") ? sessionBookings.length : null;
                 const total = (t === "checklist" && db === "partners") ? PARTNER_CHECKLIST.length
                             : (t === "checklist" && db === "sessions") ? SESSION_CHECKLIST.length
-                            : (t === "equipment" && db === "sessions") ? EQUIP_CHECKLIST.length : null;
+                            : (t === "equipment" && db === "sessions") ? EQUIP_CHECKLIST.length
+                            : (t === "bookings") ? (data.registrations || []).filter(r => r.sessionId === draft.id).length : null;
                 return (
                   <button key={t} onClick={() => setTab(t)} style={{
                     padding: "7px 14px", border: "none", borderRadius: "8px 8px 0 0", fontSize: 13, fontWeight: 600,
@@ -3897,6 +4265,8 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
             ? db === "sessions"
               ? <SessionChecklist checklist={draft.checklist || emptySessionChecklist()} onChange={(cl) => set("checklist", cl)} sessionName={cleanName(draft.name)} status={draft.status} />
               : <PartnerLaunchChecklist checklist={draft.checklist || emptyChecklist()} onChange={(cl) => set("checklist", cl)} partnerName={cleanName(draft.name)} />
+            : hasSessionTabs && tab === "bookings"
+            ? <SessionBookingsTab record={draft} data={data} onOpenRelated={onOpenRelated} />
             : hasSessionTabs && tab === "equipment"
             ? <EquipmentChecklist equipChecklist={draft.equipChecklist || emptyEquipChecklist()} onChange={(cl) => set("equipChecklist", cl)} sessionName={cleanName(draft.name)} sessionDate={draft.date} />
             : hasSessionTabs && tab === "performance"
@@ -4167,6 +4537,108 @@ function EquipmentChecklist({ equipChecklist, onChange, sessionName, sessionDate
           <div style={{ fontSize: 12, color: "#4A8C6F", marginTop: 3 }}>All equipment and setup items are confirmed. Go hold space. 🌿</div>
         </div>
       )}
+    </div>
+  );
+}
+
+function SessionBookingsTab({ record, data, onOpenRelated }) {
+  const registrations = (data.registrations || []).filter(r => r.sessionId === record.id);
+  const REG_STATUS_COLOR = { booked: C.brand, attended: "#4A8C6F", canceled: "#C0573F", rescheduled: C.gold, no_show: "#8A96AC" };
+
+  if (!registrations.length) {
+    return (
+      <div style={{ padding: "32px 22px", textAlign: "center", color: C.ink3, fontSize: 14 }}>
+        No bookings linked to this session yet.<br />
+        <span style={{ fontSize: 12 }}>Bookings sync automatically from Calendly.</span>
+      </div>
+    );
+  }
+
+  const counts = { booked: 0, attended: 0, canceled: 0, rescheduled: 0, no_show: 0 };
+  registrations.forEach(r => { if (counts[r.status] != null) counts[r.status]++; });
+
+  return (
+    <div style={{ padding: "0 22px 22px" }}>
+      {/* Summary row */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, paddingTop: 4 }}>
+        {Object.entries(counts).filter(([,n]) => n > 0).map(([status, n]) => (
+          <div key={status} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5,
+            padding: "5px 12px", borderRadius: 20,
+            background: hexA(REG_STATUS_COLOR[status] || C.ink3, 0.1),
+            color: REG_STATUS_COLOR[status] || C.ink3, fontWeight: 600 }}>
+            <span style={{ fontWeight: 800 }}>{n}</span> {status}
+          </div>
+        ))}
+        <div style={{ marginLeft: "auto", fontSize: 12, color: C.ink3, alignSelf: "center" }}>
+          {registrations.filter(r => r.waiverStatus !== "signed").length > 0 && (
+            <span style={{ color: C.gold, fontWeight: 600 }}>
+              ⚠ {registrations.filter(r => r.waiverStatus !== "signed" && r.status !== "canceled").length} waiver{registrations.filter(r => r.waiverStatus !== "signed" && r.status !== "canceled").length !== 1 ? "s" : ""} pending
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Booking rows */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {registrations.map(reg => {
+          const client = (data.clients || []).find(c => c.id === reg.clientId);
+          const statusColor = REG_STATUS_COLOR[reg.status] || C.ink3;
+          return (
+            <div key={reg.id} style={{
+              background: C.surfaceAlt, borderRadius: 12, padding: "12px 14px",
+              border: `1px solid ${C.line}`, display: "flex", alignItems: "flex-start", gap: 12,
+            }}>
+              {/* Avatar */}
+              <div style={{ width: 36, height: 36, borderRadius: "50%", background: C.brandSoft,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 14, fontWeight: 700, color: C.brand, flexShrink: 0 }}>
+                {(client?.name || reg.name || "?")[0].toUpperCase()}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 700, fontSize: 14, color: C.ink }}>
+                    {cleanName(client?.name || "Unknown client")}
+                  </span>
+                  <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20,
+                    background: hexA(statusColor, 0.12), color: statusColor, fontWeight: 600 }}>
+                    {reg.status}
+                  </span>
+                  {reg.waiverStatus === "signed"
+                    ? <span style={{ fontSize: 11, color: "#4A8C6F", fontWeight: 600 }}>✓ Waiver</span>
+                    : reg.status !== "canceled" && <span style={{ fontSize: 11, color: C.gold, fontWeight: 600 }}>⚠ Waiver pending</span>}
+                  {reg.paymentStatus === "paid"
+                    ? <span style={{ fontSize: 11, color: "#4A8C6F", fontWeight: 600 }}>✓ Paid</span>
+                    : reg.paymentStatus === "unpaid" && <span style={{ fontSize: 11, color: "#C0573F", fontWeight: 600 }}>Unpaid</span>}
+                </div>
+                <div style={{ fontSize: 12, color: C.ink3, marginTop: 3, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  {client?.email && <span>{client.email}</span>}
+                  {client?.phone && <span>{client.phone}</span>}
+                  {reg.attendanceType && <span>{reg.attendanceType}</span>}
+                  {reg.locationType === "zoom" && reg.locationJoinUrl && (
+                    <a href={reg.locationJoinUrl} target="_blank" rel="noreferrer"
+                      style={{ color: C.brand, fontWeight: 600 }}>Zoom link</a>
+                  )}
+                </div>
+                {reg.concerns && (
+                  <div style={{ fontSize: 11.5, color: "#C0573F", marginTop: 4, fontWeight: 500 }}>
+                    ⚠ {reg.concerns}
+                  </div>
+                )}
+                {reg.howHeard && (
+                  <div style={{ fontSize: 11, color: C.ink3, marginTop: 2 }}>Heard via: {reg.howHeard}</div>
+                )}
+              </div>
+              {client && (
+                <button onClick={() => onOpenRelated({ db: "clients", record: client })}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, padding: 4, flexShrink: 0 }}
+                  title="Open client record">
+                  <ArrowUpRight size={15} />
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -4921,7 +5393,7 @@ const IMPORT_MAP = {
   followups: { file: "06-Follow-Ups.csv", map: { "follow-up": "name", "client name": "_client", stage: "stage", "last contact date": "lastContact", "follow-up type": "futype", "next action date": "nextAction", outcome: "outcome" }, rel: { field: "_client", to: "clients", set: "clientId" } },
   expenses: { file: "07-Expenses.csv", map: { date: "date", vendor: "vendor", description: "description", amount: "amount", category: "category", "payment method": "paymentMethod", "paymentmethod": "paymentMethod", "tax deductible": "taxDeductible", "taxdeductible": "taxDeductible", recurring: "recurring", "recurring freq": "recurringFreq", "recurringfreq": "recurringFreq", "linked session": "linkedSession", "linked partner": "linkedPartner", "receipt url": "receiptUrl", notes: "notes" }, nums: ["amount"] },
 };
-const DB_ORDER = ["partners", "clients", "sessions", "offers", "content", "followups", "expenses"];
+const DB_ORDER = ["partners", "clients", "sessions", "offers", "content", "followups", "expenses", "registrations"];
 
 /* ============================================================
    EDIT PROFILE MODAL
@@ -6113,7 +6585,7 @@ function Empty({ children, pad }) {
 /* ---------- tiny utils ---------- */
 function cleanName(n) { return String(n || "").replace(/^Sample\s*-\s*/i, ""); }
 function clientShort(n) { return cleanName(n); }
-function sectionLabel(db) { return { clients: "Clients", partners: "Studio Partners", sessions: "Sessions", offers: "Offers & Sales", content: "Content & Referral", followups: "Follow-Ups", revenue: "Revenue", expenses: "Expenses", testimonials: "Testimonials", templates: "Templates", referrals: "Referrals", outreach: "Outreach Hub" }[db] || db; }
+function sectionLabel(db) { return { clients: "Clients", partners: "Studio Partners", sessions: "Sessions", offers: "Offers & Sales", content: "Content & Referral", followups: "Follow-Ups", revenue: "Revenue", expenses: "Expenses", testimonials: "Testimonials", templates: "Templates", referrals: "Referrals", outreach: "Outreach Hub", registrations: "Calendly Registrations" }[db] || db; }
 function hexA(hex, a) {
   const h = (hex || "#000").replace("#", ""); const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
   return `rgba(${r},${g},${b},${a})`;
@@ -8369,6 +8841,7 @@ const CSS = `
 * { box-sizing: border-box; }
 input, textarea, select, button { font-family: inherit; }
 .lucide { stroke-width: 1.5 !important; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .sb-shell { display: flex; min-height: 100vh; }
 .sb-sidebar { width: 226px; flex-shrink: 0; background: ${C.surface}; border-right: 1px solid ${C.line}; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; z-index: 40; }
 .sb-navbtn { display: flex; align-items: center; gap: 11px; width: 100%; padding: 9px 12px; border: none; border-radius: 9px; font-size: 14px; cursor: pointer; transition: background .12s; }
