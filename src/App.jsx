@@ -3900,13 +3900,13 @@ function refActionCols() {
             background: hexA("#D9892B", 0.1), color: "#D9892B", border: `1px solid ${hexA("#D9892B", 0.3)}` }}>
           Mark sent
         </button>),
-    col("rewardGiven", "Reward", (r, c) => r.rewardGiven
-      ? <span style={{ color: "#4A8C6F" }}>✓ Given</span>
+    col("rewardGiven", "Action Status", (r, c) => r.rewardGiven
+      ? <span style={{ color: "#4A8C6F" }}>✓ Completed</span>
       : <button
           onClick={e => { e.stopPropagation(); updateRef(c, r, { rewardGiven: true }); }}
           style={{ fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 6, cursor: "pointer",
             background: hexA("#4A8C6F", 0.1), color: "#4A8C6F", border: `1px solid ${hexA("#4A8C6F", 0.3)}` }}>
-          Mark given
+          Mark Completed
         </button>),
     col("notes", "Notes", (r) => <span style={{ fontSize: 12, color: C.ink2 }}>{r.notes}</span>),
   ];
