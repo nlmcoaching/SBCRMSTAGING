@@ -1004,13 +1004,15 @@ const Sec = {
   newSalt() {
     return btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
   },
-  async deriveKey(pin, saltB64) {
+  PBKDF2_ITERATIONS: 600_000,   // OWASP 2024 recommendation
+  async deriveKey(pin, saltB64, iterations) {
+    const iters = iterations ?? Sec.PBKDF2_ITERATIONS;
     const salt = Uint8Array.from(atob(saltB64), c => c.charCodeAt(0));
     const mat  = await crypto.subtle.importKey(
       "raw", new TextEncoder().encode(pin), "PBKDF2", false, ["deriveKey"]
     );
     return crypto.subtle.deriveKey(
-      { name: "PBKDF2", salt, iterations: 100_000, hash: "SHA-256" },
+      { name: "PBKDF2", salt, iterations: iters, hash: "SHA-256" },
       mat,
       { name: "AES-GCM", length: 256 },
       false,
@@ -1047,12 +1049,12 @@ const Sec = {
     const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
     return crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
   },
-  async wrapKeyForUser(masterKeyB64, pin, salt) {
-    const wrapKey = await Sec.deriveKey(pin, salt);
+  async wrapKeyForUser(masterKeyB64, pin, salt, iterations) {
+    const wrapKey = await Sec.deriveKey(pin, salt, iterations);
     return Sec.encrypt(masterKeyB64, wrapKey);
   },
-  async unwrapKeyForUser(wrappedB64, pin, salt) {
-    const wrapKey = await Sec.deriveKey(pin, salt);
+  async unwrapKeyForUser(wrappedB64, pin, salt, iterations) {
+    const wrapKey = await Sec.deriveKey(pin, salt, iterations);
     const mkB64   = await Sec.decrypt(wrappedB64, wrapKey);
     return { raw: mkB64, key: await Sec.importMasterKey(mkB64) };
   },
@@ -1437,10 +1439,11 @@ export default function App() {
       const user = sec.users.find(u => u.id === userId && u.active !== false);
       if (!user) throw new Error("User not found");
 
-      // Verify PIN via PBKDF2 unwrap — cryptographically strong, no hash oracle
+      // Verify PIN via PBKDF2 unwrap — use stored iteration count (may be legacy 100k)
+      const storedIterations = user.pbkdf2Iterations ?? 100_000;
       let mkB64, masterKey;
       try {
-        const result = await Sec.unwrapKeyForUser(user.wrappedMasterKey, pin, user.pinSalt);
+        const result = await Sec.unwrapKeyForUser(user.wrappedMasterKey, pin, user.pinSalt, storedIterations);
         mkB64 = result.raw;
         masterKey = result.key;
       } catch (_) {
@@ -1474,19 +1477,42 @@ export default function App() {
         }
       }
 
-      // Update lastLogin and scrub legacy pinHash (PBKDF2 unwrap is the only verifier now)
+      // Silently upgrade PBKDF2 iterations if below current target (600k)
+      let upgradedWrappedKey = user.wrappedMasterKey;
+      let upgradedSalt       = user.pinSalt;
+      if (storedIterations < Sec.PBKDF2_ITERATIONS) {
+        try {
+          upgradedSalt       = Sec.newSalt();
+          upgradedWrappedKey = await Sec.wrapKeyForUser(mkB64, pin, upgradedSalt, Sec.PBKDF2_ITERATIONS);
+        } catch (_) {
+          // Non-fatal — keep old values if upgrade fails
+          upgradedWrappedKey = user.wrappedMasterKey;
+          upgradedSalt       = user.pinSalt;
+        }
+      }
+
+      // Update lastLogin, scrub legacy pinHash, persist iteration count
       const updatedUsers = sec.users.map(u => {
         const { pinHash: _dropped, ...rest } = u; // remove legacy SHA-256 hash
-        return u.id === userId ? { ...rest, lastLogin: todayISO() } : rest;
+        if (u.id === userId) {
+          return {
+            ...rest,
+            lastLogin: todayISO(),
+            pinSalt:           upgradedSalt,
+            wrappedMasterKey:  upgradedWrappedKey,
+            pbkdf2Iterations:  Sec.PBKDF2_ITERATIONS,
+          };
+        }
+        return rest;
       });
       await store.set(SEC_META_KEY, JSON.stringify({ ...sec, users: updatedUsers }));
       setSecUsers(updatedUsers.filter(u => u.active !== false));
 
       setMasterKeyRaw(mkB64);
       setCryptoKey(masterKey);
-      setCurrentUser(user);
+      setCurrentUser(updatedUsers.find(u => u.id === userId) ?? user);
       setPinAttempts(p => { const n = { ...p }; delete n[userId]; return n; }); // reset on success
-      // Fix 5: clean up legacy unencrypted storage
+      // Clean up legacy unencrypted storage
       try { localStorage.removeItem(STORE_KEY); } catch (_) {}
       loaded.current = true;
       setLocked(false);
@@ -2290,7 +2316,11 @@ export default function App() {
       {open && (
         <RecordDrawer db={open.db} record={open.record} data={data} derived={derived} today={today}
           onClose={() => setOpen(null)} onSave={can.edit ? (rec) => { saveRecord(open.db, rec); setOpen(null); } : null}
-          onDelete={can.delete ? (id) => deleteRecord(open.db, id) : null} onOpenRelated={setOpen}
+          onDelete={can.delete ? (id) => setConfirm({
+            message: `Delete this record? This action cannot be undone.`,
+            okLabel: "Delete", danger: true,
+            onOk: () => deleteRecord(open.db, id),
+          }) : null} onOpenRelated={setOpen}
           sequences={data.sequences || []} onStartSequence={can.edit ? startSequence : null} />
       )}
 
@@ -3304,6 +3334,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
   const processed = v.run ? v.run(rows, { data, derived, today }) : { rows };
 
   const handleImportExpenses = !canEdit ? null : (file) => {
+    if (file.size > 10 * 1024 * 1024) { alert("CSV file must be under 10 MB."); return; }
     Papa.parse(file, {
       header: true, skipEmptyLines: true,
       complete: (res) => {
@@ -4986,8 +5017,8 @@ function SessionBookingsTab({ record, data, onOpenRelated }) {
                   {client?.email && <span>{client.email}</span>}
                   {client?.phone && <span>{client.phone}</span>}
                   {reg.attendanceType && <span>{reg.attendanceType}</span>}
-                  {reg.locationType === "zoom" && reg.locationJoinUrl && (
-                    <a href={reg.locationJoinUrl} target="_blank" rel="noreferrer"
+                  {reg.locationType === "zoom" && reg.locationJoinUrl && reg.locationJoinUrl.startsWith("https://") && (
+                    <a href={reg.locationJoinUrl} target="_blank" rel="noreferrer noopener"
                       style={{ color: C.brand, fontWeight: 600 }}>Zoom link</a>
                   )}
                 </div>
@@ -6355,7 +6386,7 @@ function AdminView({ tab, data, secUsers, currentUser, today, crmSettings, onSav
               <div style={{ fontWeight: 700, fontSize: 13, color: C.ink, marginBottom: 12 }}>Encryption</div>
               {[
                 { label: "Algorithm",      value: "AES-256-GCM" },
-                { label: "Key derivation", value: "PBKDF2 · SHA-256 · 100k iterations" },
+                { label: "Key derivation", value: `PBKDF2 · SHA-256 · ${((currentUser?.pbkdf2Iterations ?? 100_000) / 1000).toFixed(0)}k iterations` },
                 { label: "Salt length",    value: "16 bytes (random per user)" },
                 { label: "Key model",      value: "Envelope encryption (master key wrapped per user)" },
                 { label: "Data version",   value: "v5" },
@@ -6708,6 +6739,8 @@ function EditProfileModal({ user, masterKeyRaw, onSave, onClose }) {
   const handleImage = (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    if (!file.type.startsWith("image/")) { setMsg("Please select an image file."); return; }
+    if (file.size > 5 * 1024 * 1024) { setMsg("Image must be under 5 MB."); return; }
     const reader = new FileReader();
     reader.onload = (ev) => {
       const img = new Image();
@@ -6940,6 +6973,7 @@ function ImportModal({ data, setData, onClose }) {
   const [busy, setBusy] = useState(false);
 
   const handleFile = (db, file) => {
+    if (file.size > 10 * 1024 * 1024) { alert("CSV file must be under 10 MB."); return; }
     Papa.parse(file, {
       header: true, skipEmptyLines: true,
       complete: (res) => {

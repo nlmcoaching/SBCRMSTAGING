@@ -58,19 +58,56 @@ app.use(express.json({
   verify: (req, _res, buf) => { req.rawBody = buf; },
 }));
 
-// ── Data store: simple JSON file queue ──
+// ── Data store: encrypted JSON file queue ──
 const DATA_DIR   = path.join(__dirname, "data");
 const QUEUE_FILE = path.join(DATA_DIR, "pending-events.json");
+
+// AES-256-GCM helpers for queue file at rest
+function _queueKey() {
+  const hex = process.env.QUEUE_ENCRYPTION_KEY;
+  if (!hex || hex.length < 64) return null;
+  return Buffer.from(hex.slice(0, 64), "hex");
+}
+function _encryptQueue(plaintext) {
+  const key = _queueKey();
+  if (!key) return plaintext; // no key → store plaintext (dev mode)
+  const iv  = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const enc  = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+  const tag  = cipher.getAuthTag();
+  // Format: iv(12) + tag(16) + ciphertext, base64-encoded
+  return Buffer.concat([iv, tag, enc]).toString("base64");
+}
+function _decryptQueue(stored) {
+  const key = _queueKey();
+  if (!key) return stored; // no key → treat as plaintext
+  try {
+    const buf    = Buffer.from(stored, "base64");
+    const iv     = buf.slice(0, 12);
+    const tag    = buf.slice(12, 28);
+    const enc    = buf.slice(28);
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(enc), decipher.final()]).toString("utf8");
+  } catch {
+    // Fallback: assume file was stored as plaintext (migration from unencrypted)
+    return stored;
+  }
+}
 
 function readQueue() {
   try {
     if (!fs.existsSync(QUEUE_FILE)) return [];
-    return JSON.parse(fs.readFileSync(QUEUE_FILE, "utf8"));
+    const raw  = fs.readFileSync(QUEUE_FILE, "utf8");
+    const json = _decryptQueue(raw);
+    return JSON.parse(json);
   } catch { return []; }
 }
 
 function writeQueue(events) {
-  fs.writeFileSync(QUEUE_FILE, JSON.stringify(events, null, 2), "utf8");
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  const json = JSON.stringify(events, null, 2);
+  fs.writeFileSync(QUEUE_FILE, _encryptQueue(json), "utf8");
 }
 
 // ── Calendly HMAC-SHA256 signature verification ──
