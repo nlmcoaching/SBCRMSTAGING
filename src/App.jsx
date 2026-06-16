@@ -4655,6 +4655,16 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
   const [showJourneyDesc, setShowJourneyDesc] = useState(false);
   useEffect(() => { setDraft(record); setTab("details"); setShowJourneyDesc(false); }, [record]);
   const isVirtualDrawer = db === "sessions" && !record.studioId && (record.locationType === "zoom" || record.locationType === "custom" || !record.locationType);
+
+  // For studio sessions keep "Registered Attendees" in sync with the actual
+  // registration records — this is the authoritative count, not the Calendly field.
+  const isStudioSession = db === "sessions" && !!record.studioId;
+  const actualRegistered = isStudioSession
+    ? (data.registrations || []).filter(r => r.sessionId === record.id && r.status !== "canceled").length
+    : null;
+  useEffect(() => {
+    if (isStudioSession) setDraft(d => ({ ...d, registered: actualRegistered }));
+  }, [actualRegistered, isStudioSession]);
   const fields = FIELDS[db];
   const titleField = fields.find((x) => x.title);
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
@@ -4797,12 +4807,12 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                 const activeSessionChecklist = SESSION_CHECKLIST.filter(i => isVirtualSession ? i.virtual : !i.virtual);
                 const activeEquipPhases = EQUIP_CHECKLIST_PHASES.map(p => ({ ...p, items: p.items.filter(i => isVirtualSession ? i.virtual : !i.virtual) })).filter(p => p.items.length);
                 const activeEquipItems = activeEquipPhases.flatMap(p => p.items);
+                const isStudioBookings = t === "bookings" && db === "sessions" && !!draft.studioId;
                 const done = (t === "sessions-attended") ? clientSessionCount
                            : (t === "checklist" && db === "partners") ? Object.values(draft.checklist || {}).filter(Boolean).length
                            : (t === "checklist" && db === "sessions") ? activeSessionChecklist.filter(i => draft.checklist?.[i.id]).length
                            : (t === "equipment" && db === "sessions") ? activeEquipItems.filter(i => draft.equipChecklist?.[i.id]).length
                            : (t === "bookings") ? sessionBookings.length : null;
-                const isStudioBookings = t === "bookings" && db === "sessions" && !!draft.studioId;
                 const total = (t === "checklist" && db === "partners") ? PARTNER_CHECKLIST.length
                             : (t === "checklist" && db === "sessions") ? activeSessionChecklist.length
                             : (t === "equipment" && db === "sessions") ? activeEquipItems.length
@@ -4939,8 +4949,8 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                             return (
                               <>
                                 {contactCard}
-                                {capacityFld      && <FieldInput key="cap"   fld={capacityFld}      value={draft.capacity}          onChange={v => set("capacity", v)}          data={data} />}
                                 {registeredFld    && <FieldInput key="reg"   fld={registeredFld}    value={draft.registered}        onChange={v => set("registered", v)}        data={data} />}
+                                {capacityFld      && <FieldInput key="cap"   fld={capacityFld}      value={draft.capacity}          onChange={v => set("capacity", v)}          data={data} />}
                                 {roomSetupFld     && <FieldInput key="room"  fld={roomSetupFld}     value={draft.roomSetupStatus}   onChange={v => set("roomSetupStatus", v)}   data={data} />}
                                 {musicSetupFld    && <FieldInput key="music" fld={musicSetupFld}    value={draft.musicSetupStatus}  onChange={v => set("musicSetupStatus", v)}  data={data} />}
                                 {notesFld         && <FieldInput key="notes" fld={notesFld}         value={draft.notes}             onChange={v => set("notes", v)}             data={data} />}
