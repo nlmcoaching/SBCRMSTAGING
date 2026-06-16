@@ -244,8 +244,17 @@ function extractEvent(event, payload) {
 // ── Calendly event-type description cache (in-memory, per-process) ──
 const _eventTypeDescCache = {};
 
+const CALENDLY_API_BASE = "https://api.calendly.com/";
+
 async function fetchEventTypeDescription(eventTypeUri) {
   if (!eventTypeUri) return "";
+
+  // SSRF guard: only allow requests to the official Calendly API
+  if (!eventTypeUri.startsWith(CALENDLY_API_BASE)) {
+    console.warn(`[WARN] Rejected suspicious event_type URI (not api.calendly.com): ${eventTypeUri}`);
+    return "";
+  }
+
   if (_eventTypeDescCache[eventTypeUri] !== undefined) return _eventTypeDescCache[eventTypeUri];
 
   const token = process.env.CALENDLY_API_TOKEN;

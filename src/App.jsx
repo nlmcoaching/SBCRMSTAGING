@@ -1329,10 +1329,12 @@ export default function App() {
   const [pinError,     setPinError]    = useState("");
   const PIN_LOCKOUT_KEY = "sb:pin-lockout:v1";
   const [pinAttempts,  setPinAttempts]  = useState(() => {
-    try { return JSON.parse(localStorage.getItem("sb:pin-lockout:v1") || "{}"); } catch { return {}; }
+    // sessionStorage: lockout resets when the tab is closed, but persists across page refreshes
+    // within the same session — cannot be silently cleared via localStorage DevTools trick
+    try { return JSON.parse(sessionStorage.getItem("sb:pin-lockout:v1") || "{}"); } catch { return {}; }
   });
   useEffect(() => {
-    try { localStorage.setItem(PIN_LOCKOUT_KEY, JSON.stringify(pinAttempts)); } catch {}
+    try { sessionStorage.setItem(PIN_LOCKOUT_KEY, JSON.stringify(pinAttempts)); } catch {}
   }, [pinAttempts]);
   const [initialising, setInitialising] = useState(true);
   const [secUsers,     setSecUsers]    = useState([]);    // loaded from SEC_META_KEY
@@ -1576,16 +1578,12 @@ export default function App() {
 
   /* ── Calendly Sync ── */
   const CALENDLY_BACKEND   = "";
-  const FRONTEND_SECRET    = import.meta.env.VITE_FRONTEND_SECRET || "";
-  const calendlyHeaders    = () => ({
-    ...(FRONTEND_SECRET ? { "x-frontend-secret": FRONTEND_SECRET } : {}),
-  });
 
   const syncCalendly = async () => {
     if (locked) return;
     setCalendlyStatus({ syncing: true });
     try {
-      const res = await fetch(`${CALENDLY_BACKEND}/api/calendly/pending`, { headers: calendlyHeaders() });
+      const res = await fetch(`${CALENDLY_BACKEND}/api/calendly/pending`);
       if (!res.ok) throw new Error("Backend unavailable");
       const { events } = await res.json();
 
@@ -1888,7 +1886,7 @@ export default function App() {
       if (ids.length) {
         await fetch(`${CALENDLY_BACKEND}/api/calendly/acknowledge`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", ...calendlyHeaders() },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ids }),
         }).catch(() => {});
       }
@@ -1897,7 +1895,7 @@ export default function App() {
     } catch {
       // Backend not running or unreachable — check silently and surface pending count only
       try {
-        const res = await fetch(`${CALENDLY_BACKEND}/api/calendly/pending`, { headers: calendlyHeaders() });
+        const res = await fetch(`${CALENDLY_BACKEND}/api/calendly/pending`);
         const { total } = await res.json();
         if (total > 0) setCalendlyStatus({ pending: total });
         else setCalendlyStatus(null);
