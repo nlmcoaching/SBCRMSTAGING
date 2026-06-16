@@ -4709,11 +4709,29 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
             ? <SessionPerformance record={draft} derived={derived} data={data} />
             : (
               <>
-                <div className="sb-fields">
-                  {fields.filter((x) => !x.title).map((fld) => (
-                    <FieldInput key={fld.key} fld={fld} value={draft[fld.key]} onChange={(v) => set(fld.key, v)} data={data} />
-                  ))}
-                </div>
+                {(() => {
+                  const isVirtual = db === "sessions" && !draft.studioId && (draft.locationType === "zoom" || draft.locationType === "custom" || !draft.locationType);
+                  const zoomUrl = draft.locationJoinUrl;
+                  const visibleFields = fields.filter((x) => !x.title && !(isVirtual && x.key === "studioId"));
+                  return (
+                    <div className="sb-fields">
+                      {isVirtual && (
+                        <div style={{ gridColumn: "1 / -1", background: C.brandMist, border: `1px solid ${C.brand}`, borderRadius: 10, padding: "10px 14px", marginBottom: 4 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: C.brand, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Zoom / Join Link</div>
+                          {zoomUrl && zoomUrl.startsWith("https://") ? (
+                            <a href={zoomUrl} target="_blank" rel="noreferrer noopener"
+                              style={{ fontSize: 13, color: C.brand, fontWeight: 600, wordBreak: "break-all" }}>{zoomUrl}</a>
+                          ) : (
+                            <div style={{ fontSize: 13, color: C.ink3 }}>{zoomUrl || "No Zoom link on file"}</div>
+                          )}
+                        </div>
+                      )}
+                      {visibleFields.map((fld) => (
+                        <FieldInput key={fld.key} fld={fld} value={draft[fld.key]} onChange={(v) => set(fld.key, v)} data={data} />
+                      ))}
+                    </div>
+                  );
+                })()}
 
                 {related.length > 0 && (
                   <div style={{ marginTop: 22 }}>
