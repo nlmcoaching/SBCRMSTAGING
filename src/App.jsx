@@ -4621,25 +4621,26 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
               </div>
             );
           })()}
-          <div style={{ position: "relative", marginBottom: 10 }}>
-            <input className="sb-titleinput" style={{ width: "100%", paddingRight: draft.calendlyDescription ? 28 : undefined }}
-              value={draft[titleField.key] || ""} placeholder="Untitled"
-              onChange={(e) => set(titleField.key, e.target.value)} />
-            {db === "sessions" && draft.calendlyDescription && (
-              <button onClick={() => setShowDesc(d => !d)}
-                title="View Calendly session description"
-                style={{
-                  position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
-                  background: "none", border: "none", cursor: "pointer", padding: 2,
-                  color: showDesc ? C.brand : C.ink3, fontSize: 15, lineHeight: 1,
-                }}>ⓘ</button>
-            )}
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ position: "relative" }}>
+              <input className="sb-titleinput" style={{ width: "100%", paddingRight: draft.calendlyDescription ? 28 : undefined }}
+                value={draft[titleField.key] || ""} placeholder="Untitled"
+                onChange={(e) => set(titleField.key, e.target.value)} />
+              {db === "sessions" && draft.calendlyDescription && (
+                <button onClick={() => setShowDesc(d => !d)}
+                  title="View Calendly session description"
+                  style={{
+                    position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
+                    background: "none", border: "none", cursor: "pointer", padding: 2,
+                    color: showDesc ? C.brand : C.ink3, fontSize: 15, lineHeight: 1,
+                  }}>ⓘ</button>
+              )}
+            </div>
             {db === "sessions" && draft.calendlyDescription && showDesc && (
               <div style={{
-                position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 50,
-                background: C.surface, border: `1px solid ${C.brand}`, borderRadius: 10,
+                marginTop: 6, background: C.brandMist, border: `1px solid ${C.brand}`, borderRadius: 10,
                 padding: "10px 14px", fontSize: 13, color: C.ink, lineHeight: 1.6,
-                whiteSpace: "pre-wrap", boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+                whiteSpace: "pre-wrap",
               }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.brand, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Calendly Description</div>
                 {draft.calendlyDescription}
