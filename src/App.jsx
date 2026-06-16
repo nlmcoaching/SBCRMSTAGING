@@ -4776,6 +4776,20 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                         return (
                         <>
                           <FieldInput key={fld.key} fld={fld} value={draft[fld.key]} onChange={(v) => set(fld.key, v)} data={data} />
+                          {isStudioSession && fld.key === "locationAddress" && (() => {
+                            const partner = (data.partners || []).find(p => p.id === draft.studioId);
+                            if (!partner || (!partner.contact && !partner.email && !partner.phone)) return null;
+                            return (
+                              <div key="studio-contact" style={{ gridColumn: "1 / -1", background: C.surfaceAlt, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 14px" }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: C.ink3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Studio Contact</div>
+                                {partner.contact && <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 2 }}>{partner.contact}{partner.role ? <span style={{ fontWeight: 400, color: C.ink3 }}> · {partner.role}</span> : ""}</div>}
+                                <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 2 }}>
+                                  {partner.email && <a href={`mailto:${partner.email}`} style={{ fontSize: 12, color: C.brand }}>{partner.email}</a>}
+                                  {partner.phone && <span style={{ fontSize: 12, color: C.ink3 }}>{partner.phone}</span>}
+                                </div>
+                              </div>
+                            );
+                          })()}
                           {isVirtual && fld.key === "durationMins" && (
                             <div key="zoom-card" style={{ gridColumn: "1 / -1", background: C.brandMist, border: `1px solid ${C.brand}`, borderRadius: 10, padding: "10px 14px" }}>
                               <div style={{ fontSize: 11, fontWeight: 700, color: C.brand, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Zoom / Join Link</div>
