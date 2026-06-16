@@ -4728,11 +4728,17 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                   const topKeys = isStudioSession
                     ? ["date", "time", "durationMins", "locationAddress"]
                     : ["date", "time", "durationMins"];
+                  const virtualOrderFirst = ["date", "time", "durationMins", "notes", "journey", "status"];
                   const visibleFields = (isVirtual || isStudioSession)
                     ? [
                         ...baseFields.filter(x => topKeys.includes(x.key)),
-                        ...(isVirtual ? baseFields.filter(x => x.key === "notes") : []),
-                        ...baseFields.filter(x => !topKeys.includes(x.key) && !(isVirtual && x.key === "notes")),
+                        ...(isVirtual
+                          ? [
+                              ...baseFields.filter(x => ["notes","journey","status"].includes(x.key)).sort((a,b) => virtualOrderFirst.indexOf(a.key) - virtualOrderFirst.indexOf(b.key)),
+                              ...baseFields.filter(x => !topKeys.includes(x.key) && !["notes","journey","status"].includes(x.key)),
+                            ]
+                          : baseFields.filter(x => !topKeys.includes(x.key))
+                        ),
                       ]
                     : baseFields;
                   const sessionClient = isVirtual
