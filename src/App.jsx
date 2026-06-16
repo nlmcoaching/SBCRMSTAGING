@@ -4716,12 +4716,14 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
               <>
                 {(() => {
                   const isVirtual = db === "sessions" && !draft.studioId && (draft.locationType === "zoom" || draft.locationType === "custom" || !draft.locationType);
+                  const isStudioSession = db === "sessions" && !!draft.studioId;
                   const zoomUrl = draft.locationJoinUrl;
-                  const baseFields = fields.filter((x) => !x.title && !(isVirtual && x.key === "studioId"));
-                  const visibleFields = isVirtual
+                  const baseFields = fields.filter((x) => !x.title && !(isVirtual && x.key === "studioId") && !(isStudioSession && x.key === "studioId"));
+                  const topKeys = ["date", "time", "durationMins"];
+                  const visibleFields = (isVirtual || isStudioSession)
                     ? [
-                        ...baseFields.filter(x => x.key === "date" || x.key === "time" || x.key === "durationMins"),
-                        ...baseFields.filter(x => x.key !== "date" && x.key !== "time" && x.key !== "durationMins"),
+                        ...baseFields.filter(x => topKeys.includes(x.key)),
+                        ...baseFields.filter(x => !topKeys.includes(x.key)),
                       ]
                     : baseFields;
                   const sessionClient = isVirtual
@@ -4730,8 +4732,13 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                         return reg ? (data.clients || []).find(c => c.id === reg.clientId) : null;
                       })()
                     : null;
+                  const studioPartner = isStudioSession
+                    ? (data.partners || []).find(p => p.id === draft.studioId)
+                    : null;
+                  const studioColor = LANE.b2b.color;
                   return (
                     <div className="sb-fields">
+                      {/* Virtual: show client card */}
                       {isVirtual && sessionClient && (
                         <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 10, background: C.surfaceAlt, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 14px" }}>
                           <div style={{ width: 34, height: 34, borderRadius: "50%", background: C.brand, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: "#fff", flexShrink: 0 }}>
@@ -4740,6 +4747,18 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                           <div>
                             <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{cleanName(sessionClient.name)}</div>
                             {sessionClient.email && <div style={{ fontSize: 12, color: C.ink3 }}>{sessionClient.email}</div>}
+                          </div>
+                        </div>
+                      )}
+                      {/* Studio: show studio partner card */}
+                      {isStudioSession && studioPartner && (
+                        <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 10, background: hexA(studioColor, 0.08), border: `1px solid ${hexA(studioColor, 0.3)}`, borderRadius: 10, padding: "10px 14px" }}>
+                          <div style={{ width: 34, height: 34, borderRadius: "50%", background: studioColor, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: "#fff", flexShrink: 0 }}>
+                            {cleanName(studioPartner.name).split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{cleanName(studioPartner.name)}</div>
+                            {studioPartner.location && <div style={{ fontSize: 12, color: C.ink3 }}>{studioPartner.location}</div>}
                           </div>
                         </div>
                       )}
