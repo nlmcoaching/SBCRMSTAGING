@@ -1711,12 +1711,20 @@ export default function App() {
 
               const existingSessionIdx = sessions.findIndex(s => s.calendlyEventUri === evt.calendlyEventUri);
               if (existingSessionIdx >= 0) {
-                // Update registered count; also backfill studioId if we now have a match
+                // Update registered count; also backfill studioId and zoom link if missing
                 const regsForEvent = registrations.filter(r => r.calendlyEventUri === evt.calendlyEventUri && r.status !== "canceled").length + 1;
+                const existingSession = sessions[existingSessionIdx];
+                const existingNotes = existingSession.notes || "";
+                const zoomUrl = evt.locationJoinUrl || existingSession.locationJoinUrl || "";
+                const notesNeedZoom = zoomUrl && !existingNotes.includes(zoomUrl);
                 sessions[existingSessionIdx] = {
-                  ...sessions[existingSessionIdx],
+                  ...existingSession,
                   registered: regsForEvent,
-                  studioId: sessions[existingSessionIdx].studioId || resolvedStudioId,
+                  studioId: existingSession.studioId || resolvedStudioId,
+                  locationJoinUrl: zoomUrl || existingSession.locationJoinUrl,
+                  notes: notesNeedZoom
+                    ? (existingNotes ? `${existingNotes}\nZoom link: ${zoomUrl}` : `Virtual — booked via Calendly\nZoom link: ${zoomUrl}`)
+                    : existingNotes,
                 };
                 sessionId = sessions[existingSessionIdx].id;
               } else {
@@ -1739,7 +1747,9 @@ export default function App() {
                   roomSetupStatus: "Not started", musicSetupStatus: "Not started",
                   testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false,
                   referralsRequested: false, breakthroughNoted: false,
-                  notes: `${isVirtual ? "Virtual" : "In-person"} — booked via Calendly`,
+                  notes: isVirtual && evt.locationJoinUrl
+                    ? `Virtual — booked via Calendly\nZoom link: ${evt.locationJoinUrl}`
+                    : `${isVirtual ? "Virtual" : "In-person"} — booked via Calendly`,
                   calendlyEventUri: evt.calendlyEventUri,
                   locationType: evt.locationType,
                   locationJoinUrl: evt.locationJoinUrl,
