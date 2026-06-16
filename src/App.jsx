@@ -4728,14 +4728,15 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                   const topKeys = isStudioSession
                     ? ["date", "time", "durationMins", "locationAddress"]
                     : ["date", "time", "durationMins"];
-                  const virtualOrderFirst = ["date", "time", "durationMins", "notes", "journey", "status"];
+                  const virtualOrderFirst = ["date", "time", "durationMins", "notes", "breakthroughNoted", "journey", "status"];
+                  const virtualPinned = ["notes", "breakthroughNoted", "journey", "status"];
                   const visibleFields = (isVirtual || isStudioSession)
                     ? [
                         ...baseFields.filter(x => topKeys.includes(x.key)),
                         ...(isVirtual
                           ? [
-                              ...baseFields.filter(x => ["notes","journey","status"].includes(x.key)).sort((a,b) => virtualOrderFirst.indexOf(a.key) - virtualOrderFirst.indexOf(b.key)),
-                              ...baseFields.filter(x => !topKeys.includes(x.key) && !["notes","journey","status"].includes(x.key)),
+                              ...baseFields.filter(x => virtualPinned.includes(x.key)).sort((a,b) => virtualOrderFirst.indexOf(a.key) - virtualOrderFirst.indexOf(b.key)),
+                              ...baseFields.filter(x => !topKeys.includes(x.key) && !virtualPinned.includes(x.key)),
                             ]
                           : baseFields.filter(x => !topKeys.includes(x.key))
                         ),
