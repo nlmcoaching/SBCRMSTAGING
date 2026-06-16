@@ -4674,9 +4674,11 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                            : (t === "checklist" && db === "sessions") ? activeSessionChecklist.filter(i => draft.checklist?.[i.id]).length
                            : (t === "equipment" && db === "sessions") ? activeEquipItems.filter(i => draft.equipChecklist?.[i.id]).length
                            : (t === "bookings") ? sessionBookings.length : null;
+                const isStudioBookings = t === "bookings" && db === "sessions" && !!draft.studioId;
                 const total = (t === "checklist" && db === "partners") ? PARTNER_CHECKLIST.length
                             : (t === "checklist" && db === "sessions") ? activeSessionChecklist.length
                             : (t === "equipment" && db === "sessions") ? activeEquipItems.length
+                            : isStudioBookings ? (Number(draft.capacity) || null)
                             : (t === "bookings") ? (data.registrations || []).filter(r => r.sessionId === draft.id).length : null;
                 return (
                   <button key={t} onClick={() => setTab(t)} style={{
