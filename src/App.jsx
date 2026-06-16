@@ -4394,7 +4394,7 @@ const FIELDS = {
   sessions: [
     f("name", "Session name", "text", { title: true }), f("studioId", "Studio", "relation", { target: "partners" }),
     f("status", "Status", "select", { options: SESSION_STATUS }),
-    f("journey", "Journey used", "select", { options: JOURNEY_TYPES }),
+    f("journey", "Journey used", "select", { options: () => getS().journeys }),
     f("date", "Date", "date"), f("time", "Time", "text"),
     f("capacity", "Room capacity", "number"), f("registered", "Registered attendees", "number"),
     f("attendance", "Actual attendance", "number"), f("paidAttendees", "Paid attendees", "number"),
