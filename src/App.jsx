@@ -1757,9 +1757,7 @@ export default function App() {
                 // Update registered count; also backfill studioId and zoom link if missing
                 const regsForEvent = registrations.filter(r => r.calendlyEventUri === evt.calendlyEventUri && r.status !== "canceled").length + 1;
                 const existingSession = sessions[existingSessionIdx];
-                const existingNotes = existingSession.notes || "";
                 const zoomUrl = evt.locationJoinUrl || existingSession.locationJoinUrl || "";
-                const notesNeedZoom = zoomUrl && !existingNotes.includes(zoomUrl);
                 sessions[existingSessionIdx] = {
                   ...existingSession,
                   registered: regsForEvent,
@@ -1768,9 +1766,6 @@ export default function App() {
                   durationMins: existingSession.durationMins || durationMins || 0,
                   calendlyDescription: existingSession.calendlyDescription || evt.description || "",
                   locationAddress: existingSession.locationAddress || evt.locationAddress || "",
-                  notes: notesNeedZoom
-                    ? (existingNotes ? `${existingNotes}\nZoom link: ${zoomUrl}` : `Virtual — booked via Calendly\nZoom link: ${zoomUrl}`)
-                    : existingNotes,
                 };
                 sessionId = sessions[existingSessionIdx].id;
               } else {
@@ -1793,9 +1788,7 @@ export default function App() {
                   roomSetupStatus: "Not started", musicSetupStatus: "Not started",
                   testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false,
                   referralsRequested: false, breakthroughNoted: false,
-                  notes: isVirtual && evt.locationJoinUrl
-                    ? `Virtual — booked via Calendly\nZoom link: ${evt.locationJoinUrl}`
-                    : `${isVirtual ? "Virtual" : "In-person"} — booked via Calendly`,
+                  notes: "",
                   durationMins: durationMins || 0,
                   calendlyDescription: evt.description || "",
                   calendlyEventUri: evt.calendlyEventUri,
@@ -3642,6 +3635,17 @@ const VIEWS = {
   },
   clients: {
     views: [
+      { name: "All clients", layout: "table",
+        columns: [
+          col("name", "Client", clientCell.name),
+          col("status", "Status", clientCell.status),
+          col("clientType", "Segment", clientCell.type),
+          col("source", "Source", (r) => r.source),
+          col("tags", "Intent", clientCell.tags),
+          col("referral", "Referral", (r) => <Tag color={REFERRAL_COLOR[r.referral]} soft>{r.referral}</Tag>),
+          col("lifetimeValue", "LTV", (r) => money(r.lifetimeValue), { align: "right" }),
+        ],
+        run: (rows) => ({ rows: [...rows].sort((a, b) => (a.name || "").toLowerCase().localeCompare((b.name || "").toLowerCase())) }) },
       { name: "Pipeline", layout: "board", card: ["clientType", "tags", "nextSession", "packageType", "referral"],
         run: (rows) => ({ groups: STATUS.map((s) => ({ key: s, label: s, color: STATUS_COLOR[s], cards: rows.filter((r) => r.status === s) })) }) },
       { name: "By segment", layout: "table",
@@ -3698,17 +3702,6 @@ const VIEWS = {
           col("lifetimeValue", "Lifetime value", (r) => <strong>{money(r.lifetimeValue)}</strong>, { align: "right" }),
         ],
         run: (rows) => ({ rows: rows.filter((r) => Number(r.lifetimeValue) > 0).sort((a, b) => Number(b.lifetimeValue) - Number(a.lifetimeValue)) }) },
-      { name: "All clients", layout: "table",
-        columns: [
-          col("name", "Client", clientCell.name),
-          col("status", "Status", clientCell.status),
-          col("clientType", "Segment", clientCell.type),
-          col("source", "Source", (r) => r.source),
-          col("tags", "Intent", clientCell.tags),
-          col("referral", "Referral", (r) => <Tag color={REFERRAL_COLOR[r.referral]} soft>{r.referral}</Tag>),
-          col("lifetimeValue", "LTV", (r) => money(r.lifetimeValue), { align: "right" }),
-        ],
-        run: (rows) => ({ rows: [...rows].sort((a, b) => (a.name || "").toLowerCase().localeCompare((b.name || "").toLowerCase())) }) },
     ],
   },
   partners: {
@@ -4423,15 +4416,17 @@ const FIELDS = {
     f("tags", "Intent tags", "multiselect", { options: INTENT_TAGS, colorMap: TAG_COLOR }),
   ],
   partners: [
-    f("name", "Studio name", "text", { title: true }), f("stage", "Pipeline stage", "select", { options: STAGE }),
+    f("name", "Studio name", "text", { title: true }),
     f("studioType", "Studio type", "select", { options: STUDIO_TYPE }),
-    f("location", "Location", "text"), f("contact", "Contact name", "text"),
+    f("location", "Location", "text", { wide: true }),
+    f("contact", "Contact name", "text"),
     f("role", "Role", "select", { options: ["Owner", "Manager", "Director", "GM", "Instructor"] }),
     f("email", "Email", "email"), f("phone", "Phone", "phone"),
     f("estimatedCommunitySize", "Est. community size", "number"),
     f("bestFitJourney", "Best-fit journey", "text"),
     f("revenuePotential", "Revenue potential", "currency"),
     f("closeProbability", "Close probability", "select", { options: CLOSE_PROB }),
+    f("stage", "Pipeline stage", "select", { options: STAGE }),
     f("revShare", "Revenue share model", "text"),
     f("contractStatus", "Contract status", "select", { options: CONTRACT_STATUS }),
     f("outreachDate", "First outreach date", "date"),
@@ -4751,15 +4746,18 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                 ["performance", "Performance"],
               ] : [
                 ["details", "Details"],
+                ...(db === "clients" && !isNew ? [["sessions-attended", "Sessions Attended"]] : []),
                 ...(hasChecklist ? [["checklist", "Launch Checklist"]] : []),
                 ["timeline", "Contact Timeline"],
               ]).map(([t, label]) => {
                 const sessionBookings = t === "bookings" ? (data.registrations || []).filter(r => r.sessionId === draft.id && r.status !== "canceled") : null;
+                const clientSessionCount = t === "sessions-attended" ? (data.registrations || []).filter(r => r.clientId === draft.id && r.status !== "canceled").length : null;
                 const isVirtualSession = db === "sessions" && !draft.studioId && (draft.locationType === "zoom" || draft.locationType === "custom" || !draft.locationType);
                 const activeSessionChecklist = SESSION_CHECKLIST.filter(i => isVirtualSession ? i.virtual : !i.virtual);
                 const activeEquipPhases = EQUIP_CHECKLIST_PHASES.map(p => ({ ...p, items: p.items.filter(i => isVirtualSession ? i.virtual : !i.virtual) })).filter(p => p.items.length);
                 const activeEquipItems = activeEquipPhases.flatMap(p => p.items);
-                const done = (t === "checklist" && db === "partners") ? Object.values(draft.checklist || {}).filter(Boolean).length
+                const done = (t === "sessions-attended") ? clientSessionCount
+                           : (t === "checklist" && db === "partners") ? Object.values(draft.checklist || {}).filter(Boolean).length
                            : (t === "checklist" && db === "sessions") ? activeSessionChecklist.filter(i => draft.checklist?.[i.id]).length
                            : (t === "equipment" && db === "sessions") ? activeEquipItems.filter(i => draft.equipChecklist?.[i.id]).length
                            : (t === "bookings") ? sessionBookings.length : null;
@@ -4791,7 +4789,9 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
         </div>
 
         <div className="sb-drawerbody" style={{ paddingTop: 16 }}>
-          {hasTimeline && tab === "timeline"
+          {db === "clients" && tab === "sessions-attended"
+            ? <ClientSessionsTab record={draft} data={data} onOpenRelated={onOpenRelated} today={today} />
+            : hasTimeline && tab === "timeline"
             ? <ContactTimeline db={db} record={draft} data={data} derived={derived} today={today} onOpenRelated={onOpenRelated} />
             : (hasChecklist || hasSessionTabs) && tab === "checklist"
             ? db === "sessions"
@@ -5193,6 +5193,62 @@ function EquipmentChecklist({ equipChecklist, onChange, sessionName, sessionDate
           <div style={{ fontSize: 12, color: "#4A8C6F", marginTop: 3 }}>All equipment and setup items are confirmed. Go hold space. 🌿</div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ClientSessionsTab({ record, data, onOpenRelated, today }) {
+  const registrations = (data.registrations || [])
+    .filter(r => r.clientId === record.id && r.status !== "canceled")
+    .sort((a, b) => (b.date || b.sessionDate || "").localeCompare(a.date || a.sessionDate || ""));
+
+  const sessions = registrations.map(reg => {
+    const session = (data.sessions || []).find(s => s.id === reg.sessionId);
+    return { reg, session };
+  }).filter(({ session }) => session);
+
+  const STATUS_COLOR = { Completed: "#4A8C6F", Planned: C.brand, "Booking open": C.brand, "Follow-up pending": C.gold, Canceled: "#C0573F" };
+
+  if (!sessions.length) {
+    return <div style={{ padding: "32px 0", textAlign: "center", color: C.ink3, fontSize: 13 }}>No sessions found for this client.</div>;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ fontSize: 12, color: C.ink3, marginBottom: 4 }}>{sessions.length} session{sessions.length !== 1 ? "s" : ""}</div>
+      {sessions.map(({ reg, session }) => {
+        const isPast = session.date && session.date < today;
+        const isVirtual = !session.studioId && (session.locationType === "zoom" || session.locationType === "custom" || !session.locationType);
+        const partner = session.studioId ? (data.partners || []).find(p => p.id === session.studioId) : null;
+        const statusColor = STATUS_COLOR[session.status] || C.ink3;
+        return (
+          <button key={session.id} onClick={() => onOpenRelated({ db: "sessions", record: session })}
+            style={{ display: "flex", alignItems: "flex-start", gap: 12, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", textAlign: "left", cursor: "pointer", width: "100%" }}
+            className="sb-relrow">
+            {/* Dot indicator */}
+            <div style={{ width: 10, height: 10, borderRadius: "50%", background: isVirtual ? C.brand : LANE.b2b.color, flexShrink: 0, marginTop: 3 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {cleanName(session.name)}
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 3, alignItems: "center" }}>
+                {session.date && <span style={{ fontSize: 12, color: C.ink3 }}>{fmtDate(session.date)}{session.time ? ` · ${session.time}` : ""}</span>}
+                {session.durationMins ? <span style={{ fontSize: 12, color: C.ink3 }}>{session.durationMins} min</span> : null}
+                {partner && <span style={{ fontSize: 12, color: LANE.b2b.color, fontWeight: 600 }}>{cleanName(partner.name)}</span>}
+                {session.journey && <span style={{ fontSize: 11, padding: "1px 7px", borderRadius: 10, background: hexA(C.brand, 0.1), color: C.brand, fontWeight: 600 }}>{session.journey}</span>}
+              </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 8, background: hexA(statusColor, 0.12), color: statusColor }}>
+                {session.status || "Planned"}
+              </span>
+              {session.breakthroughNoted && (
+                <span style={{ fontSize: 10, fontWeight: 700, color: "#4A8C6F", padding: "1px 6px", borderRadius: 8, background: hexA("#4A8C6F", 0.1) }}>Breakthrough</span>
+              )}
+            </div>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -6033,7 +6089,7 @@ function FieldInput({ fld, value, onChange, data }) {
       value={value || ""} onChange={(e) => onChange(e.target.value)} />;
   }
   return (
-    <label className={"sb-field" + (type === "textarea" || type === "select" ? " sb-field-wide" : "")}>
+    <label className={"sb-field" + (type === "textarea" || type === "select" || fld.wide ? " sb-field-wide" : "")}>
       <span className="sb-flabel">{fld.label}</span>
       {control}
     </label>
