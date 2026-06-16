@@ -1,6 +1,6 @@
 # Simply Breathe OS — User Guide
 
-> **Version:** 7.0 (June 2026)
+> **Version:** 8.0 (July 2026)
 > **Your daily operating system for a thriving breathwork practice.**
 > This guide is written for anyone using the CRM day-to-day — no technical background needed.
 
@@ -190,6 +190,10 @@ These are ranked automatically based on urgency and due dates. Click any action 
 
 **Navigate to:** Sidebar → Clients
 
+### Client List — Default Sort
+
+The **All Clients** view is sorted **A–Z by client name** automatically when you open it. No action is needed — the list is always in alphabetical order when you arrive.
+
 ### Adding a New Client
 
 1. Click **New** in the top-right of the header.
@@ -208,6 +212,10 @@ These are ranked automatically based on urgency and due dates. Click any action 
 | Advocate | Refers others, shares posts, actively promotes you |
 | High-value lead | Strong interest but hasn't bought yet |
 | Past client – reactivate | Someone you worked with before who went quiet |
+
+### Opening a Client Record
+
+Click any client row to open the record. The main tab is called **Details** — it shows contact information, session history, and key metrics at the top (phone, email, sessions attended, first/last/next session, emotional notes, lifetime value), followed by status, type, source, and tags below.
 
 ### The Client Timeline
 
@@ -355,6 +363,15 @@ When you open a session record, the first tab is **Session Details**. The layout
 
 **Calendly event description:** Click the **ⓘ icon** next to the session name at the top of the drawer to expand or collapse the Calendly event type description inline below the title.
 
+### Journey Description Popup (Virtual Sessions)
+
+On virtual session cards in the sessions list, a small **ⓘ button** appears in the corner of the session name. Click it to see the full journey description for that session.
+
+- The description comes from **Admin → Journey Descriptions**, where you can add and manage descriptions for each journey.
+- The system is smart about matching: if the Calendly event is named something like "9D Breathwork Virtual - The Architect Journey", it will find a description called "The Architect Journey" automatically.
+- If no description has been added yet, the popup will prompt you to add one in Admin → Journey Descriptions.
+- This button only appears on **virtual sessions** — not on studio sessions.
+
 **Equipment Needed** is on the **Equipment Setup** tab — not on Session Details.
 
 ### Session Bookings Tab
@@ -410,6 +427,12 @@ All bookings that come through Calendly are automatically marked as **waiver sig
 | Pending Waivers | Manually-created registrations without a signed waiver |
 | Unpaid | Clients who haven't paid |
 | Cancellations | Canceled and rescheduled bookings |
+
+### Session Descriptions from Calendly
+
+When a booking arrives, the system automatically fetches the event type description from Calendly and stores it on the session record. This description powers the **ⓘ popup** on virtual session cards.
+
+> **Setup required:** This feature needs a Calendly Personal Access Token. If you're not seeing descriptions, ask your system administrator to add `CALENDLY_API_TOKEN` to the backend configuration (from Calendly → Integrations → API & Webhooks).
 
 ### Booking Record Fields
 
@@ -825,11 +848,33 @@ The system automatically uses your expense data in:
 
 ## Admin Settings
 
-**Navigate to:** Sidebar → Admin → Settings tab
+**Navigate to:** Sidebar → Admin
 
-The Settings tab in Admin lets Owners and Admins configure system-wide options.
+The Admin section has several tabs. The two most commonly used for day-to-day configuration are **Settings** and **Journey Descriptions**.
 
-**Breathwork Journeys** — Manage the list of journey names available in the session form. Changes take effect immediately across all session records.
+### Settings Tab
+
+System-wide options for Owners and Admins. (The Breathwork Journeys list is no longer managed here — see Journey Descriptions below.)
+
+### Journey Descriptions Tab
+
+**Navigate to:** Sidebar → Admin → Journey Descriptions tab
+
+This is where you manage the list of breathwork journeys available in session dropdowns, and add a full description for each one.
+
+**To add a new journey:**
+1. Click **Add** to create a new row.
+2. Enter the **journey name** (this is what appears in session dropdowns).
+3. Type the full **description** in the text area — you can write as much as you like.
+4. Click **Save** when done.
+
+**To edit an existing journey:**
+- Click into the name or description field and make your changes, then click **Save**.
+
+**To remove a journey:**
+- Click **Remove** on the row you want to delete, then **Save**.
+
+> **Why this matters:** The journey descriptions you add here power the **ⓘ popup** on virtual session cards. When a client books a virtual session, you can tap the ⓘ on that session card to instantly see the full description of the journey — useful for preparing notes or refreshing your memory before the session.
 
 ---
 
@@ -937,5 +982,5 @@ The system matches clients by email address. If a duplicate client was created (
 
 ---
 
-*Simply Breathe OS User Guide — updated June 2026 (v7.0)*
+*Simply Breathe OS User Guide — updated July 2026 (v8.0)*
 *For technical documentation, see DOCUMENTATION.md*

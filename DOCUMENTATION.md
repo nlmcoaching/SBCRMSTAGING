@@ -1,6 +1,6 @@
 ﻿# Simply Breathe OS — CRM Documentation
 
-> **Version:** 7.0 (June 2026)
+> **Version:** 8.0 (July 2026)
 > **Stack:** React 18 · Vite · Recharts · Lucide React · PapaParse · Node.js/Express (backend)
 > **Storage:** Browser `localStorage` (encrypted) + Cursor canvas `window.storage`
 > **Security:** AES-256-GCM encryption · PBKDF2 key derivation · PIN-based auth
@@ -95,7 +95,7 @@ On load, the decrypted data is validated against the expected schema (all requir
 
 ### PIN Lockout
 
-After a configurable number of consecutive failed PIN attempts, the lock screen displays a lockout message and temporarily disables further attempts. **Lockout state is session-scoped** — it resets on page refresh.
+After a configurable number of consecutive failed PIN attempts, the lock screen displays a lockout message and temporarily disables further attempts. The lockout counter is stored in **`sessionStorage`** — it persists across page refreshes within the same browser tab, but resets automatically when the tab is closed. It cannot be cleared via the DevTools localStorage panel.
 
 ### Idle Auto-Lock
 
@@ -113,6 +113,29 @@ Deleting any CRM record requires confirmation via a modal dialog ("Delete this r
 ### Backup Export Warning
 
 Downloading a JSON backup displays a security reminder that the file is unencrypted plain text containing sensitive client and financial data. The user must confirm before the download proceeds.
+
+### Backend Startup Validation
+
+On startup, the Express backend validates that required environment variables are present:
+
+| Variable | Behaviour if missing |
+|---|---|
+| `CALENDLY_WEBHOOK_SIGNING_KEY` | **Production:** server exits with code 1. **Dev:** loud console warning, server continues. |
+| `QUEUE_ENCRYPTION_KEY` | **Production:** server exits with code 1. **Dev:** loud console warning, server continues. |
+
+This prevents accidentally running an unprotected production instance.
+
+### Calendly Webhook Field Sanitization
+
+All string fields extracted from incoming Calendly webhook payloads are passed through `Sec.sanitize()` before being written to the queue or applied to CRM records. This strips HTML tags and formula-injection characters (`=`, `+`, `-`, `@` at the start of a value).
+
+### Frontend Secret — Proxy Injection
+
+`VITE_FRONTEND_SECRET` is no longer included in the browser JS bundle. The secret is now injected server-side by the Vite proxy, so it never appears in client-side code or network inspector sources.
+
+### SSRF Guard
+
+`fetchEventTypeDescription` in the backend rejects any `event_type` URI that does not begin with `https://api.calendly.com/`. This prevents server-side request forgery via crafted webhook payloads.
 
 ---
 
@@ -270,11 +293,35 @@ Each client record includes a full chronological timeline tab showing:
 
 ### Views Available
 
-- **All Clients** — Full table with search and sort
+- **All Clients** — Full table, sorted **A–Z by client name** by default (no user action required)
 - **New Leads** — Filtered to relationship status "New lead"
 - **Active Members** — Filtered to type "Member"
 - **VIP & Advocates** — High-value clients
 - **Needs Follow-Up** — Next follow-up date overdue or today
+
+### Client Record Drawer
+
+Opening a client record displays a drawer with multiple tabs. The primary tab is named **Details** (previously "Details & Edit").
+
+**Fields order in the Details tab** — the following fields appear at the top of the form, directly below the client name:
+
+1. Phone
+2. Email
+3. Sessions Attended
+4. First Session
+5. Last Session
+6. Next Session
+7. Emotional Notes
+8. Lifetime Value
+
+Followed by:
+
+9. Status
+10. Client Type
+11. Source
+12. Referral Potential
+13. Package Type
+14. Intent Tags
 
 ---
 
@@ -457,6 +504,16 @@ Displays per registrant:
 - **Studio header in drawer:** Shows `Studio Name — Session Name` above the editable title for quick identification
 - **Hover tooltip:** Full session name, studio, client name, and `X of Y spots remaining`
 
+#### Virtual Session Cards — Journey Description ⓘ Icon
+
+A small **ⓘ button** appears in the top-right corner of the session name on **virtual session cards only** (not studio sessions).
+
+- Clicking it opens a clean popup card showing the journey name and full description sourced from **Admin → Journey Descriptions**.
+- **Matching logic:** The system performs a partial/containment match between the Calendly event name and the journey description names. For example, the event name `"9D Breathwork Virtual - The Architect Journey"` matches a description named `"The Architect Journey"`. When multiple descriptions match, the longest match wins.
+- If no description exists for the journey yet, the popup prompts the user to add one in Admin → Journey Descriptions.
+- If no journey is selected on the session, the popup displays "No journey selected".
+- **Popup anatomy:** branded header · scrollable body (max-height 220px) · × close button.
+
 #### Calendly-Created Sessions
 When a booking arrives via Calendly webhook, a session record is automatically created or updated:
 - `name` = Calendly event name
@@ -469,6 +526,7 @@ When a booking arrives via Calendly webhook, a session record is automatically c
 - Zoom join URL is written to both `locationJoinUrl` and appended to `notes` for quick reference
 - `registered` increments for each new invitee on the same event
 - Cancellations decrement `registered`; no-shows update `noShows`
+- Session date is computed using **local `Date` methods** (`getFullYear` / `getMonth` / `getDate`) rather than slicing the UTC ISO string, preventing evening bookings (e.g. 5:30 PM PDT = next calendar day in UTC) from landing on the wrong date
 
 #### Studio Auto-Matching & Auto-Creation (`resolvePartner` / `extractStudio`)
 Every sync attempt (even when there are no pending events) runs a retroactive pass to set `studioId` on any Calendly session that is missing it.
@@ -977,9 +1035,30 @@ Horizontal bar chart showing each table's share of total storage:
 
 System-wide configuration managed by Owners and Admins.
 
-#### Breathwork Journeys
+> **Note:** The Breathwork Journeys card that previously appeared here has been removed. Journey management is now handled exclusively in **Tab 6 — Journey Descriptions**.
 
-The **Breathwork Journeys** card controls the options available in the "Journey Used" dropdown on session records. Adding, removing, or reordering entries here immediately updates all session forms.
+---
+
+### Tab 6 — Journey Descriptions
+
+Manages the list of breathwork journeys available in session dropdowns, along with a full description for each journey.
+
+#### Layout
+
+Each journey is displayed as a row with:
+- **Name field** — the journey name used in session dropdowns
+- **Description textarea** — a large, scrollable/resizable text area for the full journey description
+
+#### Actions
+
+| Action | Behaviour |
+|---|---|
+| **Add** | Appends a new blank journey row |
+| **Edit** | Name and description are editable inline |
+| **Remove** | Deletes the journey row |
+| **Save** | Writes changes to both `journeyDescriptions` (name + description pairs) and the `journeys` string array used in session dropdowns |
+
+Saving here immediately updates all "Journey Used" dropdowns across session records.
 
 ---
 
@@ -1124,15 +1203,19 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 | `/api/calendly/acknowledge` | POST | Marks event IDs as processed |
 | `/api/calendly/events` | GET | All events (debug/admin) |
 | `/api/calendly/events` | DELETE | Clear queue (dev only) |
-| `/health` | GET | Uptime check |
+| `/health` | GET | Returns `{ status: "ok" }` — does not expose server uptime |
 
 **Environment variables (`backend/.env`):**
 - `PORT` — server port (default 3001)
-- `CALENDLY_WEBHOOK_SIGNING_KEY` — HMAC signing key from Calendly webhook subscription; if blank, signature verification is skipped (dev mode only)
+- `CALENDLY_WEBHOOK_SIGNING_KEY` — HMAC signing key from Calendly webhook subscription; **required in production** (server refuses to start without it); if blank in dev, signature verification is skipped with a loud warning
 - `ALLOWED_ORIGINS` — comma-separated CORS origins (default `http://localhost:5173`)
-- `FRONTEND_SECRET` — shared secret for `/pending` and `/acknowledge` endpoints; must match `VITE_FRONTEND_SECRET` in the frontend `.env`. Generate with `openssl rand -hex 32`.
+- `FRONTEND_SECRET` — shared secret for `/pending` and `/acknowledge` endpoints. Generate with `openssl rand -hex 32`. The value is injected server-side by the Vite proxy and is never exposed in the browser bundle.
 - `ADMIN_SECRET` — token required for debug endpoints (`GET/DELETE /api/calendly/events`). Pass as `x-admin-token` header.
-- `QUEUE_ENCRYPTION_KEY` — 32-byte hex key for AES-256-GCM encryption of `pending-events.json` at rest. Generate with `openssl rand -hex 32`. If blank, queue is stored as plaintext (dev mode only).
+- `QUEUE_ENCRYPTION_KEY` — 32-byte hex key for AES-256-GCM encryption of `pending-events.json` at rest. Generate with `openssl rand -hex 32`. **Required in production** (server refuses to start without it); if blank in dev, queue is stored as plaintext with a loud warning.
+- `CALENDLY_API_TOKEN` — Calendly Personal Access Token (from Calendly → Integrations → API & Webhooks). Required for event type description fetching. See `backend/.env.example`.
+
+**Frontend environment variables (`frontend/.env`):**
+- `VITE_CALENDLY_BACKEND` — base URL for the backend API. Defaults to `""` (empty string) for local dev, which causes all `/api` requests to route through the Vite proxy. Set to the full backend URL in production deployments.
 
 **Backend Security Features:**
 - Rate limiting: 60 req/min on all `/api/` endpoints; 30 req/min on the webhook endpoint
@@ -1140,7 +1223,11 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 - Request body size capped at 256 KB
 - Webhook HMAC-SHA256 signature verified with 5-minute timestamp replay protection
 - Queue file encrypted at rest with AES-256-GCM when `QUEUE_ENCRYPTION_KEY` is set
-- `/pending` and `/acknowledge` require `x-frontend-secret` header when `FRONTEND_SECRET` is set
+- `/pending` and `/acknowledge` require `x-frontend-secret` header injected by Vite proxy (never sent directly from browser code)
+- Webhook string fields sanitized via `Sec.sanitize()` before storage (strips HTML and formula injection)
+- SSRF guard: `fetchEventTypeDescription` rejects any `event_type` URI that does not begin with `https://api.calendly.com/`
+- Queue capped at **1,000 events**; processed events older than **7 days** are automatically purged on each write
+- Startup validation: server exits with code 1 in production if `CALENDLY_WEBHOOK_SIGNING_KEY` or `QUEUE_ENCRYPTION_KEY` are missing
 
 ### Supported Calendly Events
 
@@ -1180,6 +1267,22 @@ Each individual Calendly booking is stored as a `registration` record:
 | `reviewedContraindications` | Custom question answer |
 | `attendanceType` | Virtual or in-person |
 | `locationAddress` | Physical address of the studio/venue from Calendly |
+
+### Event Type Description Fetching
+
+When a webhook arrives, the backend calls `GET /event_types/{uuid}` on the Calendly API to retrieve the event type description and stores it on the session record as `calendlyDescription`.
+
+| Detail | Value |
+|---|---|
+| Trigger | Each `invitee.created` or `invitee.canceled` webhook |
+| API call | `GET https://api.calendly.com/event_types/{uuid}` |
+| Auth | Bearer `CALENDLY_API_TOKEN` |
+| Caching | In-memory per event type UUID — fetched once per server process, not per booking |
+| Env var required | `CALENDLY_API_TOKEN` in `backend/.env` (see `backend/.env.example`) |
+
+If `CALENDLY_API_TOKEN` is not set, the description is left blank and no API call is made.
+
+The description is surfaced in the session drawer via the **ⓘ icon** next to the session name, and also powers the **Journey Description ⓘ popup** on virtual session cards (see Virtual Session Cards section above).
 
 ### Calendly Bookings Sidebar Section
 **Navigation:** Sidebar → Calendly Bookings
@@ -1422,7 +1525,7 @@ simply-breathe-app/
 | `VIEWS` | View definitions (table, kanban, custom) per section |
 | `STORE_KEY_ENC` | `simplybreathe:data:v5:enc` — encrypted data key |
 | `SEC_META_KEY` | `sb:security:v1` — security/user config key |
-| `CALENDLY_BACKEND` | `""` — base URL for backend API (empty = use Vite proxy) |
+| `CALENDLY_BACKEND` | Resolved from `VITE_CALENDLY_BACKEND` env var — base URL for backend API (defaults to `""` for local dev, using Vite proxy) |
 
 ### State Management
 
@@ -1439,7 +1542,8 @@ All state is managed via React `useState` and `useMemo` in the root `App` compon
 | `RecordDrawer` | Slide-in detail/edit panel |
 | `EditProfileModal` | Profile photo + info + PIN change |
 | `UserManagementView` | Multi-user CRUD and permissions |
-| `AdminView` | 4-tab admin panel: overview, schema browser, integrity check, storage |
+| `AdminView` | 6-tab admin panel: overview, schema browser, integrity check, storage, settings, journey descriptions |
+| `JourneyDescriptionsTab` | Admin tab for managing journey names and descriptions (add / edit / remove) |
 | `SessionBookingsTab` | Bookings tab inside session drawer — lists all Calendly registrants |
 | `WorkflowsView` | Five workflow pipeline visualizations |
 | `TemplateLibraryView` | Template browsing and copy |
@@ -1464,10 +1568,10 @@ Sec.generateMasterKeyB64()                // Random 256-bit master key
 Sec.importMasterKey(b64)                  // Import raw key as CryptoKey
 Sec.wrapKeyForUser(masterKeyB64, pin, salt)   // Encrypt master key for user
 Sec.unwrapKeyForUser(wrappedB64, pin, salt)   // Decrypt master key for user
-Sec.sanitize(val)                         // Strip formulas and HTML from CSV input
+Sec.sanitize(val)                         // Strip formulas and HTML from CSV input and Calendly webhook fields
 Sec.validate(data)                        // Schema validation on load
 ```
 
 ---
 
-*Documentation updated June 2026 (v7.0). Simply Breathe OS is a living system — update this document as features are added.*
+*Documentation updated July 2026 (v8.0). Simply Breathe OS is a living system — update this document as features are added.*
