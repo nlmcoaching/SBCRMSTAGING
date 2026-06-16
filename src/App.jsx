@@ -4720,7 +4720,7 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                   const isVirtual = db === "sessions" && !draft.studioId && (draft.locationType === "zoom" || draft.locationType === "custom" || !draft.locationType);
                   const isStudioSession = db === "sessions" && !!draft.studioId;
                   const zoomUrl = draft.locationJoinUrl;
-                  const baseFields = fields.filter((x) => !x.title && !(isVirtual && x.key === "studioId") && !(isStudioSession && x.key === "studioId"));
+                  const baseFields = fields.filter((x) => !x.title && !(isVirtual && x.key === "studioId") && !(isVirtual && x.key === "locationAddress") && !(isStudioSession && x.key === "studioId"));
                   const topKeys = isStudioSession
                     ? ["date", "time", "durationMins", "locationAddress"]
                     : ["date", "time", "durationMins"];
