@@ -153,9 +153,27 @@ function readQueue() {
   } catch { return []; }
 }
 
+const QUEUE_MAX_SIZE    = 1000;  // hard cap on total queued events
+const QUEUE_PURGE_DAYS  = 7;     // remove processed events older than this
+
+function _pruneQueue(events) {
+  const cutoff = Date.now() - QUEUE_PURGE_DAYS * 24 * 60 * 60 * 1000;
+  // Drop processed events older than the purge window
+  let pruned = events.filter(e => !(e.processed && new Date(e.processedAt || 0).getTime() < cutoff));
+  // If still over cap, drop oldest processed first, then oldest unprocessed
+  if (pruned.length > QUEUE_MAX_SIZE) {
+    pruned = pruned
+      .sort((a, b) => (a.processed ? 0 : 1) - (b.processed ? 0 : 1) || new Date(a.receivedAt) - new Date(b.receivedAt))
+      .slice(-QUEUE_MAX_SIZE);
+    console.warn(`[WARN] Queue trimmed to ${QUEUE_MAX_SIZE} events`);
+  }
+  return pruned;
+}
+
 function writeQueue(events) {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  const json = JSON.stringify(events, null, 2);
+  const pruned = _pruneQueue(events);
+  const json = JSON.stringify(pruned, null, 2);
   fs.writeFileSync(QUEUE_FILE, _encryptQueue(json), "utf8");
 }
 
@@ -391,7 +409,7 @@ app.delete("/api/calendly/events", requireAdminToken, (_req, res) => {
 });
 
 // ── Health check ──
-app.get("/health", (_req, res) => res.json({ status: "ok", uptime: process.uptime() }));
+app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
 app.listen(PORT, () => {
   console.log(`\n✅ Simply Breathe webhook backend running on http://localhost:${PORT}`);

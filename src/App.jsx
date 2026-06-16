@@ -1577,7 +1577,7 @@ export default function App() {
   };
 
   /* ── Calendly Sync ── */
-  const CALENDLY_BACKEND   = "";
+  const CALENDLY_BACKEND   = import.meta.env.VITE_CALENDLY_BACKEND || "";
 
   const syncCalendly = async () => {
     if (locked) return;
