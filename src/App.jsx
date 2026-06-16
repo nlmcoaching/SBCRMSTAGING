@@ -1646,6 +1646,9 @@ export default function App() {
             let client = clients.find(c => (c.email || "").toLowerCase() === emailNorm);
             const sessionDate = evt.startTime ? evt.startTime.slice(0, 10) : "";
             const sessionTime = evt.startTime ? new Date(evt.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
+            const durationMins = (evt.startTime && evt.endTime)
+              ? Math.round((new Date(evt.endTime) - new Date(evt.startTime)) / 60000)
+              : 0;
 
             if (!client) {
               client = {
@@ -1722,6 +1725,7 @@ export default function App() {
                   registered: regsForEvent,
                   studioId: existingSession.studioId || resolvedStudioId,
                   locationJoinUrl: zoomUrl || existingSession.locationJoinUrl,
+                  durationMins: existingSession.durationMins || durationMins || 0,
                   calendlyDescription: existingSession.calendlyDescription || evt.description || "",
                   locationAddress: existingSession.locationAddress || evt.locationAddress || "",
                   notes: notesNeedZoom
@@ -1752,6 +1756,7 @@ export default function App() {
                   notes: isVirtual && evt.locationJoinUrl
                     ? `Virtual — booked via Calendly\nZoom link: ${evt.locationJoinUrl}`
                     : `${isVirtual ? "Virtual" : "In-person"} — booked via Calendly`,
+                  durationMins: durationMins || 0,
                   calendlyDescription: evt.description || "",
                   calendlyEventUri: evt.calendlyEventUri,
                   locationType: evt.locationType,
@@ -2365,7 +2370,7 @@ function newRecord(db) {
   const m = {
     clients: { name: "", phone: "", email: "", source: "Post-session", status: "Lead", clientType: "First-time attendee", tags: [], firstSession: "", sessionsAttended: 0, lastSession: "", nextSession: "", packageType: "None", lifetimeValue: 0, notes: "", referral: "Low" },
     partners: { name: "", studioType: "Yoga", location: "", contact: "", role: "Owner", email: "", phone: "", stage: "Target identified", estimatedCommunitySize: 0, bestFitJourney: "", revenuePotential: 0, closeProbability: "Low", revShare: "", contractStatus: "None", outreachDate: "", lastTouch: todayISO(), nextAction: "", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "", checklist: emptyChecklist() },
-    sessions: { name: "", studioId: "", date: todayISO(), time: "", status: "Planned", journey: "Breathwork Basics", capacity: 20, registered: 0, attendance: 0, paidAttendees: 0, waivers: 0, noShows: 0, revenue: 0, studioSplit: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, equipmentNeeded: "", roomSetupStatus: "Not started", musicSetupStatus: "Not started", testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false, referralsRequested: false, breakthroughNoted: false, notes: "", calendlyEventUri: "", locationType: "", locationJoinUrl: "", locationAddress: "", checklist: emptySessionChecklist(), equipChecklist: emptyEquipChecklist() },
+    sessions: { name: "", studioId: "", date: todayISO(), time: "", durationMins: 0, status: "Planned", journey: "Breathwork Basics", capacity: 20, registered: 0, attendance: 0, paidAttendees: 0, waivers: 0, noShows: 0, revenue: 0, studioSplit: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, equipmentNeeded: "", roomSetupStatus: "Not started", musicSetupStatus: "Not started", testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false, referralsRequested: false, breakthroughNoted: false, notes: "", calendlyEventUri: "", locationType: "", locationJoinUrl: "", locationAddress: "", checklist: emptySessionChecklist(), equipChecklist: emptyEquipChecklist() },
     offers:    { name: "", clientId: "", offerType: "Single session", price: 0, status: "Drafted", probability: "50%", source: "", dateOffered: todayISO(), expireDate: "", followUpDate: "", notes: "", reasonLost: "" },
     revenue:   { name: "", date: todayISO(), channel: "Studio session", source: "", campaign: "", sessionId: "", clientId: "", gross: 0, stripeFee: 0, studioSplit: 0, facilitatorCost: 0, refunds: 0, costCenter: "Studio sessions", notes: "" },
     content: { name: "", category: "Breathwork education", status: "Idea", platform: "Instagram", scheduledDate: "", datePosted: "", body: "", cta: "Book a session", sessionId: "", partnerId: "", reused: false, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0, engagement: 0, leads: 0, booked: 0, revenue: 0, notes: "" },
@@ -4395,7 +4400,7 @@ const FIELDS = {
     f("name", "Session name", "text", { title: true }), f("studioId", "Studio", "relation", { target: "partners" }),
     f("status", "Status", "select", { options: SESSION_STATUS }),
     f("journey", "Journey used", "select", { options: () => getS().journeys }),
-    f("date", "Date", "date"), f("time", "Time", "text"),
+    f("date", "Date", "date"), f("time", "Time", "text"), f("durationMins", "Duration (mins)", "number"),
     f("capacity", "Room capacity", "number"), f("registered", "Registered attendees", "number"),
     f("attendance", "Actual attendance", "number"), f("paidAttendees", "Paid attendees", "number"),
     f("waivers", "Waivers completed", "number"), f("noShows", "No-shows", "number"),
@@ -4715,8 +4720,8 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                   const baseFields = fields.filter((x) => !x.title && !(isVirtual && x.key === "studioId"));
                   const visibleFields = isVirtual
                     ? [
-                        ...baseFields.filter(x => x.key === "date" || x.key === "time"),
-                        ...baseFields.filter(x => x.key !== "date" && x.key !== "time"),
+                        ...baseFields.filter(x => x.key === "date" || x.key === "time" || x.key === "durationMins"),
+                        ...baseFields.filter(x => x.key !== "date" && x.key !== "time" && x.key !== "durationMins"),
                       ]
                     : baseFields;
                   const sessionClient = isVirtual
@@ -4741,7 +4746,7 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                       {visibleFields.map((fld) => (
                         <>
                           <FieldInput key={fld.key} fld={fld} value={draft[fld.key]} onChange={(v) => set(fld.key, v)} data={data} />
-                          {isVirtual && fld.key === "time" && (
+                          {isVirtual && fld.key === "durationMins" && (
                             <div key="zoom-card" style={{ gridColumn: "1 / -1", background: C.brandMist, border: `1px solid ${C.brand}`, borderRadius: 10, padding: "10px 14px" }}>
                               <div style={{ fontSize: 11, fontWeight: 700, color: C.brand, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Zoom / Join Link</div>
                               {zoomUrl && zoomUrl.startsWith("https://") ? (
