@@ -167,6 +167,7 @@ function extractEvent(event, payload) {
     calendlyInviteeUri:   payload.uri || "",
     calendlyEventUri:     scheduled.uri || "",
     eventName:            scheduled.name || "",
+    description:          scheduled.description || "",
     startTime:            scheduled.start_time || "",
     endTime:              scheduled.end_time  || "",
     locationType:         location.type || "",               // zoom, physical, custom, etc.

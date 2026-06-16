@@ -1722,6 +1722,7 @@ export default function App() {
                   registered: regsForEvent,
                   studioId: existingSession.studioId || resolvedStudioId,
                   locationJoinUrl: zoomUrl || existingSession.locationJoinUrl,
+                  calendlyDescription: existingSession.calendlyDescription || evt.description || "",
                   notes: notesNeedZoom
                     ? (existingNotes ? `${existingNotes}\nZoom link: ${zoomUrl}` : `Virtual — booked via Calendly\nZoom link: ${zoomUrl}`)
                     : existingNotes,
@@ -1750,6 +1751,7 @@ export default function App() {
                   notes: isVirtual && evt.locationJoinUrl
                     ? `Virtual — booked via Calendly\nZoom link: ${evt.locationJoinUrl}`
                     : `${isVirtual ? "Virtual" : "In-person"} — booked via Calendly`,
+                  calendlyDescription: evt.description || "",
                   calendlyEventUri: evt.calendlyEventUri,
                   locationType: evt.locationType,
                   locationJoinUrl: evt.locationJoinUrl,
@@ -4227,7 +4229,8 @@ function cardChip(k, r, ctx) {
    CALENDAR (month)
    ============================================================ */
 function CalendarView({ rows, today, derived, data, onOpen }) {
-  const [cursor, setCursor] = useState(today.slice(0, 7));
+  const [cursor,    setCursor]    = useState(today.slice(0, 7));
+  const [infoPopup, setInfoPopup] = useState(null); // { id, text, x, y }
   const [y, m] = cursor.split("-").map(Number);
   const first = new Date(y, m - 1, 1);
   const startDow = first.getDay();
@@ -4282,7 +4285,8 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
   };
 
   return (
-    <div className="sb-card" style={{ padding: 16, display: "flex", flexDirection: "column", height: "calc(100vh - 160px)", minHeight: 480 }}>
+    <div className="sb-card" style={{ padding: 16, display: "flex", flexDirection: "column", height: "calc(100vh - 160px)", minHeight: 480 }}
+      onClick={(e) => { if (infoPopup && !e.target.closest("[data-info-pill]")) setInfoPopup(null); }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexShrink: 0 }}>
         <div style={{ fontFamily: FONT.display, fontSize: 17, fontWeight: 600 }}>{MONTHS[m - 1]} {y}</div>
@@ -4324,21 +4328,55 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
                 const studio = isStudio(s);
                 const spots = spotsLeft(s);
                 const almostFull = spots != null && spots <= 3;
-                return (
+                const hasDesc = !studio && !!s.calendlyDescription;
+                const pillBg   = studio ? hexA(LANE.b2b.color, 0.15) : C.brandSoft;
+                const pillClr  = studio ? LANE.b2b.text : C.brandDeep;
+                const pillBdr  = studio ? `3px solid ${almostFull ? "#C0573F" : LANE.b2b.color}` : `3px solid ${C.brand}`;
+                const pillStyle = {
+                  fontSize: 10.5, fontWeight: 600, border: "none", borderRadius: 5,
+                  padding: "3px 5px", cursor: "pointer", textAlign: "left",
+                  width: "100%", background: pillBg, color: pillClr, borderLeft: pillBdr,
+                };
+                return hasDesc ? (
+                  <div key={s.id} style={{ ...pillStyle, display: "flex", alignItems: "center", gap: 2, position: "relative" }}>
+                    <span
+                      role="button" tabIndex={0}
+                      onClick={() => onOpen(s)}
+                      onKeyDown={e => e.key === "Enter" && onOpen(s)}
+                      title={pillTitle(s)}
+                      style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}>
+                      {pillLabel(s)}
+                    </span>
+                    <span
+                      role="button" tabIndex={0}
+                      title="Session description"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setInfoPopup(infoPopup?.id === s.id ? null : { id: s.id, text: s.calendlyDescription });
+                      }}
+                      onKeyDown={e => e.key === "Enter" && setInfoPopup(infoPopup?.id === s.id ? null : { id: s.id, text: s.calendlyDescription })}
+                      style={{ flexShrink: 0, cursor: "pointer", lineHeight: 1, fontSize: 10, opacity: 0.75, userSelect: "none" }}>
+                      ⓘ
+                    </span>
+                    {infoPopup?.id === s.id && (
+                      <div style={{
+                        position: "absolute", bottom: "calc(100% + 4px)", left: 0, zIndex: 200,
+                        background: C.ink, color: "#fff", borderRadius: 8, padding: "8px 10px",
+                        fontSize: 11.5, lineHeight: 1.55, width: 220, whiteSpace: "pre-wrap",
+                        boxShadow: "0 4px 16px rgba(0,0,0,0.25)",
+                        pointerEvents: "none",
+                      }}>
+                        {s.calendlyDescription}
+                      </div>
+                    )}
+                  </div>
+                ) : (
                   <button key={s.id}
                     onClick={() => onOpen(s)}
                     title={pillTitle(s)}
-                    style={{
-                      fontSize: 10.5, fontWeight: 600, border: "none", borderRadius: 5,
-                      padding: "3px 5px", cursor: "pointer", textAlign: "left",
-                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                      width: "100%", display: "block",
-                      background: studio ? hexA(LANE.b2b.color, 0.15) : C.brandSoft,
-                      color: studio ? LANE.b2b.text : C.brandDeep,
-                      borderLeft: studio ? `3px solid ${almostFull ? "#C0573F" : LANE.b2b.color}` : `3px solid ${C.brand}`,
-                    }}
+                    style={{ ...pillStyle, display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
                     onMouseEnter={e => { e.currentTarget.style.background = studio ? LANE.b2b.color : C.brand; e.currentTarget.style.color = "#fff"; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = studio ? hexA(LANE.b2b.color, 0.15) : C.brandSoft; e.currentTarget.style.color = studio ? LANE.b2b.text : C.brandDeep; }}>
+                    onMouseLeave={e => { e.currentTarget.style.background = pillBg; e.currentTarget.style.color = pillClr; }}>
                     {pillLabel(s)}
                   </button>
                 );
