@@ -3748,11 +3748,11 @@ const VIEWS = {
   },
   partners: {
     views: [
-      { name: "Pipeline", layout: "partner-pipeline",
-        run: (rows) => ({ groups: STAGE.map((s) => ({ key: s, label: s, color: STAGE_COLOR[s], cards: rows.filter((r) => r.stage === s) })) }) },
       { name: "Active partners", layout: "table",
         columns: partnerCols(),
-        run: (rows) => ({ rows: rows.filter((r) => r.stage === "Recurring partner" || r.stage === "First session scheduled" || r.stage === "Pilot completed") }) },
+        run: (rows) => ({ rows: rows.filter((r) => r.stage === "Recurring partner" || r.stage === "First session scheduled" || r.stage === "Pilot completed").sort((a, b) => (a.name || "").toLowerCase().localeCompare((b.name || "").toLowerCase())) }) },
+      { name: "Pipeline", layout: "partner-pipeline",
+        run: (rows) => ({ groups: STAGE.map((s) => ({ key: s, label: s, color: STAGE_COLOR[s], cards: rows.filter((r) => r.stage === s) })) }) },
       { name: "In outreach", layout: "table",
         columns: [
           col("name", "Studio", (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
