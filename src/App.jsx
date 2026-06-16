@@ -4720,7 +4720,7 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                   const zoomUrl = draft.locationJoinUrl;
                   const baseFields = fields.filter((x) => !x.title && !(isVirtual && x.key === "studioId") && !(isStudioSession && x.key === "studioId"));
                   const topKeys = isStudioSession
-                    ? ["date", "time", "locationAddress"]
+                    ? ["date", "time", "durationMins", "locationAddress"]
                     : ["date", "time", "durationMins"];
                   const visibleFields = (isVirtual || isStudioSession)
                     ? [
@@ -4749,7 +4749,29 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                           </div>
                         </div>
                       )}
-                      {visibleFields.map((fld) => (
+                      {/* Studio: Date + Time + Duration on one line */}
+                      {isStudioSession && (
+                        <div style={{ gridColumn: "1 / -1", display: "flex", gap: 10 }}>
+                          {["date","time","durationMins"].map(k => {
+                            const fld = fields.find(x => x.key === k);
+                            if (!fld) return null;
+                            return (
+                              <div key={k} style={{ flex: k === "date" ? 2 : 1 }}>
+                                <div style={{ fontSize: 11, fontWeight: 600, color: C.ink3, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.4 }}>{fld.label}</div>
+                                <input
+                                  type={k === "date" ? "date" : "text"}
+                                  value={draft[k] || ""}
+                                  onChange={e => set(k, k === "durationMins" ? Number(e.target.value) : e.target.value)}
+                                  style={{ width: "100%", padding: "7px 10px", borderRadius: 8, border: `1px solid ${C.line}`, fontSize: 13, background: C.surface, color: C.ink, outline: "none" }}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {visibleFields.map((fld) => {
+                        if (isStudioSession && (fld.key === "date" || fld.key === "time" || fld.key === "durationMins")) return null;
+                        return (
                         <>
                           <FieldInput key={fld.key} fld={fld} value={draft[fld.key]} onChange={(v) => set(fld.key, v)} data={data} />
                           {isVirtual && fld.key === "durationMins" && (
@@ -4764,7 +4786,8 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                             </div>
                           )}
                         </>
-                      ))}
+                        );
+                      })}
                     </div>
                   );
                 })()}
