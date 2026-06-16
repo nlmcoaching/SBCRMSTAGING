@@ -4598,6 +4598,7 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
   const [tab, setTab] = useState("details");
   const [showDesc, setShowDesc] = useState(false);
   useEffect(() => { setDraft(record); setTab("details"); setShowDesc(false); }, [record]);
+  const isVirtualDrawer = db === "sessions" && !record.studioId && (record.locationType === "zoom" || record.locationType === "custom" || !record.locationType);
   const fields = FIELDS[db];
   const titleField = fields.find((x) => x.title);
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
@@ -4655,27 +4656,26 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
           })()}
           <div style={{ marginBottom: 10 }}>
             <div style={{ position: "relative" }}>
-              <input className="sb-titleinput" style={{ width: "100%", paddingRight: draft.calendlyDescription ? 28 : undefined }}
+              <input className="sb-titleinput" style={{ width: "100%", paddingRight: isVirtualDrawer ? 28 : undefined }}
                 value={draft[titleField.key] || ""} placeholder="Untitled"
                 onChange={(e) => set(titleField.key, e.target.value)} />
-              {db === "sessions" && draft.calendlyDescription && (
+              {isVirtualDrawer && (
                 <button onClick={() => setShowDesc(d => !d)}
                   title="View Calendly session description"
                   style={{
                     position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
                     background: "none", border: "none", cursor: "pointer", padding: 2,
                     color: showDesc ? C.brand : C.ink3, fontSize: 15, lineHeight: 1,
-                  }}>ⓘ</button>
+                  }}>{"\u24D8"}</button>
               )}
             </div>
-            {db === "sessions" && draft.calendlyDescription && showDesc && (
+            {isVirtualDrawer && showDesc && (
               <div style={{
                 marginTop: 6, background: C.brandMist, border: `1px solid ${C.brand}`, borderRadius: 10,
-                padding: "10px 14px", fontSize: 13, color: C.ink, lineHeight: 1.6,
-                whiteSpace: "pre-wrap",
+                padding: "10px 14px", fontSize: 13, color: C.ink, lineHeight: 1.6, whiteSpace: "pre-wrap",
               }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.brand, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Calendly Description</div>
-                {draft.calendlyDescription}
+                {draft.calendlyDescription || <span style={{ color: C.ink3, fontStyle: "italic" }}>No description was captured from Calendly for this session.</span>}
               </div>
             )}
           </div>
@@ -5884,7 +5884,7 @@ function ContactTimeline({ db, record, data, derived, today, onOpenRelated }) {
   );
 }
 
-function FieldInput({ fld, value, onChange, data }) {
+function FieldInput({ fld, value, onChange, data, labelExtra }) {
   const { type } = fld;
   const resolvedOptions = typeof fld.options === "function" ? fld.options() : (fld.options || []);
   let control;
@@ -5956,7 +5956,10 @@ function FieldInput({ fld, value, onChange, data }) {
   }
   return (
     <label className={"sb-field" + (type === "textarea" || type === "select" ? " sb-field-wide" : "")}>
-      <span className="sb-flabel">{fld.label}</span>
+      <span className="sb-flabel" style={labelExtra ? { display: "flex", alignItems: "center", justifyContent: "space-between" } : undefined}>
+        {fld.label}
+        {labelExtra}
+      </span>
       {control}
     </label>
   );
