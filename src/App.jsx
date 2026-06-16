@@ -4810,7 +4810,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                   const isStudioSession = db === "sessions" && !!draft.studioId;
                   const zoomUrl = draft.locationJoinUrl;
                   const virtualHidden = new Set(["studioId", "locationAddress", "equipmentNeeded", "locationType", "locationJoinUrl", "calendlyEventUri"]);
-                  const studioHidden  = new Set(["studioId", "equipmentNeeded"]);
+                  const studioHidden  = new Set(["studioId", "equipmentNeeded", "capacity", "registered", "notes", "breakthroughNoted", "roomSetupStatus", "musicSetupStatus", "locationJoinUrl", "calendlyEventUri"]);
                   const baseFields = fields.filter((x) => !x.title
                     && !(isVirtual     && virtualHidden.has(x.key))
                     && !(isStudioSession && studioHidden.has(x.key)));
@@ -4879,8 +4879,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                           <FieldInput key={fld.key} fld={fld} value={draft[fld.key]} onChange={(v) => set(fld.key, v)} data={data} />
                           {isStudioSession && fld.key === "locationAddress" && (() => {
                             const partner = (data.partners || []).find(p => p.id === draft.studioId);
-                            if (!partner || (!partner.contact && !partner.email && !partner.phone)) return null;
-                            return (
+                            const contactCard = partner && (partner.contact || partner.email || partner.phone) ? (
                               <div key="studio-contact" style={{ gridColumn: "1 / -1", background: C.surfaceAlt, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 14px" }}>
                                 <div style={{ fontSize: 11, fontWeight: 700, color: C.ink3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Studio Contact</div>
                                 {partner.contact && <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 2 }}>{partner.contact}{partner.role ? <span style={{ fontWeight: 400, color: C.ink3 }}> · {partner.role}</span> : ""}</div>}
@@ -4889,6 +4888,23 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                                   {partner.phone && <span style={{ fontSize: 12, color: C.ink3 }}>{partner.phone}</span>}
                                 </div>
                               </div>
+                            ) : null;
+                            const capacityFld        = fields.find(x => x.key === "capacity");
+                            const registeredFld      = fields.find(x => x.key === "registered");
+                            const notesFld           = fields.find(x => x.key === "notes");
+                            const breakthroughFld    = fields.find(x => x.key === "breakthroughNoted");
+                            const roomSetupFld       = fields.find(x => x.key === "roomSetupStatus");
+                            const musicSetupFld      = fields.find(x => x.key === "musicSetupStatus");
+                            return (
+                              <>
+                                {contactCard}
+                                {capacityFld      && <FieldInput key="cap"   fld={capacityFld}      value={draft.capacity}          onChange={v => set("capacity", v)}          data={data} />}
+                                {registeredFld    && <FieldInput key="reg"   fld={registeredFld}    value={draft.registered}        onChange={v => set("registered", v)}        data={data} />}
+                                {roomSetupFld     && <FieldInput key="room"  fld={roomSetupFld}     value={draft.roomSetupStatus}   onChange={v => set("roomSetupStatus", v)}   data={data} />}
+                                {musicSetupFld    && <FieldInput key="music" fld={musicSetupFld}    value={draft.musicSetupStatus}  onChange={v => set("musicSetupStatus", v)}  data={data} />}
+                                {notesFld         && <FieldInput key="notes" fld={notesFld}         value={draft.notes}             onChange={v => set("notes", v)}             data={data} />}
+                                {breakthroughFld  && <FieldInput key="bk"   fld={breakthroughFld}  value={draft.breakthroughNoted} onChange={v => set("breakthroughNoted", v)} data={data} />}
+                              </>
                             );
                           })()}
                           {isVirtual && fld.key === "durationMins" && (
