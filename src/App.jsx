@@ -171,16 +171,31 @@ const DEFAULT_CRM_SETTINGS = {
   referralLevels:["Low", "Medium", "High"],
   offerTypes:    ["Single session", "3-pack", "6-pack", "12-pack", "Private session", "Studio pilot", "Studio recurring agreement", "Corporate event", "Group event", "Referral partner offer"],
   journeys:      ["Breathwork Basics", "Reset & Release", "Nervous System Reset", "Letting Go & Rebirth", "Deep Surrender", "New Moon Ceremony", "Welcome Journey", "Breakthrough Session"],
+  journeyDescriptions: [
+    { id: "jd1", name: "Breathwork Basics",       description: "" },
+    { id: "jd2", name: "Reset & Release",         description: "" },
+    { id: "jd3", name: "Nervous System Reset",    description: "" },
+    { id: "jd4", name: "Letting Go & Rebirth",    description: "" },
+    { id: "jd5", name: "Deep Surrender",          description: "" },
+    { id: "jd6", name: "New Moon Ceremony",       description: "" },
+    { id: "jd7", name: "Welcome Journey",         description: "" },
+    { id: "jd8", name: "Breakthrough Session",    description: "" },
+  ],
   clientStatuses:["Lead", "Booked", "Attended 1x", "Engaged (2-3x)", "Member (4+)", "Advocate", "Inactive"],
 };
 function loadCrmSettings() {
   try {
     const stored = localStorage.getItem(CRM_SETTINGS_KEY);
-    if (!stored) return { ...DEFAULT_CRM_SETTINGS };
+    if (!stored) return JSON.parse(JSON.stringify(DEFAULT_CRM_SETTINGS));
     const parsed = JSON.parse(stored);
     // Merge: keep defaults for any missing keys
-    return Object.fromEntries(Object.keys(DEFAULT_CRM_SETTINGS).map(k => [k, parsed[k] || DEFAULT_CRM_SETTINGS[k]]));
-  } catch { return { ...DEFAULT_CRM_SETTINGS }; }
+    const merged = Object.fromEntries(Object.keys(DEFAULT_CRM_SETTINGS).map(k => [k, parsed[k] || DEFAULT_CRM_SETTINGS[k]]));
+    // Ensure journeyDescriptions is always an array of objects (not strings from old format)
+    if (!Array.isArray(merged.journeyDescriptions) || (merged.journeyDescriptions.length > 0 && typeof merged.journeyDescriptions[0] === "string")) {
+      merged.journeyDescriptions = JSON.parse(JSON.stringify(DEFAULT_CRM_SETTINGS.journeyDescriptions));
+    }
+    return merged;
+  } catch { return JSON.parse(JSON.stringify(DEFAULT_CRM_SETTINGS)); }
 }
 // Module-level mutable references (updated when settings load/change)
 let _crmSettings = loadCrmSettings();
@@ -2359,6 +2374,7 @@ export default function App() {
 
       {open && (
         <RecordDrawer db={open.db} record={open.record} data={data} derived={derived} today={today}
+          crmSettings={crmSettings}
           onClose={() => setOpen(null)} onSave={can.edit ? (rec) => { saveRecord(open.db, rec); setOpen(null); } : null}
           onDelete={can.delete ? (id) => setConfirm({
             message: `Delete this record? This action cannot be undone.`,
@@ -3439,6 +3455,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         : v.layout === "admin-integrity"  ? <AdminView tab="integrity"  data={data} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
         : v.layout === "admin-storage"    ? <AdminView tab="storage"    data={data} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
         : v.layout === "admin-settings"   ? <AdminView tab="settings"   data={data} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
+        : v.layout === "admin-journeys"   ? <AdminView tab="journeys"   data={data} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
         : v.layout === "expense-summary"  ? <ExpenseSummaryView data={data} today={today} canEdit={canEdit} onOpen={(r) => onOpen({ db: "expenses", record: r })} onImportExpenses={handleImportExpenses} />
         : v.layout === "outreach-hub"
         ? <OutreachHubView rows={processed.rows} data={data} today={today} onOpen={(r) => onOpen({ db: "outreach", record: r })} />
@@ -3488,6 +3505,7 @@ const VIEWS = {
     views: [
       { name: "Overview",        layout: "admin-overview" },
       { name: "Settings",        layout: "admin-settings" },
+      { name: "Journey Descriptions", layout: "admin-journeys" },
       { name: "Schema Browser",  layout: "admin-schema" },
       { name: "Data Integrity",  layout: "admin-integrity" },
       { name: "Storage & Backup", layout: "admin-storage" },
@@ -4428,7 +4446,7 @@ const FIELDS = {
   sessions: [
     f("name", "Session name", "text", { title: true }), f("studioId", "Studio", "relation", { target: "partners" }),
     f("status", "Status", "select", { options: SESSION_STATUS }),
-    f("journey", "Journey used", "select", { options: () => getS().journeys }),
+    f("journey", "Journey used", "select", { options: () => (getS().journeyDescriptions || []).map(j => j.name).filter(Boolean) }),
     f("date", "Date", "date"), f("time", "Time", "text"), f("durationMins", "Duration (mins)", "number"),
     f("capacity", "Room capacity", "number"), f("registered", "Registered attendees", "number"),
     f("attendance", "Actual attendance", "number"), f("paidAttendees", "Paid attendees", "number"),
@@ -4595,10 +4613,12 @@ const FIELDS = {
 };
 function f(key, label, type, opts = {}) { return { key, label, type, ...opts }; }
 
-function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDelete, onOpenRelated, sequences, onStartSequence }) {
+function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, onSave, onDelete, onOpenRelated, sequences, onStartSequence }) {
   const [draft, setDraft] = useState(record);
   const [tab, setTab] = useState("details");
-  useEffect(() => { setDraft(record); setTab("details"); }, [record]);
+  const [showJourneyDesc, setShowJourneyDesc] = useState(false);
+  useEffect(() => { setDraft(record); setTab("details"); setShowJourneyDesc(false); }, [record]);
+  const isVirtualDrawer = db === "sessions" && !record.studioId && (record.locationType === "zoom" || record.locationType === "custom" || !record.locationType);
   const fields = FIELDS[db];
   const titleField = fields.find((x) => x.title);
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
@@ -4655,9 +4675,71 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
             );
           })()}
           <div style={{ marginBottom: 10 }}>
-            <input className="sb-titleinput" style={{ width: "100%" }}
-              value={draft[titleField.key] || ""} placeholder="Untitled"
-              onChange={(e) => set(titleField.key, e.target.value)} />
+            <div style={{ position: "relative" }}>
+              <input className="sb-titleinput" style={{ width: "100%", paddingRight: isVirtualDrawer ? 32 : undefined }}
+                value={draft[titleField.key] || ""} placeholder="Untitled"
+                onChange={(e) => set(titleField.key, e.target.value)} />
+              {isVirtualDrawer && (
+                <button
+                  onClick={() => setShowJourneyDesc(d => !d)}
+                  title={draft.journey ? `View description for: ${draft.journey}` : "No journey selected"}
+                  style={{
+                    position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
+                    background: showJourneyDesc ? C.brand : "transparent",
+                    border: `1.5px solid ${showJourneyDesc ? C.brand : C.line}`,
+                    borderRadius: 6, cursor: "pointer", padding: "2px 6px",
+                    color: showJourneyDesc ? "#fff" : C.ink3,
+                    fontSize: 12, fontWeight: 700, lineHeight: 1.4, transition: "all 0.15s",
+                  }}>
+                  {"\u24D8"}
+                </button>
+              )}
+            </div>
+            {isVirtualDrawer && showJourneyDesc && (() => {
+              const journeyDescs = (crmSettings?.journeyDescriptions || []);
+              // Match by exact name first, then by partial containment to handle
+              // Calendly event names like "9D Breathwork Virtual - The Architect Journey"
+              // where the journey description is just "The Architect Journey".
+              const sessionJourney = (draft.journey || "").toLowerCase();
+              const match = journeyDescs.find(j => j.name && j.name.toLowerCase() === sessionJourney)
+                || journeyDescs
+                    .filter(j => j.name && sessionJourney.includes(j.name.toLowerCase()))
+                    .sort((a, b) => b.name.length - a.name.length)[0]; // prefer longest/most-specific match
+              return (
+                <div style={{
+                  marginTop: 8, borderRadius: 12,
+                  border: `1px solid ${C.line}`,
+                  background: C.surface,
+                  overflow: "hidden",
+                  boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
+                }}>
+                  <div style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    padding: "10px 14px", borderBottom: `1px solid ${C.line}`,
+                    background: hexA(C.brand, 0.06),
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: C.brand, textTransform: "uppercase", letterSpacing: 0.6 }}>Journey Description</div>
+                      {match?.name && <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, marginTop: 2 }}>{match.name}</div>}
+                    </div>
+                    <button onClick={() => setShowJourneyDesc(false)}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, fontSize: 18, lineHeight: 1, padding: "2px 4px" }}>
+                      &times;
+                    </button>
+                  </div>
+                  <div style={{ padding: "12px 14px", fontSize: 13, color: C.ink, lineHeight: 1.7, whiteSpace: "pre-wrap", maxHeight: 220, overflowY: "auto" }}>
+                    {match?.description
+                      ? match.description
+                      : <span style={{ color: C.ink3, fontStyle: "italic" }}>
+                          {draft.journey
+                            ? `No description has been added for "${match?.name || draft.journey}" yet. Go to Admin \u2192 Journey Descriptions to add one.`
+                            : "No journey selected for this session."}
+                        </span>
+                    }
+                  </div>
+                </div>
+              );
+            })()}
           </div>
           {(hasTimeline || hasSessionTabs) && (
             <div style={{ display: "flex", gap: 2 }}>
@@ -6753,6 +6835,10 @@ function AdminView({ tab, data, secUsers, currentUser, today, crmSettings, onSav
       {tab === "settings" && crmSettings && (
         <CrmSettingsView settings={crmSettings} onSave={onSaveSettings} />
       )}
+
+      {tab === "journeys" && crmSettings && (
+        <JourneyDescriptionsView settings={crmSettings} onSave={onSaveSettings} />
+      )}
     </div>
   );
 }
@@ -6767,7 +6853,6 @@ const SETTINGS_META = [
   { key: "packageTypes",   label: "Package Types",        hint: "Package options available to clients (e.g. Drop-in, 3-pack, Membership)." },
   { key: "offerTypes",     label: "Offer Types",          hint: "Types of offers/products you can create in the Offers & Sales section." },
   { key: "referralLevels", label: "Referral Potential",   hint: "Referral strength levels used on client records (e.g. Low, Medium, High)." },
-  { key: "journeys",       label: "Breathwork Journeys",  hint: "Session journey/program names. Used in session records and calendar pills." },
 ];
 
 function CrmSettingsView({ settings, onSave }) {
@@ -6863,6 +6948,110 @@ function CrmSettingsView({ settings, onSave }) {
               />
               <button onClick={() => addItem(key)}
                 style={{ padding: "6px 12px", background: hexA(C.brand, 0.1), border: `1px solid ${hexA(C.brand, 0.3)}`, borderRadius: 7, cursor: "pointer", color: C.brand, fontWeight: 700, fontSize: 13 }}>+</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   JOURNEY DESCRIPTIONS VIEW
+   ============================================================ */
+function JourneyDescriptionsView({ settings, onSave }) {
+  const [items, setItems] = useState(() => JSON.parse(JSON.stringify(settings.journeyDescriptions || [])));
+  const [saved, setSaved] = useState(false);
+  const [newName, setNewName] = useState("");
+
+  const set = (id, field, val) =>
+    setItems(prev => prev.map(j => j.id === id ? { ...j, [field]: val } : j));
+
+  const addJourney = () => {
+    const name = newName.trim();
+    if (!name) return;
+    setItems(prev => [...prev, { id: `jd_${Date.now()}`, name, description: "" }]);
+    setNewName("");
+  };
+
+  const removeJourney = (id) => setItems(prev => prev.filter(j => j.id !== id));
+
+  const handleSave = () => {
+    // Save journeyDescriptions AND keep journeys string array in sync
+    const next = {
+      ...settings,
+      journeyDescriptions: items,
+      journeys: items.map(j => j.name).filter(Boolean),
+    };
+    onSave(next);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>Journey Descriptions</div>
+          <div style={{ fontSize: 12.5, color: C.ink3, marginTop: 3 }}>
+            Define the name and full description for each breathwork journey. Names appear in session records and calendar pills.
+          </div>
+        </div>
+        <button onClick={handleSave} style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 20px", background: saved ? "#4A8C6F" : C.brand, color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 700, transition: "background 0.2s", flexShrink: 0 }}>
+          {saved ? <><Check size={14} /> Saved</> : <><Save size={14} /> Save Changes</>}
+        </button>
+      </div>
+
+      {/* Add new journey */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <input
+          value={newName}
+          onChange={e => setNewName(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && addJourney()}
+          placeholder="New journey name…"
+          style={{ flex: 1, padding: "8px 12px", border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, color: C.ink, maxWidth: 320 }}
+        />
+        <button onClick={addJourney} style={{ padding: "8px 16px", background: hexA(C.brand, 0.1), border: `1px solid ${hexA(C.brand, 0.3)}`, borderRadius: 8, cursor: "pointer", color: C.brand, fontWeight: 700, fontSize: 13 }}>
+          + Add Journey
+        </button>
+      </div>
+
+      {/* Journey list */}
+      {items.length === 0 && (
+        <div style={{ textAlign: "center", color: C.ink3, fontSize: 13, padding: "40px 0" }}>No journeys yet. Add one above.</div>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {items.map((j, idx) => (
+          <div key={j.id} style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "18px 20px" }}>
+            {/* Journey name row */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <div style={{ width: 28, height: 28, borderRadius: 8, background: hexA(C.brand, 0.12), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, color: C.brand, flexShrink: 0 }}>
+                {idx + 1}
+              </div>
+              <input
+                value={j.name}
+                onChange={e => set(j.id, "name", e.target.value)}
+                placeholder="Journey name"
+                style={{ flex: 1, padding: "7px 12px", border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 14, fontWeight: 600, color: C.ink, background: C.surface }}
+              />
+              <button onClick={() => removeJourney(j.id)}
+                title="Remove journey"
+                style={{ background: "none", border: `1px solid ${hexA("#C0573F", 0.3)}`, borderRadius: 7, cursor: "pointer", color: "#C0573F", fontSize: 12, fontWeight: 600, padding: "5px 10px", flexShrink: 0 }}>
+                Remove
+              </button>
+            </div>
+
+            {/* Description */}
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: C.ink3, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Description</div>
+              <textarea
+                value={j.description}
+                onChange={e => set(j.id, "description", e.target.value)}
+                placeholder="Enter a full description of this journey — what it involves, the experience, outcomes, and anything clients should know…"
+                rows={5}
+                style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, color: C.ink, background: C.surfaceAlt || "#F8F9FB", resize: "vertical", lineHeight: 1.6, fontFamily: "inherit", boxSizing: "border-box", minHeight: 100 }}
+              />
             </div>
           </div>
         ))}
