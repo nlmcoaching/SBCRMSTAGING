@@ -75,6 +75,9 @@ const PORT = process.env.PORT || 3001;
 app.use(helmet());
 
 // ── Rate limiting ──
+// NOTE: uses the default in-memory store which resets on process restart.
+// For clustered or long-running production deployments, swap in a persistent
+// store (e.g. rate-limit-redis) so limits survive restarts and span instances.
 const generalLimiter = rateLimit({
   windowMs: 60 * 1000,  // 1 minute
   max: 60,              // 60 requests per IP per minute

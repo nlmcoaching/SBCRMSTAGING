@@ -183,18 +183,19 @@ const DEFAULT_CRM_SETTINGS = {
   ],
   clientStatuses:["Lead", "Booked", "Attended 1x", "Engaged (2-3x)", "Member (4+)", "Advocate", "Inactive"],
 };
+function parseCrmSettings(parsed) {
+  if (!parsed || typeof parsed !== "object") return JSON.parse(JSON.stringify(DEFAULT_CRM_SETTINGS));
+  const merged = Object.fromEntries(Object.keys(DEFAULT_CRM_SETTINGS).map(k => [k, parsed[k] || DEFAULT_CRM_SETTINGS[k]]));
+  if (!Array.isArray(merged.journeyDescriptions) || (merged.journeyDescriptions.length > 0 && typeof merged.journeyDescriptions[0] === "string")) {
+    merged.journeyDescriptions = JSON.parse(JSON.stringify(DEFAULT_CRM_SETTINGS.journeyDescriptions));
+  }
+  return merged;
+}
 function loadCrmSettings() {
   try {
     const stored = localStorage.getItem(CRM_SETTINGS_KEY);
     if (!stored) return JSON.parse(JSON.stringify(DEFAULT_CRM_SETTINGS));
-    const parsed = JSON.parse(stored);
-    // Merge: keep defaults for any missing keys
-    const merged = Object.fromEntries(Object.keys(DEFAULT_CRM_SETTINGS).map(k => [k, parsed[k] || DEFAULT_CRM_SETTINGS[k]]));
-    // Ensure journeyDescriptions is always an array of objects (not strings from old format)
-    if (!Array.isArray(merged.journeyDescriptions) || (merged.journeyDescriptions.length > 0 && typeof merged.journeyDescriptions[0] === "string")) {
-      merged.journeyDescriptions = JSON.parse(JSON.stringify(DEFAULT_CRM_SETTINGS.journeyDescriptions));
-    }
-    return merged;
+    return parseCrmSettings(JSON.parse(stored));
   } catch { return JSON.parse(JSON.stringify(DEFAULT_CRM_SETTINGS)); }
 }
 // Module-level mutable references (updated when settings load/change)
@@ -1357,12 +1358,18 @@ export default function App() {
   const [pinError,     setPinError]    = useState("");
   const PIN_LOCKOUT_KEY = "sb:pin-lockout:v1";
   const [pinAttempts,  setPinAttempts]  = useState(() => {
-    // sessionStorage: lockout resets when the tab is closed, but persists across page refreshes
-    // within the same session — cannot be silently cleared via localStorage DevTools trick
-    try { return JSON.parse(sessionStorage.getItem("sb:pin-lockout:v1") || "{}"); } catch { return {}; }
+    // localStorage: persists across tabs and page refreshes (cross-tab lockout enforcement).
+    // Stale entries (expired lockout, no pending attempts) are pruned on read.
+    try {
+      const raw = JSON.parse(localStorage.getItem("sb:pin-lockout:v1") || "{}");
+      const now = Date.now();
+      return Object.fromEntries(
+        Object.entries(raw).filter(([, v]) => v.count > 0 || v.lockedUntil > now)
+      );
+    } catch { return {}; }
   });
   useEffect(() => {
-    try { sessionStorage.setItem(PIN_LOCKOUT_KEY, JSON.stringify(pinAttempts)); } catch {}
+    try { localStorage.setItem(PIN_LOCKOUT_KEY, JSON.stringify(pinAttempts)); } catch {}
   }, [pinAttempts]);
   const [initialising, setInitialising] = useState(true);
   const [secUsers,     setSecUsers]    = useState([]);    // loaded from SEC_META_KEY
@@ -1460,7 +1467,15 @@ export default function App() {
             const dec = await Sec.decrypt(encRaw.value, oldKey);
             const reenc = await Sec.encrypt(dec, masterKey);
             await store.set(STORE_KEY_ENC, reenc);
-            if (Sec.validate(dec)) setData(dec);
+            if (Sec.validate(dec)) {
+              setData(dec);
+              if (dec._settings && typeof dec._settings === "object") {
+                const s = parseCrmSettings(dec._settings);
+                _crmSettings = s;
+                setCrmSettings(s);
+                try { localStorage.setItem(CRM_SETTINGS_KEY, JSON.stringify(s)); } catch {}
+              }
+            }
           } catch (_) {}
         }
         setMasterKeyRaw(masterKeyB64);
@@ -1497,6 +1512,13 @@ export default function App() {
           const dec = await Sec.decrypt(encRaw.value, masterKey);
           if (Sec.validate(dec)) {
             setData(dec);
+            // Restore CRM settings from encrypted store — preferred over unencrypted localStorage cache
+            if (dec._settings && typeof dec._settings === "object") {
+              const s = parseCrmSettings(dec._settings);
+              _crmSettings = s;
+              setCrmSettings(s);
+              try { localStorage.setItem(CRM_SETTINGS_KEY, JSON.stringify(s)); } catch {}
+            }
           } else {
             setPinError("Data integrity check failed. Please restore from a JSON backup.");
             return;
@@ -2024,6 +2046,8 @@ export default function App() {
     _crmSettings = next;
     try { localStorage.setItem(CRM_SETTINGS_KEY, JSON.stringify(next)); } catch {}
     setCrmSettings(next);
+    // Also persist inside the encrypted data store so settings are protected at rest
+    setData(d => ({ ...d, _settings: next }));
   };
 
   const startSequence = (client) => {
