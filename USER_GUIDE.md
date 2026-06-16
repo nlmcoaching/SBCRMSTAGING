@@ -1,5 +1,6 @@
 # Simply Breathe OS — User Guide
 
+> **Version:** 7.0 (June 2026)
 > **Your daily operating system for a thriving breathwork practice.**
 > This guide is written for anyone using the CRM day-to-day — no technical background needed.
 
@@ -25,10 +26,11 @@
 16. [Referral Tracking](#referral-tracking)
 17. [Workflows — Seeing the Big Picture](#workflows--seeing-the-big-picture)
 18. [Tracking Expenses](#tracking-expenses)
-19. [Your Profile](#your-profile)
-20. [Logging Out](#logging-out)
-21. [Tips for Daily Use](#tips-for-daily-use)
-22. [Frequently Asked Questions](#frequently-asked-questions)
+19. [Admin Settings](#admin-settings)
+20. [Your Profile](#your-profile)
+21. [Logging Out](#logging-out)
+22. [Tips for Daily Use](#tips-for-daily-use)
+23. [Frequently Asked Questions](#frequently-asked-questions)
 
 ---
 
@@ -58,6 +60,8 @@ Type your PIN in the box and press Enter (or tap the arrow button).
 If your PIN is correct, you'll go straight to your dashboard. If you forget your PIN, an Owner or Admin can reset it for you in User Management.
 
 > **Note:** Your PIN protects your data. Don't share it with others.
+
+> **Auto-lock:** The app locks itself after 15 minutes with no activity. Simply re-enter your PIN to continue.
 
 ---
 
@@ -335,9 +339,30 @@ Hover over any pill to see the full session name, studio, client name, and exact
 
 > **Note:** Studio sessions booked through Calendly are automatically linked to the correct studio partner by matching the studio name in the event name. If no matching partner exists, one is created automatically. Any previously synced sessions without a studio link are corrected on the next sync.
 
+### Session Details Tab
+
+When you open a session record, the first tab is **Session Details**. The layout adapts based on session type:
+
+**Virtual sessions** show at the top:
+- Client name and email (from registration)
+- Date, time, and duration on one row
+- The Zoom / Join Link as a clickable card
+
+**Studio sessions** show at the top:
+- Date, time, and duration on one row
+- Studio address (from Calendly)
+- Studio contact card — name, role, email, and phone pulled live from the partner record
+
+**Calendly event description:** Click the **ⓘ icon** next to the session name at the top of the drawer to expand or collapse the Calendly event type description inline below the title.
+
+**Equipment Needed** is on the **Equipment Setup** tab — not on Session Details.
+
 ### Session Bookings Tab
 
 When you open a session record and click the **Bookings** tab, you'll see everyone who has registered for that session via Calendly:
+- **Studio sessions** show a badge like `2/15` (booked / capacity) — a quick view of how full the session is
+- **Virtual sessions** show the booked count only
+
 
 - **Status badges** — booked, attended, canceled, rescheduled, no-show
 - **Waiver warnings** — yellow warning if a waiver hasn't been signed yet
@@ -798,6 +823,16 @@ The system automatically uses your expense data in:
 
 ---
 
+## Admin Settings
+
+**Navigate to:** Sidebar → Admin → Settings tab
+
+The Settings tab in Admin lets Owners and Admins configure system-wide options.
+
+**Breathwork Journeys** — Manage the list of journey names available in the session form. Changes take effect immediately across all session records.
+
+---
+
 ## Your Profile
 
 ### Editing Your Profile
@@ -902,5 +937,5 @@ The system matches clients by email address. If a duplicate client was created (
 
 ---
 
-*Simply Breathe OS User Guide — updated June 2026*
+*Simply Breathe OS User Guide — updated June 2026 (v7.0)*
 *For technical documentation, see DOCUMENTATION.md*

@@ -1,6 +1,6 @@
-# Simply Breathe OS — CRM Documentation
+﻿# Simply Breathe OS — CRM Documentation
 
-> **Version:** 6.1 (June 2026)
+> **Version:** 7.0 (June 2026)
 > **Stack:** React 18 · Vite · Recharts · Lucide React · PapaParse · Node.js/Express (backend)
 > **Storage:** Browser `localStorage` (encrypted) + Cursor canvas `window.storage`
 > **Security:** AES-256-GCM encryption · PBKDF2 key derivation · PIN-based auth
@@ -64,7 +64,7 @@ The system is designed to answer three core daily questions:
 | Layer | Detail |
 |---|---|
 | Algorithm | AES-256-GCM |
-| Key derivation | PBKDF2 · SHA-256 · 100,000 iterations |
+| Key derivation | PBKDF2 · SHA-256 · 600,000 iterations |
 | Salt | 16-byte random per user |
 | Master key | Generated once, envelope-encrypted per user |
 | Storage key | `simplybreathe:data:v5:enc` |
@@ -74,6 +74,7 @@ The system is designed to answer three core daily questions:
 - Each user's copy of the master key is wrapped with their individual PIN-derived key.
 - Adding a new user re-wraps the master key for them using their PIN.
 - If the browser storage API is unavailable, the app falls back to unencrypted seed data mode.
+- PBKDF2 iterations are automatically upgraded to 600,000 on next login for any account created before v7.0. The upgrade is silent and transparent.
 
 ### CSV Sanitization
 
@@ -91,6 +92,27 @@ Vite dev server sets the following headers:
 ### Storage Schema Validation
 
 On load, the decrypted data is validated against the expected schema (all required top-level arrays present) before being applied to state. Invalid data falls back to seed data.
+
+### PIN Lockout
+
+After a configurable number of consecutive failed PIN attempts, the lock screen displays a lockout message and temporarily disables further attempts. **Lockout state is session-scoped** — it resets on page refresh.
+
+### Idle Auto-Lock
+
+The app automatically locks after **15 minutes of inactivity** (no mouse movement, keypress, touch, or scroll). The timer resets on any user interaction.
+
+### Delete Confirmation
+
+Deleting any CRM record requires confirmation via a modal dialog ("Delete this record? This cannot be undone."). This prevents accidental data loss from misclicks.
+
+### File Upload Limits
+
+- CSV imports: 10 MB maximum file size.
+- Avatar/profile photos: 5 MB maximum; browser validates the file is a real image before processing.
+
+### Backup Export Warning
+
+Downloading a JSON backup displays a security reminder that the file is unencrypted plain text containing sensitive client and financial data. The user must confirm before the download proceeds.
 
 ---
 
@@ -147,9 +169,9 @@ The dashboard is the daily starting point. It surfaces the most important inform
 
 ### Lane Split Panel
 
-Side-by-side view of B2C vs B2B business:
-- **B2C:** Revenue MTD · Open offers value · Active clients
-- **B2B:** Revenue MTD · Open partner pipeline value · Active partners
+Side-by-side view of studio vs client revenue, with **Studio Revenue (B2B) on the left card** and **Client Revenue (B2C) on the right card**:
+- **B2B (left):** Revenue MTD · Open partner pipeline value · Active partners
+- **B2C (right):** Revenue MTD · Open offers value · Active clients
 
 ### Pipeline Snapshot
 
@@ -380,14 +402,43 @@ Waiver QR code · Check-in list printed · Arrival time confirmed · Closing / i
 
 | Tab | Contents |
 |---|---|
-| Details & Edit | All session fields, editable |
-| Bookings | All registrants for this session (see below) |
+| Session Details | All session fields, editable. Layout differs for virtual vs studio sessions (see below) |
+| Bookings | All registrants for this session. Badge shows `X/Y` (booked/capacity) for studio sessions |
 | Equipment Setup | Per-session gear checklist |
 | Run Checklist | Full pre/during/post session checklist |
 | Performance | Revenue, attendance, conversion metrics |
 
+#### Session Details Tab Layout
+
+The layout of the Session Details tab adapts based on session type.
+
+**Virtual Sessions** show fields in this order:
+1. Client name + email card (pulled from registration)
+2. Date · Time · Duration (mins) — inline row
+3. Zoom / Join Link card (clickable link from Calendly)
+4. Session Notes
+5. Breakthrough Noted
+6. Journey Used
+7. Status
+8. Remaining fields
+
+Fields hidden on virtual sessions (shown elsewhere or not applicable): Studio dropdown, Studio Address, Location Type, Zoom/Join URL field, Calendly Event URI, Equipment Needed.
+
+**Studio Sessions** show fields in this order:
+1. Date · Time · Duration — inline single row
+2. Studio Address (from Calendly location)
+3. Studio Contact card (name, role, email, phone — pulled live from the partner record)
+4. Remaining fields
+
+Fields hidden on studio sessions: Studio dropdown, Equipment Needed.
+
 #### Bookings Tab
-Shows every client registration linked to this session (synced from Calendly or manually linked). Displays per registrant:
+Shows every client registration linked to this session (synced from Calendly or manually linked).
+
+- Studio session Bookings tab badge shows `booked / capacity` (e.g. `2/15`)
+- Virtual session Bookings tab badge shows the booked count only
+
+Displays per registrant:
 - Name, booking status (booked / attended / canceled / no-show)
 - Waiver status (pending / signed) with warning badges
 - Payment status (paid / unpaid / unknown)
@@ -412,6 +463,10 @@ When a booking arrives via Calendly webhook, a session record is automatically c
 - `journey` = Calendly event name (overrides default)
 - `studioId` = auto-matched from partner list (see Studio Auto-Matching below)
 - `locationType` / `locationJoinUrl` stored for virtual sessions
+- `durationMins` = calculated from Calendly `start_time` and `end_time` (in minutes)
+- `locationAddress` = studio address from Calendly physical location
+- `calendlyDescription` = Calendly event type description; accessible via the **ⓘ icon** next to the session name in the drawer header — click to expand/collapse inline below the title
+- Zoom join URL is written to both `locationJoinUrl` and appended to `notes` for quick reference
 - `registered` increments for each new invitee on the same event
 - Cancellations decrement `registered`; no-shows update `noShows`
 
@@ -779,7 +834,7 @@ Displays the two `localStorage` / `window.storage` keys the application uses:
 | Setting | Value |
 |---|---|
 | Algorithm | AES-256-GCM |
-| Key derivation | PBKDF2 · SHA-256 · 100,000 iterations |
+| Key derivation | PBKDF2 · SHA-256 · 600,000 iterations |
 | Salt length | 16 bytes, random per user |
 | Key model | Envelope encryption — master key wrapped separately per user |
 | Data version | v5 |
@@ -915,6 +970,16 @@ Horizontal bar chart showing each table's share of total storage:
 - Table name, record count
 - Size in KB and percentage of total
 - Proportional bar colored with brand green
+
+---
+
+### Tab 5 — Settings
+
+System-wide configuration managed by Owners and Admins.
+
+#### Breathwork Journeys
+
+The **Breathwork Journeys** card controls the options available in the "Journey Used" dropdown on session records. Adding, removing, or reordering entries here immediately updates all session forms.
 
 ---
 
@@ -1065,6 +1130,17 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 - `PORT` — server port (default 3001)
 - `CALENDLY_WEBHOOK_SIGNING_KEY` — HMAC signing key from Calendly webhook subscription; if blank, signature verification is skipped (dev mode only)
 - `ALLOWED_ORIGINS` — comma-separated CORS origins (default `http://localhost:5173`)
+- `FRONTEND_SECRET` — shared secret for `/pending` and `/acknowledge` endpoints; must match `VITE_FRONTEND_SECRET` in the frontend `.env`. Generate with `openssl rand -hex 32`.
+- `ADMIN_SECRET` — token required for debug endpoints (`GET/DELETE /api/calendly/events`). Pass as `x-admin-token` header.
+- `QUEUE_ENCRYPTION_KEY` — 32-byte hex key for AES-256-GCM encryption of `pending-events.json` at rest. Generate with `openssl rand -hex 32`. If blank, queue is stored as plaintext (dev mode only).
+
+**Backend Security Features:**
+- Rate limiting: 60 req/min on all `/api/` endpoints; 30 req/min on the webhook endpoint
+- Helmet middleware sets secure HTTP headers on every response
+- Request body size capped at 256 KB
+- Webhook HMAC-SHA256 signature verified with 5-minute timestamp replay protection
+- Queue file encrypted at rest with AES-256-GCM when `QUEUE_ENCRYPTION_KEY` is set
+- `/pending` and `/acknowledge` require `x-frontend-secret` header when `FRONTEND_SECRET` is set
 
 ### Supported Calendly Events
 
@@ -1103,6 +1179,7 @@ Each individual Calendly booking is stored as a `registration` record:
 | `concerns` | Health/emotional concerns from custom questions |
 | `reviewedContraindications` | Custom question answer |
 | `attendanceType` | Virtual or in-person |
+| `locationAddress` | Physical address of the studio/venue from Calendly |
 
 ### Calendly Bookings Sidebar Section
 **Navigation:** Sidebar → Calendly Bookings
@@ -1380,7 +1457,7 @@ All state is managed via React `useState` and `useMemo` in the root `App` compon
 ```js
 Sec.hashPin(pin)                          // SHA-256 PIN hash
 Sec.newSalt()                             // 16-byte random base64 salt
-Sec.deriveKey(pin, saltB64)               // PBKDF2 → AES-GCM CryptoKey
+Sec.deriveKey(pin, saltB64)               // PBKDF2 (600,000 iterations) → AES-GCM CryptoKey
 Sec.encrypt(data, key)                    // AES-256-GCM encrypt → base64
 Sec.decrypt(b64, key)                     // AES-256-GCM decrypt → object
 Sec.generateMasterKeyB64()                // Random 256-bit master key
@@ -1393,4 +1470,4 @@ Sec.validate(data)                        // Schema validation on load
 
 ---
 
-*Documentation updated June 2026 (v6.0). Simply Breathe OS is a living system — update this document as features are added.*
+*Documentation updated June 2026 (v7.0). Simply Breathe OS is a living system — update this document as features are added.*
