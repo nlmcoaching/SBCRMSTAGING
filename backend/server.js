@@ -92,11 +92,17 @@ const webhookLimiter = rateLimit({
 app.use("/api/webhooks/calendly", webhookLimiter);
 app.use("/api/", generalLimiter);
 
-// ── CORS: only allow the React dev server and production origin ──
+// ── CORS: only allow explicitly listed origins ──
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:5173").split(",");
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    // Require an Origin header in production; allow null-origin only in dev
+    // (Vite proxy and server-to-server calls don't send Origin in dev).
+    if (!origin) {
+      if (!isProd) return cb(null, true);
+      return cb(new Error("Origin header required"));
+    }
+    if (allowedOrigins.includes(origin)) return cb(null, true);
     cb(new Error("Not allowed by CORS"));
   },
 }));
@@ -187,7 +193,20 @@ function verifySignature(req) {
     return true;
   }
   const header = req.headers["calendly-webhook-signature"] || "";
-  const parts  = Object.fromEntries(header.split(",").map(p => p.split("=")));
+  // Parse with explicit limit-split and duplicate-key rejection to prevent
+  // crafted headers from manipulating the timestamp or signature fields.
+  const parts = {};
+  for (const segment of header.split(",")) {
+    const eqIdx = segment.indexOf("=");
+    if (eqIdx === -1) continue;
+    const key = segment.slice(0, eqIdx).trim();
+    const val = segment.slice(eqIdx + 1).trim();
+    if (parts[key] !== undefined) {
+      console.warn("[WARN] Duplicate key in Calendly-Webhook-Signature header — rejecting");
+      return false;
+    }
+    parts[key] = val;
+  }
   const { t, v1 } = parts;
   if (!t || !v1) return false;
 
@@ -285,6 +304,11 @@ async function fetchEventTypeDescription(eventTypeUri) {
     if (!res.ok) throw new Error(`Calendly API ${res.status}`);
     const data = await res.json();
     const desc = data.resource?.description_plain || data.resource?.description_html || "";
+    // Evict oldest entries if cache exceeds 500 to prevent unbounded growth
+    const cacheKeys = Object.keys(_eventTypeDescCache);
+    if (cacheKeys.length >= 500) {
+      cacheKeys.slice(0, 250).forEach(k => delete _eventTypeDescCache[k]);
+    }
     _eventTypeDescCache[eventTypeUri] = desc;
     console.log(`[OK] Fetched event type description for ${eventTypeUri.split("/").pop()}: "${desc.slice(0, 60)}${desc.length > 60 ? "…" : ""}"`);
     return desc;

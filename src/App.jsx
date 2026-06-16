@@ -1184,6 +1184,9 @@ function LockScreen({ onUnlock, error, initialising, users }) {
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // Detect legacy v1 account (unsalted SHA-256) needing upgrade
+  const needsV1Upgrade = !initialising && users.some(u => u.id === "v1_migration");
+
   // Auto-select if only one user
   useEffect(() => {
     if (!initialising && users.length === 1) setSelectedUser(users[0]);
@@ -1217,9 +1220,19 @@ function LockScreen({ onUnlock, error, initialising, users }) {
         <h1 style={{ fontFamily: FONT.display, fontSize: 21, fontWeight: 700, color: C.ink, margin: "0 0 4px" }}>
           Simply Breathe OS
         </h1>
-        <p style={{ fontSize: 13, color: C.ink3, margin: "0 0 28px" }}>
+        <p style={{ fontSize: 13, color: C.ink3, margin: needsV1Upgrade ? "0 0 12px" : "0 0 28px" }}>
           {initialising ? "Loading…" : selectedUser ? `Welcome back, ${selectedUser.name.split(" ")[0]}` : "Who's accessing today?"}
         </p>
+        {needsV1Upgrade && (
+          <div style={{
+            margin: "0 0 18px", padding: "10px 14px", borderRadius: 10,
+            background: "#fffbe6", border: "1.5px solid #f5c542",
+            fontSize: 12, color: "#7a5c00", textAlign: "left", lineHeight: 1.5,
+          }}>
+            <strong>Security upgrade required</strong><br />
+            Your account uses an older PIN format. Please log in to automatically upgrade to enhanced security (PBKDF2).
+          </div>
+        )}
 
         {initialising ? (
           <div style={{ fontSize: 13, color: C.ink3, padding: "20px 0" }}>Initialising security…</div>
@@ -1592,13 +1605,18 @@ export default function App() {
   };
 
   /* ── Calendly Sync ── */
-  const CALENDLY_BACKEND   = import.meta.env.VITE_CALENDLY_BACKEND || "";
+  const CALENDLY_BACKEND    = import.meta.env.VITE_CALENDLY_BACKEND || "";
+  // VITE_FRONTEND_SECRET is used when calling the backend directly (production builds
+  // or when not routed through the Vite proxy). The Vite dev proxy injects this
+  // header server-side; the env var is a fallback for production reverse-proxy setups.
+  const _frontendSecret     = import.meta.env.VITE_FRONTEND_SECRET || "";
+  const _calendlyHeaders    = () => _frontendSecret ? { "x-frontend-secret": _frontendSecret } : {};
 
   const syncCalendly = async () => {
     if (locked) return;
     setCalendlyStatus({ syncing: true });
     try {
-      const res = await fetch(`${CALENDLY_BACKEND}/api/calendly/pending`);
+      const res = await fetch(`${CALENDLY_BACKEND}/api/calendly/pending`, { headers: _calendlyHeaders() });
       if (!res.ok) throw new Error("Backend unavailable");
       const { events } = await res.json();
 
@@ -1894,7 +1912,7 @@ export default function App() {
       if (ids.length) {
         await fetch(`${CALENDLY_BACKEND}/api/calendly/acknowledge`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ..._calendlyHeaders() },
           body: JSON.stringify({ ids }),
         }).catch(() => {});
       }
@@ -1903,7 +1921,7 @@ export default function App() {
     } catch {
       // Backend not running or unreachable — check silently and surface pending count only
       try {
-        const res = await fetch(`${CALENDLY_BACKEND}/api/calendly/pending`);
+        const res = await fetch(`${CALENDLY_BACKEND}/api/calendly/pending`, { headers: _calendlyHeaders() });
         const { total } = await res.json();
         if (total > 0) setCalendlyStatus({ pending: total });
         else setCalendlyStatus(null);
