@@ -4229,8 +4229,7 @@ function cardChip(k, r, ctx) {
    CALENDAR (month)
    ============================================================ */
 function CalendarView({ rows, today, derived, data, onOpen }) {
-  const [cursor,    setCursor]    = useState(today.slice(0, 7));
-  const [infoPopup, setInfoPopup] = useState(null); // { id, text, x, y }
+  const [cursor, setCursor] = useState(today.slice(0, 7));
   const [y, m] = cursor.split("-").map(Number);
   const first = new Date(y, m - 1, 1);
   const startDow = first.getDay();
@@ -4285,8 +4284,7 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
   };
 
   return (
-    <div className="sb-card" style={{ padding: 16, display: "flex", flexDirection: "column", height: "calc(100vh - 160px)", minHeight: 480 }}
-      onClick={(e) => { if (infoPopup && !e.target.closest("[data-info-pill]")) setInfoPopup(null); }}>
+    <div className="sb-card" style={{ padding: 16, display: "flex", flexDirection: "column", height: "calc(100vh - 160px)", minHeight: 480 }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexShrink: 0 }}>
         <div style={{ fontFamily: FONT.display, fontSize: 17, fontWeight: 600 }}>{MONTHS[m - 1]} {y}</div>
@@ -4328,55 +4326,21 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
                 const studio = isStudio(s);
                 const spots = spotsLeft(s);
                 const almostFull = spots != null && spots <= 3;
-                const hasDesc = !studio && !!s.calendlyDescription;
-                const pillBg   = studio ? hexA(LANE.b2b.color, 0.15) : C.brandSoft;
-                const pillClr  = studio ? LANE.b2b.text : C.brandDeep;
-                const pillBdr  = studio ? `3px solid ${almostFull ? "#C0573F" : LANE.b2b.color}` : `3px solid ${C.brand}`;
-                const pillStyle = {
-                  fontSize: 10.5, fontWeight: 600, border: "none", borderRadius: 5,
-                  padding: "3px 5px", cursor: "pointer", textAlign: "left",
-                  width: "100%", background: pillBg, color: pillClr, borderLeft: pillBdr,
-                };
-                return hasDesc ? (
-                  <div key={s.id} style={{ ...pillStyle, display: "flex", alignItems: "center", gap: 2, position: "relative" }}>
-                    <span
-                      role="button" tabIndex={0}
-                      onClick={() => onOpen(s)}
-                      onKeyDown={e => e.key === "Enter" && onOpen(s)}
-                      title={pillTitle(s)}
-                      style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}>
-                      {pillLabel(s)}
-                    </span>
-                    <span
-                      role="button" tabIndex={0}
-                      title="Session description"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setInfoPopup(infoPopup?.id === s.id ? null : { id: s.id, text: s.calendlyDescription });
-                      }}
-                      onKeyDown={e => e.key === "Enter" && setInfoPopup(infoPopup?.id === s.id ? null : { id: s.id, text: s.calendlyDescription })}
-                      style={{ flexShrink: 0, cursor: "pointer", lineHeight: 1, fontSize: 10, opacity: 0.75, userSelect: "none" }}>
-                      ⓘ
-                    </span>
-                    {infoPopup?.id === s.id && (
-                      <div style={{
-                        position: "absolute", bottom: "calc(100% + 4px)", left: 0, zIndex: 200,
-                        background: C.ink, color: "#fff", borderRadius: 8, padding: "8px 10px",
-                        fontSize: 11.5, lineHeight: 1.55, width: 220, whiteSpace: "pre-wrap",
-                        boxShadow: "0 4px 16px rgba(0,0,0,0.25)",
-                        pointerEvents: "none",
-                      }}>
-                        {s.calendlyDescription}
-                      </div>
-                    )}
-                  </div>
-                ) : (
+                return (
                   <button key={s.id}
                     onClick={() => onOpen(s)}
                     title={pillTitle(s)}
-                    style={{ ...pillStyle, display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                    style={{
+                      fontSize: 10.5, fontWeight: 600, border: "none", borderRadius: 5,
+                      padding: "3px 5px", cursor: "pointer", textAlign: "left",
+                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                      width: "100%", display: "block",
+                      background: studio ? hexA(LANE.b2b.color, 0.15) : C.brandSoft,
+                      color: studio ? LANE.b2b.text : C.brandDeep,
+                      borderLeft: studio ? `3px solid ${almostFull ? "#C0573F" : LANE.b2b.color}` : `3px solid ${C.brand}`,
+                    }}
                     onMouseEnter={e => { e.currentTarget.style.background = studio ? LANE.b2b.color : C.brand; e.currentTarget.style.color = "#fff"; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = pillBg; e.currentTarget.style.color = pillClr; }}>
+                    onMouseLeave={e => { e.currentTarget.style.background = studio ? hexA(LANE.b2b.color, 0.15) : C.brandSoft; e.currentTarget.style.color = studio ? LANE.b2b.text : C.brandDeep; }}>
                     {pillLabel(s)}
                   </button>
                 );
@@ -4594,7 +4558,8 @@ function f(key, label, type, opts = {}) { return { key, label, type, ...opts }; 
 function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDelete, onOpenRelated, sequences, onStartSequence }) {
   const [draft, setDraft] = useState(record);
   const [tab, setTab] = useState("details");
-  useEffect(() => { setDraft(record); setTab("details"); }, [record]);
+  const [showDesc, setShowDesc] = useState(false);
+  useEffect(() => { setDraft(record); setTab("details"); setShowDesc(false); }, [record]);
   const fields = FIELDS[db];
   const titleField = fields.find((x) => x.title);
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
@@ -4650,8 +4615,31 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
               </div>
             );
           })()}
-          <input className="sb-titleinput" style={{ marginBottom: 10 }} value={draft[titleField.key] || ""} placeholder="Untitled"
-            onChange={(e) => set(titleField.key, e.target.value)} />
+          <div style={{ position: "relative", marginBottom: 10 }}>
+            <input className="sb-titleinput" style={{ width: "100%", paddingRight: draft.calendlyDescription ? 28 : undefined }}
+              value={draft[titleField.key] || ""} placeholder="Untitled"
+              onChange={(e) => set(titleField.key, e.target.value)} />
+            {db === "sessions" && draft.calendlyDescription && (
+              <button onClick={() => setShowDesc(d => !d)}
+                title="View Calendly session description"
+                style={{
+                  position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)",
+                  background: "none", border: "none", cursor: "pointer", padding: 2,
+                  color: showDesc ? C.brand : C.ink3, fontSize: 15, lineHeight: 1,
+                }}>ⓘ</button>
+            )}
+            {db === "sessions" && draft.calendlyDescription && showDesc && (
+              <div style={{
+                position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, zIndex: 50,
+                background: C.surface, border: `1px solid ${C.brand}`, borderRadius: 10,
+                padding: "10px 14px", fontSize: 13, color: C.ink, lineHeight: 1.6,
+                whiteSpace: "pre-wrap", boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.brand, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Calendly Description</div>
+                {draft.calendlyDescription}
+              </div>
+            )}
+          </div>
           {(hasTimeline || hasSessionTabs) && (
             <div style={{ display: "flex", gap: 2 }}>
               {(hasSessionTabs ? [
