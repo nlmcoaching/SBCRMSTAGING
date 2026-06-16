@@ -4719,8 +4719,25 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                         ...baseFields.filter(x => x.key !== "date" && x.key !== "time"),
                       ]
                     : baseFields;
+                  const sessionClient = isVirtual
+                    ? (() => {
+                        const reg = (data.registrations || []).find(r => r.sessionId === draft.id && r.status !== "canceled");
+                        return reg ? (data.clients || []).find(c => c.id === reg.clientId) : null;
+                      })()
+                    : null;
                   return (
                     <div className="sb-fields">
+                      {isVirtual && sessionClient && (
+                        <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 10, background: C.surfaceAlt, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 14px" }}>
+                          <div style={{ width: 34, height: 34, borderRadius: "50%", background: C.brand, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: "#fff", flexShrink: 0 }}>
+                            {sessionClient.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{cleanName(sessionClient.name)}</div>
+                            {sessionClient.email && <div style={{ fontSize: 12, color: C.ink3 }}>{sessionClient.email}</div>}
+                          </div>
+                        </div>
+                      )}
                       {visibleFields.map((fld) => (
                         <>
                           <FieldInput key={fld.key} fld={fld} value={draft[fld.key]} onChange={(v) => set(fld.key, v)} data={data} />
