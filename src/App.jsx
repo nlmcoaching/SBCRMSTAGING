@@ -4650,7 +4650,7 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
           {(hasTimeline || hasSessionTabs) && (
             <div style={{ display: "flex", gap: 2 }}>
               {(hasSessionTabs ? [
-                ["details", "Details & Edit"],
+                ["details", "Session Details"],
                 ["bookings", "Bookings"],
                 ["equipment", "Equipment Setup"],
                 ["checklist", "Run Checklist"],
