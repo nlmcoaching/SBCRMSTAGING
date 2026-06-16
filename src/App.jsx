@@ -1723,6 +1723,7 @@ export default function App() {
                   studioId: existingSession.studioId || resolvedStudioId,
                   locationJoinUrl: zoomUrl || existingSession.locationJoinUrl,
                   calendlyDescription: existingSession.calendlyDescription || evt.description || "",
+                  locationAddress: existingSession.locationAddress || evt.locationAddress || "",
                   notes: notesNeedZoom
                     ? (existingNotes ? `${existingNotes}\nZoom link: ${zoomUrl}` : `Virtual — booked via Calendly\nZoom link: ${zoomUrl}`)
                     : existingNotes,
@@ -1755,6 +1756,7 @@ export default function App() {
                   calendlyEventUri: evt.calendlyEventUri,
                   locationType: evt.locationType,
                   locationJoinUrl: evt.locationJoinUrl,
+                  locationAddress: evt.locationAddress || "",
                   checklist: emptySessionChecklist(),
                   equipChecklist: emptyEquipChecklist(),
                 };
@@ -2363,7 +2365,7 @@ function newRecord(db) {
   const m = {
     clients: { name: "", phone: "", email: "", source: "Post-session", status: "Lead", clientType: "First-time attendee", tags: [], firstSession: "", sessionsAttended: 0, lastSession: "", nextSession: "", packageType: "None", lifetimeValue: 0, notes: "", referral: "Low" },
     partners: { name: "", studioType: "Yoga", location: "", contact: "", role: "Owner", email: "", phone: "", stage: "Target identified", estimatedCommunitySize: 0, bestFitJourney: "", revenuePotential: 0, closeProbability: "Low", revShare: "", contractStatus: "None", outreachDate: "", lastTouch: todayISO(), nextAction: "", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "", checklist: emptyChecklist() },
-    sessions: { name: "", studioId: "", date: todayISO(), time: "", status: "Planned", journey: "Breathwork Basics", capacity: 20, registered: 0, attendance: 0, paidAttendees: 0, waivers: 0, noShows: 0, revenue: 0, studioSplit: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, equipmentNeeded: "", roomSetupStatus: "Not started", musicSetupStatus: "Not started", testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false, referralsRequested: false, breakthroughNoted: false, notes: "", calendlyEventUri: "", locationType: "", locationJoinUrl: "", checklist: emptySessionChecklist(), equipChecklist: emptyEquipChecklist() },
+    sessions: { name: "", studioId: "", date: todayISO(), time: "", status: "Planned", journey: "Breathwork Basics", capacity: 20, registered: 0, attendance: 0, paidAttendees: 0, waivers: 0, noShows: 0, revenue: 0, studioSplit: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, equipmentNeeded: "", roomSetupStatus: "Not started", musicSetupStatus: "Not started", testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false, referralsRequested: false, breakthroughNoted: false, notes: "", calendlyEventUri: "", locationType: "", locationJoinUrl: "", locationAddress: "", checklist: emptySessionChecklist(), equipChecklist: emptyEquipChecklist() },
     offers:    { name: "", clientId: "", offerType: "Single session", price: 0, status: "Drafted", probability: "50%", source: "", dateOffered: todayISO(), expireDate: "", followUpDate: "", notes: "", reasonLost: "" },
     revenue:   { name: "", date: todayISO(), channel: "Studio session", source: "", campaign: "", sessionId: "", clientId: "", gross: 0, stripeFee: 0, studioSplit: 0, facilitatorCost: 0, refunds: 0, costCenter: "Studio sessions", notes: "" },
     content: { name: "", category: "Breathwork education", status: "Idea", platform: "Instagram", scheduledDate: "", datePosted: "", body: "", cta: "Book a session", sessionId: "", partnerId: "", reused: false, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0, engagement: 0, leads: 0, booked: 0, revenue: 0, notes: "" },
@@ -4407,6 +4409,10 @@ const FIELDS = {
     f("equipmentNeeded", "Equipment needed", "textarea"),
     f("breakthroughNoted", "Breakthrough noted?", "checkbox"),
     f("notes", "Session notes", "textarea"),
+    f("locationAddress", "Studio Address", "text"),
+    f("locationType",   "Location Type", "select", { options: ["zoom", "physical", "custom", "phone", "other"] }),
+    f("locationJoinUrl","Zoom / Join URL", "text"),
+    f("calendlyEventUri", "Calendly Event URI", "text"),
   ],
   offers: [
     f("name", "Offer", "text", { title: true }), f("clientId", "Client", "relation", { target: "clients" }),
