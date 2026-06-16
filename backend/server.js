@@ -68,6 +68,9 @@ const path       = require("path");
   }
 })();
 
+// Module-level — used in CORS handler and other guards
+const isProd = process.env.NODE_ENV === "production";
+
 const app  = express();
 const PORT = process.env.PORT || 3001;
 
@@ -403,6 +406,7 @@ app.get("/api/calendly/pending", requireFrontendSecret, (_req, res) => {
 app.post("/api/calendly/acknowledge", requireFrontendSecret, (req, res) => {
   const { ids } = req.body;
   if (!Array.isArray(ids)) return res.status(400).json({ error: "ids must be an array" });
+  if (ids.length > 500) return res.status(400).json({ error: "Too many ids — max 500 per request" });
 
   const queue   = readQueue();
   const updated = queue.map(e => ids.includes(e.id) ? { ...e, processed: true, processedAt: new Date().toISOString() } : e);

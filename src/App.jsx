@@ -1628,11 +1628,10 @@ export default function App() {
 
   /* ── Calendly Sync ── */
   const CALENDLY_BACKEND    = import.meta.env.VITE_CALENDLY_BACKEND || "";
-  // VITE_FRONTEND_SECRET is used when calling the backend directly (production builds
-  // or when not routed through the Vite proxy). The Vite dev proxy injects this
-  // header server-side; the env var is a fallback for production reverse-proxy setups.
-  const _frontendSecret     = import.meta.env.VITE_FRONTEND_SECRET || "";
-  const _calendlyHeaders    = () => _frontendSecret ? { "x-frontend-secret": _frontendSecret } : {};
+  // x-frontend-secret is injected by the Vite proxy in dev and by the production
+  // reverse proxy (Nginx/Caddy) at the network layer — never via VITE_* env vars,
+  // as those are baked into the public JS bundle.
+  const _calendlyHeaders    = () => ({});
 
   const syncCalendly = async () => {
     if (locked) return;
