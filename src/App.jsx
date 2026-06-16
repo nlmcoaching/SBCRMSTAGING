@@ -4731,7 +4731,8 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                   const visibleFields = (isVirtual || isStudioSession)
                     ? [
                         ...baseFields.filter(x => topKeys.includes(x.key)),
-                        ...baseFields.filter(x => !topKeys.includes(x.key)),
+                        ...(isVirtual ? baseFields.filter(x => x.key === "notes") : []),
+                        ...baseFields.filter(x => !topKeys.includes(x.key) && !(isVirtual && x.key === "notes")),
                       ]
                     : baseFields;
                   const sessionClient = isVirtual
