@@ -1640,6 +1640,7 @@ export default function App() {
           const isVirtualSession = !updated.studioId && (updated.locationType === "zoom" || updated.locationType === "custom" || !updated.locationType);
           if (isVirtualSession && s.capacity !== 1) { updated.capacity = 1; changed = true; }
 
+
           if (changed) sessions[i] = updated;
         });
 
@@ -1667,8 +1668,11 @@ export default function App() {
             // 1. Create or update client by email
             const emailNorm = (evt.email || "").toLowerCase();
             let client = clients.find(c => (c.email || "").toLowerCase() === emailNorm);
-            const sessionDate = evt.startTime ? evt.startTime.slice(0, 10) : "";
-            const sessionTime = evt.startTime ? new Date(evt.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
+            const _startDt = evt.startTime ? new Date(evt.startTime) : null;
+            const sessionDate = _startDt
+              ? `${_startDt.getFullYear()}-${String(_startDt.getMonth() + 1).padStart(2, "0")}-${String(_startDt.getDate()).padStart(2, "0")}`
+              : "";
+            const sessionTime = _startDt ? _startDt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
             const durationMins = (evt.startTime && evt.endTime)
               ? Math.round((new Date(evt.endTime) - new Date(evt.startTime)) / 60000)
               : 0;
@@ -4598,7 +4602,7 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
   const [tab, setTab] = useState("details");
   const [showDesc, setShowDesc] = useState(false);
   useEffect(() => { setDraft(record); setTab("details"); setShowDesc(false); }, [record]);
-  const isVirtualDrawer = db === "sessions" && !record.studioId && (record.locationType === "zoom" || record.locationType === "custom" || !record.locationType);
+  const isVirtualDrawer = db === "sessions";
   const fields = FIELDS[db];
   const titleField = fields.find((x) => x.title);
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));

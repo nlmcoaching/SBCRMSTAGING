@@ -241,11 +241,38 @@ function extractEvent(event, payload) {
   };
 }
 
+// ── Calendly event-type description cache (in-memory, per-process) ──
+const _eventTypeDescCache = {};
+
+async function fetchEventTypeDescription(eventTypeUri) {
+  if (!eventTypeUri) return "";
+  if (_eventTypeDescCache[eventTypeUri] !== undefined) return _eventTypeDescCache[eventTypeUri];
+
+  const token = process.env.CALENDLY_API_TOKEN;
+  if (!token) return "";
+
+  try {
+    const res = await fetch(eventTypeUri, {
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    });
+    if (!res.ok) throw new Error(`Calendly API ${res.status}`);
+    const data = await res.json();
+    const desc = data.resource?.description_plain || data.resource?.description_html || "";
+    _eventTypeDescCache[eventTypeUri] = desc;
+    console.log(`[OK] Fetched event type description for ${eventTypeUri.split("/").pop()}: "${desc.slice(0, 60)}${desc.length > 60 ? "…" : ""}"`);
+    return desc;
+  } catch (err) {
+    console.warn(`[WARN] Could not fetch event type description: ${err.message}`);
+    _eventTypeDescCache[eventTypeUri] = ""; // cache miss so we don't retry on every webhook
+    return "";
+  }
+}
+
 // ────────────────────────────────────────────────────────────────
 // POST /api/webhooks/calendly
 // Receives all Calendly webhook events, verifies signature, queues
 // ────────────────────────────────────────────────────────────────
-app.post("/api/webhooks/calendly", (req, res) => {
+app.post("/api/webhooks/calendly", async (req, res) => {
   // Signature check
   if (!verifySignature(req)) {
     console.warn("[WARN] Invalid Calendly signature — rejected");
@@ -274,6 +301,12 @@ app.post("/api/webhooks/calendly", (req, res) => {
   if (!extracted.email && event !== "routing_form_submission") {
     console.warn("[WARN] Event has no email — skipping");
     return res.status(200).json({ status: "skipped", reason: "no email" });
+  }
+
+  // Enrich with event type description from Calendly API (cached per event type)
+  const eventTypeUri = payload.scheduled_event?.event_type;
+  if (eventTypeUri) {
+    extracted.description = await fetchEventTypeDescription(eventTypeUri) || extracted.description;
   }
 
   const queue = readQueue();
