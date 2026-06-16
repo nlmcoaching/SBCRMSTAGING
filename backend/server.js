@@ -19,6 +19,55 @@ const rateLimit  = require("express-rate-limit");
 const fs         = require("fs");
 const path       = require("path");
 
+// ── Startup configuration validation ──
+// In production: missing critical secrets = hard fail (exit 1).
+// In dev: loud warnings so the developer knows what's missing.
+(function validateConfig() {
+  const isProd = process.env.NODE_ENV === "production";
+  const checks = [
+    {
+      key: "CALENDLY_WEBHOOK_SIGNING_KEY",
+      desc: "Calendly HMAC signing key — without this ALL incoming webhooks are accepted without verification",
+      critical: true,
+    },
+    {
+      key: "QUEUE_ENCRYPTION_KEY",
+      desc: "AES-256 key for queue file encryption — without this booking PII is stored in plaintext on disk",
+      critical: true,
+    },
+    {
+      key: "FRONTEND_SECRET",
+      desc: "Shared secret for /pending and /acknowledge endpoints — without this they are open to any caller",
+      critical: false,
+    },
+    {
+      key: "ADMIN_SECRET",
+      desc: "Token for admin debug endpoints — without this those endpoints are disabled",
+      critical: false,
+    },
+  ];
+
+  const missing = checks.filter(({ key }) => !process.env[key]);
+  if (!missing.length) return;
+
+  missing.forEach(({ key, desc }) => {
+    console.error(`[${isProd && checks.find(c => c.key === key)?.critical ? "FATAL" : "WARN"}] Missing env var: ${key}`);
+    console.error(`       ${desc}`);
+  });
+
+  const criticalMissing = missing.filter(c => c.critical);
+  if (isProd && criticalMissing.length) {
+    console.error("\n[FATAL] Cannot start in production with missing critical secrets.");
+    console.error("        Set CALENDLY_WEBHOOK_SIGNING_KEY and QUEUE_ENCRYPTION_KEY in your .env file.");
+    process.exit(1);
+  }
+
+  if (!isProd && missing.length) {
+    console.warn("\n[WARN]  Running in dev mode with missing secrets.");
+    console.warn("        DO NOT deploy to production without setting all required env vars.\n");
+  }
+})();
+
 const app  = express();
 const PORT = process.env.PORT || 3001;
 

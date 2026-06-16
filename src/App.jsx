@@ -1327,7 +1327,13 @@ export default function App() {
   const [masterKeyRaw, setMasterKeyRaw] = useState(null); // raw b64 for user mgmt
   const [currentUser,  setCurrentUser]  = useState(null); // logged-in user object
   const [pinError,     setPinError]    = useState("");
-  const [pinAttempts,  setPinAttempts]  = useState({});   // { userId: { count, lockedUntil } }
+  const PIN_LOCKOUT_KEY = "sb:pin-lockout:v1";
+  const [pinAttempts,  setPinAttempts]  = useState(() => {
+    try { return JSON.parse(localStorage.getItem("sb:pin-lockout:v1") || "{}"); } catch { return {}; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(PIN_LOCKOUT_KEY, JSON.stringify(pinAttempts)); } catch {}
+  }, [pinAttempts]);
   const [initialising, setInitialising] = useState(true);
   const [secUsers,     setSecUsers]    = useState([]);    // loaded from SEC_META_KEY
 
@@ -1639,7 +1645,24 @@ export default function App() {
 
         if (!events.length) return { ...next, sessions, partners };
 
-        events.forEach(evt => {
+        events.forEach(rawEvt => {
+          // Sanitize all string fields from external webhook data before use
+          const san = (v) => Sec.sanitize(v);
+          const evt = {
+            ...rawEvt,
+            name:            san(rawEvt.name),
+            email:           san(rawEvt.email),
+            phone:           san(rawEvt.phone),
+            eventName:       san(rawEvt.eventName),
+            description:     san(rawEvt.description),
+            locationAddress: san(rawEvt.locationAddress),
+            howHeard:        san(rawEvt.howHeard),
+            referredBy:      san(rawEvt.referredBy),
+            concerns:        san(rawEvt.concerns),
+            cancelReason:    san(rawEvt.cancelReason),
+            // locationJoinUrl validated separately by https:// check before use
+          };
+
           if (evt.eventType === "invitee.created") {
             // 1. Create or update client by email
             const emailNorm = (evt.email || "").toLowerCase();
@@ -3665,7 +3688,7 @@ const VIEWS = {
           col("referral", "Referral", (r) => <Tag color={REFERRAL_COLOR[r.referral]} soft>{r.referral}</Tag>),
           col("lifetimeValue", "LTV", (r) => money(r.lifetimeValue), { align: "right" }),
         ],
-        run: (rows) => ({ rows }) },
+        run: (rows) => ({ rows: [...rows].sort((a, b) => (a.name || "").toLowerCase().localeCompare((b.name || "").toLowerCase())) }) },
     ],
   },
   partners: {
@@ -4365,15 +4388,19 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
    ============================================================ */
 const FIELDS = {
   clients: [
-    f("name", "Name", "text", { title: true }), f("status", "Status", "select", { options: () => getS().clientStatuses }),
-    f("clientType", "Client type", "select", { options: () => getS().clientTypes }),
-    f("source", "Source", "select", { options: () => getS().sources }), f("referral", "Referral potential", "select", { options: () => getS().referralLevels }),
+    f("name", "Name", "text", { title: true }),
     f("phone", "Phone", "phone"), f("email", "Email", "email"),
-    f("packageType", "Package type", "select", { options: () => getS().packageTypes }), f("sessionsAttended", "Sessions attended", "number"),
+    f("sessionsAttended", "Sessions attended", "number"),
     f("firstSession", "First session", "date"), f("lastSession", "Last session", "date"),
-    f("nextSession", "Next session", "date"), f("lifetimeValue", "Lifetime value", "currency"),
-    f("tags", "Intent tags", "multiselect", { options: INTENT_TAGS, colorMap: TAG_COLOR }),
+    f("nextSession", "Next session", "date"),
     f("notes", "Emotional notes", "textarea"),
+    f("lifetimeValue", "Lifetime value", "currency"),
+    f("status", "Status", "select", { options: () => getS().clientStatuses }),
+    f("clientType", "Client type", "select", { options: () => getS().clientTypes }),
+    f("source", "Source", "select", { options: () => getS().sources }),
+    f("referral", "Referral potential", "select", { options: () => getS().referralLevels }),
+    f("packageType", "Package type", "select", { options: () => getS().packageTypes }),
+    f("tags", "Intent tags", "multiselect", { options: INTENT_TAGS, colorMap: TAG_COLOR }),
   ],
   partners: [
     f("name", "Studio name", "text", { title: true }), f("stage", "Pipeline stage", "select", { options: STAGE }),
@@ -4661,7 +4688,7 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                 ["checklist", "Run Checklist"],
                 ["performance", "Performance"],
               ] : [
-                ["details", "Details & Edit"],
+                ["details", "Details"],
                 ...(hasChecklist ? [["checklist", "Launch Checklist"]] : []),
                 ["timeline", "Contact Timeline"],
               ]).map(([t, label]) => {
