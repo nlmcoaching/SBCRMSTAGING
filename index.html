@@ -2,6 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- CSP NOTE: connect-src 'self' assumes the backend is proxied to the same origin
+         as the frontend (e.g. Nginx proxies /api/* to the Node backend). If you serve
+         the frontend and backend on different origins, add the backend URL here:
+         connect-src 'self' https://your-backend-domain.com -->
     <meta http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self';" />
     <meta http-equiv="X-Content-Type-Options" content="nosniff" />

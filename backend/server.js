@@ -142,17 +142,24 @@ function _encryptQueue(plaintext) {
 function _decryptQueue(stored) {
   const key = _queueKey();
   if (!key) return stored; // no key → treat as plaintext
+
+  // Check format first: if not base64 or too short, it is an old plaintext file — safe to use.
+  // Minimum encrypted size: iv(12) + tag(16) + 1 byte payload = 29 bytes → base64 >= 40 chars.
+  let buf;
+  try { buf = Buffer.from(stored, "base64"); } catch { return stored; }
+  if (buf.length < 29) return stored; // clearly not our encrypted format → old plaintext migration
+
+  // Crypto errors (including GCM auth-tag mismatch) mean possible tampering — fail closed.
   try {
-    const buf    = Buffer.from(stored, "base64");
-    const iv     = buf.slice(0, 12);
-    const tag    = buf.slice(12, 28);
-    const enc    = buf.slice(28);
+    const iv       = buf.slice(0, 12);
+    const tag      = buf.slice(12, 28);
+    const enc      = buf.slice(28);
     const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(enc), decipher.final()]).toString("utf8");
-  } catch {
-    // Fallback: assume file was stored as plaintext (migration from unencrypted)
-    return stored;
+  } catch (err) {
+    console.error("[ERROR] Queue file failed GCM authentication — possible tampering:", err.message);
+    throw err; // readQueue() catches this and returns [] — do NOT fall back to raw content
   }
 }
 
@@ -187,6 +194,18 @@ function writeQueue(events) {
   const pruned = _pruneQueue(events);
   const json = JSON.stringify(pruned, null, 2);
   fs.writeFileSync(QUEUE_FILE, _encryptQueue(json), "utf8");
+}
+
+// ── In-process async mutex for queue file access ──
+// Serialises all read-modify-write operations to prevent concurrent webhook
+// bursts from overwriting each other (lost update / event loss).
+let _queueLock = Promise.resolve();
+function withQueueLock(fn) {
+  const next = _queueLock.then(fn).catch((err) => {
+    console.error("[ERROR] Queue lock operation failed:", err.message);
+  });
+  _queueLock = next;
+  return next;
 }
 
 // ── Calendly HMAC-SHA256 signature verification ──
@@ -366,11 +385,13 @@ app.post("/api/webhooks/calendly", async (req, res) => {
     extracted.description = await fetchEventTypeDescription(eventTypeUri) || extracted.description;
   }
 
-  const queue = readQueue();
-  queue.push(extracted);
-  writeQueue(queue);
+  await withQueueLock(() => {
+    const queue = readQueue();
+    queue.push(extracted);
+    writeQueue(queue);
+    console.log(`[OK] Queued ${event} for ${extracted.email || "(no email)"} — queue length: ${queue.length}`);
+  });
 
-  console.log(`[OK] Queued ${event} for ${extracted.email || "(no email)"} — queue length: ${queue.length}`);
   res.status(200).json({ status: "queued", id: extracted.id });
 });
 
@@ -403,14 +424,16 @@ app.get("/api/calendly/pending", requireFrontendSecret, (_req, res) => {
 // React CRM calls this after processing events so they're not re-sent
 // Body: { ids: ["evt_...", "evt_..."] }
 // ────────────────────────────────────────────────────────────────
-app.post("/api/calendly/acknowledge", requireFrontendSecret, (req, res) => {
+app.post("/api/calendly/acknowledge", requireFrontendSecret, async (req, res) => {
   const { ids } = req.body;
   if (!Array.isArray(ids)) return res.status(400).json({ error: "ids must be an array" });
   if (ids.length > 500) return res.status(400).json({ error: "Too many ids — max 500 per request" });
 
-  const queue   = readQueue();
-  const updated = queue.map(e => ids.includes(e.id) ? { ...e, processed: true, processedAt: new Date().toISOString() } : e);
-  writeQueue(updated);
+  await withQueueLock(() => {
+    const queue   = readQueue();
+    const updated = queue.map(e => ids.includes(e.id) ? { ...e, processed: true, processedAt: new Date().toISOString() } : e);
+    writeQueue(updated);
+  });
 
   console.log(`[OK] Acknowledged ${ids.length} event(s)`);
   res.json({ acknowledged: ids.length });
