@@ -4713,7 +4713,12 @@ function RecordDrawer({ db, record, data, derived, today, onClose, onSave, onDel
                   const isVirtual = db === "sessions" && !draft.studioId && (draft.locationType === "zoom" || draft.locationType === "custom" || !draft.locationType);
                   const zoomUrl = draft.locationJoinUrl;
                   const baseFields = fields.filter((x) => !x.title && !(isVirtual && x.key === "studioId"));
-                  const visibleFields = baseFields;
+                  const visibleFields = isVirtual
+                    ? [
+                        ...baseFields.filter(x => x.key === "date" || x.key === "time"),
+                        ...baseFields.filter(x => x.key !== "date" && x.key !== "time"),
+                      ]
+                    : baseFields;
                   return (
                     <div className="sb-fields">
                       {visibleFields.map((fld) => (
