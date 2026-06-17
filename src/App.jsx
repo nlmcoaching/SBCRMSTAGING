@@ -5128,26 +5128,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
               </>
             )}
           {/* Email history — shown on clients and partners */}
-          {db === "partners" && (draft.emailHistory || []).length > 0 && (
-            <div style={{ marginTop: 20, padding: "0 0 4px" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: C.ink3, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                <Send size={11} /> Emails Sent from CRM
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {[...(draft.emailHistory || [])].reverse().map(entry => (
-                  <div key={entry.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: C.surfaceAlt, borderRadius: 8, border: `1px solid ${C.line}`, fontSize: 12.5 }}>
-                    <Send size={12} color={C.brand} style={{ flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ fontWeight: 600, color: C.ink }}>{entry.templateName}</span>
-                      <span style={{ color: C.ink3 }}> → {entry.to}</span>
-                    </div>
-                    <span style={{ color: C.ink3, whiteSpace: "nowrap", flexShrink: 0 }}>
-                      {new Date(entry.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
+          {/* Email history lives in the Contact Timeline tab for both clients and partners */}
           )}
         </div>
 
