@@ -4530,7 +4530,6 @@ const FIELDS = {
   ],
   partners: [
     f("name", "Studio name", "text", { title: true }),
-    f("studioType", "Studio type", "tagselector", { options: STUDIO_TYPE }),
     f("location", "Location", "text", { wide: true }),
     f("contact", "Contact name", "text"),
     f("role", "Role", "select", { options: ["Owner", "Manager", "Director", "GM", "Instructor"] }),
@@ -4538,6 +4537,7 @@ const FIELDS = {
     f("estimatedCommunitySize", "Est. community size", "number"),
     f("bestFitJourney", "Best-fit journey", "text"),
     f("revenuePotential", "Revenue potential", "currency"),
+    f("studioType", "Studio type", "tagselector", { options: STUDIO_TYPE }),
     f("closeProbability", "Close probability", "select", { options: CLOSE_PROB }),
     f("stage", "Pipeline stage", "select", { options: STAGE }),
     f("revShare", "Revenue share model", "text"),
