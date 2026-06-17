@@ -4,7 +4,7 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import {
   LayoutGrid, Users, Building2, CalendarDays, DollarSign, Megaphone,
   RefreshCw, Plus, X, Search, Upload, Download, Trash2, ChevronLeft,
-  ChevronRight, Menu, Phone, Mail, Link2, Wind, ArrowUpRight, Check,
+  ChevronRight, ChevronDown, Menu, Phone, Mail, Link2, Wind, ArrowUpRight, Check,
   Zap, Copy, Clock, TrendingUp, BarChart2, AlertCircle, Activity, Send, Info, BellRing, Milestone,
   LogOut, UserCircle, Shield, KeyRound, Receipt, ClipboardList, FileSignature, CalendarCheck, CheckCircle, Save,
 } from "lucide-react";
@@ -4532,7 +4532,7 @@ const FIELDS = {
     f("name", "Studio name", "text", { title: true }),
     f("location", "Location", "text", { wide: true }),
     f("contact", "Contact name", "text"),
-    f("role", "Role", "select", { options: ["Owner", "Manager", "Director", "GM", "Instructor"] }),
+    f("role", "Role", "dropdown", { options: ["Owner", "Manager", "Director", "GM", "Instructor"] }),
     f("email", "Email", "email"), f("phone", "Phone", "phone"),
     f("estimatedCommunitySize", "Est. community size", "number"),
     f("bestFitJourney", "Best-fit journey", "text"),
@@ -7006,7 +7006,28 @@ function FieldInput({ fld, value, onChange, data }) {
   const { type } = fld;
   const resolvedOptions = typeof fld.options === "function" ? fld.options() : (fld.options || []);
   let control;
-  if (type === "select") {
+  if (type === "dropdown") {
+    control = (
+      <div style={{ position: "relative" }}>
+        <select
+          value={value || ""}
+          onChange={e => onChange(e.target.value)}
+          style={{
+            width: "100%", appearance: "none", WebkitAppearance: "none",
+            padding: "8px 34px 8px 12px", borderRadius: 9,
+            border: `1px solid ${C.line}`, background: C.surface,
+            fontSize: 13.5, color: value ? C.ink : C.ink3,
+            cursor: "pointer", outline: "none",
+            boxShadow: "0 1px 3px rgba(0,0,0,.04)",
+          }}
+        >
+          <option value="">— select —</option>
+          {resolvedOptions.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+        <ChevronDown size={14} color={C.ink3} style={{ position: "absolute", right: 11, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+      </div>
+    );
+  } else if (type === "select") {
     control = (
       <div className="sb-chiprow">
         {resolvedOptions.map((o) => {
