@@ -1,6 +1,6 @@
 # Simply Breathe OS — User Guide
 
-> **Version:** 9.1 (June 2026)
+> **Version:** 9.2 (June 2026)
 > **Your daily operating system for a thriving breathwork practice.**
 > This guide is written for anyone using the CRM day-to-day — no technical background needed.
 
@@ -57,7 +57,7 @@ If more than one person uses the system, you'll see a tile for each user. Tap or
 **Step 2 — Enter your PIN**
 Type your PIN in the box and press Enter (or tap the arrow button).
 
-If your PIN is correct, you'll go straight to your dashboard. If you forget your PIN, an Owner or Admin can reset it for you in User Management.
+If your PIN is correct, you'll go straight to the **Today — Command Center** dashboard. This happens every time you log in, so your daily action list is always the first thing you see. If you forget your PIN, an Owner or Admin can reset it for you in User Management.
 
 > **Note:** Your PIN protects your data. Don't share it with others.
 
@@ -580,6 +580,49 @@ The **Message Queue** tab shows every pending follow-up across all active sequen
 
 Overdue follow-ups are flagged in the Smart Alerts on the dashboard.
 
+Each item in the queue has a **Send Email** button. Clicking it opens an inline compose area:
+
+1. Choose a template from the dropdown — all templates from your **Template Library** plus the Follow-Up Engine's own sequence templates are listed.
+2. The subject and body are pre-filled and interpolated with the client's name and session details.
+3. Edit the body if needed, then click **Send Email** to dispatch immediately.
+4. The step is marked complete and logged to the client's timeline.
+
+### Message Templates Tab — Managing Sequence Templates
+
+On the **Message Templates** tab of the Follow-Up Engine, each template has three buttons:
+
+| Button | What it does |
+|---|---|
+| **Email** | Opens a compose window — search for a recipient (client or studio partner), review the pre-filled message, and send. |
+| **Edit** | Edit the template body inline. Your changes are saved as a personal override. A "Reset to default" link restores the original. |
+| **Add Template** | Create a new custom message template from scratch — give it a name and write the body. |
+
+Custom templates you've added also have a **Delete** button to remove them.
+
+---
+
+## Sending Emails from the Follow-Ups Section
+
+**Navigate to:** Sidebar → Follow-Ups → Due Today or All Follow-Ups
+
+The **Due Today** and **All Follow-Ups** tabs both show your follow-up items as a table. Each row has a **Send Email** button on the right.
+
+**How to send an email from a follow-up:**
+
+1. Click **Send Email** on any follow-up item.
+2. A compose window opens showing the client's name and email.
+3. Pick a template from the dropdown — your full Template Library and the Follow-Up Engine sequence templates are both listed.
+4. The subject and body are pre-filled. Edit them freely before sending.
+5. Click **Send Email** to dispatch.
+
+**After sending:**
+- The compose window closes automatically after a brief "✓ Sent!" confirmation (~1 second).
+- The **Send Email** button is replaced by a green **"✓ Email sent"** badge.
+- The follow-up item is marked as completed in `data.followups`.
+- The email is logged to the client's Contact Timeline and the Admin → Email Logs tab.
+
+> **Tip:** Items you've emailed stay visible in the **Due Today** list with the green badge so you can see at a glance what's been handled vs what's still pending.
+
 ---
 
 ## Outreach Hub
@@ -729,19 +772,22 @@ Templates save you from writing the same messages over and over. The system come
 Each template card has three equal-width buttons:
 
 - **Copy** — Copies the raw template text (with unfilled `{{placeholders}}`) to your clipboard instantly.
-- **Email** — Opens the Email Compose modal (see below) where a recipient is selected and variables are auto-populated.
+- **Email** — Opens the Email Compose modal (see below) where a recipient is selected, variables are auto-populated, and you can send directly from the CRM.
 - **Edit** — Opens the full edit drawer to change the name, subject, body, notes, variables, category, and channel. The message body field is extra tall so you can read the full message without scrolling.
 
-### Email Compose Modal (Auto-Populate Variables)
+### Email Compose Modal — Sending Directly from the CRM
 
-Clicking **Email** is the fastest way to prepare a message:
+Clicking **Email** opens a compose window that sends the email without leaving Simply Breathe OS:
 
 1. A search box appears — type a client or studio partner name.
-2. Select the recipient from the dropdown.
+2. Select the recipient from the dropdown. For studio partners, the **Send To** field shows the contact person's name (e.g. "Mary Smith"), not the studio name.
 3. The system automatically fills in every variable it can from their record — things like their name, email, studio name, contact name, location, revenue split, and your own first name.
 4. Any variables that can't be auto-filled (like `{{bookingLink}}` or `{{proposedDate}}`) appear as text fields below the search so you can fill them in manually. These fields stay visible while you type.
-5. A live preview shows the complete, personalized message as you go.
-6. Click **Copy message** to copy the fully populated text, then paste it into your email app.
+5. A live preview shows the complete, personalized message. **The body is fully editable** — make any last-minute tweaks directly in the preview before sending. A "Reset to template" link restores the original text if needed.
+6. Click **Send Email** to dispatch the message immediately via the CRM's email system. A green "✓ Sent!" confirmation appears in the button.
+7. Click **Copy message** to copy the fully populated text and paste it into an external email app instead.
+
+> **After sending:** The email is automatically logged to the recipient's Contact Timeline and to the Admin → Email Logs tab. If the recipient is a studio partner, their Last Touch date updates. You can check delivery status (delivered, bounced, etc.) in the Email Logs tab.
 
 ### Template Variables
 
@@ -932,11 +978,32 @@ The system automatically uses your expense data in:
 
 **Navigate to:** Sidebar → Admin
 
-The Admin section has several tabs. The two most commonly used for day-to-day configuration are **Settings** and **Journey Descriptions**.
+The Admin section has several tabs. Here are the ones you'll use most often:
 
 ### Settings Tab
 
 System-wide options for Owners and Admins. (The Breathwork Journeys list is no longer managed here — see Journey Descriptions below.)
+
+### Email Logs Tab
+
+**Navigate to:** Sidebar → Admin → Email Logs tab
+
+A complete log of every email sent from the CRM. Use this to confirm that emails reached their recipients.
+
+**What you can see:**
+- Date sent, recipient name and email, template name
+- **Send Status** — whether the CRM successfully handed the email to the email service (green = sent, red = failed)
+- **Delivery Status** — whether the email was actually delivered, bounced, opened, or clicked
+
+**Delivery status checks:**
+- When you open the Email Logs tab, the system automatically checks the delivery status of any emails that haven't been confirmed yet — no action needed.
+- You can also click **Refresh all statuses** to manually trigger a check on everything.
+
+**Viewing the email content:**
+- Click any row in the table to expand it and see the full subject line and message body that was sent, along with the send timestamp and Resend message ID.
+
+**Clearing the log:**
+- Click **Clear log** to remove all entries. This does not unsend any emails — it only clears the history display.
 
 ### Journey Descriptions Tab
 
@@ -957,6 +1024,26 @@ This is where you manage the list of breathwork journeys available in session dr
 - Click **Remove** on the row you want to delete, then **Save**.
 
 > **Why this matters:** The journey descriptions you add here power the **ⓘ popup** on virtual session cards. When a client books a virtual session, you can tap the ⓘ on that session card to instantly see the full description of the journey — useful for preparing notes or refreshing your memory before the session.
+
+### Reset to Production Tab
+
+**Navigate to:** Sidebar → Admin → Reset to Production tab
+
+This is a one-time action used to wipe all test and sample data before going live with real clients, sessions, and studio partners.
+
+> **Warning:** This permanently deletes data. Export a backup from the Storage & Backup tab first.
+
+**What gets wiped:** All clients, studio partners, sessions, bookings, offers, referrals, expenses, revenue, content, testimonials, and follow-up sequences.
+
+**What is kept:** All your message templates, CRM settings, journey descriptions, and user accounts.
+
+**The process has three confirmation steps to prevent accidents:**
+
+1. **Review** — You'll see exactly how many records will be deleted and what will be preserved. Click "I understand — continue to reset".
+2. **Confirm** — Type the word `RESET` in the text field, then click "Continue →".
+3. **Enter your PIN** — Re-enter your admin PIN to authorize the wipe. Click "Wipe records — go live".
+
+Only after all three steps are completed will any data be deleted.
 
 ---
 
@@ -1071,7 +1158,22 @@ Your browser may be blocking pop-ups. Look for a pop-up blocked notification in 
 **The Sessions Attended tab shows a revenue figure — how is it calculated?**
 For virtual (one-on-one) sessions, the figure is the full net revenue from that session. For studio sessions, it's the per-head revenue — gross revenue divided by the number of registered attendees for that session.
 
+**I clicked Send Email on a template but nothing was sent. What happened?**
+Check the Admin → Email Logs tab. If the row shows a red "Failed" status, the email service may have rejected the send — this usually means the recipient email address is invalid or the email service configuration needs attention. Contact your system administrator if the issue persists.
+
+**The Send Email button shows "✓ Email sent" but I'm not sure the email arrived. How do I check?**
+Go to Admin → Email Logs. Find the email in the list — the **Delivery Status** column shows whether Resend confirmed delivery. If it shows "unknown", click **Refresh all statuses** — the system will check the current delivery state from Resend's records.
+
+**I sent an email from a follow-up item but it still shows in my Due Today list. Is that normal?**
+Yes — completed items stay visible in the Due Today list with a green "✓ Email sent" badge rather than disappearing. This lets you see at a glance what has been handled vs what still needs attention. Items marked complete won't re-trigger reminders.
+
+**I want to start using the CRM with real clients and clear out the test data. How?**
+First, download a backup from Admin → Storage & Backup → Download Backup. Then go to Admin → Reset to Production and follow the three-step confirmation process (review, type RESET, enter your PIN). This wipes all test records while preserving your templates, settings, and user accounts.
+
+**My email shows in the Email Logs but the delivery status is still "unknown". What does that mean?**
+It means the system hasn't received a delivery confirmation from the email service yet. This can happen if the check ran too soon after sending. Open Admin → Email Logs and click **Refresh all statuses** to pull the latest delivery information.
+
 ---
 
-*Simply Breathe OS User Guide — updated June 2026 (v9.0)*
+*Simply Breathe OS User Guide — updated June 2026 (v9.2)*
 *For technical documentation, see DOCUMENTATION.md*

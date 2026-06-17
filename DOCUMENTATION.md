@@ -1,6 +1,6 @@
 ﻿# Simply Breathe OS — CRM Documentation
 
-> **Version:** 9.1 (June 2026)
+> **Version:** 9.2 (June 2026)
 > **Stack:** React 18 · Vite · Recharts · Lucide React · PapaParse · Node.js/Express (backend)
 > **Storage:** Browser `localStorage` (encrypted) + Cursor canvas `window.storage`
 > **Security:** AES-256-GCM encryption · PBKDF2 key derivation · PIN-based auth
@@ -133,9 +133,42 @@ This prevents accidentally running an unprotected production instance.
 
 All string fields extracted from incoming Calendly webhook payloads are passed through `Sec.sanitize()` before being written to the queue or applied to CRM records. This strips HTML tags and formula-injection characters (`=`, `+`, `-`, `@` at the start of a value).
 
-### Frontend Secret — Proxy Injection
+### Frontend Secret — Proxy Injection and `apiHeaders()` Helper
 
-`FRONTEND_SECRET` is injected as an HTTP header server-side by the Vite proxy (dev) or a reverse proxy such as Nginx (production). It is never compiled into the browser JS bundle. Setting `VITE_FRONTEND_SECRET` is explicitly prohibited in `.env.example` because Vite bakes `VITE_*` variables into the public JS bundle.
+`FRONTEND_SECRET` is injected as an HTTP header server-side by the Vite proxy (dev) or a reverse proxy such as Nginx (production). It is never compiled into the browser JS bundle when deployed correctly.
+
+All five API call sites (`/api/send-email` × 4, `/api/email-status/:id` × 1) are centralized through a single `apiHeaders()` module-level helper:
+
+```js
+const apiHeaders = (json = true) => {
+  const h = {};
+  if (json) h["Content-Type"] = "application/json";
+  const s = import.meta.env.VITE_FRONTEND_SECRET;
+  if (s) h["x-frontend-secret"] = s;
+  return h;
+};
+```
+
+The proxy injects the header without needing `VITE_FRONTEND_SECRET`. `VITE_FRONTEND_SECRET` is retained as a fallback only for deployments that serve the frontend without a secret-injecting proxy.
+
+### Reset to Production — 3-Step PIN Re-Challenge
+
+The **Reset to Production** admin feature uses a 3-step confirmation flow to prevent accidental data wipes from an unattended session:
+
+1. **Review** — displays record counts across all 11 tables and what will be preserved.
+2. **Confirm** — user must type `RESET` exactly.
+3. **PIN challenge** — user must re-enter their admin PIN (verified via PBKDF2 `unwrapKeyForUser`, same cryptographic path as login). Only on successful PIN verification is the wipe executed.
+
+### Helmet — Explicit CSP
+
+`helmet()` is called with an explicit configuration rather than defaults:
+
+| Setting | Value |
+|---|---|
+| `contentSecurityPolicy` | `defaultSrc: 'self'`, `scriptSrc: 'self'`, `objectSrc: 'none'`, `frameAncestors: 'none'`, `formAction: 'self'`, `baseUri: 'self'` |
+| `hsts` | Production only: `maxAge: 31536000`, `includeSubDomains: true`, `preload: true` |
+| `crossOriginOpenerPolicy` | `same-origin` |
+| `crossOriginResourcePolicy` | `same-origin` |
 
 ### CRM Settings — Encrypted at Rest
 
@@ -157,9 +190,9 @@ The `Calendly-Webhook-Signature` header is parsed using explicit `indexOf`-based
 
 All queue read-modify-write operations (webhook receipt and `/acknowledge`) are serialised through an in-process promise-chain lock. Concurrent Calendly webhook bursts no longer race and overwrite each other.
 
-### Acknowledge Endpoint — Array Cap
+### Acknowledge Endpoint — Array Cap and Element Validation
 
-`POST /api/calendly/acknowledge` rejects `ids` arrays longer than 500 elements, preventing O(n×m) DoS via oversized payloads.
+`POST /api/calendly/acknowledge` rejects `ids` arrays longer than 500 elements, preventing O(n×m) DoS via oversized payloads. Each element is also validated to be a non-empty string (max 100 characters) — non-string values (null, objects, etc.) are rejected with a 400 response before any queue operations run.
 
 ### PDF Export — XSS Prevention
 
@@ -441,7 +474,13 @@ A summary bar at the top shows **Total Gross / Studio Split / Total Net** across
 
 ### Contact Timeline
 
-Same as Clients — full history of all touchpoints, sessions, agreements, and communications.
+Partners have a Contact Timeline tab matching the client timeline's presentation and information richness:
+
+- **email_sent** events from `partner.emailHistory` — shown with blue `Send` icon, displays subject, body preview, and send timestamp.
+- Summary items: Emails sent (count), Promotion commitments, Insurance requirements, Notes.
+- Fully chronological, same visual design as the client timeline.
+
+The "Emails Sent from CRM" summary card has been removed from the partner **Details** tab — all email history is surfaced exclusively in the Contact Timeline.
 
 ---
 
@@ -527,7 +566,7 @@ Intended for sharing with the studio partner to show confirmed attendees. All va
 
 ### Views Available
 
-- **Calendar** — Monthly calendar showing all sessions. Pills display `Studio · Journey` for studio sessions and `Client · Journey` for virtual/Calendly sessions.
+- **Calendar** — Monthly calendar showing all sessions. Pills display `Studio · Journey` for studio sessions and `Client · Journey` for virtual/Calendly sessions. The calendar tab has a **dedicated search bar** that filters visible sessions by client name, studio name, or journey name. The global header search bar is hidden when the calendar tab is active to avoid redundancy.
 - **Performance** — Revenue and attendance analytics
 - **Revenue Leaderboard** — Sessions ranked by revenue
 - **Conversion** — Package and offer conversion rates
@@ -703,6 +742,34 @@ Automates post-session communication sequences so that no revenue window is miss
 - Each step shows status: Pending · Sent · Skipped.
 - Message Queue view shows all pending actions sorted by due date.
 - Overdue steps are highlighted in the Smart Alerts panel.
+
+### Send Email from Message Queue
+
+Each item in the **Message Queue** has a **Send Email** button (email-type steps) or an additional **Send Email** option (text-type steps). Clicking it opens an inline compose area:
+
+- Template picker dropdown listing all **Template Library** templates (email channel) and all **Follow-Up Engine sequence templates** (custom overrides + FU_STEPS defaults).
+- Editable subject and body, pre-populated from the selected template with client variables interpolated.
+- On send: email is dispatched via Resend, logged to `data.emailLog`, added to the client's `emailHistory`, and the step is marked complete.
+
+### Follow-Up Section ("Follow-Ups" in sidebar)
+
+The **Due Today** and **All Follow-Ups** tabs display follow-up items as a table with a **Send Email** button column.
+
+- Clicking **Send Email** opens a modal compose window with the same template picker (library + engine templates).
+- On successful send: a green **"✓ Email sent"** badge replaces the button. The modal closes automatically after ~900 ms.
+- The follow-up item's `outcome` field is set to `"Email sent"` in `data.followups`.
+- Items remain visible in **Due Today** after completion (with the badge) rather than being removed, so the completed state is visible in context.
+
+### Message Templates Tab — Template Management
+
+On the **Message Templates** tab of the Follow-Up Engine:
+
+| Action | Behaviour |
+|---|---|
+| **Email** | Opens `FUTemplateEmailModal` — recipient search (clients + partners), editable subject/body, sends via Resend |
+| **Edit** | Inline editing of the template body. Changes saved as overrides in `data.fuTemplates`. A "Reset to default" link restores the original hardcoded text. |
+| **Add Template** | Creates a new custom template stored in `data.fuTemplates` with a name and body. |
+| **Delete** | Available for custom templates only (not default engine steps). |
 
 ---
 
@@ -908,8 +975,35 @@ Clicking **Email** on any template opens a modal that:
 | `{{yourName}}` | Logged-in user's first name |
 
 3. Variables that cannot be auto-filled (e.g., `{{bookingLink}}`, `{{proposedDate}}`) appear as **manual input fields** that stay visible while you type.
-4. A **live preview** shows the fully populated message body and subject line.
-5. **Copy message** copies the complete populated text ready to paste into email.
+4. A **live preview** shows the fully populated message body and subject line. The body is **fully editable** — make last-minute changes before sending. A "Reset to template" link restores the original.
+5. **Send Email** — sends the email directly from the CRM via Resend (see below).
+6. **Copy message** copies the complete populated text ready to paste into an external email client.
+
+### Direct Email Sending (Resend Integration)
+
+Clicking **Send Email** in the compose modal sends the message immediately via the Resend API without leaving the CRM.
+
+**How it works:**
+- The frontend POSTs to `/api/send-email` (authenticated via `x-frontend-secret` injected by proxy).
+- The backend validates all fields, strips CRLF from the subject, HTML-escapes the body, and calls `resendClient.emails.send`.
+- The sent email is logged to `data.emailLog` (global) and `record.emailHistory` (on the client or partner record).
+- For **studio partners**, relevant workflow fields are updated on send: `lastTouch` date is refreshed.
+- For **clients** triggered from a session follow-up context, `followUpSent` is marked on the session.
+- The **Contact Timeline** for both clients and partners shows `email_sent` events from `emailHistory`.
+
+**Recipient display:**
+- For clients, "Send To" shows the client's full name.
+- For studio partners, "Send To" shows the **contact name** (e.g. "Mary Smith"), not the studio name.
+
+**Environment variables required (backend/.env):**
+
+| Variable | Purpose |
+|---|---|
+| `RESEND_API_KEY` | Resend API key — required; server logs 503 if missing |
+| `RESEND_FROM` | Sender address (default: `jeff@simplybreathe.ai`) |
+| `RESEND_REPLY_TO` | Reply-to address (defaults to `RESEND_FROM`) |
+
+**Rate limiting:** `/api/send-email` is gated by a dedicated `emailLimiter` — 10 requests per IP per minute — separate from the general 60 req/min limit.
 
 ---
 
@@ -1159,7 +1253,42 @@ System-wide configuration managed by Owners and Admins.
 
 ---
 
-### Tab 6 — Journey Descriptions
+### Tab 6 — Email Logs
+
+A system-wide log of every email sent from the CRM via Resend.
+
+#### Columns
+
+| Column | Description |
+|---|---|
+| Date | ISO timestamp of send |
+| Recipient | Contact name and email address |
+| Template | Template name and category |
+| Send Status | `sent` (green) or `failed` (red) — whether the API call succeeded |
+| Delivery Status | `delivered`, `bounced`, `complained`, `opened`, `clicked`, `unknown` — fetched from Resend |
+
+#### Auto-Check on Load
+
+When the Email Logs tab opens, any log entry with `resendId` and no confirmed `deliveryStatus` is automatically queried against `/api/email-status/:id`. Statuses are updated in `data.emailLog` without requiring any user action.
+
+#### Manual Status Refresh
+
+A **Refresh all statuses** button triggers a batch check of all unchecked entries.
+
+#### Row Expansion
+
+Clicking any log row expands it to show:
+- Full **Subject** line
+- Full **Body** text (as-sent)
+- Meta: recipient type, template ID, Resend message ID, send timestamp
+
+#### Controls
+
+- **Clear log** — removes all entries from `data.emailLog`.
+
+---
+
+### Tab 7 — Journey Descriptions
 
 Manages the list of breathwork journeys available in session dropdowns, along with a full description for each journey.
 
@@ -1182,11 +1311,29 @@ Saving here immediately updates all "Journey Used" dropdowns across session reco
 
 ---
 
+### Tab 8 — Reset to Production
+
+Permanently wipes all test/seed data to prepare the app for real production use.
+
+**What gets wiped:** `clients`, `partners`, `sessions`, `registrations`, `offers`, `referrals`, `expenses`, `revenue`, `content`, `testimonials`, `sequences`.
+
+**What is preserved:** `templates`, `_settings` (journey descriptions, CRM configuration, user accounts, PINs).
+
+**3-Step confirmation flow:**
+
+1. **Review** — Displays a table showing the current record count in each table to be wiped and a list of what will be preserved.
+2. **Type RESET** — User must type the word `RESET` exactly in the confirmation field before proceeding.
+3. **PIN challenge** — User must re-enter their admin PIN, verified cryptographically via PBKDF2 `unwrapKeyForUser`. Only on success is the wipe executed.
+
+After reset: a reminder is displayed to also clear the Calendly event queue (`DELETE /api/calendly/events` with `x-admin-token`).
+
+---
+
 ### Requirements
 
 | Requirement | Detail |
 |---|---|
-| Access control | All authenticated users can view Admin. Only Owners can export data. |
+| Access control | All authenticated users can view Admin. Only Owners can export data or reset production. |
 | Integrity checks | Non-destructive read-only scan — no data is modified |
 | Schema data | Defined in the `DB_SCHEMA` constant in `App.jsx` — must be updated when new fields are added |
 | Export format | JSON (not encrypted) — suitable for manual backup and disaster recovery |
@@ -1320,9 +1467,11 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 |---|---|---|
 | `/api/webhooks/calendly` | POST | Receives Calendly events; verifies HMAC-SHA256 signature if signing key is configured |
 | `/api/calendly/pending` | GET | Returns unprocessed events for the CRM to consume |
-| `/api/calendly/acknowledge` | POST | Marks event IDs as processed |
+| `/api/calendly/acknowledge` | POST | Marks event IDs as processed. Each `id` element validated as non-empty string ≤ 100 chars. |
 | `/api/calendly/events` | GET | All events (debug/admin) |
 | `/api/calendly/events` | DELETE | Clear queue (dev only) |
+| `/api/send-email` | POST | Sends an email via Resend. Requires `to`, `subject`, `body` (and optional `recipientName`). Rate-limited to 10 req/min. |
+| `/api/email-status/:id` | GET | Fetches delivery status for a Resend message ID. `id` validated against `/^[a-zA-Z0-9_-]{1,100}$/`. |
 | `/health` | GET | Returns `{ status: "ok" }` — does not expose server uptime |
 
 **Environment variables (`backend/.env`):**
@@ -1333,13 +1482,16 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 - `ADMIN_SECRET` — token required for debug endpoints (`GET/DELETE /api/calendly/events`). Pass as `x-admin-token` header.
 - `QUEUE_ENCRYPTION_KEY` — 32-byte hex key for AES-256-GCM encryption of `pending-events.json` at rest. Generate with `openssl rand -hex 32`. **Required in production** (server refuses to start without it); if blank in dev, queue is stored as plaintext with a loud warning.
 - `CALENDLY_API_TOKEN` — Calendly Personal Access Token (from Calendly → Integrations → API & Webhooks). Required for event type description fetching. See `backend/.env.example`.
+- `RESEND_API_KEY` — Resend API key for direct email sending. Server logs a warning at startup if missing and returns 503 on any send attempt.
+- `RESEND_FROM` — Sender address (default: `jeff@simplybreathe.ai`). Must be a verified Resend domain.
+- `RESEND_REPLY_TO` — Reply-to address for outbound emails (defaults to `RESEND_FROM`).
 
 **Frontend environment variables (`frontend/.env`):**
 - `VITE_CALENDLY_BACKEND` — base URL for the backend API. Defaults to `""` (empty string) for local dev, which causes all `/api` requests to route through the Vite proxy. Set to the full backend URL in production deployments.
 
 **Backend Security Features:**
-- Rate limiting: 60 req/min on all `/api/` endpoints; 30 req/min on the webhook endpoint
-- Helmet middleware sets secure HTTP headers on every response
+- Rate limiting: 60 req/min on all `/api/` endpoints; 30 req/min on the webhook endpoint; **10 req/min on `/api/send-email`** (dedicated email limiter)
+- Helmet middleware with explicit CSP, HSTS (production), CORP, COOP on every response
 - Request body size capped at 256 KB
 - Webhook HMAC-SHA256 signature verified with 5-minute timestamp replay protection
 - Queue file encrypted at rest with AES-256-GCM when `QUEUE_ENCRYPTION_KEY` is set
@@ -1664,11 +1816,14 @@ All state is managed via React `useState` and `useMemo` in the root `App` compon
 | `RecordDrawer` | Slide-in detail/edit panel |
 | `EditProfileModal` | Profile photo + info + PIN change |
 | `UserManagementView` | Multi-user CRUD and permissions |
-| `AdminView` | 6-tab admin panel: overview, schema browser, integrity check, storage, settings, journey descriptions |
+| `AdminView` | 8-tab admin panel: overview, schema browser, integrity check, storage, settings, email logs, journey descriptions, reset to production |
 | `JourneyDescriptionsTab` | Admin tab for managing journey names and descriptions (add / edit / remove) |
 | `SessionBookingsTab` | Bookings tab inside session drawer — lists all Calendly registrants |
 | `WorkflowsView` | Five workflow pipeline visualizations |
-| `TemplateLibraryView` | Template browsing and copy |
+| `TemplateLibraryView` | Template browsing, copy, and direct email send via Resend |
+| `EmailLogsView` | Admin Email Logs tab — system-wide sent email log with delivery status auto-check and row expansion |
+| `FollowUpSendButton` | Reusable Send Email button used in Due Today / All Follow-Ups table rows — opens compose modal, marks follow-up complete on send |
+| `FUTemplateEmailModal` | Email compose modal for Follow-Up Engine → Message Templates tab |
 | `TestimonialLibraryView` | Testimonial cards and action tracking |
 | `ContentAnalyticsView` | Content funnel and performance |
 | `FollowUpEngine` | Sequence management and message queue |
@@ -1696,4 +1851,10 @@ Sec.validate(data)                        // Schema validation on load
 
 ---
 
-*Documentation updated July 2026 (v8.0). Simply Breathe OS is a living system — update this document as features are added.*
+### Login Redirect
+
+After a successful login (both first-time setup and subsequent logins), the app immediately navigates to the **Today — Command Center** dashboard (`section = "today"`, `view = 0`). Users always land on their daily action hub rather than the last viewed section.
+
+---
+
+*Documentation updated June 2026 (v9.2). Simply Breathe OS is a living system — update this document as features are added.*
