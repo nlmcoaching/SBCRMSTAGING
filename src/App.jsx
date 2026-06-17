@@ -93,6 +93,8 @@ const STAGE_COLOR = {
   "Lost / not a fit":        "#9FB2CC",
 };
 const STUDIO_TYPE = ["Yoga", "Gym", "Pilates", "Meditation", "Wellness", "Corporate", "CrossFit", "Dance", "Other"];
+// studioType may be a legacy string or a new array — always display as a string
+const fmtStudioType = (v) => Array.isArray(v) ? (v.length ? v.join(", ") : "—") : (v || "—");
 const CLOSE_PROB = ["Low", "Medium", "High", "Closed Won", "Closed Lost"];
 const CLOSE_PROB_COLOR = { Low: "#9FB2CC", Medium: C.gold, High: "#4A8C6F", "Closed Won": "#13245C", "Closed Lost": "#C0573F" };
 const CONTRACT_STATUS = ["None", "Drafted", "Sent", "Signed"];
@@ -3780,7 +3782,7 @@ const VIEWS = {
       { name: "In outreach", layout: "table",
         columns: [
           col("name", "Studio", (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
-          col("studioType", "Type", (r) => r.studioType || "—"),
+          col("studioType", "Type", (r) => fmtStudioType(r.studioType)),
           col("stage", "Stage", (r) => <Tag color={STAGE_COLOR[r.stage]} soft>{r.stage}</Tag>),
           col("contact", "Contact", (r) => r.contact),
           col("lastTouch", "Last touch", (r, c) => <DateChip iso={r.lastTouch} today={c.today} />),
@@ -3791,7 +3793,7 @@ const VIEWS = {
       { name: "Revenue forecast", layout: "table",
         columns: [
           col("name", "Studio", (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
-          col("studioType", "Type", (r) => r.studioType || "—"),
+          col("studioType", "Type", (r) => fmtStudioType(r.studioType)),
           col("stage", "Stage", (r) => <Tag color={STAGE_COLOR[r.stage]} soft>{r.stage}</Tag>),
           col("estimatedCommunitySize", "Community", (r) => Number(r.estimatedCommunitySize || 0).toLocaleString(), { align: "right" }),
           col("revenuePotential", "Rev. potential", (r) => <strong>{money(r.revenuePotential)}</strong>, { align: "right", sum: "revenuePotential" }),
@@ -3804,7 +3806,7 @@ const VIEWS = {
       { name: "All partners", layout: "table",
         columns: [
           col("name",      "Studio",        (r) => <span style={{ fontWeight: 700 }}>{cleanName(r.name)}</span>),
-          col("studioType","Type",          (r) => r.studioType || "—"),
+          col("studioType","Type",          (r) => fmtStudioType(r.studioType)),
           col("stage",     "Stage",         (r) => <Tag color={STAGE_COLOR[r.stage]} soft>{r.stage}</Tag>),
           col("location",  "Address",       (r) => r.location || "—"),
           col("contact",   "Contact",       (r) => r.contact || "—"),
@@ -4043,7 +4045,7 @@ const VIEWS = {
 function partnerCols() {
   return [
     col("name", "Studio", (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
-    col("studioType", "Type", (r) => r.studioType || "—"),
+    col("studioType", "Type", (r) => fmtStudioType(r.studioType)),
     col("location", "Location", (r) => <span style={{ color: C.ink2 }}>{r.location}</span>),
     col("contact", "Contact", (r) => `${r.contact} · ${r.role}`),
     col("stage", "Stage", (r) => <Tag color={STAGE_COLOR[r.stage]} soft>{r.stage}</Tag>),
@@ -4246,7 +4248,7 @@ function PartnerPipelineView({ groups, onOpen }) {
                       onMouseEnter={(e) => { e.currentTarget.style.boxShadow = `0 4px 14px ${hexA(C.brandDeep, 0.1)}`; e.currentTarget.style.transform = "translateY(-1px)"; }}
                       onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.transform = "none"; }}>
                       <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, marginBottom: 4, lineHeight: 1.3 }}>{cleanName(r.name)}</div>
-                      {r.studioType && <div style={{ fontSize: 11, color: C.ink3, marginBottom: 4 }}>{r.studioType}{r.location ? ` · ${r.location.split(",")[0]}` : ""}</div>}
+                      {r.studioType && <div style={{ fontSize: 11, color: C.ink3, marginBottom: 4 }}>{fmtStudioType(r.studioType)}{r.location ? ` · ${r.location.split(",")[0]}` : ""}</div>}
                       {r.contact && <div style={{ fontSize: 11.5, color: C.ink2 }}>{r.contact}</div>}
                       <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 5 }}>
                         {r.closeProbability && r.closeProbability !== "Low" && (
@@ -4340,7 +4342,7 @@ function cardChip(k, r, ctx) {
   if (k === "referral" && r.referral) return <MiniChip key={k} color={REFERRAL_COLOR[r.referral]}>{r.referral} referral</MiniChip>;
   if (k === "location" && r.location) return <MiniChip key={k}>{r.location.split(",")[0]}</MiniChip>;
   if (k === "contact" && r.contact) return <MiniChip key={k}>{r.contact}</MiniChip>;
-  if (k === "studioType" && r.studioType) return <MiniChip key={k}>{r.studioType}</MiniChip>;
+  if (k === "studioType" && r.studioType) return <MiniChip key={k}>{fmtStudioType(r.studioType)}</MiniChip>;
   if (k === "closeProbability" && r.closeProbability) return <MiniChip key={k} color={CLOSE_PROB_COLOR[r.closeProbability]}>{r.closeProbability}</MiniChip>;
   if (k === "stage") return null;
   if (k === "clientId") { const n = ctx.derived.clientName[r.clientId]; return n ? <MiniChip key={k}>{clientShort(n)}</MiniChip> : null; }
@@ -4528,7 +4530,7 @@ const FIELDS = {
   ],
   partners: [
     f("name", "Studio name", "text", { title: true }),
-    f("studioType", "Studio type", "select", { options: STUDIO_TYPE }),
+    f("studioType", "Studio type", "tagselector", { options: STUDIO_TYPE }),
     f("location", "Location", "text", { wide: true }),
     f("contact", "Contact name", "text"),
     f("role", "Role", "select", { options: ["Owner", "Manager", "Director", "GM", "Instructor"] }),
@@ -6840,7 +6842,7 @@ function buildPartnerTimeline(record, data, derived, today) {
   if (record.outreachDate) {
     events.push(tlEvent(record.outreachDate, "followup",
       "First outreach sent",
-      `Initial contact with ${record.contact} · ${record.studioType || "Studio"}`));
+      `Initial contact with ${record.contact} · ${fmtStudioType(record.studioType)}`));
   }
 
   // Last touch
@@ -6878,7 +6880,7 @@ function buildPartnerTimeline(record, data, derived, today) {
     events: events.sort((a, b) => (a.date || "0").localeCompare(b.date || "0")),
     summary: [
       { label: "Stage",             value: record.stage, accent: STAGE_COLOR[record.stage] },
-      { label: "Studio type",       value: record.studioType || "—" },
+      { label: "Studio type",       value: fmtStudioType(record.studioType) },
       { label: "Location",          value: record.location || "—" },
       { label: "Contact",           value: `${record.contact || "—"} (${record.role || "—"})` },
       { label: "Email",             value: record.email || "—" },
@@ -7031,6 +7033,48 @@ function FieldInput({ fld, value, onChange, data }) {
         })}
       </div>
     );
+  } else if (type === "tagselector") {
+    // Normalize: legacy string → array
+    const selected = Array.isArray(value) ? value : (value ? [value] : []);
+    const available = resolvedOptions.filter(o => !selected.includes(o));
+    const [open, setOpen] = useState(false);
+    const ref = useRef();
+    useEffect(() => {
+      if (!open) return;
+      const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+      document.addEventListener("mousedown", handler);
+      return () => document.removeEventListener("mousedown", handler);
+    }, [open]);
+    control = (
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+        {selected.map(tag => (
+          <span key={tag} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px 4px 12px", borderRadius: 20, background: C.brandSoft, color: C.brandDeep, fontSize: 12.5, fontWeight: 600, border: `1px solid ${C.brand}` }}>
+            {tag}
+            <button onClick={() => onChange(selected.filter(t => t !== tag))} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 1, color: C.brand, fontSize: 13, marginLeft: 2 }}>×</button>
+          </span>
+        ))}
+        {available.length > 0 && (
+          <div ref={ref} style={{ position: "relative" }}>
+            <button onClick={() => setOpen(o => !o)} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 20, background: C.surface, color: C.ink2, fontSize: 12.5, fontWeight: 600, border: `1px solid ${C.line}`, cursor: "pointer" }}>
+              <Plus size={12} /> Add type
+            </button>
+            {open && (
+              <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 4px 16px rgba(0,0,0,.10)", zIndex: 999, minWidth: 150, padding: "4px 0", overflow: "hidden" }}>
+                {available.map(opt => (
+                  <button key={opt} onClick={() => { onChange([...selected, opt]); setOpen(false); }}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 13, color: C.ink }}
+                    onMouseEnter={e => e.currentTarget.style.background = C.brandSoft}
+                    onMouseLeave={e => e.currentTarget.style.background = "none"}>
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {selected.length === 0 && available.length === 0 && <span style={{ fontSize: 12.5, color: C.ink3 }}>—</span>}
+      </div>
+    );
   } else if (type === "relation") {
     control = (
       <select className="sb-input" value={value || ""} onChange={(e) => onChange(e.target.value)}>
@@ -7071,7 +7115,7 @@ function FieldInput({ fld, value, onChange, data }) {
       value={value || ""} onChange={(e) => onChange(e.target.value)} />;
   }
   return (
-    <label className={"sb-field" + (type === "textarea" || type === "select" || fld.wide ? " sb-field-wide" : "")}>
+    <label className={"sb-field" + (type === "textarea" || type === "select" || type === "tagselector" || fld.wide ? " sb-field-wide" : "")}>
       <span className="sb-flabel">{fld.label}</span>
       {control}
     </label>
