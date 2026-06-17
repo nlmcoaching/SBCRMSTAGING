@@ -985,6 +985,17 @@ const STORE_KEY     = "simplybreathe:data:v4";           // legacy (unencrypted)
 const STORE_KEY_ENC = "simplybreathe:data:v5:enc";       // encrypted storage
 const SEC_META_KEY  = "sb:security:v1";                  // { users: [...] }
 
+// Centralized API headers — the Vite proxy (dev) and production reverse proxy both inject
+// x-frontend-secret server-side so it never needs to be in the browser bundle.
+// VITE_FRONTEND_SECRET is kept as a fallback only for deployments without a secret-injecting proxy.
+const apiHeaders = (json = true) => {
+  const h = {};
+  if (json) h["Content-Type"] = "application/json";
+  const s = import.meta.env.VITE_FRONTEND_SECRET;
+  if (s) h["x-frontend-secret"] = s;
+  return h;
+};
+
 // Unified storage — uses window.storage (Cursor canvas) when available, falls back to localStorage
 const store = {
   async get(key) {
@@ -7614,8 +7625,7 @@ function EmailLogsView({ data, setData }) {
     if (!entry.resendId || checking[entry.id]) return;
     setChecking(c => ({ ...c, [entry.id]: true }));
     try {
-      const secret = import.meta.env.VITE_FRONTEND_SECRET || "";
-      const res  = await fetch(`/api/email-status/${entry.resendId}`, { headers: { "x-frontend-secret": secret } });
+      const res  = await fetch(`/api/email-status/${entry.resendId}`, { headers: apiHeaders(false) });
       const json = await res.json();
       if (res.ok && json.status) {
         setData(d => ({
@@ -7774,9 +7784,12 @@ function EmailLogsView({ data, setData }) {
 
 /* ── RESET TO PRODUCTION ── */
 function ResetToProductionView({ data, setData, currentUser }) {
-  const [confirm, setConfirm] = useState("");
-  const [done, setDone]       = useState(false);
-  const [step, setStep]       = useState(1); // 1 = info, 2 = confirm
+  const [confirm, setConfirm]   = useState("");
+  const [done, setDone]         = useState(false);
+  const [step, setStep]         = useState(1); // 1 = info, 2 = confirm text, 3 = PIN challenge
+  const [pinValue, setPinValue] = useState("");
+  const [pinErr, setPinErr]     = useState("");
+  const [verifying, setVerifying] = useState(false);
 
   const TABLES_TO_WIPE   = ["clients","partners","sessions","registrations","offers","referrals","expenses","revenue","content","testimonials","sequences"];
   const TABLES_TO_KEEP   = ["templates","_settings"];
@@ -7787,14 +7800,26 @@ function ResetToProductionView({ data, setData, currentUser }) {
   }, {});
   const total = Object.values(counts).reduce((s, n) => s + n, 0);
 
-  const handleReset = () => {
-    if (confirm !== "RESET") return;
+  const executeReset = () => {
     setData(prev => {
       const clean = { ...prev };
       TABLES_TO_WIPE.forEach(t => { clean[t] = []; });
       return clean;
     });
     setDone(true);
+  };
+
+  const handleVerifyPin = async () => {
+    if (!pinValue) { setPinErr("Enter your PIN."); return; }
+    setVerifying(true); setPinErr("");
+    try {
+      const storedIter = currentUser?.pbkdf2Iterations ?? 100_000;
+      await Sec.unwrapKeyForUser(currentUser.wrappedMasterKey, pinValue, currentUser.pinSalt, storedIter);
+      // PIN verified — execute the wipe
+      executeReset();
+    } catch {
+      setPinErr("Incorrect PIN. Try again.");
+    } finally { setVerifying(false); }
   };
 
   if (done) return (
@@ -7884,14 +7909,51 @@ function ResetToProductionView({ data, setData, currentUser }) {
               padding: "10px 20px", borderRadius: 9, border: `1px solid ${C.line}`,
               background: "transparent", color: C.ink2, fontWeight: 600, fontSize: 13, cursor: "pointer",
             }}>Back</button>
-            <button onClick={handleReset} disabled={confirm !== "RESET"} style={{
+            <button onClick={() => { if (confirm === "RESET") setStep(3); }} disabled={confirm !== "RESET"} style={{
               padding: "10px 24px", borderRadius: 9, border: "none", fontWeight: 700, fontSize: 13.5,
               cursor: confirm === "RESET" ? "pointer" : "not-allowed",
               background: confirm === "RESET" ? "#C0392B" : C.line,
               color: confirm === "RESET" ? "#fff" : C.ink3,
               transition: "background .15s",
             }}>
-              Wipe {total} records — go live
+              Continue →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 3 && (
+        <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, padding: "20px 20px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <Lock size={15} color="#C0392B" />
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>Confirm your PIN</div>
+          </div>
+          <div style={{ fontSize: 12.5, color: C.ink3, marginBottom: 14, lineHeight: 1.55 }}>
+            Enter your admin PIN to authorize this permanent wipe of <strong>{total} records</strong>.
+          </div>
+          <input
+            type="password"
+            value={pinValue}
+            onChange={e => { setPinValue(e.target.value); setPinErr(""); }}
+            onKeyDown={e => { if (e.key === "Enter") handleVerifyPin(); }}
+            placeholder="Your PIN"
+            autoFocus
+            style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `2px solid ${pinErr ? "#C0392B" : C.line}`, fontSize: 14, fontWeight: 700, letterSpacing: "0.2em", color: C.ink, boxSizing: "border-box", outline: "none", marginBottom: pinErr ? 6 : 14 }}
+          />
+          {pinErr && <div style={{ fontSize: 12, color: "#C0392B", marginBottom: 10 }}>{pinErr}</div>}
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={() => { setStep(2); setPinValue(""); setPinErr(""); }} style={{
+              padding: "10px 20px", borderRadius: 9, border: `1px solid ${C.line}`,
+              background: "transparent", color: C.ink2, fontWeight: 600, fontSize: 13, cursor: "pointer",
+            }}>Back</button>
+            <button onClick={handleVerifyPin} disabled={verifying || !pinValue} style={{
+              padding: "10px 24px", borderRadius: 9, border: "none", fontWeight: 700, fontSize: 13.5,
+              cursor: verifying || !pinValue ? "not-allowed" : "pointer",
+              background: !pinValue ? C.line : "#C0392B",
+              color: !pinValue ? C.ink3 : "#fff",
+              transition: "background .15s", display: "flex", alignItems: "center", gap: 7,
+            }}>
+              {verifying ? <><RefreshCw size={13} style={{ animation: "spin 1s linear infinite" }} /> Verifying…</> : <>Wipe {total} records — go live</>}
             </button>
           </div>
         </div>
@@ -9013,9 +9075,8 @@ function FollowUpSendButton({ r, data, setData, today }) {
     if (!client?.email) return;
     setSending(true); setError("");
     try {
-      const secret = import.meta.env.VITE_FRONTEND_SECRET || "";
       const res  = await fetch("/api/send-email", {
-        method: "POST", headers: { "Content-Type": "application/json", "x-frontend-secret": secret },
+        method: "POST", headers: apiHeaders(),
         body: JSON.stringify({ to: client.email, recipientName: (client.name||"").split(" ")[0], subject, body }),
       });
       const json = await res.json();
@@ -10047,10 +10108,9 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser }) {
     setEmailSending(true);
     setEmailError("");
     try {
-      const secret = import.meta.env.VITE_FRONTEND_SECRET || "";
       const res = await fetch("/api/send-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-frontend-secret": secret },
+        headers: apiHeaders(),
         body: JSON.stringify({
           to:            recipientEmail,
           recipientName: emailPreview.recipient._type === "partner"
@@ -11494,10 +11554,9 @@ function MessageQueue({ overdue, todayItems, upcoming, today, markSent, onOpenCl
     if (!state || !item.client?.email) return;
     setEmailState(s => ({ ...s, [key]: { ...s[key], sending: true, error: "" } }));
     try {
-      const secret = import.meta.env.VITE_FRONTEND_SECRET || "";
       const res  = await fetch("/api/send-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-frontend-secret": secret },
+        headers: apiHeaders(),
         body: JSON.stringify({
           to:            item.client.email,
           recipientName: (item.client.name || "").split(" ")[0],
@@ -11846,9 +11905,8 @@ function FUTemplateEmailModal({ templateBody, templateName, data, setData, onClo
     if (!recipientEmail) return;
     setSending(true); setError("");
     try {
-      const secret = import.meta.env.VITE_FRONTEND_SECRET || "";
       const res = await fetch("/api/send-email", {
-        method: "POST", headers: { "Content-Type": "application/json", "x-frontend-secret": secret },
+        method: "POST", headers: apiHeaders(),
         body: JSON.stringify({ to: recipientEmail, recipientName: recipient?._type === "partner" ? (recipient.contact || recipient.name) : cleanName(recipient?.name || ""), subject, body }),
       });
       const json = await res.json();

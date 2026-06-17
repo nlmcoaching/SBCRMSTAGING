@@ -80,7 +80,37 @@ const app  = express();
 const PORT = process.env.PORT || 3001;
 
 // ── Security headers ──
-app.use(helmet());
+app.use(helmet({
+  // Strict CSP for the API server — no inline scripts, only self-origin resources
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc:      ["'self'"],
+      scriptSrc:       ["'self'"],
+      styleSrc:        ["'self'"],
+      imgSrc:          ["'self'"],
+      connectSrc:      ["'self'"],
+      frameAncestors:  ["'none'"],
+      baseUri:         ["'self'"],
+      formAction:      ["'self'"],
+      objectSrc:       ["'none'"],
+    },
+  },
+  // Force HTTPS in production (1-year max-age, include subdomains)
+  hsts: isProd
+    ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+    : false,
+  // Prevent MIME type sniffing
+  noSniff: true,
+  // Prevent embedding in iframes
+  frameguard: { action: "deny" },
+  // Control referrer information
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  // Remove X-Powered-By header
+  hidePoweredBy: true,
+  // Cross-Origin policies
+  crossOriginOpenerPolicy: { policy: "same-origin" },
+  crossOriginResourcePolicy: { policy: "same-origin" },
+}));
 
 // ── Rate limiting ──
 // NOTE: uses the default in-memory store which resets on process restart.
@@ -451,6 +481,9 @@ app.post("/api/calendly/acknowledge", requireFrontendSecret, async (req, res) =>
   const { ids } = req.body;
   if (!Array.isArray(ids)) return res.status(400).json({ error: "ids must be an array" });
   if (ids.length > 500) return res.status(400).json({ error: "Too many ids — max 500 per request" });
+  if (!ids.every(id => typeof id === "string" && id.length > 0 && id.length <= 100)) {
+    return res.status(400).json({ error: "All ids must be non-empty strings (max 100 chars each)." });
+  }
 
   const idSet = new Set(ids);
   await withQueueLock(() => {
