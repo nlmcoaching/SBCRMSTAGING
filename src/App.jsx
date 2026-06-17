@@ -4798,17 +4798,20 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
               ] : [
                 ["details", "Details"],
                 ...(db === "clients" && !isNew ? [["sessions-attended", "Sessions Attended"]] : []),
+                ...(db === "partners" && !isNew ? [["partner-sessions", "Sessions"]] : []),
                 ...(hasChecklist ? [["checklist", "Launch Checklist"]] : []),
                 ["timeline", "Contact Timeline"],
               ]).map(([t, label]) => {
                 const sessionBookings = t === "bookings" ? (data.registrations || []).filter(r => r.sessionId === draft.id && r.status !== "canceled") : null;
                 const clientSessionCount = t === "sessions-attended" ? (data.registrations || []).filter(r => r.clientId === draft.id && r.status !== "canceled").length : null;
+                const partnerSessionCount = t === "partner-sessions" ? (data.sessions || []).filter(s => s.studioId === draft.id).length : null;
                 const isVirtualSession = db === "sessions" && !draft.studioId && (draft.locationType === "zoom" || draft.locationType === "custom" || !draft.locationType);
                 const activeSessionChecklist = SESSION_CHECKLIST.filter(i => isVirtualSession ? i.virtual : !i.virtual);
                 const activeEquipPhases = EQUIP_CHECKLIST_PHASES.map(p => ({ ...p, items: p.items.filter(i => isVirtualSession ? i.virtual : !i.virtual) })).filter(p => p.items.length);
                 const activeEquipItems = activeEquipPhases.flatMap(p => p.items);
                 const isStudioBookings = t === "bookings" && db === "sessions" && !!draft.studioId;
-                const done = (t === "sessions-attended") ? clientSessionCount
+                const done = (t === "partner-sessions") ? partnerSessionCount
+                           : (t === "sessions-attended") ? clientSessionCount
                            : (t === "checklist" && db === "partners") ? Object.values(draft.checklist || {}).filter(Boolean).length
                            : (t === "checklist" && db === "sessions") ? activeSessionChecklist.filter(i => draft.checklist?.[i.id]).length
                            : (t === "equipment" && db === "sessions") ? activeEquipItems.filter(i => draft.equipChecklist?.[i.id]).length
@@ -4842,6 +4845,8 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
         <div className="sb-drawerbody" style={{ paddingTop: 16 }}>
           {db === "clients" && tab === "sessions-attended"
             ? <ClientSessionsTab record={draft} data={data} onOpenRelated={onOpenRelated} today={today} />
+            : db === "partners" && tab === "partner-sessions"
+            ? <PartnerSessionsTab record={draft} data={data} onOpenRelated={onOpenRelated} today={today} />
             : hasTimeline && tab === "timeline"
             ? <ContactTimeline db={db} record={draft} data={data} derived={derived} today={today} onOpenRelated={onOpenRelated} />
             : (hasChecklist || hasSessionTabs) && tab === "checklist"
@@ -5296,23 +5301,38 @@ function ClientSessionsTab({ record, data, onOpenRelated, today }) {
 
   const STATUS_COLOR = { Completed: "#4A8C6F", Planned: C.brand, "Booking open": C.brand, "Follow-up pending": C.gold, Canceled: "#C0573F" };
 
+  // Revenue: full net for virtual (1:1); per-head net for studio sessions
+  const sessionRevenue = ({ session }) => {
+    if (!session) return 0;
+    const net = Number(session.netRevenue) || 0;
+    if (!session.studioId) return net; // virtual — full session revenue
+    const heads = Math.max(Number(session.attendance) || 1, 1);
+    return net / heads; // studio — per-head share
+  };
+
+  const totalRevenue = sessions.reduce((sum, s) => sum + sessionRevenue(s), 0);
+
   if (!sessions.length) {
     return <div style={{ padding: "32px 0", textAlign: "center", color: C.ink3, fontSize: 13 }}>No sessions found for this client.</div>;
   }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ fontSize: 12, color: C.ink3, marginBottom: 4 }}>{sessions.length} session{sessions.length !== 1 ? "s" : ""}</div>
-      {sessions.map(({ reg, session }) => {
-        const isPast = session.date && session.date < today;
+      {/* Summary row */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <span style={{ fontSize: 12, color: C.ink3 }}>{sessions.length} session{sessions.length !== 1 ? "s" : ""}</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "#4A8C6F" }}>{money(totalRevenue)} total revenue</span>
+      </div>
+      {sessions.map((item) => {
+        const { reg, session } = item;
         const isVirtual = !session.studioId && (session.locationType === "zoom" || session.locationType === "custom" || !session.locationType);
         const partner = session.studioId ? (data.partners || []).find(p => p.id === session.studioId) : null;
         const statusColor = STATUS_COLOR[session.status] || C.ink3;
+        const rev = sessionRevenue(item);
         return (
           <button key={session.id} onClick={() => onOpenRelated({ db: "sessions", record: session })}
             style={{ display: "flex", alignItems: "flex-start", gap: 12, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", textAlign: "left", cursor: "pointer", width: "100%" }}
             className="sb-relrow">
-            {/* Dot indicator */}
             <div style={{ width: 10, height: 10, borderRadius: "50%", background: isVirtual ? C.brand : LANE.b2b.color, flexShrink: 0, marginTop: 3 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -5326,12 +5346,80 @@ function ClientSessionsTab({ record, data, onOpenRelated, today }) {
               </div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
+              {rev > 0 && (
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#4A8C6F" }}>{money(rev)}</span>
+              )}
               <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 8, background: hexA(statusColor, 0.12), color: statusColor }}>
                 {session.status || "Planned"}
               </span>
               {session.breakthroughNoted && (
                 <span style={{ fontSize: 10, fontWeight: 700, color: "#4A8C6F", padding: "1px 6px", borderRadius: 8, background: hexA("#4A8C6F", 0.1) }}>Breakthrough</span>
               )}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function PartnerSessionsTab({ record, data, onOpenRelated, today }) {
+  const sessions = (data.sessions || [])
+    .filter(s => s.studioId === record.id)
+    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
+  const totalNet   = sessions.reduce((s, x) => s + (Number(x.netRevenue)   || 0), 0);
+  const totalGross = sessions.reduce((s, x) => s + (Number(x.revenue)      || 0), 0);
+  const totalSplit = sessions.reduce((s, x) => s + (Number(x.studioSplit)  || 0), 0);
+
+  if (!sessions.length) {
+    return <div style={{ padding: "32px 0", textAlign: "center", color: C.ink3, fontSize: 13 }}>No sessions logged for this studio yet.</div>;
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {/* Totals summary */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, background: C.surfaceAlt, borderRadius: 10, padding: "12px 14px", marginBottom: 4 }}>
+        {[
+          { label: "Total Gross", val: money(totalGross), color: C.ink },
+          { label: "Studio Split", val: money(totalSplit), color: C.gold },
+          { label: "Total Net", val: money(totalNet), color: "#4A8C6F" },
+        ].map(({ label, val, color }) => (
+          <div key={label}>
+            <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: ".07em", color: C.ink3, fontWeight: 700 }}>{label}</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color, marginTop: 2 }}>{val}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 12, color: C.ink3, marginBottom: 2 }}>{sessions.length} session{sessions.length !== 1 ? "s" : ""}</div>
+
+      {sessions.map(s => {
+        const net   = Number(s.netRevenue)  || 0;
+        const gross = Number(s.revenue)     || 0;
+        const split = Number(s.studioSplit) || 0;
+        const isPast = s.date && s.date < today;
+        const statusColor = SESSION_STATUS_COLOR[s.status] || C.ink3;
+        return (
+          <button key={s.id} onClick={() => onOpenRelated({ db: "sessions", record: s })}
+            style={{ display: "flex", alignItems: "flex-start", gap: 12, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", textAlign: "left", cursor: "pointer", width: "100%" }}
+            className="sb-relrow">
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {cleanName(s.name)}
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 3, alignItems: "center" }}>
+                {s.date && <span style={{ fontSize: 12, color: C.ink3 }}>{fmtDate(s.date)}{s.time ? ` · ${s.time}` : ""}</span>}
+                {s.attendance != null && <span style={{ fontSize: 12, color: C.ink3 }}>{s.attendance} attended</span>}
+                {s.journey && <span style={{ fontSize: 11, padding: "1px 7px", borderRadius: 10, background: hexA(C.brand, 0.1), color: C.brand, fontWeight: 600 }}>{s.journey}</span>}
+              </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0 }}>
+              {gross > 0 && <span style={{ fontSize: 12, color: C.ink3 }}>Gross: {money(gross)}</span>}
+              {split > 0 && <span style={{ fontSize: 12, color: C.gold, fontWeight: 600 }}>Split: {money(split)}</span>}
+              {net > 0 && <span style={{ fontSize: 13, fontWeight: 700, color: "#4A8C6F" }}>{money(net)} net</span>}
+              <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 8, background: hexA(statusColor, 0.12), color: statusColor }}>
+                {s.status || "Planned"}
+              </span>
             </div>
           </button>
         );
