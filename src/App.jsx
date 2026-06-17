@@ -7626,6 +7626,13 @@ function EmailLogsView({ data, setData }) {
     setChecking(c => ({ ...c, [entry.id]: false }));
   };
 
+  // Auto-check unchecked sent emails when the tab loads
+  useEffect(() => {
+    const unchecked = (data.emailLog || []).filter(e => e.resendId && e.sendStatus === "sent" && !e.deliveryStatus);
+    unchecked.forEach(entry => checkStatus(entry));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const checkAll = async () => {
     const pending = logs.filter(e => e.resendId && e.sendStatus === "sent");
     for (const entry of pending) await checkStatus(entry);
@@ -7714,11 +7721,11 @@ function EmailLogsView({ data, setData }) {
                     </div>
                   )}
                 </div>
-                {/* Check button */}
+                {/* Re-check button — only shown once a status is known */}
                 <div style={{ textAlign: "right" }}>
                   {entry.resendId && entry.sendStatus === "sent" && (
-                    <button onClick={() => checkStatus(entry)} disabled={checking[entry.id]} style={{ padding: "4px 10px", borderRadius: 7, border: `1px solid ${C.line}`, background: C.surface, fontSize: 11.5, fontWeight: 600, color: C.brand, cursor: checking[entry.id] ? "not-allowed" : "pointer" }}>
-                      {checking[entry.id] ? <RefreshCw size={11} style={{ animation: "spin 1s linear infinite" }} /> : "Check"}
+                    <button onClick={() => checkStatus(entry)} disabled={checking[entry.id]} title="Re-check delivery status" style={{ padding: "4px 8px", borderRadius: 7, border: `1px solid ${C.line}`, background: C.surface, fontSize: 11.5, fontWeight: 600, color: C.ink3, cursor: checking[entry.id] ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}>
+                      <RefreshCw size={11} style={{ animation: checking[entry.id] ? "spin 1s linear infinite" : "none" }} />
                     </button>
                   )}
                 </div>
@@ -9882,7 +9889,9 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser }) {
         headers: { "Content-Type": "application/json", "x-frontend-secret": secret },
         body: JSON.stringify({
           to:            recipientEmail,
-          recipientName: cleanName(emailPreview.recipient.name || ""),
+          recipientName: emailPreview.recipient._type === "partner"
+            ? (emailPreview.recipient.contact || emailPreview.recipient.name || "")
+            : cleanName(emailPreview.recipient.name || ""),
           subject:       emailPopulatedSubject || emailPreview.template.name,
           body:          emailBodyOverride ?? emailPopulatedBody,
         }),
@@ -9901,7 +9910,9 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser }) {
         templateName:  tmpl.name,
         category:      tmpl.category || "",
         to:            recipientEmail,
-        recipientName: cleanName(recip.name || ""),
+        recipientName: recip._type === "partner"
+          ? (recip.contact || recip.name || "")
+          : cleanName(recip.name || ""),
         recipientType: recip._type,
         subject:       emailPopulatedSubject || tmpl.name,
         resendId:      json.id || null,
@@ -10075,7 +10086,11 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser }) {
                 {emailPreview.recipient && (
                   <div style={{ marginTop: 8, display: "inline-flex", alignItems: "center", gap: 7, background: emailPreview.recipient._type === "partner" ? hexA("#D9892B", 0.1) : hexA(C.brand, 0.1), border: `1px solid ${emailPreview.recipient._type === "partner" ? "#F6D9A8" : hexA(C.brand, 0.3)}`, borderRadius: 20, padding: "4px 12px 4px 8px" }}>
                     {emailPreview.recipient._type === "partner" ? <Building2 size={12} color="#D9892B" /> : <Users size={12} color={C.brand} />}
-                    <span style={{ fontSize: 12.5, fontWeight: 600, color: C.ink }}>{cleanName(emailPreview.recipient.name)}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: C.ink }}>
+                      {emailPreview.recipient._type === "partner"
+                        ? (emailPreview.recipient.contact || emailPreview.recipient.name)
+                        : cleanName(emailPreview.recipient.name)}
+                    </span>
                     <span style={{ fontSize: 11, color: C.ink3 }}>{emailPreview.recipient._type === "partner" ? "Studio Partner" : "Client"}</span>
                     <button onClick={() => setEmailPreview(prev => ({ ...prev, recipient: null, recipientSearch: "" }))}
                       style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, padding: 0, marginLeft: 2, lineHeight: 1 }}>
