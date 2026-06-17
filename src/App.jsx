@@ -5127,9 +5127,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                 )}
               </>
             )}
-          {/* Email history — shown on clients and partners */}
           {/* Email history lives in the Contact Timeline tab for both clients and partners */}
-          )}
         </div>
 
         <div className="sb-drawerfoot">
