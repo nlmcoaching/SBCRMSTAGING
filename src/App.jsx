@@ -3515,6 +3515,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         : v.layout === "admin-storage"    ? <AdminView tab="storage"    data={data} setData={setData} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
         : v.layout === "admin-settings"   ? <AdminView tab="settings"   data={data} setData={setData} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
         : v.layout === "admin-journeys"   ? <AdminView tab="journeys"   data={data} setData={setData} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
+        : v.layout === "admin-email-logs"  ? <AdminView tab="email-logs" data={data} setData={setData} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
         : v.layout === "admin-reset"      ? <AdminView tab="reset"      data={data} setData={setData} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
         : v.layout === "expense-summary"  ? <ExpenseSummaryView data={data} today={today} canEdit={canEdit} onOpen={(r) => onOpen({ db: "expenses", record: r })} onImportExpenses={handleImportExpenses} />
         : v.layout === "outreach-hub"
@@ -3569,6 +3570,7 @@ const VIEWS = {
       { name: "Schema Browser",  layout: "admin-schema" },
       { name: "Data Integrity",  layout: "admin-integrity" },
       { name: "Storage & Backup", layout: "admin-storage" },
+      { name: "Email Logs", layout: "admin-email-logs" },
       { name: "Reset to Production", layout: "admin-reset" },
     ],
   },
@@ -7587,6 +7589,148 @@ const DB_SCHEMA = [
   },
 ];
 
+/* ── EMAIL LOGS ── */
+const EMAIL_STATUS_COLOR = {
+  sent:      "#2563EB",
+  failed:    "#C0392B",
+  delivered: "#4A8C6F",
+  bounced:   "#C0392B",
+  complained:"#D9892B",
+  opened:    "#4A8C6F",
+  clicked:   "#4A8C6F",
+  queued:    "#D9892B",
+  delivery_delayed: "#D9892B",
+  unknown:   C.ink3,
+};
+
+function EmailLogsView({ data, setData }) {
+  const logs = [...(data.emailLog || [])].reverse();
+  const [checking, setChecking] = useState({});
+
+  const checkStatus = async (entry) => {
+    if (!entry.resendId || checking[entry.id]) return;
+    setChecking(c => ({ ...c, [entry.id]: true }));
+    try {
+      const secret = import.meta.env.VITE_FRONTEND_SECRET || "";
+      const res  = await fetch(`/api/email-status/${entry.resendId}`, { headers: { "x-frontend-secret": secret } });
+      const json = await res.json();
+      if (res.ok && json.status) {
+        setData(d => ({
+          ...d,
+          emailLog: (d.emailLog || []).map(e =>
+            e.id === entry.id ? { ...e, deliveryStatus: json.status, statusCheckedAt: new Date().toISOString() } : e
+          ),
+        }));
+      }
+    } catch (_) {}
+    setChecking(c => ({ ...c, [entry.id]: false }));
+  };
+
+  const checkAll = async () => {
+    const pending = logs.filter(e => e.resendId && e.sendStatus === "sent");
+    for (const entry of pending) await checkStatus(entry);
+  };
+
+  const clearLog = () => {
+    if (window.confirm("Clear the entire email log? This cannot be undone.")) {
+      setData(d => ({ ...d, emailLog: [] }));
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: C.ink }}>{logs.length} email{logs.length !== 1 ? "s" : ""} logged</div>
+          <div style={{ fontSize: 12.5, color: C.ink3, marginTop: 2 }}>All emails sent from the CRM. Delivery status pulled from Resend.</div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {logs.some(e => e.resendId && e.sendStatus === "sent") && (
+            <button onClick={checkAll} style={{ padding: "7px 16px", borderRadius: 8, border: `1px solid ${C.line}`, background: C.surface, fontSize: 13, fontWeight: 600, color: C.brand, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+              <RefreshCw size={13} /> Refresh all statuses
+            </button>
+          )}
+          {logs.length > 0 && (
+            <button onClick={clearLog} style={{ padding: "7px 16px", borderRadius: 8, border: `1px solid ${hexA("#C0392B", 0.3)}`, background: hexA("#C0392B", 0.05), fontSize: 13, fontWeight: 600, color: "#C0392B", cursor: "pointer" }}>
+              Clear log
+            </button>
+          )}
+        </div>
+      </div>
+
+      {logs.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0", color: C.ink3 }}>
+          <Send size={32} color={C.line} style={{ display: "block", margin: "0 auto 12px" }} />
+          <div style={{ fontSize: 14, fontWeight: 600 }}>No emails sent yet</div>
+          <div style={{ fontSize: 13, marginTop: 4 }}>Emails sent via Templates will appear here</div>
+        </div>
+      ) : (
+        <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden" }}>
+          {/* Column headers */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 120px 110px 90px", gap: "0 12px", padding: "9px 16px", background: C.surfaceAlt, borderBottom: `1px solid ${C.line}`, fontSize: 11, fontWeight: 700, color: C.ink3, textTransform: "uppercase", letterSpacing: ".06em" }}>
+            <span>Date</span><span>Recipient</span><span>Template</span><span>Send</span><span>Delivery</span><span></span>
+          </div>
+          {logs.map((entry, i) => {
+            const sendColor    = EMAIL_STATUS_COLOR[entry.sendStatus]    || C.ink3;
+            const delivColor   = EMAIL_STATUS_COLOR[entry.deliveryStatus] || C.ink3;
+            const delivLabel   = entry.deliveryStatus
+              ? entry.deliveryStatus.replace(/_/g, " ")
+              : entry.resendId ? "not checked" : "—";
+            return (
+              <div key={entry.id} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 120px 110px 90px", gap: "0 12px", padding: "10px 16px", alignItems: "center", borderBottom: i < logs.length - 1 ? `1px solid ${C.line}` : "none", fontSize: 13 }}>
+                {/* Date */}
+                <div style={{ color: C.ink2, fontSize: 12 }}>
+                  {new Date(entry.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  <div style={{ fontSize: 11, color: C.ink3 }}>{new Date(entry.date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</div>
+                </div>
+                {/* Recipient */}
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.recipientName || entry.to}</div>
+                  <div style={{ fontSize: 11.5, color: C.ink3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.to}</div>
+                </div>
+                {/* Template */}
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: C.ink }}>{entry.templateName}</div>
+                  {entry.category && <div style={{ fontSize: 11.5, color: C.ink3 }}>{entry.category}</div>}
+                </div>
+                {/* Send status */}
+                <div>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: hexA(sendColor, 0.1), color: sendColor }}>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: sendColor, display: "inline-block" }} />
+                    {entry.sendStatus}
+                    {entry.errorMsg && <span title={entry.errorMsg} style={{ cursor: "help" }}>⚠</span>}
+                  </span>
+                </div>
+                {/* Delivery status */}
+                <div>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: hexA(delivColor, 0.1), color: delivColor }}>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: delivColor, display: "inline-block" }} />
+                    {delivLabel}
+                  </span>
+                  {entry.statusCheckedAt && (
+                    <div style={{ fontSize: 10.5, color: C.ink3, marginTop: 2 }}>
+                      checked {new Date(entry.statusCheckedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                    </div>
+                  )}
+                </div>
+                {/* Check button */}
+                <div style={{ textAlign: "right" }}>
+                  {entry.resendId && entry.sendStatus === "sent" && (
+                    <button onClick={() => checkStatus(entry)} disabled={checking[entry.id]} style={{ padding: "4px 10px", borderRadius: 7, border: `1px solid ${C.line}`, background: C.surface, fontSize: 11.5, fontWeight: 600, color: C.brand, cursor: checking[entry.id] ? "not-allowed" : "pointer" }}>
+                      {checking[entry.id] ? <RefreshCw size={11} style={{ animation: "spin 1s linear infinite" }} /> : "Check"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── RESET TO PRODUCTION ── */
 function ResetToProductionView({ data, setData, currentUser }) {
   const [confirm, setConfirm] = useState("");
@@ -8116,6 +8260,9 @@ function AdminView({ tab, data, setData, secUsers, currentUser, today, crmSettin
 
       {tab === "journeys" && crmSettings && (
         <JourneyDescriptionsView settings={crmSettings} onSave={onSaveSettings} />
+      )}
+      {tab === "email-logs" && (
+        <EmailLogsView data={data} setData={setData} />
       )}
       {tab === "reset" && (
         <ResetToProductionView data={data} setData={setData} currentUser={currentUser} />
@@ -9747,7 +9894,22 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser }) {
       const tmpl     = emailPreview.template;
       const recip    = emailPreview.recipient;
       const today    = new Date().toISOString().slice(0, 10);
-      const logEntry = { id: `em_${Date.now()}`, date: new Date().toISOString(), templateId: tmpl.id, templateName: tmpl.name, to: recipientEmail, recipientName: cleanName(recip.name || "") };
+      const logEntry = {
+        id:            `em_${Date.now()}`,
+        date:          new Date().toISOString(),
+        templateId:    tmpl.id,
+        templateName:  tmpl.name,
+        category:      tmpl.category || "",
+        to:            recipientEmail,
+        recipientName: cleanName(recip.name || ""),
+        recipientType: recip._type,
+        subject:       emailPopulatedSubject || tmpl.name,
+        resendId:      json.id || null,
+        sendStatus:    "sent",
+      };
+
+      // ── Write to global email log ──
+      setData(d => ({ ...d, emailLog: [...(d.emailLog || []), logEntry] }));
 
       if (recip._type === "partner") {
         // Update lastTouch on partner + append to emailHistory
@@ -9768,6 +9930,26 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser }) {
       setEmailSent(true);
       setTimeout(() => { setEmailSent(false); setEmailPreview(null); }, 2000);
     } catch (err) {
+      // Log the failed send attempt to the global email log
+      const tmplFail  = emailPreview?.template;
+      const recipFail = emailPreview?.recipient;
+      if (tmplFail && recipFail) {
+        const failEntry = {
+          id:            `em_${Date.now()}`,
+          date:          new Date().toISOString(),
+          templateId:    tmplFail.id,
+          templateName:  tmplFail.name,
+          category:      tmplFail.category || "",
+          to:            recipFail.email || "",
+          recipientName: cleanName(recipFail.name || ""),
+          recipientType: recipFail._type,
+          subject:       emailPopulatedSubject || tmplFail.name,
+          resendId:      null,
+          sendStatus:    "failed",
+          errorMsg:      err.message,
+        };
+        setData(d => ({ ...d, emailLog: [...(d.emailLog || []), failEntry] }));
+      }
       setEmailError(err.message || "Failed to send. Please try again.");
     } finally {
       setEmailSending(false);

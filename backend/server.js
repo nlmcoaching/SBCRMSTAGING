@@ -563,6 +563,31 @@ ${body.split(/\n\n+/).map(para =>
   }
 });
 
+// ── Get email delivery status from Resend ────────────────────────────────
+app.get("/api/email-status/:id", requireFrontendSecret, async (req, res) => {
+  if (!resendClient) return res.status(503).json({ error: "Email service not configured." });
+
+  const { id } = req.params;
+  if (!id || !/^[a-zA-Z0-9_-]{1,100}$/.test(id)) {
+    return res.status(400).json({ error: "Invalid email ID." });
+  }
+
+  try {
+    const email = await resendClient.emails.get(id);
+    if (email.error) return res.status(502).json({ error: email.error.message });
+    res.json({
+      id:        email.data?.id,
+      status:    email.data?.last_event || "unknown",
+      createdAt: email.data?.created_at,
+      to:        email.data?.to,
+      subject:   email.data?.subject,
+    });
+  } catch (err) {
+    console.error("[email-status] Error:", err.message);
+    res.status(500).json({ error: "Could not fetch email status." });
+  }
+});
+
 // ── Health check (unauthenticated — accepted: used by process monitors) ──
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
