@@ -388,16 +388,13 @@ const SESSION_CHECKLIST = [
   // Pre-session — studio
   { id: "room_booked",        label: "Room booking confirmed with studio",          phase: "Pre-Session",  virtual: false },
   { id: "capacity_set",       label: "Capacity communicated to studio",             phase: "Pre-Session",  virtual: false },
-  { id: "booking_live",       label: "Booking page / sign-up link live",            phase: "Pre-Session",  virtual: true  },
   { id: "promo_sent",         label: "Promotional push sent to studio list",        phase: "Pre-Session",  virtual: false },
-  { id: "promo_sent_virtual", label: "Promotional push sent (email/social)",        phase: "Pre-Session",  virtual: true  },
   { id: "equipment_packed",   label: "Equipment packed (headset, music, props)",    phase: "Pre-Session",  virtual: false },
-  { id: "zoom_link_sent",     label: "Zoom link sent to all registered attendees",  phase: "Pre-Session",  virtual: true  },
   { id: "zoom_tested",        label: "Zoom setup & audio tested",                  phase: "Pre-Session",  virtual: true  },
   { id: "room_setup_done",    label: "Room setup confirmed",                        phase: "Pre-Session",  virtual: false },
   { id: "audio_tested",       label: "Music & headset tested",                     phase: "Pre-Session",  virtual: false },
   { id: "space_prepared",     label: "Personal space prepared (quiet, good light)", phase: "Pre-Session",  virtual: true  },
-  { id: "waivers_shared",     label: "Waiver link sent to registered attendees",    phase: "Pre-Session",  virtual: true  },
+  { id: "water_nearby",       label: "Water nearby for you",                        phase: "Pre-Session",  virtual: true  },
   // Post-session — shared
   { id: "attendance_logged",  label: "Attendance count logged",                     phase: "Post-Session", virtual: true  },
   { id: "revenue_recorded",   label: "Revenue recorded & split calculated",         phase: "Post-Session", virtual: false },
@@ -427,9 +424,8 @@ const EQUIP_CHECKLIST_PHASES = [
   {
     id: "virtual_setup", label: "Virtual Setup", color: "#2E6FB0", icon: "💻",
     items: [
-      { id: "eq_zoom_account",   label: "Zoom account & meeting link confirmed",      virtual: true  },
       { id: "eq_zoom_tested",    label: "Zoom audio, video & screen share tested",    virtual: true  },
-      { id: "eq_headset_v",      label: "Headset or microphone plugged in & tested",  virtual: true  },
+      { id: "eq_headset_v",      label: "Headset charged and tested",                 virtual: true  },
       { id: "eq_camera",         label: "Camera positioned, background clean & lit",  virtual: true  },
       { id: "eq_do_not_disturb", label: "Phone on DND, notifications silenced",       virtual: true  },
     ],
@@ -440,10 +436,9 @@ const EQUIP_CHECKLIST_PHASES = [
       { id: "eq_playlist",       label: "Playlist/journey downloaded offline",         virtual: false },
       { id: "eq_playlist_v",     label: "Playlist/journey ready & queued",             virtual: true  },
       { id: "eq_wifi",           label: "Wi-Fi confirmed at venue (or offline ready)", virtual: false },
-      { id: "eq_wifi_v",         label: "Strong Wi-Fi connection confirmed",           virtual: true  },
+      { id: "eq_wifi_v",         label: "Strong internet connection confirmed",        virtual: true  },
       { id: "eq_waiver_qr",      label: "Waiver QR code printed or accessible",       virtual: false },
       { id: "eq_checkin_list",   label: "Check-in list printed or on device",         virtual: false },
-      { id: "eq_zoom_link_sent", label: "Zoom link sent to all registered attendees",  virtual: true  },
     ],
   },
   {
@@ -454,7 +449,6 @@ const EQUIP_CHECKLIST_PHASES = [
       { id: "eq_room_lighting",  label: "Room lighting tested & adjusted",            virtual: false },
       { id: "eq_lighting_v",     label: "Lighting flattering and distraction-free",   virtual: true  },
       { id: "eq_water_tissues",  label: "Water & tissues available in room",          virtual: false },
-      { id: "eq_water_v",        label: "Water nearby for you",                       virtual: true  },
     ],
   },
   {
@@ -463,7 +457,6 @@ const EQUIP_CHECKLIST_PHASES = [
       { id: "eq_emergency",      label: "Emergency contact process confirmed",         virtual: false },
       { id: "eq_contraindication", label: "Contraindication reminder shared with attendees", virtual: true },
       { id: "eq_closing_script", label: "Closing/integration script reviewed",        virtual: true  },
-      { id: "eq_recording_note", label: "Recording policy communicated (if applicable)", virtual: true },
     ],
   },
 ];
@@ -3776,6 +3769,20 @@ const VIEWS = {
           const sorted = [...rows].filter((r) => r.stage !== "Lost / not a fit").sort((a, b) => Number(b.revenuePotential) - Number(a.revenuePotential));
           return { rows: sorted, footer: { revenuePotential: money(sum(sorted, "revenuePotential")), label: "Total pipeline value" } };
         } },
+      { name: "All partners", layout: "table",
+        columns: [
+          col("name",      "Studio",        (r) => <span style={{ fontWeight: 700 }}>{cleanName(r.name)}</span>),
+          col("studioType","Type",          (r) => r.studioType || "—"),
+          col("stage",     "Stage",         (r) => <Tag color={STAGE_COLOR[r.stage]} soft>{r.stage}</Tag>),
+          col("location",  "Address",       (r) => r.location || "—"),
+          col("contact",   "Contact",       (r) => r.contact || "—"),
+          col("phone",     "Phone",         (r) => r.phone ? <a href={`tel:${r.phone}`} style={{ color: C.brand }}>{r.phone}</a> : "—"),
+          col("email",     "Email",         (r) => r.email ? <a href={`mailto:${r.email}`} style={{ color: C.brand }}>{r.email}</a> : "—"),
+          col("revShare",  "Rev share",     (r) => r.revShare || "—"),
+          col("contractStatus", "Contract", (r) => r.contractStatus ? <Tag color={r.contractStatus === "Signed" ? "#4A8C6F" : C.gold} soft>{r.contractStatus}</Tag> : "—"),
+          col("lastTouch", "Last touch",    (r, c) => <DateChip iso={r.lastTouch} today={c.today} />),
+        ],
+        run: (rows) => ({ rows: [...rows].sort((a, b) => (a.name || "").toLowerCase().localeCompare((b.name || "").toLowerCase())) }) },
     ],
   },
   sessions: {
@@ -4672,6 +4679,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
   const hasTimeline = (db === "clients" || db === "partners") && !isNew;
   const hasChecklist = db === "partners" && !isNew;
   const hasSessionTabs = db === "sessions" && !isNew;
+  const isVirtualSession = hasSessionTabs && !draft.studioId && (draft.locationType === "zoom" || draft.locationType === "custom" || !draft.locationType);
 
   // related records (used in details tab)
   const related = [];
@@ -4792,8 +4800,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
               {(hasSessionTabs ? [
                 ["details", "Session Details"],
                 ["bookings", "Bookings"],
-                ["equipment", "Equipment Setup"],
-                ["checklist", "Run Checklist"],
+                ["session-checklist", "Session Checklist"],
                 ["performance", "Performance"],
               ] : [
                 ["details", "Details"],
@@ -4813,12 +4820,10 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                 const done = (t === "partner-sessions") ? partnerSessionCount
                            : (t === "sessions-attended") ? clientSessionCount
                            : (t === "checklist" && db === "partners") ? Object.values(draft.checklist || {}).filter(Boolean).length
-                           : (t === "checklist" && db === "sessions") ? activeSessionChecklist.filter(i => draft.checklist?.[i.id]).length
-                           : (t === "equipment" && db === "sessions") ? activeEquipItems.filter(i => draft.equipChecklist?.[i.id]).length
+                           : (t === "session-checklist") ? activeEquipItems.filter(i => draft.equipChecklist?.[i.id]).length + activeSessionChecklist.filter(i => draft.checklist?.[i.id]).length
                            : (t === "bookings") ? sessionBookings.length : null;
                 const total = (t === "checklist" && db === "partners") ? PARTNER_CHECKLIST.length
-                            : (t === "checklist" && db === "sessions") ? activeSessionChecklist.length
-                            : (t === "equipment" && db === "sessions") ? activeEquipItems.length
+                            : (t === "session-checklist") ? activeEquipItems.length + activeSessionChecklist.length
                             : isStudioBookings ? (Number(draft.capacity) || null)
                             : (t === "bookings") ? (data.registrations || []).filter(r => r.sessionId === draft.id).length : null;
                 return (
@@ -4850,13 +4855,29 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
             : hasTimeline && tab === "timeline"
             ? <ContactTimeline db={db} record={draft} data={data} derived={derived} today={today} onOpenRelated={onOpenRelated} />
             : (hasChecklist || hasSessionTabs) && tab === "checklist"
-            ? db === "sessions"
-              ? <SessionChecklist checklist={draft.checklist || emptySessionChecklist()} onChange={(cl) => set("checklist", cl)} sessionName={cleanName(draft.name)} status={draft.status} isVirtual={!draft.studioId && (draft.locationType === "zoom" || draft.locationType === "custom" || !draft.locationType)} />
-              : <PartnerLaunchChecklist checklist={draft.checklist || emptyChecklist()} onChange={(cl) => set("checklist", cl)} partnerName={cleanName(draft.name)} />
+            ? <PartnerLaunchChecklist checklist={draft.checklist || emptyChecklist()} onChange={(cl) => set("checklist", cl)} partnerName={cleanName(draft.name)} />
             : hasSessionTabs && tab === "bookings"
             ? <SessionBookingsTab record={draft} data={data} onOpenRelated={onOpenRelated} />
-            : hasSessionTabs && tab === "equipment"
-            ? <EquipmentChecklist equipChecklist={draft.equipChecklist || emptyEquipChecklist()} onChange={(cl) => set("equipChecklist", cl)} sessionName={cleanName(draft.name)} sessionDate={draft.date} isVirtual={!draft.studioId && (draft.locationType === "zoom" || draft.locationType === "custom" || !draft.locationType)} />
+            : hasSessionTabs && tab === "session-checklist"
+            ? isVirtualSession
+              ? <VirtualSessionChecklist
+                  equipChecklist={draft.equipChecklist || emptyEquipChecklist()}
+                  onEquipChange={(cl) => set("equipChecklist", cl)}
+                  checklist={draft.checklist || emptySessionChecklist()}
+                  onChecklistChange={(cl) => set("checklist", cl)}
+                  sessionName={cleanName(draft.name)}
+                  sessionDate={draft.date}
+                  status={draft.status}
+                />
+              : <StudioSessionChecklist
+                  equipChecklist={draft.equipChecklist || emptyEquipChecklist()}
+                  onEquipChange={(cl) => set("equipChecklist", cl)}
+                  checklist={draft.checklist || emptySessionChecklist()}
+                  onChecklistChange={(cl) => set("checklist", cl)}
+                  sessionName={cleanName(draft.name)}
+                  sessionDate={draft.date}
+                  status={draft.status}
+                />
             : hasSessionTabs && tab === "performance"
             ? <SessionPerformance record={draft} derived={derived} data={data} />
             : (
@@ -5289,6 +5310,334 @@ function EquipmentChecklist({ equipChecklist, onChange, sessionName, sessionDate
   );
 }
 
+/* ── VIRTUAL SESSION CHECKLIST (combined equipment + run) ── */
+function VirtualSessionChecklist({ equipChecklist, onEquipChange, checklist, onChecklistChange, sessionName, sessionDate, status }) {
+  const [showCritical, setShowCritical] = useState(false);
+  const toggleEquip = (id) => onEquipChange({ ...equipChecklist, [id]: !equipChecklist[id] });
+  const toggleRun   = (id) => onChecklistChange({ ...checklist, [id]: !checklist[id] });
+
+  const activeEquipPhases = EQUIP_CHECKLIST_PHASES
+    .map(p => ({ ...p, items: p.items.filter(i => i.virtual) }))
+    .filter(p => p.items.length > 0);
+  const equipItems = activeEquipPhases.flatMap(p => p.items);
+  const runItems   = SESSION_CHECKLIST.filter(i => i.virtual);
+
+  const equipDone  = equipItems.filter(i => equipChecklist[i.id]).length;
+  const runDone    = runItems.filter(i => checklist[i.id]).length;
+  const totalDone  = equipDone + runDone;
+  const total      = equipItems.length + runItems.length;
+  const pct        = total ? Math.round((totalDone / total) * 100) : 0;
+
+  const criticalIds     = ["eq_zoom_tested", "eq_headset_v", "eq_do_not_disturb", "eq_contraindication"];
+  const criticalMissing = criticalIds.filter(id => !equipChecklist[id]);
+  const isCompleted     = ["Completed", "Follow-up pending", "Closed out"].includes(status);
+
+  const renderItem = (item, checked, onToggle, color, isCritical, disabled) => (
+    <button key={item.id} onClick={() => !disabled && onToggle(item.id)} disabled={disabled} style={{
+      display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+      background: checked ? hexA(color, 0.07) : "transparent",
+      border: "none", borderRadius: 8, padding: "9px 10px",
+      cursor: disabled ? "not-allowed" : "pointer", transition: "background .12s",
+    }}>
+      <div style={{
+        width: 20, height: 20, borderRadius: 5, flexShrink: 0, transition: "all .12s",
+        border: `2px solid ${checked ? color : isCritical && !checked ? "#D9892B" : C.line}`,
+        background: checked ? color : C.surface,
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        {checked && <Check size={12} color="#fff" strokeWidth={3} />}
+      </div>
+      <span style={{ fontSize: 13.5, flex: 1, fontWeight: checked ? 500 : 400, color: checked ? C.ink3 : C.ink, textDecoration: checked ? "line-through" : "none" }}>
+        {item.label}
+      </span>
+      {isCritical && !checked && (
+        <span style={{ fontSize: 10, fontWeight: 700, color: "#D9892B", background: hexA("#D9892B", 0.12), borderRadius: 4, padding: "1px 6px" }}>CRITICAL</span>
+      )}
+    </button>
+  );
+
+  const renderPhaseHeader = (label, phColor, done, phTotal, extra) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "6px 10px", borderRadius: 8, background: hexA(phColor, 0.07) }}>
+      <div style={{ width: 10, height: 10, borderRadius: "50%", background: phColor, flexShrink: 0 }} />
+      <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: phColor, flex: 1 }}>{label}</span>
+      {extra}
+      {done === phTotal
+        ? <span style={{ fontSize: 11, fontWeight: 700, color: "#4A8C6F" }}>✓ All done</span>
+        : <span style={{ fontSize: 11, color: C.ink3 }}>{done}/{phTotal}</span>}
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Progress header with critical badge */}
+      <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: "16px 18px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{sessionName} — Virtual Setup</div>
+            <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>
+              {sessionDate ? `Session: ${sessionDate}  ·  ` : ""}{totalDone} of {total} items complete
+            </div>
+            {criticalMissing.length > 0 && (
+              <button onClick={() => setShowCritical(v => !v)} style={{
+                marginTop: 8, display: "inline-flex", alignItems: "center", gap: 5,
+                background: showCritical ? "#D9892B" : hexA("#D9892B", 0.12),
+                border: `1px solid ${hexA("#D9892B", 0.4)}`,
+                borderRadius: 20, padding: "3px 10px", cursor: "pointer",
+                fontSize: 11.5, fontWeight: 700, color: showCritical ? "#fff" : "#9A5D10",
+                transition: "all .15s",
+              }}>
+                ⚠️ {criticalMissing.length} critical item{criticalMissing.length > 1 ? "s" : ""} not checked
+                <span style={{ fontSize: 10 }}>{showCritical ? "▲" : "▼"}</span>
+              </button>
+            )}
+          </div>
+          <div style={{ fontFamily: FONT.display, fontSize: 28, fontWeight: 700, color: pct === 100 ? "#4A8C6F" : pct >= 50 ? C.brand : C.gold }}>
+            {pct}%
+          </div>
+        </div>
+        <div style={{ height: 8, background: C.line, borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ height: "100%", borderRadius: 8, transition: "width .3s", width: pct + "%",
+            background: pct === 100 ? "#4A8C6F" : pct >= 50 ? C.brand : C.gold }} />
+        </div>
+        {showCritical && criticalMissing.length > 0 && (
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${hexA("#D9892B", 0.25)}` }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {criticalMissing.map(id => {
+                const item = equipItems.find(i => i.id === id);
+                return item ? <span key={id} style={{ fontSize: 11.5, background: "#fff", border: `1px solid ${hexA("#D9892B", 0.4)}`, borderRadius: 6, padding: "3px 10px", color: "#9A5D10", fontWeight: 600 }}>{item.label}</span> : null;
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Equipment phases — all except Safety & Facilitation */}
+      {activeEquipPhases.filter(p => p.id !== "safety").map(phase => {
+        const phaseDone = phase.items.filter(i => equipChecklist[i.id]).length;
+        return (
+          <div key={phase.id}>
+            {renderPhaseHeader(phase.label, phase.color, phaseDone, phase.items.length, null)}
+            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              {phase.items.map(item => renderItem(item, !!equipChecklist[item.id], toggleEquip, phase.color, criticalIds.includes(item.id), false))}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Pre-Session — run items + Safety & Facilitation merged */}
+      {(() => {
+        const safetyPhase = activeEquipPhases.find(p => p.id === "safety");
+        const safetyItems = safetyPhase ? safetyPhase.items : [];
+        const preItems = runItems.filter(i => i.phase === "Pre-Session");
+        const allPreItems = [...preItems, ...safetyItems];
+        if (!allPreItems.length) return null;
+        const phColor = SESSION_PHASE_COLOR["Pre-Session"];
+        const done = preItems.filter(i => checklist[i.id]).length + safetyItems.filter(i => equipChecklist[i.id]).length;
+        return (
+          <div>
+            {renderPhaseHeader("Pre-Session", phColor, done, allPreItems.length, null)}
+            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              {preItems.map(item => renderItem(item, !!checklist[item.id], toggleRun, phColor, false, false))}
+              {safetyItems.map(item => renderItem(item, !!equipChecklist[item.id], toggleEquip, phColor, criticalIds.includes(item.id), false))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Post-Session */}
+      {(() => {
+        const items = runItems.filter(i => i.phase === "Post-Session");
+        if (!items.length) return null;
+        const phaseDone = items.filter(i => checklist[i.id]).length;
+        const phColor = SESSION_PHASE_COLOR["Post-Session"];
+        const disabled = !isCompleted;
+        return (
+          <div style={{ opacity: disabled ? 0.55 : 1 }}>
+            {renderPhaseHeader("Post-Session", phColor, phaseDone, items.length,
+              disabled ? <span style={{ fontSize: 11, color: C.ink3 }}>(available after session is Completed)</span> : null
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              {items.map(item => renderItem(item, !!checklist[item.id], toggleRun, phColor, false, disabled))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {pct === 100 && (
+        <div style={{ background: hexA("#4A8C6F", 0.1), border: `1px solid ${hexA("#4A8C6F", 0.3)}`, borderRadius: 10, padding: "14px 16px", textAlign: "center" }}>
+          <div style={{ marginBottom: 6 }}><CheckCircle size={28} color="#4A8C6F" strokeWidth={1.5} /></div>
+          <div style={{ fontWeight: 700, fontSize: 14, color: "#2D6A50" }}>You're fully set up</div>
+          <div style={{ fontSize: 12, color: "#4A8C6F", marginTop: 3 }}>All setup and session items confirmed. Go hold space. 🌿</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── STUDIO SESSION CHECKLIST (combined equipment + run) ── */
+function StudioSessionChecklist({ equipChecklist, onEquipChange, checklist, onChecklistChange, sessionName, sessionDate, status }) {
+  const [showCritical, setShowCritical] = useState(false);
+  const toggleEquip = (id) => onEquipChange({ ...equipChecklist, [id]: !equipChecklist[id] });
+  const toggleRun   = (id) => onChecklistChange({ ...checklist, [id]: !checklist[id] });
+
+  const activeEquipPhases = EQUIP_CHECKLIST_PHASES
+    .map(p => ({ ...p, items: p.items.filter(i => !i.virtual) }))
+    .filter(p => p.items.length > 0);
+  const equipItems = activeEquipPhases.flatMap(p => p.items);
+  const runItems   = SESSION_CHECKLIST.filter(i => !i.virtual);
+
+  const equipDone  = equipItems.filter(i => equipChecklist[i.id]).length;
+  const runDone    = runItems.filter(i => checklist[i.id]).length;
+  const totalDone  = equipDone + runDone;
+  const total      = equipItems.length + runItems.length;
+  const pct        = total ? Math.round((totalDone / total) * 100) : 0;
+
+  const criticalIds     = ["eq_headsets","eq_backup_headset","eq_playlist","eq_waiver_qr","eq_emergency","eq_contraindication"];
+  const criticalMissing = criticalIds.filter(id => !equipChecklist[id]);
+  const isCompleted     = ["Completed", "Follow-up pending", "Closed out"].includes(status);
+
+  const renderItem = (item, checked, onToggle, color, isCritical, disabled) => (
+    <button key={item.id} onClick={() => !disabled && onToggle(item.id)} disabled={disabled} style={{
+      display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
+      background: checked ? hexA(color, 0.07) : "transparent",
+      border: "none", borderRadius: 8, padding: "9px 10px",
+      cursor: disabled ? "not-allowed" : "pointer", transition: "background .12s",
+    }}>
+      <div style={{
+        width: 20, height: 20, borderRadius: 5, flexShrink: 0, transition: "all .12s",
+        border: `2px solid ${checked ? color : isCritical && !checked ? "#D9892B" : C.line}`,
+        background: checked ? color : C.surface,
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        {checked && <Check size={12} color="#fff" strokeWidth={3} />}
+      </div>
+      <span style={{ fontSize: 13.5, flex: 1, fontWeight: checked ? 500 : 400, color: checked ? C.ink3 : C.ink, textDecoration: checked ? "line-through" : "none" }}>
+        {item.label}
+      </span>
+      {isCritical && !checked && (
+        <span style={{ fontSize: 10, fontWeight: 700, color: "#D9892B", background: hexA("#D9892B", 0.12), borderRadius: 4, padding: "1px 6px" }}>CRITICAL</span>
+      )}
+    </button>
+  );
+
+  const renderPhaseHeader = (label, phColor, done, phTotal, extra) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "6px 10px", borderRadius: 8, background: hexA(phColor, 0.07) }}>
+      <div style={{ width: 10, height: 10, borderRadius: "50%", background: phColor, flexShrink: 0 }} />
+      <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: phColor, flex: 1 }}>{label}</span>
+      {extra}
+      {done === phTotal
+        ? <span style={{ fontSize: 11, fontWeight: 700, color: "#4A8C6F" }}>✓ All done</span>
+        : <span style={{ fontSize: 11, color: C.ink3 }}>{done}/{phTotal}</span>}
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Progress header with critical badge */}
+      <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: "16px 18px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{sessionName} — Studio Setup</div>
+            <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>
+              {sessionDate ? `Session: ${sessionDate}  ·  ` : ""}{totalDone} of {total} items complete
+            </div>
+            {criticalMissing.length > 0 && (
+              <button onClick={() => setShowCritical(v => !v)} style={{
+                marginTop: 8, display: "inline-flex", alignItems: "center", gap: 5,
+                background: showCritical ? "#D9892B" : hexA("#D9892B", 0.12),
+                border: `1px solid ${hexA("#D9892B", 0.4)}`,
+                borderRadius: 20, padding: "3px 10px", cursor: "pointer",
+                fontSize: 11.5, fontWeight: 700, color: showCritical ? "#fff" : "#9A5D10",
+                transition: "all .15s",
+              }}>
+                ⚠️ {criticalMissing.length} critical item{criticalMissing.length > 1 ? "s" : ""} not checked
+                <span style={{ fontSize: 10 }}>{showCritical ? "▲" : "▼"}</span>
+              </button>
+            )}
+          </div>
+          <div style={{ fontFamily: FONT.display, fontSize: 28, fontWeight: 700, color: pct === 100 ? "#4A8C6F" : pct >= 50 ? C.brand : C.gold }}>
+            {pct}%
+          </div>
+        </div>
+        <div style={{ height: 8, background: C.line, borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ height: "100%", borderRadius: 8, transition: "width .3s", width: pct + "%",
+            background: pct === 100 ? "#4A8C6F" : pct >= 50 ? C.brand : C.gold }} />
+        </div>
+        {showCritical && criticalMissing.length > 0 && (
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${hexA("#D9892B", 0.25)}` }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {criticalMissing.map(id => {
+                const item = equipItems.find(i => i.id === id);
+                return item ? <span key={id} style={{ fontSize: 11.5, background: "#fff", border: `1px solid ${hexA("#D9892B", 0.4)}`, borderRadius: 6, padding: "3px 10px", color: "#9A5D10", fontWeight: 600 }}>{item.label}</span> : null;
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Equipment phases — all except Safety & Facilitation */}
+      {activeEquipPhases.filter(p => p.id !== "safety").map(phase => {
+        const phaseDone = phase.items.filter(i => equipChecklist[i.id]).length;
+        return (
+          <div key={phase.id}>
+            {renderPhaseHeader(phase.label, phase.color, phaseDone, phase.items.length, null)}
+            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              {phase.items.map(item => renderItem(item, !!equipChecklist[item.id], toggleEquip, phase.color, criticalIds.includes(item.id), false))}
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Pre-Session — run items + Safety & Facilitation merged */}
+      {(() => {
+        const safetyPhase = activeEquipPhases.find(p => p.id === "safety");
+        const safetyItems = safetyPhase ? safetyPhase.items : [];
+        const preItems = runItems.filter(i => i.phase === "Pre-Session");
+        const allPreItems = [...preItems, ...safetyItems];
+        if (!allPreItems.length) return null;
+        const phColor = SESSION_PHASE_COLOR["Pre-Session"];
+        const done = preItems.filter(i => checklist[i.id]).length + safetyItems.filter(i => equipChecklist[i.id]).length;
+        return (
+          <div>
+            {renderPhaseHeader("Pre-Session", phColor, done, allPreItems.length, null)}
+            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              {preItems.map(item => renderItem(item, !!checklist[item.id], toggleRun, phColor, false, false))}
+              {safetyItems.map(item => renderItem(item, !!equipChecklist[item.id], toggleEquip, phColor, criticalIds.includes(item.id), false))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Post-Session */}
+      {(() => {
+        const items = runItems.filter(i => i.phase === "Post-Session");
+        if (!items.length) return null;
+        const phaseDone = items.filter(i => checklist[i.id]).length;
+        const phColor = SESSION_PHASE_COLOR["Post-Session"];
+        const disabled = !isCompleted;
+        return (
+          <div style={{ opacity: disabled ? 0.55 : 1 }}>
+            {renderPhaseHeader("Post-Session", phColor, phaseDone, items.length,
+              disabled ? <span style={{ fontSize: 11, color: C.ink3 }}>(available after session is Completed)</span> : null
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              {items.map(item => renderItem(item, !!checklist[item.id], toggleRun, phColor, false, disabled))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {pct === 100 && (
+        <div style={{ background: hexA("#4A8C6F", 0.1), border: `1px solid ${hexA("#4A8C6F", 0.3)}`, borderRadius: 10, padding: "14px 16px", textAlign: "center" }}>
+          <div style={{ marginBottom: 6 }}><CheckCircle size={28} color="#4A8C6F" strokeWidth={1.5} /></div>
+          <div style={{ fontWeight: 700, fontSize: 14, color: "#2D6A50" }}>You're fully set up</div>
+          <div style={{ fontSize: 12, color: "#4A8C6F", marginTop: 3 }}>All setup and session items confirmed. Go hold space. 🌿</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ClientSessionsTab({ record, data, onOpenRelated, today }) {
   const registrations = (data.registrations || [])
     .filter(r => r.clientId === record.id && r.status !== "canceled")
@@ -5656,7 +6005,6 @@ function SessionPerformance({ record: r, derived, data }) {
         <table class="rev-table">
           <tr><td>Gross Revenue</td><td class="amt">$${gross.toFixed(2)}</td></tr>
           <tr><td>Studio Split</td><td class="amt minus">-$${split.toFixed(2)}</td></tr>
-          <tr class="net-row"><td>Your Net Revenue</td><td class="amt net">$${net.toFixed(2)}</td></tr>
         </table>
       </div>` : "";
 

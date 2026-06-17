@@ -1,6 +1,6 @@
 # Simply Breathe OS — User Guide
 
-> **Version:** 8.0 (July 2026)
+> **Version:** 9.0 (June 2026)
 > **Your daily operating system for a thriving breathwork practice.**
 > This guide is written for anyone using the CRM day-to-day — no technical background needed.
 
@@ -62,6 +62,8 @@ If your PIN is correct, you'll go straight to your dashboard. If you forget your
 > **Note:** Your PIN protects your data. Don't share it with others.
 
 > **Auto-lock:** The app locks itself after 15 minutes with no activity. Simply re-enter your PIN to continue.
+
+> **Security upgrade banner:** If you see a yellow banner saying "Security upgrade required", simply log in as usual — the app will automatically upgrade your account to the latest security standard in the background. You only need to do this once.
 
 ---
 
@@ -217,6 +219,14 @@ The **All Clients** view is sorted **A–Z by client name** automatically when y
 
 Click any client row to open the record. The main tab is called **Details** — it shows contact information, session history, and key metrics at the top (phone, email, sessions attended, first/last/next session, emotional notes, lifetime value), followed by status, type, source, and tags below.
 
+### Sessions Attended Tab
+
+Each client record has a **Sessions Attended** tab — a complete list of every session the client has registered for. For each session you'll see:
+- Session name, date, time, and journey used
+- **Revenue** — how much that session contributed (virtual: full net; studio: per-head share)
+
+A **Total Revenue** figure at the bottom shows the client's cumulative revenue contribution across all sessions they've attended. This makes it easy to identify your highest-value clients at a glance.
+
 ### The Client Timeline
 
 Open any client record and click the **Timeline** tab. You'll see everything that has happened with this person in chronological order — sessions attended, offers made, payments received, follow-ups sent, referrals they've made, and testimonials given.
@@ -288,6 +298,27 @@ Check items off as you complete them. The checklist shows overall progress and p
 
 Just like clients, every studio has a **Timeline** tab showing the full history of your relationship — calls, emails, sessions, agreements, revenue, and next steps.
 
+### All Partners Tab
+
+The **All Partners** tab (to the right of Revenue Forecast) gives you a complete alphabetical directory of every studio in the system. Each row shows:
+- Studio name, address, contact name, phone, and email
+- Revenue share percentage, contract status, and last touch date
+
+Use this tab when you need to quickly look up a studio's contact details or export a full partner list.
+
+### Partner Sessions Tab
+
+Open any studio partner record and click the **Sessions** tab. You'll see every session you've run at that studio, with:
+- Date, attendance count, and journey used
+- **Gross Revenue · Studio Split · Net Revenue** per session
+- A **total summary** row at the top showing cumulative gross, split, and net across all sessions
+
+This is the tab to open when you're preparing a partner revenue report or deciding whether to continue with a studio.
+
+### Active Partners — Default View
+
+When you open Studio Partners, the **Active Partners** tab loads first (studios at Recurring Partner, First Session Scheduled, or Pilot Completed stage), sorted A–Z. This is your fastest path to the studios you're actively working with.
+
 ---
 
 ## Running Sessions
@@ -351,15 +382,23 @@ Hover over any pill to see the full session name, studio, client name, and exact
 
 When you open a session record, the first tab is **Session Details**. The layout adapts based on session type:
 
-**Virtual sessions** show at the top:
+**Virtual sessions** show in this order:
 - Client name and email (from registration)
 - Date, time, and duration on one row
 - The Zoom / Join Link as a clickable card
+- **Room Setup Status** and **Music/Headset Status** side-by-side on the same line (below the Zoom link)
+- Session Notes, Breakthrough Noted, Journey Used, Status
 
-**Studio sessions** show at the top:
+**Studio sessions** show in this order:
 - Date, time, and duration on one row
 - Studio address (from Calendly)
 - Studio contact card — name, role, email, and phone pulled live from the partner record
+- **Registered Attendees** (automatically kept in sync with actual bookings — see below)
+- Room Capacity
+- **Room Setup Status** and **Music/Headset Status** side-by-side on the same line
+- Session Notes, Breakthrough Noted, remaining fields
+
+**Registered Attendees** on studio sessions updates automatically every time you open the session — it always reflects the real number of non-canceled bookings from the Bookings tab, so there's no need to update it manually.
 
 **Calendly event description:** Click the **ⓘ icon** next to the session name at the top of the drawer to expand or collapse the Calendly event type description inline below the title.
 
@@ -373,6 +412,18 @@ On virtual session cards in the sessions list, a small **ⓘ button** appears in
 - This button only appears on **virtual sessions** — not on studio sessions.
 
 **Equipment Needed** is on the **Equipment Setup** tab — not on Session Details.
+
+### Performance Tab — Download PDF (Studio Sessions)
+
+On studio session records, the **Performance** tab includes a **"Download PDF"** button. Click it to generate a clean, shareable PDF showing:
+- Session name, date, time, studio, and journey
+- Key metrics (attendance, capacity utilization)
+- Revenue breakdown: **Gross Revenue** and **Studio Split** (no internal net revenue figures)
+- Session notes
+
+This is designed to share with your studio partners as a post-event revenue summary. The PDF excludes post-session action checklists and any internal comparison data, keeping it professional and partner-appropriate.
+
+> **Tip:** If nothing happens when you click Download PDF, check that your browser isn't blocking pop-ups for this site. You can allow pop-ups in your browser settings.
 
 ### Session Bookings Tab
 
@@ -980,7 +1031,16 @@ Yes. Go to **Calendly Bookings** and click **New** to create a registration reco
 **A client booked twice and I have a duplicate. How do I fix it?**
 The system matches clients by email address. If a duplicate client was created (e.g. the client used two different email addresses), open the older record and merge the information into the primary record manually, then delete the duplicate.
 
+**The Registered Attendees number on a studio session looks wrong. How do I fix it?**
+Registered Attendees is automatically synced from the actual bookings when you open the session drawer — you don't need to edit it manually. If the number looks off, check the Bookings tab first: the count reflects non-canceled registrations only. Open the session drawer to trigger a refresh.
+
+**Nothing happened when I clicked "Download PDF". Why?**
+Your browser may be blocking pop-ups. Look for a pop-up blocked notification in the browser address bar, click it, and allow pop-ups from this site. Then try the Download PDF button again.
+
+**The Sessions Attended tab shows a revenue figure — how is it calculated?**
+For virtual (one-on-one) sessions, the figure is the full net revenue from that session. For studio sessions, it's the per-head revenue — gross revenue divided by the number of registered attendees for that session.
+
 ---
 
-*Simply Breathe OS User Guide — updated July 2026 (v8.0)*
+*Simply Breathe OS User Guide — updated June 2026 (v9.0)*
 *For technical documentation, see DOCUMENTATION.md*

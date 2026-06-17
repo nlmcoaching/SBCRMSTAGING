@@ -1,6 +1,6 @@
 ﻿# Simply Breathe OS — CRM Documentation
 
-> **Version:** 8.0 (July 2026)
+> **Version:** 9.0 (June 2026)
 > **Stack:** React 18 · Vite · Recharts · Lucide React · PapaParse · Node.js/Express (backend)
 > **Storage:** Browser `localStorage` (encrypted) + Cursor canvas `window.storage`
 > **Security:** AES-256-GCM encryption · PBKDF2 key derivation · PIN-based auth
@@ -95,7 +95,11 @@ On load, the decrypted data is validated against the expected schema (all requir
 
 ### PIN Lockout
 
-After a configurable number of consecutive failed PIN attempts, the lock screen displays a lockout message and temporarily disables further attempts. The lockout counter is stored in **`sessionStorage`** — it persists across page refreshes within the same browser tab, but resets automatically when the tab is closed. It cannot be cleared via the DevTools localStorage panel.
+After 5 consecutive failed PIN attempts, the lock screen displays a lockout message and disables further attempts for 5 minutes. The lockout counter is stored in **`localStorage`** with TTL-based expiry — it persists across tabs, page refreshes, and browser restarts until the lockout window expires. Stale entries are pruned automatically on read.
+
+### Legacy Account Upgrade Banner
+
+If the app detects a v1 PIN account (pre-PBKDF2, unsalted SHA-256 hash), a yellow banner is displayed on the lock screen: **"Security upgrade required — please log in to automatically upgrade to enhanced security (PBKDF2)."** Logging in once completes the migration silently; the old hash is permanently removed.
 
 ### Idle Auto-Lock
 
@@ -131,7 +135,35 @@ All string fields extracted from incoming Calendly webhook payloads are passed t
 
 ### Frontend Secret — Proxy Injection
 
-`VITE_FRONTEND_SECRET` is no longer included in the browser JS bundle. The secret is now injected server-side by the Vite proxy, so it never appears in client-side code or network inspector sources.
+`FRONTEND_SECRET` is injected as an HTTP header server-side by the Vite proxy (dev) or a reverse proxy such as Nginx (production). It is never compiled into the browser JS bundle. Setting `VITE_FRONTEND_SECRET` is explicitly prohibited in `.env.example` because Vite bakes `VITE_*` variables into the public JS bundle.
+
+### CRM Settings — Encrypted at Rest
+
+Application configuration (journey descriptions, package types, lead sources, etc.) stored under `sb:crm-settings:v1` is now also written into the AES-256-GCM encrypted data store on every save. On login, the encrypted version takes precedence over the localStorage cache, protecting business configuration metadata from unencrypted exposure.
+
+### CORS — Null-Origin Blocked in Production
+
+The backend CORS handler now rejects requests with no `Origin` header in `NODE_ENV=production`. Null-origin pass-through is only allowed in dev mode (where the Vite proxy may omit the header).
+
+### Webhook Signature Parsing
+
+The `Calendly-Webhook-Signature` header is parsed using explicit `indexOf`-based splitting with duplicate-key rejection. Crafted headers with repeated `t=` or `v1=` keys that could manipulate replay-protection timestamp checks are rejected outright.
+
+### GCM Tamper Detection — Fail Closed
+
+`_decryptQueue` now distinguishes format errors (old plaintext file before encryption was enabled → safe fallback) from GCM authentication failures (integrity check failed → possible tampering). A tampered queue file causes `readQueue()` to return an empty array rather than accepting the attacker's content.
+
+### Async Queue Mutex
+
+All queue read-modify-write operations (webhook receipt and `/acknowledge`) are serialised through an in-process promise-chain lock. Concurrent Calendly webhook bursts no longer race and overwrite each other.
+
+### Acknowledge Endpoint — Array Cap
+
+`POST /api/calendly/acknowledge` rejects `ids` arrays longer than 500 elements, preventing O(n×m) DoS via oversized payloads.
+
+### PDF Export — XSS Prevention
+
+All user-supplied strings (session name, studio name, notes, time, journey) interpolated into the `document.write` PDF template are HTML-escaped via an `esc()` helper. The generated print window also has a strict `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'` applied.
 
 ### SSRF Guard
 
@@ -323,6 +355,13 @@ Followed by:
 13. Package Type
 14. Intent Tags
 
+### Sessions Attended Tab
+
+Client records include a **Sessions Attended** tab (badge shows the count). It lists every session the client has been registered for, with:
+- Session name · Date · Time · Journey
+- **Revenue** column — for virtual sessions: the full net session revenue; for studio sessions: the per-head revenue (gross ÷ registered attendees)
+- A **Total Revenue** summary at the bottom showing the client's cumulative revenue contribution
+
 ---
 
 ## Studio Partners (B2B)
@@ -382,6 +421,24 @@ A 4-phase repeatable checklist attached to each studio partner record:
 
 Overall and per-phase progress bars are shown. Completed phases are visually distinct.
 
+### Partner Views
+
+| Tab | Description |
+|---|---|
+| **Active Partners** | Studios at Recurring Partner, First Session Scheduled, or Pilot Completed stage — sorted A–Z. **Default first tab.** |
+| **Pipeline** | Kanban board grouped by pipeline stage |
+| **In Outreach** | Studios being actively pursued, sorted by next action date |
+| **Revenue Forecast** | All non-lost studios ranked by revenue potential with pipeline total |
+| **All Partners** | Every studio sorted A–Z with address, contact name, phone, email, rev share, contract status, and last touch date |
+
+### Partner Record — Sessions Tab
+
+Each studio partner record now includes a **Sessions** tab (with a count badge) listing all sessions run at that studio. Each row shows:
+- Session name, date, time, attendance count, journey
+- Gross Revenue · Studio Split · Net Revenue per session (right-aligned)
+
+A summary bar at the top shows **Total Gross / Studio Split / Total Net** across all sessions for that partner.
+
 ### Contact Timeline
 
 Same as Clients — full history of all touchpoints, sessions, agreements, and communications.
@@ -438,6 +495,16 @@ Waiver QR code · Check-in list printed · Arrival time confirmed · Closing / i
 - Net vs gross comparison
 - Conversion rate (attended → purchased follow-on offer)
 
+#### PDF Export — Studio Session Performance
+
+Studio session record drawers include a **"Download PDF"** button on the Performance tab. Clicking it opens a print-friendly page containing:
+- Session name, date, time, studio, journey
+- Key metrics: attendance, capacity utilization, gross revenue, studio split
+- Revenue Breakdown table: **Gross Revenue** and **Studio Split** only (net revenue is excluded to keep the partner-facing view clean)
+- Session Notes
+
+The Post-Session Actions and "vs. Your Average" comparison sections are intentionally omitted from the export. All user-supplied values are HTML-escaped before rendering. The generated document includes a strict `Content-Security-Policy`.
+
 ### Views Available
 
 - **Calendar** — Monthly calendar showing all sessions. Pills display `Studio · Journey` for studio sessions and `Client · Journey` for virtual/Calendly sessions.
@@ -463,21 +530,31 @@ The layout of the Session Details tab adapts based on session type.
 1. Client name + email card (pulled from registration)
 2. Date · Time · Duration (mins) — inline row
 3. Zoom / Join Link card (clickable link from Calendly)
-4. Session Notes
-5. Breakthrough Noted
-6. Journey Used
-7. Status
-8. Remaining fields
+4. **Room Setup Status · Music/Headset Status** — displayed **side-by-side** on one line, directly below the Zoom link
+5. Session Notes
+6. Breakthrough Noted
+7. Journey Used
+8. Status
+9. Remaining fields
 
-Fields hidden on virtual sessions (shown elsewhere or not applicable): Studio dropdown, Studio Address, Location Type, Zoom/Join URL field, Calendly Event URI, Equipment Needed.
+Fields hidden on virtual sessions: Studio dropdown, Studio Address, Location Type, Zoom/Join URL field, Calendly Event URI, Equipment Needed.
 
 **Studio Sessions** show fields in this order:
 1. Date · Time · Duration — inline single row
 2. Studio Address (from Calendly location)
 3. Studio Contact card (name, role, email, phone — pulled live from the partner record)
-4. Remaining fields
+4. Registered Attendees (auto-synced from actual booking records — see below)
+5. Room Capacity
+6. **Room Setup Status · Music/Headset Status** — displayed **side-by-side** on one line
+7. Session Notes
+8. Breakthrough Noted
+9. Remaining fields
 
-Fields hidden on studio sessions: Studio dropdown, Equipment Needed.
+Fields hidden on studio sessions: Studio dropdown, Equipment Needed, Zoom/Join URL, Calendly Event URI.
+
+#### Registered Attendees — Live Sync
+
+The **Registered Attendees** field on studio sessions is automatically kept in sync with the actual count of non-canceled registrations in the Bookings tab. Every time the session drawer opens, the field is updated to reflect the real booking count, eliminating discrepancies between manually entered numbers and actual registrations.
 
 #### Bookings Tab
 Shows every client registration linked to this session (synced from Calendly or manually linked).
