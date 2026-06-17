@@ -45,6 +45,11 @@ const path       = require("path");
       desc: "Token for admin debug endpoints — without this those endpoints are disabled",
       critical: false,
     },
+    {
+      key: "RESEND_API_KEY",
+      desc: "Resend API key — without this the Send Email feature will return 503",
+      critical: false,
+    },
   ];
 
   const missing = checks.filter(({ key }) => !process.env[key]);
@@ -95,7 +100,16 @@ const webhookLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: "Too many webhook requests" },
 });
+// Strict limiter for email sending — prevents bulk-send abuse even with a valid session
+const emailLimiter = rateLimit({
+  windowMs: 60 * 1000,  // 1 minute
+  max: 10,              // 10 emails per IP per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many email requests — please wait before sending more." },
+});
 app.use("/api/webhooks/calendly", webhookLimiter);
+app.use("/api/send-email", emailLimiter);
 app.use("/api/", generalLimiter);
 
 // ── CORS: only allow explicitly listed origins ──
@@ -483,31 +497,46 @@ app.post("/api/send-email", requireFrontendSecret, async (req, res) => {
 
   const { to, recipientName, subject, body } = req.body;
 
-  // Basic input validation
+  // Input validation
   if (!to || !subject || !body) {
     return res.status(400).json({ error: "Missing required fields: to, subject, body." });
   }
-  if (typeof to !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+  // Stricter email regex: requires domain with proper TLD, rejects localhost/IP targets
+  if (typeof to !== "string" || !/^[^\s@]{1,64}@[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$/.test(to)) {
     return res.status(400).json({ error: "Invalid recipient email address." });
   }
   if (typeof subject !== "string" || subject.length > 200) {
     return res.status(400).json({ error: "Invalid subject." });
   }
+  // Strip CRLF from subject to prevent email header injection
+  const safeSubject = subject.replace(/[\r\n]/g, " ").trim();
   if (typeof body !== "string" || body.length > 50000) {
     return res.status(400).json({ error: "Message body too long." });
+  }
+  // Validate optional recipientName
+  if (recipientName !== undefined && (typeof recipientName !== "string" || recipientName.length > 200)) {
+    return res.status(400).json({ error: "Invalid recipientName." });
   }
 
   const FROM    = process.env.RESEND_FROM    || "jeff@simplybreathe.ai";
   const REPLY   = process.env.RESEND_REPLY_TO || FROM;
 
-  // Convert plain text body to simple HTML (preserve line breaks)
+  // HTML-escape helper — prevents injection of tags/scripts into the email HTML
+  const esc = (s) => String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+  // Convert plain text body to safe HTML (escape all user content, preserve line breaks)
   const htmlBody = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
 body { font-family: Georgia, serif; font-size: 16px; line-height: 1.7; color: #1a1a2e; max-width: 600px; margin: 40px auto; padding: 0 24px; }
 p { margin: 0 0 1em; }
 </style></head><body>
 ${body.split(/\n\n+/).map(para =>
-  `<p>${para.replace(/\n/g, "<br>")}</p>`
+  `<p>${esc(para).replace(/\n/g, "<br>")}</p>`
 ).join("")}
 </body></html>`;
 
@@ -516,7 +545,7 @@ ${body.split(/\n\n+/).map(para =>
       from:     `Simply Breathe <${FROM}>`,
       to:       [to],
       replyTo:  REPLY,
-      subject,
+      subject:  safeSubject,
       html:     htmlBody,
       text:     body,
     });
