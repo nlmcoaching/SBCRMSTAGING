@@ -9599,6 +9599,7 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser }) {
   const [emailSending, setEmailSending] = useState(false);
   const [emailSent, setEmailSent]       = useState(false);
   const [emailError, setEmailError]     = useState("");
+  const [emailBodyOverride, setEmailBodyOverride] = useState(null); // user edits to the body before send
 
   const templates  = data.templates  || [];
   const clients    = data.clients    || [];
@@ -9671,6 +9672,7 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser }) {
     varKeys.forEach(k => { vars[k] = ""; });
     setEmailPreview({ template: t, vars, autoFilledKeys: new Set(), recipient: null, recipientSearch: "" });
     setEmailCopied(false);
+    setEmailBodyOverride(null);
   };
 
   const selectRecipient = (recipient, type) => {
@@ -9678,6 +9680,7 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser }) {
     const varKeys = extractVars(emailPreview.template);
     const { vars, autoFilledKeys } = autoFillVars(varKeys, recipient, type);
     setEmailPreview(prev => ({ ...prev, recipient: { ...recipient, _type: type }, vars, autoFilledKeys, recipientSearch: cleanName(recipient.name || "") }));
+    setEmailBodyOverride(null);
   };
 
   // Replace {{var}} tokens with filled values (highlight unfilled placeholders)
@@ -9725,7 +9728,7 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser }) {
           to:            recipientEmail,
           recipientName: cleanName(emailPreview.recipient.name || ""),
           subject:       emailPopulatedSubject || emailPreview.template.name,
-          body:          emailPopulatedBody,
+          body:          emailBodyOverride ?? emailPopulatedBody,
         }),
       });
       const json = await res.json();
@@ -9911,18 +9914,27 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser }) {
                 </div>
               )}
 
-              {/* Populated preview */}
+              {/* Populated preview — editable */}
               {emailPreview.recipient && (
                 <div>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, color: C.ink3, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Preview</div>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: C.ink3, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span>Message — edit before sending</span>
+                    {emailBodyOverride !== null && (
+                      <button onClick={() => setEmailBodyOverride(null)} style={{ fontSize: 11, fontWeight: 600, color: C.brand, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                        Reset to template
+                      </button>
+                    )}
+                  </div>
                   {emailPopulatedSubject && (
                     <div style={{ fontSize: 12.5, fontWeight: 600, color: C.ink2, marginBottom: 8, padding: "7px 12px", background: C.surfaceAlt, borderRadius: 8, border: `1px solid ${C.line}` }}>
                       <span style={{ color: C.ink3 }}>Subject: </span>{emailPopulatedSubject}
                     </div>
                   )}
-                  <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.7, whiteSpace: "pre-wrap", background: C.surfaceAlt, borderRadius: 10, padding: "14px 16px", border: `1px solid ${C.line}`, minHeight: 120 }}>
-                    {emailPopulatedBody}
-                  </div>
+                  <textarea
+                    value={emailBodyOverride ?? emailPopulatedBody}
+                    onChange={e => setEmailBodyOverride(e.target.value)}
+                    style={{ width: "100%", boxSizing: "border-box", fontSize: 13, color: C.ink, lineHeight: 1.7, background: C.surface, borderRadius: 10, padding: "14px 16px", border: `1px solid ${C.line}`, minHeight: 200, resize: "vertical", outline: "none", fontFamily: "inherit" }}
+                  />
                 </div>
               )}
 
