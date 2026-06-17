@@ -5843,7 +5843,7 @@ function SessionBookingsTab({ record, data, onOpenRelated }) {
   const studio = (data.partners || []).find(p => p.id === record.studioId);
 
   const downloadParticipantList = () => {
-    const esc = (v) => String(v || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    const esc = (v) => String(v || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
     const studioName = esc(studio?.name || "—");
     const sessionName = esc(record.name || "Session");
     const sessionDate = esc(record.date ? fmtDate(record.date) : "—");
