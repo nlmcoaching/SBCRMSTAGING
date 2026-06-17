@@ -5617,12 +5617,17 @@ function SessionPerformance({ record: r, derived, data }) {
   const studioFull = derived.partnerName[r.studioId] || "";
 
   const handleDownloadPDF = () => {
-    const sessionTitle = cleanName(r.name || "Session");
+    // HTML-escape all user-supplied strings interpolated into document.write to prevent stored XSS
+    const esc = s => String(s ?? "")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+    const sessionTitle = esc(cleanName(r.name || "Session"));
     const rows = [
-      ["Status",          r.status || "—"],
-      ["Journey",         r.journey || "—"],
-      ["Studio",          studioFull || "—"],
-      ["Date & Time",     `${fmtDate(r.date)}${r.time ? " · " + r.time : ""}`],
+      ["Status",          esc(r.status || "—")],
+      ["Journey",         esc(r.journey || "—")],
+      ["Studio",          esc(studioFull || "—")],
+      ["Date & Time",     `${esc(fmtDate(r.date))}${r.time ? " · " + esc(r.time) : ""}`],
       ["Capacity",        r.capacity || "—"],
       ["Registered",      r.registered || "—"],
       ["Attended",        `${r.attendance || 0}${capUtil !== null ? ` (${capUtil}% full)` : ""}`],
@@ -5658,13 +5663,15 @@ function SessionPerformance({ record: r, derived, data }) {
     const notesHtml = r.notes ? `
       <div class="section">
         <div class="section-title">Session Notes</div>
-        <div class="notes">${r.notes}</div>
+        <div class="notes">${esc(r.notes)}</div>
       </div>` : "";
 
+    const studioEsc = esc(studioFull);
     const html = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';" />
   <title>Session Report — ${sessionTitle}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -5698,7 +5705,7 @@ function SessionPerformance({ record: r, derived, data }) {
     </div>
     <div style="text-align:right">
       <div class="session-title">${sessionTitle}</div>
-      <div class="session-sub">${studioFull ? studioFull + " · " : ""}${fmtDate(r.date)}${r.time ? " · " + r.time : ""}</div>
+      <div class="session-sub">${studioEsc ? studioEsc + " · " : ""}${esc(fmtDate(r.date))}${r.time ? " · " + esc(r.time) : ""}</div>
     </div>
   </div>
   <div class="section">
@@ -5712,6 +5719,7 @@ function SessionPerformance({ record: r, derived, data }) {
 </html>`;
 
     const w = window.open("", "_blank", "width=800,height=900");
+    if (!w) { alert("Popup blocked — please allow popups for this site to download the PDF."); return; }
     w.document.write(html);
     w.document.close();
     w.focus();
