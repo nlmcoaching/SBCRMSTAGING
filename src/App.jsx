@@ -2268,10 +2268,12 @@ export default function App() {
             </div>
             {section !== "today" && (
               <>
-                <div className="sb-search">
-                  <Search size={15} color={C.ink3} />
-                  <input placeholder="Search…" value={query} onChange={(e) => setQuery(e.target.value)} />
-                </div>
+                {!(section === "sessions" && view === 0) && (
+                  <div className="sb-search">
+                    <Search size={15} color={C.ink3} />
+                    <input placeholder="Search…" value={query} onChange={(e) => setQuery(e.target.value)} />
+                  </div>
+                )}
                 {can.edit && !["users","admin","workflows"].includes(section) && !(section === "expenses" && view === 0) && (
                   <button className="sb-primary" onClick={() => setOpen({ db: section, record: newRecord(section) })}>
                     <Plus size={16} /> New
