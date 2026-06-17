@@ -1,6 +1,6 @@
 ﻿# Simply Breathe OS — CRM Documentation
 
-> **Version:** 9.0 (June 2026)
+> **Version:** 9.1 (June 2026)
 > **Stack:** React 18 · Vite · Recharts · Lucide React · PapaParse · Node.js/Express (backend)
 > **Storage:** Browser `localStorage` (encrypted) + Cursor canvas `window.storage`
 > **Security:** AES-256-GCM encryption · PBKDF2 key derivation · PIN-based auth
@@ -475,18 +475,27 @@ Same as Clients — full history of all touchpoints, sessions, agreements, and c
 | Conversion Result | Text |
 | Notes | Textarea |
 
-### Equipment & Setup Checklist
+### Session Checklist Tab
 
-Per-session checklist organized into phases:
+Equipment setup and run checklist items are combined into a single **Session Checklist** tab. Critical items (marked internally) float to the top of each phase section so the most important tasks are always visible first.
 
-**Audio & Tech**
-Headset (primary) · Backup headset · Headset charger · Extension cord · Speaker / audio backup · Playlist / journey downloaded · Wi-Fi confirmed
+#### Virtual Session Checklist Phases
 
-**Room & Supplies**
-Eye masks · Mats / blankets confirmed · Room lighting set · Water & tissues · Emergency contact process reviewed · Contraindication reminder posted
+| Phase | Key Items |
+|---|---|
+| Pre-Session | Camera positioned · Phone on DND · Playlist ready & queued · Strong internet confirmed · Contraindication reminder · Closing script reviewed · Zoom audio/video/screen share tested · Headset charged and tested · Water nearby |
+| During Session | Safety monitoring · Facilitation cues |
+| Post-Session | Testimonials captured · 24h follow-up sent · Rebook offer made · Referrals requested · Session notes written |
 
-**Admin & Check-In**
-Waiver QR code · Check-in list printed · Arrival time confirmed · Closing / integration script ready
+#### Studio Session Checklist Phases
+
+| Phase | Key Items |
+|---|---|
+| Pack & Equipment | Primary headsets packed & charged · Backup headset · Chargers & power banks · Extension cords · Eye masks · Mats/blankets confirmed |
+| Content & Tech | Playlist/journey downloaded offline · Wi-Fi confirmed · Waiver QR code · Check-in list |
+| Venue & Day-Of | Arrival time confirmed (45–60 min early) · Room lighting tested · Water & tissues |
+| Pre-Session | Room booking confirmed · Capacity communicated · **Technical room setup complete, music and headsets tested** · Room setup confirmed · Emergency contact process · Contraindication reminder |
+| Post-Session | Attendance count logged · Revenue recorded · Studio split paid · Testimonials captured · Follow-up sent · Rebook offered · Referrals asked · Notes written |
 
 ### Session Performance View
 
@@ -505,6 +514,17 @@ Studio session record drawers include a **"Download PDF"** button on the Perform
 
 The Post-Session Actions and "vs. Your Average" comparison sections are intentionally omitted from the export. All user-supplied values are HTML-escaped before rendering. The generated document includes a strict `Content-Security-Policy`.
 
+#### PDF Export — Participant List (Bookings Tab)
+
+Studio session Bookings tabs include a **"Participant List"** button. Clicking it opens a print-friendly PDF containing:
+- Session name, studio name, date, time, and participant count
+- Table with: #, Name, Email, Phone, Status, Waiver status, Payment status
+- Cancelled registrations are excluded
+- Waiver and payment columns are color-coded (green = confirmed, amber/red = action needed)
+- Generation timestamp in the footer
+
+Intended for sharing with the studio partner to show confirmed attendees. All values are HTML-escaped; the document includes an inline CSP.
+
 ### Views Available
 
 - **Calendar** — Monthly calendar showing all sessions. Pills display `Studio · Journey` for studio sessions and `Client · Journey` for virtual/Calendly sessions.
@@ -517,9 +537,8 @@ The Post-Session Actions and "vs. Your Average" comparison sections are intentio
 | Tab | Contents |
 |---|---|
 | Session Details | All session fields, editable. Layout differs for virtual vs studio sessions (see below) |
-| Bookings | All registrants for this session. Badge shows `X/Y` (booked/capacity) for studio sessions |
-| Equipment Setup | Per-session gear checklist |
-| Run Checklist | Full pre/during/post session checklist |
+| Bookings | All registrants for this session. Badge shows `X/Y` (booked/capacity) for studio sessions. Studio sessions include a **Download Participant List** PDF button (see below) |
+| Session Checklist | Combined equipment + run checklist (replaces separate Equipment Setup and Run Checklist tabs). Critical items float to the top of each phase. Virtual and studio checklists have different item sets |
 | Performance | Revenue, attendance, conversion metrics |
 
 #### Session Details Tab Layout
@@ -865,8 +884,32 @@ Pre-built communication templates that can be copied and sent directly from the 
 
 - Filter by category and channel (Email / SMS).
 - Search by name or body text.
-- Variable highlighting — placeholders like `{{client_name}}`, `{{session_date}}`, `{{offer_link}}` are highlighted in the preview.
-- One-click copy to clipboard.
+- Variable highlighting — placeholders like `{{clientName}}`, `{{sessionDate}}`, `{{studioName}}` are highlighted in the preview.
+- **Copy** — one-click copy of the raw template to clipboard.
+- **Email** — opens a recipient-aware compose modal (see below).
+- **Edit** — opens the record drawer to edit name, subject, body, notes, variables, category, channel, and linked-to.
+- Message body textarea is expanded (9 rows) for easy reading and editing.
+
+### Email Compose Modal
+
+Clicking **Email** on any template opens a modal that:
+1. Shows a **recipient search** box — type a name to search clients and studio partners simultaneously.
+2. Selecting a recipient **auto-populates** all variables it can resolve from the record:
+
+| Variable | Source |
+|---|---|
+| `{{clientName}}` | Client full name |
+| `{{firstName}}` | Client first name |
+| `{{studioName}}` / `{{referenceStudio}}` | Partner name |
+| `{{contactName}}` | Partner contact name |
+| `{{email}}` / `{{phone}}` / `{{location}}` | Respective record field |
+| `{{avgAttendance}}` / `{{sessionsPerMonth}}` / `{{revSplit}}` | Partner fields |
+| `{{lastContactDate}}` | Partner last touch date |
+| `{{yourName}}` | Logged-in user's first name |
+
+3. Variables that cannot be auto-filled (e.g., `{{bookingLink}}`, `{{proposedDate}}`) appear as **manual input fields** that stay visible while you type.
+4. A **live preview** shows the fully populated message body and subject line.
+5. **Copy message** copies the complete populated text ready to paste into email.
 
 ---
 
@@ -1382,10 +1425,12 @@ A read-only status line at the bottom of the sidebar auto-syncs every **5 minute
 | State | Display | Hover tooltip |
 |---|---|---|
 | Syncing | Spinning icon + "Syncing Calendly…" | "Sync in progress…" |
-| Synced with new data | "**N records synced**" + last sync time | "Last sync: HH:MM:SS · N records imported" |
-| Synced, nothing new | "Calendly up to date" + last sync time | "Last sync: HH:MM:SS · No new bookings" |
+| Synced with new data | "**N records synced**" + last sync time | "Last received: [full date/time] · N bookings received from Calendly" |
+| Synced, nothing new | "Calendly up to date" + last sync time | Last-received info persists from previous non-zero sync; if none yet: "No bookings received yet this session — syncs every 5 minutes" |
 | Events queued | "**N bookings pending…**" | "N bookings queued — will sync within 5 minutes" |
 | Initial load | "Calendly sync active" | "Syncs automatically every 5 minutes" |
+
+The "last received" timestamp only updates when bookings are actually received (count > 0), so it always reflects the most recent time new data came in — not the last time a sync ran.
 
 The retroactive studio-matching pass runs on every sync cycle regardless of whether new events are pending.
 

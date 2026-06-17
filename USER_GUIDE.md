@@ -1,6 +1,6 @@
 # Simply Breathe OS — User Guide
 
-> **Version:** 9.0 (June 2026)
+> **Version:** 9.1 (June 2026)
 > **Your daily operating system for a thriving breathwork practice.**
 > This guide is written for anyone using the CRM day-to-day — no technical background needed.
 
@@ -411,7 +411,32 @@ On virtual session cards in the sessions list, a small **ⓘ button** appears in
 - If no description has been added yet, the popup will prompt you to add one in Admin → Journey Descriptions.
 - This button only appears on **virtual sessions** — not on studio sessions.
 
-**Equipment Needed** is on the **Equipment Setup** tab — not on Session Details.
+### Bookings Tab — Download Participant List (Studio Sessions)
+
+The **Bookings** tab on a studio session shows all registered attendees. At the top-right of the tab you'll find a **"Participant List"** button. Click it to generate a PDF showing:
+- Session name, studio name, date, and time
+- Full list of non-canceled registrants including name, email, phone, booking status, waiver status, and payment status
+- Color-coded waiver and payment columns so you can spot missing items at a glance
+
+This is useful for handing to the studio ahead of the event or printing as a sign-in sheet. Cancelled bookings are automatically excluded.
+
+> **Tip:** If your browser blocks the pop-up, look for a notification in the address bar and choose "Always allow pop-ups from this site."
+
+### Session Checklist Tab
+
+Both virtual and studio session cards have a single **Session Checklist** tab that combines equipment setup and the run checklist into one view. **Critical items appear at the top of each section** so the most important tasks are always visible first.
+
+**Virtual session checklist** covers:
+- Pre-Session: camera, phone on DND, playlist, internet connection, zoom tested, headset, safety items, water nearby
+- During Session: facilitation and safety items
+- Post-Session: testimonials, follow-up, rebook offer, referrals, notes
+
+**Studio session checklist** covers:
+- Pack & Equipment: headsets, backup headset, chargers, extension cords, eye masks, mats
+- Content & Tech: playlist, Wi-Fi, waiver QR code, check-in list
+- Venue & Day-Of: arrival time, room lighting, water & tissues
+- Pre-Session: room booking, capacity, **Technical room setup complete — music and headsets tested**, room setup, safety items
+- Post-Session: attendance, revenue, studio split, testimonials, follow-up, notes
 
 ### Performance Tab — Download PDF (Studio Sessions)
 
@@ -462,7 +487,7 @@ The indicator shows:
 - **"Calendly up to date · Last sync 9:45 AM"** — sync ran, nothing new
 - **"2 bookings pending…"** — bookings are queued and will be imported on the next cycle
 
-**Hover over the indicator** at any time to see exactly how many records were imported in the last sync and what time it ran.
+**Hover over the indicator** to see the exact date and time bookings were last received from Calendly, plus how many were synced. The timestamp only updates when actual bookings come in — so if you hover and see a time, that's when real data last arrived, not just the last time the sync ran and found nothing.
 
 ### New Studio Partners from Calendly
 When a booking arrives for a studio that isn't in your CRM yet, the system reads the Calendly event name (e.g. "Indiga Yoga - Walnut Creek, CA"), extracts the studio name and location, and creates a new Studio Partner record automatically. You can find and edit it under **Studio Partners** in the sidebar — fill in the contact details, revenue share, and other information when you're ready.
@@ -699,22 +724,28 @@ The best time to ask is within 5–7 days of a powerful session. When you check 
 
 Templates save you from writing the same messages over and over. The system comes with 14 pre-written templates covering the most common situations.
 
-### Using a Template
+### Three Buttons on Every Template
 
-1. Find the template you want using the filters or search.
-2. Click **Copy** to copy the full message to your clipboard.
-3. Paste it into your email or messaging app.
-4. Replace the `{{highlighted placeholders}}` with real information before sending.
+Each template card has three equal-width buttons:
+
+- **Copy** — Copies the raw template text (with unfilled `{{placeholders}}`) to your clipboard instantly.
+- **Email** — Opens the Email Compose modal (see below) where a recipient is selected and variables are auto-populated.
+- **Edit** — Opens the full edit drawer to change the name, subject, body, notes, variables, category, and channel. The message body field is extra tall so you can read the full message without scrolling.
+
+### Email Compose Modal (Auto-Populate Variables)
+
+Clicking **Email** is the fastest way to prepare a message:
+
+1. A search box appears — type a client or studio partner name.
+2. Select the recipient from the dropdown.
+3. The system automatically fills in every variable it can from their record — things like their name, email, studio name, contact name, location, revenue split, and your own first name.
+4. Any variables that can't be auto-filled (like `{{bookingLink}}` or `{{proposedDate}}`) appear as text fields below the search so you can fill them in manually. These fields stay visible while you type.
+5. A live preview shows the complete, personalized message as you go.
+6. Click **Copy message** to copy the fully populated text, then paste it into your email app.
 
 ### Template Variables
 
-Templates use placeholders like:
-- `{{client_name}}` — Replace with the client's first name
-- `{{session_date}}` — Replace with the actual session date
-- `{{offer_link}}` — Replace with a link to your booking page or offer
-- `{{studio_name}}` — Replace with the studio's name
-
-These are highlighted in the preview so you can spot them quickly.
+Templates use `{{placeholders}}` that are highlighted in the preview so you can spot them easily. The Email button auto-fills most of them — you only need to manually enter things like specific dates, links, or offer details that the system can't know in advance.
 
 ### Available Templates
 
