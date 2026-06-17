@@ -6899,6 +6899,14 @@ function buildPartnerTimeline(record, data, derived, today) {
     }
   });
 
+  // Emails sent from CRM
+  (record.emailHistory || []).forEach(entry => {
+    const dateStr = entry.date ? entry.date.slice(0, 10) : "";
+    events.push(tlEvent(dateStr, "email_sent",
+      `Email sent: ${entry.templateName}`,
+      `To: ${entry.to}`));
+  });
+
   // Next action
   if (record.nextAction) {
     events.push(tlEvent(record.nextAction, "upcoming",
@@ -6926,6 +6934,10 @@ function buildPartnerTimeline(record, data, derived, today) {
       { label: "Total sessions",    value: sessions.length + " logged" },
       { label: "Avg attendance",    value: avgAttend + " per session" },
       { label: "Total net revenue", value: money(totalNet), accent: C.brand },
+      { label: "Emails sent",       value: (record.emailHistory || []).length + " from CRM" },
+      { label: "Promotion",         value: record.promotionCommitments || "None noted" },
+      { label: "Insurance",         value: record.insuranceReqs || "None noted" },
+      { label: "Notes",             value: record.notes ? record.notes.slice(0, 80) + (record.notes.length > 80 ? "…" : "") : "—" },
     ],
   };
 }
