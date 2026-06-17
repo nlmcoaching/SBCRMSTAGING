@@ -393,12 +393,13 @@ const SESSION_CHECKLIST = [
   { id: "zoom_tested",        label: "Zoom setup & audio tested",                  phase: "Pre-Session",  virtual: true  },
   { id: "room_setup_done",    label: "Room setup confirmed",                        phase: "Pre-Session",  virtual: false },
   { id: "audio_tested",       label: "Music & headset tested",                     phase: "Pre-Session",  virtual: false },
+  { id: "tech_room_setup",    label: "Technical room setup complete, music and headsets tested", phase: "Pre-Session", virtual: false },
   { id: "space_prepared",     label: "Personal space prepared (quiet, good light)", phase: "Pre-Session",  virtual: true  },
   { id: "water_nearby",       label: "Water nearby for you",                        phase: "Pre-Session",  virtual: true  },
   // Post-session — shared
-  { id: "attendance_logged",  label: "Attendance count logged",                     phase: "Post-Session", virtual: true  },
+  { id: "attendance_logged",  label: "Attendance count logged",                     phase: "Post-Session", virtual: false },
   { id: "revenue_recorded",   label: "Revenue recorded & split calculated",         phase: "Post-Session", virtual: false },
-  { id: "revenue_virtual",    label: "Revenue recorded",                            phase: "Post-Session", virtual: true  },
+  { id: "revenue_virtual",    label: "Revenue recorded",                            phase: "Post-Session", virtual: false },
   { id: "studio_paid",        label: "Studio split paid or invoiced",               phase: "Post-Session", virtual: false },
   { id: "testimonials_done",  label: "Testimonials captured from attendees",        phase: "Post-Session", virtual: true  },
   { id: "followup_sent",      label: "24h follow-up email sent to attendees",       phase: "Post-Session", virtual: true  },
@@ -445,9 +446,9 @@ const EQUIP_CHECKLIST_PHASES = [
     id: "venue", label: "Venue & Day-Of", color: "#D9892B", icon: "📍",
     items: [
       { id: "eq_arrival_time",   label: "Arrival time confirmed (45–60 min early)",   virtual: false },
-      { id: "eq_space_v",        label: "Personal space quiet, door locked/sign posted", virtual: true },
+      { id: "eq_space_v",        label: "Personal space quiet, door locked/sign posted", virtual: false },
       { id: "eq_room_lighting",  label: "Room lighting tested & adjusted",            virtual: false },
-      { id: "eq_lighting_v",     label: "Lighting flattering and distraction-free",   virtual: true  },
+      { id: "eq_lighting_v",     label: "Lighting flattering and distraction-free",   virtual: false },
       { id: "eq_water_tissues",  label: "Water & tissues available in room",          virtual: false },
     ],
   },
@@ -5315,6 +5316,15 @@ function EquipmentChecklist({ equipChecklist, onChange, sessionName, sessionDate
   );
 }
 
+// Sort items so critical ones appear first within any section
+function sortCriticalFirst(items, criticalIds) {
+  return [...items].sort((a, b) => {
+    const aC = criticalIds.includes(a.id) ? 0 : 1;
+    const bC = criticalIds.includes(b.id) ? 0 : 1;
+    return aC - bC;
+  });
+}
+
 /* ── VIRTUAL SESSION CHECKLIST (combined equipment + run) ── */
 function VirtualSessionChecklist({ equipChecklist, onEquipChange, checklist, onChecklistChange, sessionName, sessionDate, status }) {
   const [showCritical, setShowCritical] = useState(false);
@@ -5337,7 +5347,6 @@ function VirtualSessionChecklist({ equipChecklist, onEquipChange, checklist, onC
   const virtualPreSessionEquipIds = new Set([
     "eq_camera", "eq_do_not_disturb",   // from Virtual Setup
     "eq_playlist_v", "eq_wifi_v",        // from Content & Tech
-    "eq_space_v", "eq_lighting_v",       // from Venue & Day-Of
   ]);
 
   const criticalIds     = ["eq_zoom_tested", "eq_headset_v", "eq_do_not_disturb", "eq_contraindication"];
@@ -5434,7 +5443,7 @@ function VirtualSessionChecklist({ equipChecklist, onEquipChange, checklist, onC
             <div key={phase.id}>
               {renderPhaseHeader(phase.label, phase.color, phaseDone, phase.items.length, null)}
               <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                {phase.items.map(item => renderItem(item, !!equipChecklist[item.id], toggleEquip, phase.color, criticalIds.includes(item.id), false))}
+                {sortCriticalFirst(phase.items, criticalIds).map(item => renderItem(item, !!equipChecklist[item.id], toggleEquip, phase.color, criticalIds.includes(item.id), false))}
               </div>
             </div>
           );
@@ -5452,13 +5461,23 @@ function VirtualSessionChecklist({ equipChecklist, onEquipChange, checklist, onC
         const done = preItems.filter(i => checklist[i.id]).length
                    + movedEquipItems.filter(i => equipChecklist[i.id]).length
                    + safetyItems.filter(i => equipChecklist[i.id]).length;
+        const allSorted = sortCriticalFirst(
+          [
+            ...preItems.map(i => ({ ...i, _src: "run" })),
+            ...movedEquipItems.map(i => ({ ...i, _src: "equip" })),
+            ...safetyItems.map(i => ({ ...i, _src: "equip" })),
+          ],
+          criticalIds
+        );
         return (
           <div>
             {renderPhaseHeader("Pre-Session", phColor, done, allPreItems.length, null)}
             <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              {preItems.map(item => renderItem(item, !!checklist[item.id], toggleRun, phColor, false, false))}
-              {movedEquipItems.map(item => renderItem(item, !!equipChecklist[item.id], toggleEquip, phColor, criticalIds.includes(item.id), false))}
-              {safetyItems.map(item => renderItem(item, !!equipChecklist[item.id], toggleEquip, phColor, criticalIds.includes(item.id), false))}
+              {allSorted.map(item =>
+                item._src === "run"
+                  ? renderItem(item, !!checklist[item.id], toggleRun, phColor, criticalIds.includes(item.id), false)
+                  : renderItem(item, !!equipChecklist[item.id], toggleEquip, phColor, criticalIds.includes(item.id), false)
+              )}
             </div>
           </div>
         );
@@ -5466,7 +5485,7 @@ function VirtualSessionChecklist({ equipChecklist, onEquipChange, checklist, onC
 
       {/* Post-Session */}
       {(() => {
-        const items = runItems.filter(i => i.phase === "Post-Session");
+        const items = sortCriticalFirst(runItems.filter(i => i.phase === "Post-Session"), criticalIds);
         if (!items.length) return null;
         const phaseDone = items.filter(i => checklist[i.id]).length;
         const phColor = SESSION_PHASE_COLOR["Post-Session"];
@@ -5477,7 +5496,7 @@ function VirtualSessionChecklist({ equipChecklist, onEquipChange, checklist, onC
               disabled ? <span style={{ fontSize: 11, color: C.ink3 }}>(available after session is Completed)</span> : null
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              {items.map(item => renderItem(item, !!checklist[item.id], toggleRun, phColor, false, disabled))}
+              {items.map(item => renderItem(item, !!checklist[item.id], toggleRun, phColor, criticalIds.includes(item.id), disabled))}
             </div>
           </div>
         );
@@ -5500,11 +5519,20 @@ function StudioSessionChecklist({ equipChecklist, onEquipChange, checklist, onCh
   const toggleEquip = (id) => onEquipChange({ ...equipChecklist, [id]: !equipChecklist[id] });
   const toggleRun   = (id) => onChecklistChange({ ...checklist, [id]: !checklist[id] });
 
+  const studioExcludeIds = new Set([
+    "eq_speaker",       // Speaker / audio
+    "eq_space_v",       // Personal space quiet
+    "eq_lighting_v",    // Lighting flattering
+    "promo_sent",       // Promotional push
+    "equipment_packed", // Equipment packed
+    "audio_tested",     // Music & headsets tested (replaced by tech_room_setup)
+  ]);
+
   const activeEquipPhases = EQUIP_CHECKLIST_PHASES
-    .map(p => ({ ...p, items: p.items.filter(i => !i.virtual) }))
+    .map(p => ({ ...p, items: p.items.filter(i => !i.virtual && !studioExcludeIds.has(i.id)) }))
     .filter(p => p.items.length > 0);
   const equipItems = activeEquipPhases.flatMap(p => p.items);
-  const runItems   = SESSION_CHECKLIST.filter(i => !i.virtual);
+  const runItems   = SESSION_CHECKLIST.filter(i => !i.virtual && !studioExcludeIds.has(i.id));
 
   const equipDone  = equipItems.filter(i => equipChecklist[i.id]).length;
   const runDone    = runItems.filter(i => checklist[i.id]).length;
@@ -5597,12 +5625,13 @@ function StudioSessionChecklist({ equipChecklist, onEquipChange, checklist, onCh
 
       {/* Equipment phases — all except Safety & Facilitation */}
       {activeEquipPhases.filter(p => p.id !== "safety").map(phase => {
-        const phaseDone = phase.items.filter(i => equipChecklist[i.id]).length;
+        const sortedItems = sortCriticalFirst(phase.items, criticalIds);
+        const phaseDone = sortedItems.filter(i => equipChecklist[i.id]).length;
         return (
           <div key={phase.id}>
-            {renderPhaseHeader(phase.label, phase.color, phaseDone, phase.items.length, null)}
+            {renderPhaseHeader(phase.label, phase.color, phaseDone, sortedItems.length, null)}
             <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              {phase.items.map(item => renderItem(item, !!equipChecklist[item.id], toggleEquip, phase.color, criticalIds.includes(item.id), false))}
+              {sortedItems.map(item => renderItem(item, !!equipChecklist[item.id], toggleEquip, phase.color, criticalIds.includes(item.id), false))}
             </div>
           </div>
         );
@@ -5617,12 +5646,22 @@ function StudioSessionChecklist({ equipChecklist, onEquipChange, checklist, onCh
         if (!allPreItems.length) return null;
         const phColor = SESSION_PHASE_COLOR["Pre-Session"];
         const done = preItems.filter(i => checklist[i.id]).length + safetyItems.filter(i => equipChecklist[i.id]).length;
+        const allSorted = sortCriticalFirst(
+          [
+            ...preItems.map(i => ({ ...i, _src: "run" })),
+            ...safetyItems.map(i => ({ ...i, _src: "equip" })),
+          ],
+          criticalIds
+        );
         return (
           <div>
             {renderPhaseHeader("Pre-Session", phColor, done, allPreItems.length, null)}
             <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              {preItems.map(item => renderItem(item, !!checklist[item.id], toggleRun, phColor, false, false))}
-              {safetyItems.map(item => renderItem(item, !!equipChecklist[item.id], toggleEquip, phColor, criticalIds.includes(item.id), false))}
+              {allSorted.map(item =>
+                item._src === "run"
+                  ? renderItem(item, !!checklist[item.id], toggleRun, phColor, criticalIds.includes(item.id), false)
+                  : renderItem(item, !!equipChecklist[item.id], toggleEquip, phColor, criticalIds.includes(item.id), false)
+              )}
             </div>
           </div>
         );
@@ -5630,7 +5669,7 @@ function StudioSessionChecklist({ equipChecklist, onEquipChange, checklist, onCh
 
       {/* Post-Session */}
       {(() => {
-        const items = runItems.filter(i => i.phase === "Post-Session");
+        const items = sortCriticalFirst(runItems.filter(i => i.phase === "Post-Session"), criticalIds);
         if (!items.length) return null;
         const phaseDone = items.filter(i => checklist[i.id]).length;
         const phColor = SESSION_PHASE_COLOR["Post-Session"];
@@ -5641,7 +5680,7 @@ function StudioSessionChecklist({ equipChecklist, onEquipChange, checklist, onCh
               disabled ? <span style={{ fontSize: 11, color: C.ink3 }}>(available after session is Completed)</span> : null
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              {items.map(item => renderItem(item, !!checklist[item.id], toggleRun, phColor, false, disabled))}
+              {items.map(item => renderItem(item, !!checklist[item.id], toggleRun, phColor, criticalIds.includes(item.id), disabled))}
             </div>
           </div>
         );
@@ -5801,6 +5840,79 @@ function SessionBookingsTab({ record, data, onOpenRelated }) {
   const registrations = (data.registrations || []).filter(r => r.sessionId === record.id);
   const REG_STATUS_COLOR = { booked: C.brand, attended: "#4A8C6F", canceled: "#C0573F", rescheduled: C.gold, no_show: "#8A96AC" };
 
+  const studio = (data.partners || []).find(p => p.id === record.studioId);
+
+  const downloadParticipantList = () => {
+    const esc = (v) => String(v || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    const studioName = esc(studio?.name || "—");
+    const sessionName = esc(record.name || "Session");
+    const sessionDate = esc(record.date ? fmtDate(record.date) : "—");
+    const sessionTime = esc(record.time || "—");
+
+    const active = registrations.filter(r => r.status !== "canceled");
+
+    const rows = active.map((reg, i) => {
+      const client = (data.clients || []).find(c => c.id === reg.clientId);
+      const name   = esc(cleanName(client?.name || reg.name || "Unknown"));
+      const email  = esc(client?.email || "—");
+      const phone  = esc(client?.phone || "—");
+      const status = esc(reg.status || "—");
+      const waiver = reg.waiverStatus === "signed" ? "✓ Signed" : "Pending";
+      const paid   = reg.paymentStatus === "paid" ? "✓ Paid" : reg.paymentStatus === "unpaid" ? "Unpaid" : "—";
+      const rowBg  = i % 2 === 0 ? "#ffffff" : "#f8f9fc";
+      return `<tr style="background:${rowBg}">
+        <td style="padding:9px 12px;border-bottom:1px solid #e8eaf0">${i + 1}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #e8eaf0;font-weight:600">${name}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #e8eaf0">${email}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #e8eaf0">${phone}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #e8eaf0;text-transform:capitalize">${status}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #e8eaf0;color:${reg.waiverStatus === "signed" ? "#2D6A50" : "#9A5D10"}">${waiver}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #e8eaf0;color:${reg.paymentStatus === "paid" ? "#2D6A50" : reg.paymentStatus === "unpaid" ? "#C0392B" : "#666"}">${paid}</td>
+      </tr>`;
+    }).join("");
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">
+      <title>Participant List — ${sessionName}</title>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 32px 40px; color: #1a1d23; font-size: 13px; }
+        .header { margin-bottom: 28px; border-bottom: 2px solid #2E6FB0; padding-bottom: 16px; }
+        .logo { font-size: 20px; font-weight: 800; color: #2E6FB0; letter-spacing: -0.5px; margin-bottom: 6px; }
+        .meta { display: flex; gap: 32px; flex-wrap: wrap; margin-top: 10px; }
+        .meta-item { display: flex; flex-direction: column; }
+        .meta-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #8a96ac; font-weight: 600; margin-bottom: 2px; }
+        .meta-value { font-size: 13.5px; font-weight: 700; color: #1a1d23; }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        th { background: #2E6FB0; color: #fff; padding: 9px 12px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; }
+        .footer { margin-top: 24px; font-size: 11px; color: #8a96ac; text-align: right; }
+        @media print { body { padding: 20px; } }
+      </style></head><body>
+      <div class="header">
+        <div class="logo">Simply Breathe</div>
+        <div style="font-size:18px;font-weight:800;color:#1a1d23;margin-bottom:4px">${sessionName}</div>
+        <div class="meta">
+          <div class="meta-item"><span class="meta-label">Studio</span><span class="meta-value">${studioName}</span></div>
+          <div class="meta-item"><span class="meta-label">Date</span><span class="meta-value">${sessionDate}</span></div>
+          <div class="meta-item"><span class="meta-label">Time</span><span class="meta-value">${sessionTime}</span></div>
+          <div class="meta-item"><span class="meta-label">Registered</span><span class="meta-value">${active.length} participant${active.length !== 1 ? "s" : ""}</span></div>
+        </div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>#</th><th>Name</th><th>Email</th><th>Phone</th><th>Status</th><th>Waiver</th><th>Payment</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="footer">Generated ${new Date().toLocaleString()} · Simply Breathe OS</div>
+      <script>window.onload=function(){window.print();}<\/script>
+    </body></html>`;
+
+    const w = window.open("", "_blank", "width=900,height=700");
+    if (!w) { alert("Pop-up blocked. Please allow pop-ups for this site to download the PDF."); return; }
+    w.document.write(html);
+    w.document.close();
+  };
+
   if (!registrations.length) {
     return (
       <div style={{ padding: "32px 22px", textAlign: "center", color: C.ink3, fontSize: 14 }}>
@@ -5816,7 +5928,7 @@ function SessionBookingsTab({ record, data, onOpenRelated }) {
   return (
     <div style={{ padding: "0 22px 22px" }}>
       {/* Summary row */}
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, paddingTop: 4 }}>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, paddingTop: 4, alignItems: "center" }}>
         {Object.entries(counts).filter(([,n]) => n > 0).map(([status, n]) => (
           <div key={status} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5,
             padding: "5px 12px", borderRadius: 20,
@@ -5825,11 +5937,20 @@ function SessionBookingsTab({ record, data, onOpenRelated }) {
             <span style={{ fontWeight: 800 }}>{n}</span> {status}
           </div>
         ))}
-        <div style={{ marginLeft: "auto", fontSize: 12, color: C.ink3, alignSelf: "center" }}>
-          {registrations.filter(r => r.waiverStatus !== "signed").length > 0 && (
-            <span style={{ color: C.gold, fontWeight: 600 }}>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          {registrations.filter(r => r.waiverStatus !== "signed" && r.status !== "canceled").length > 0 && (
+            <span style={{ fontSize: 12, color: C.gold, fontWeight: 600 }}>
               ⚠ {registrations.filter(r => r.waiverStatus !== "signed" && r.status !== "canceled").length} waiver{registrations.filter(r => r.waiverStatus !== "signed" && r.status !== "canceled").length !== 1 ? "s" : ""} pending
             </span>
+          )}
+          {record.studioId && (
+            <button onClick={downloadParticipantList} style={{
+              display: "flex", alignItems: "center", gap: 6, padding: "6px 14px",
+              borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12.5,
+              fontWeight: 700, background: C.brand, color: "#fff",
+            }}>
+              <Download size={13} /> Participant List
+            </button>
           )}
         </div>
       </div>
