@@ -4332,25 +4332,43 @@ function cardChip(k, r, ctx) {
    ============================================================ */
 function CalendarView({ rows, today, derived, data, onOpen }) {
   const [cursor, setCursor] = useState(today.slice(0, 7));
+  const [calSearch, setCalSearch] = useState("");
   const [y, m] = cursor.split("-").map(Number);
   const first = new Date(y, m - 1, 1);
   const startDow = first.getDay();
   const daysIn = new Date(y, m, 0).getDate();
+
+  // Build client name map before filtering
+  const sessionClientNames = {};
+  (data?.registrations || []).forEach(reg => {
+    if (reg.sessionId) {
+      const client = (data?.clients || []).find(c => c.id === reg.clientId);
+      if (client) (sessionClientNames[reg.sessionId] ||= []).push(cleanName(client.name));
+    }
+  });
+
+  // Filter rows by calendar search (name, studio, journey, client)
+  const filteredRows = calSearch.trim()
+    ? rows.filter(s => {
+        const q = norm(calSearch);
+        const studioName = derived.partnerName[s.studioId] ? norm(cleanName(derived.partnerName[s.studioId])) : "";
+        const journey    = norm(s.journey || s.name || "");
+        const sesName    = norm(s.name || "");
+        const clients    = (sessionClientNames[s.id] || []).map(n => norm(n)).join(" ");
+        return studioName.includes(q) || journey.includes(q) || sesName.includes(q) || clients.includes(q);
+      })
+    : rows;
+
   const byDay = {};
-  rows.forEach((s) => { if (s.date && s.date.slice(0, 7) === cursor) (byDay[Number(s.date.slice(8, 10))] ||= []).push(s); });
+  filteredRows.forEach((s) => { if (s.date && s.date.slice(0, 7) === cursor) (byDay[Number(s.date.slice(8, 10))] ||= []).push(s); });
   const shift = (n) => { let mm = m + n, yy = y; if (mm < 1) { mm = 12; yy--; } if (mm > 12) { mm = 1; yy++; } setCursor(`${yy}-${String(mm).padStart(2, "0")}`); };
   const cells = [];
   for (let i = 0; i < startDow; i++) cells.push(null);
   for (let d = 1; d <= daysIn; d++) cells.push(d);
 
-  // Build a map of sessionId → first client name (via registrations)
+  // sessionClientName: first client name per session (for pill labels)
   const sessionClientName = {};
-  (data?.registrations || []).forEach(reg => {
-    if (reg.sessionId && !sessionClientName[reg.sessionId]) {
-      const client = (data?.clients || []).find(c => c.id === reg.clientId);
-      if (client) sessionClientName[reg.sessionId] = cleanName(client.name);
-    }
-  });
+  Object.entries(sessionClientNames).forEach(([sid, names]) => { sessionClientName[sid] = names[0]; });
 
   const isStudio = (s) => !!(s.studioId && derived.partnerName[s.studioId]);
 
@@ -4388,8 +4406,21 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
   return (
     <div className="sb-card" style={{ padding: 16, display: "flex", flexDirection: "column", height: "calc(100vh - 160px)", minHeight: 480 }}>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexShrink: 0, gap: 10, flexWrap: "wrap" }}>
         <div style={{ fontFamily: FONT.display, fontSize: 17, fontWeight: 600 }}>{MONTHS[m - 1]} {y}</div>
+        {/* Search */}
+        <div style={{ position: "relative", flex: "1 1 180px", maxWidth: 280 }}>
+          <Search size={13} color={C.ink3} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+          <input
+            value={calSearch}
+            onChange={e => setCalSearch(e.target.value)}
+            placeholder="Search client, studio, journey…"
+            style={{ width: "100%", boxSizing: "border-box", paddingLeft: 28, paddingRight: calSearch ? 26 : 10, paddingTop: 6, paddingBottom: 6, borderRadius: 8, border: `1px solid ${C.line}`, fontSize: 12.5, color: C.ink, background: C.surface, outline: "none" }}
+          />
+          {calSearch && (
+            <button onClick={() => setCalSearch("")} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.ink3, padding: 0, lineHeight: 1 }}>✕</button>
+          )}
+        </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <span style={{ fontSize: 10.5, color: C.ink3, display: "flex", alignItems: "center", gap: 10, marginRight: 6 }}>
             <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
