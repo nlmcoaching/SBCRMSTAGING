@@ -1339,6 +1339,7 @@ export default function App() {
   const [confirm, setConfirm] = useState(null); // { message, onOk, okLabel?, danger? }
   const [saved, setSaved] = useState("idle"); // idle | saving | saved
   const [calendlyStatus, setCalendlyStatus] = useState(null); // null | { pending: n } | { syncing: true } | { synced: n, at: time }
+  const [lastCalendlyReceived, setLastCalendlyReceived] = useState(null); // { count, atFull } — only set when bookings > 0
   const loaded = useRef(false);
   const today = todayISO();
 
@@ -1931,7 +1932,9 @@ export default function App() {
         }).catch(() => {});
       }
 
-      setCalendlyStatus({ synced: processed, at: new Date().toLocaleTimeString() });
+      const now = new Date();
+      setCalendlyStatus({ synced: processed, count: processed, at: now.toLocaleTimeString(), atFull: now.toLocaleString() });
+      if (processed > 0) setLastCalendlyReceived({ count: processed, atFull: now.toLocaleString() });
     } catch {
       // Backend not running or unreachable — check silently and surface pending count only
       try {
@@ -2200,7 +2203,9 @@ export default function App() {
                   calendlyStatus?.syncing
                     ? "Sync in progress…"
                     : calendlyStatus?.synced != null
-                      ? `Last sync: ${calendlyStatus.at}${calendlyStatus.synced > 0 ? ` · ${calendlyStatus.synced} record${calendlyStatus.synced !== 1 ? "s" : ""} imported` : " · No new bookings"}`
+                      ? lastCalendlyReceived
+                        ? `Last received: ${lastCalendlyReceived.atFull}\n${lastCalendlyReceived.count} booking${lastCalendlyReceived.count !== 1 ? "s" : ""} received from Calendly`
+                        : "No bookings received yet this session — syncs every 5 minutes"
                       : calendlyStatus?.pending > 0
                         ? `${calendlyStatus.pending} booking${calendlyStatus.pending !== 1 ? "s" : ""} queued — will sync within 5 minutes`
                         : "Syncs automatically every 5 minutes"
@@ -3472,7 +3477,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         : v.layout === "testimonial-library"
         ? <TestimonialLibraryView data={data} onOpen={onOpen} />
         : v.layout === "template-library"
-        ? <TemplateLibraryView data={data} onOpen={onOpen} />
+        ? <TemplateLibraryView data={data} onOpen={onOpen} currentUser={currentUser} />
         : v.layout === "workflows"
         ? <WorkflowsView data={data} derived={derived} today={today} />
         : v.layout === "user-management"
@@ -9049,13 +9054,17 @@ function EditUserPanel({ user, masterKeyRaw, onSave, onResetPin, saving }) {
 }
 
 /* ── TEMPLATE LIBRARY ── */
-function TemplateLibraryView({ data, onOpen }) {
+function TemplateLibraryView({ data, onOpen, currentUser }) {
   const [catFilter, setCatFilter] = useState("All");
   const [chanFilter, setChanFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [copied, setCopied] = useState(null);
+  const [emailPreview, setEmailPreview] = useState(null); // { template, vars, recipient, recipientSearch }
+  const [emailCopied, setEmailCopied] = useState(false);
 
-  const templates = data.templates || [];
+  const templates  = data.templates  || [];
+  const clients    = data.clients    || [];
+  const partners   = data.partners   || [];
 
   const filtered = templates.filter(t => {
     if (catFilter !== "All" && t.category !== catFilter) return false;
@@ -9072,6 +9081,94 @@ function TemplateLibraryView({ data, onOpen }) {
     navigator.clipboard?.writeText(full).catch(() => {});
     setCopied(t.id);
     setTimeout(() => setCopied(null), 2000);
+  };
+
+  // Extract unique {{variable}} tokens from body + subject
+  const extractVars = (t) => {
+    const matches = [...(t.subject || "").matchAll(/\{\{([^}]+)\}\}/g),
+                     ...(t.body   || "").matchAll(/\{\{([^}]+)\}\}/g)];
+    return [...new Set(matches.map(m => m[1].trim()))];
+  };
+
+  // Map a recipient (client or partner) + current user → variable values
+  // Returns { vars, autoFilledKeys } — autoFilledKeys tracks which were mapped from data
+  const autoFillVars = (varKeys, recipient, type) => {
+    const vals = {};
+    const filled = new Set();
+    const yourFirstName = (currentUser?.name || "").split(" ")[0] || "";
+
+    const set = (k, v) => { vals[k] = v; filled.add(k); };
+
+    varKeys.forEach(k => {
+      const lk = k.toLowerCase();
+      if (lk === "yourname") { set(k, yourFirstName); return; }
+
+      if (type === "client") {
+        const firstName = (recipient.name || "").split(" ")[0];
+        if (lk === "clientname")       { set(k, cleanName(recipient.name || "")); return; }
+        if (lk === "firstname")        { set(k, firstName); return; }
+        if (lk === "email")            { set(k, recipient.email || ""); return; }
+        if (lk === "phone")            { set(k, recipient.phone || ""); return; }
+      }
+      if (type === "partner") {
+        if (lk === "studioname")       { set(k, recipient.name || ""); return; }
+        if (lk === "contactname")      { set(k, recipient.contact || ""); return; }
+        if (lk === "email")            { set(k, recipient.email || ""); return; }
+        if (lk === "phone")            { set(k, recipient.phone || ""); return; }
+        if (lk === "location")         { set(k, recipient.location || ""); return; }
+        if (lk === "avgattendance" || lk === "avgattendan") { set(k, recipient.avgAttendance != null ? String(recipient.avgAttendance) : ""); return; }
+        if (lk === "lastcontactdate")  { set(k, recipient.lastTouch ? fmtDate(recipient.lastTouch) : ""); return; }
+        if (lk === "sessionspermonth") { set(k, recipient.sessionsPerMonth != null ? String(recipient.sessionsPerMonth) : ""); return; }
+        if (lk === "revsplit")         { set(k, recipient.revShare || ""); return; }
+        if (lk === "referencestudio")  { set(k, recipient.name || ""); return; }
+      }
+      vals[k] = ""; // not auto-fillable — manual entry
+    });
+    return { vars: vals, autoFilledKeys: filled };
+  };
+
+  const openEmailPreview = (t) => {
+    const varKeys = extractVars(t);
+    const vars = {};
+    varKeys.forEach(k => { vars[k] = ""; });
+    setEmailPreview({ template: t, vars, autoFilledKeys: new Set(), recipient: null, recipientSearch: "" });
+    setEmailCopied(false);
+  };
+
+  const selectRecipient = (recipient, type) => {
+    if (!emailPreview) return;
+    const varKeys = extractVars(emailPreview.template);
+    const { vars, autoFilledKeys } = autoFillVars(varKeys, recipient, type);
+    setEmailPreview(prev => ({ ...prev, recipient: { ...recipient, _type: type }, vars, autoFilledKeys, recipientSearch: cleanName(recipient.name || "") }));
+  };
+
+  // Replace {{var}} tokens with filled values (highlight unfilled placeholders)
+  const applyVars = (text, vars) =>
+    (text || "").replace(/\{\{([^}]+)\}\}/g, (_, k) => vars[k.trim()] || `{{${k.trim()}}}`);
+
+  const emailPopulatedBody    = emailPreview ? applyVars(emailPreview.template.body, emailPreview.vars) : "";
+  const emailPopulatedSubject = emailPreview ? applyVars(emailPreview.template.subject || "", emailPreview.vars) : "";
+
+  // Recipient search results (clients + partners combined)
+  const recipientResults = useMemo(() => {
+    if (!emailPreview) return [];
+    const q = (emailPreview.recipientSearch || "").toLowerCase().trim();
+    if (!q) return [];
+    const matchClients  = clients.filter(c => (c.name || "").toLowerCase().includes(q)).slice(0, 6).map(c => ({ ...c, _type: "client" }));
+    const matchPartners = partners.filter(p => (p.name || "").toLowerCase().includes(q)).slice(0, 4).map(p => ({ ...p, _type: "partner" }));
+    return [...matchClients, ...matchPartners];
+  }, [emailPreview?.recipientSearch, clients, partners]);
+
+  // Which vars need manual input — those NOT auto-filled from the recipient (stable, doesn't change as user types)
+  const manualVars = emailPreview
+    ? Object.keys(emailPreview.vars).filter(k => !emailPreview.autoFilledKeys?.has(k))
+    : [];
+
+  const copyEmailText = () => {
+    const full = (emailPopulatedSubject ? `Subject: ${emailPopulatedSubject}\n\n` : "") + emailPopulatedBody;
+    navigator.clipboard?.writeText(full).catch(() => {});
+    setEmailCopied(true);
+    setTimeout(() => setEmailCopied(false), 2500);
   };
 
   // Highlight {{variables}} in body preview
@@ -9137,6 +9234,132 @@ function TemplateLibraryView({ data, onOpen }) {
           })}
         </div>
       </div>
+
+      {/* Email preview modal */}
+      {emailPreview && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1200, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+          onClick={e => { if (e.target === e.currentTarget) setEmailPreview(null); }}>
+          <div style={{ background: C.surface, borderRadius: 16, boxShadow: "0 8px 48px rgba(0,0,0,0.22)", width: "100%", maxWidth: 1050, maxHeight: "95vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+            {/* Header */}
+            <div style={{ padding: "16px 20px 14px", borderBottom: `1px solid ${C.line}`, display: "flex", alignItems: "center", gap: 10 }}>
+              <Mail size={16} color="#2563EB" />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 14.5, color: C.ink }}>{emailPreview.template.name}</div>
+                <div style={{ fontSize: 11.5, color: C.ink3, marginTop: 1 }}>Select a recipient to auto-populate the message</div>
+              </div>
+              <button onClick={() => setEmailPreview(null)} style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, padding: 4, borderRadius: 6 }}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16, minHeight: 520 }}>
+
+              {/* Recipient search */}
+              <div style={{ position: "relative" }}>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: C.ink3, marginBottom: 7, textTransform: "uppercase", letterSpacing: "0.05em" }}>Send to</div>
+                <div style={{ position: "relative" }}>
+                  <Search size={14} color={C.ink3} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+                  <input
+                    value={emailPreview.recipientSearch}
+                    onChange={e => setEmailPreview(prev => ({ ...prev, recipientSearch: e.target.value, recipient: null }))}
+                    placeholder="Search clients or studio partners…"
+                    style={{ width: "100%", padding: "8px 10px 8px 32px", borderRadius: 9, border: `1px solid ${C.line}`, fontSize: 13, color: C.ink, background: "#fff", boxSizing: "border-box" }}
+                  />
+                </div>
+                {/* Dropdown results */}
+                {recipientResults.length > 0 && !emailPreview.recipient && (
+                  <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 4px 20px rgba(0,0,0,0.12)", zIndex: 10, marginTop: 4, overflow: "hidden" }}>
+                    {recipientResults.map(r => (
+                      <div key={r.id} onClick={() => selectRecipient(r, r._type)}
+                        style={{ padding: "12px 18px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, borderBottom: `1px solid ${C.lineSoft || C.line}` }}
+                        onMouseEnter={e => e.currentTarget.style.background = C.surfaceAlt}
+                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        <div style={{ width: 34, height: 34, borderRadius: "50%", background: r._type === "partner" ? hexA("#D9892B", 0.15) : hexA(C.brand, 0.12), display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          {r._type === "partner" ? <Building2 size={15} color="#D9892B" /> : <Users size={15} color={C.brand} />}
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{r._type === "partner" ? r.name : cleanName(r.name)}</div>
+                          <div style={{ fontSize: 12, color: C.ink3 }}>{r._type === "partner" ? `Studio Partner · ${r.contact || ""}` : `Client · ${r.email || ""}`}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Selected recipient pill */}
+                {emailPreview.recipient && (
+                  <div style={{ marginTop: 8, display: "inline-flex", alignItems: "center", gap: 7, background: emailPreview.recipient._type === "partner" ? hexA("#D9892B", 0.1) : hexA(C.brand, 0.1), border: `1px solid ${emailPreview.recipient._type === "partner" ? "#F6D9A8" : hexA(C.brand, 0.3)}`, borderRadius: 20, padding: "4px 12px 4px 8px" }}>
+                    {emailPreview.recipient._type === "partner" ? <Building2 size={12} color="#D9892B" /> : <Users size={12} color={C.brand} />}
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: C.ink }}>{cleanName(emailPreview.recipient.name)}</span>
+                    <span style={{ fontSize: 11, color: C.ink3 }}>{emailPreview.recipient._type === "partner" ? "Studio Partner" : "Client"}</span>
+                    <button onClick={() => setEmailPreview(prev => ({ ...prev, recipient: null, recipientSearch: "" }))}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, padding: 0, marginLeft: 2, lineHeight: 1 }}>
+                      <X size={12} />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Manual fill — only vars that couldn't be auto-filled */}
+              {emailPreview.recipient && manualVars.length > 0 && (
+                <div style={{ background: "#F0F6FF", border: "1px solid #BFDBFE", borderRadius: 10, padding: "12px 14px" }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: "#2563EB", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>Fill in remaining variables</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 14px" }}>
+                    {manualVars.map(k => (
+                      <div key={k}>
+                        <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#3D2DA0", marginBottom: 3 }}>{`{{${k}}}`}</label>
+                        <input
+                          value={emailPreview.vars[k]}
+                          onChange={e => setEmailPreview(prev => ({ ...prev, vars: { ...prev.vars, [k]: e.target.value } }))}
+                          placeholder={k}
+                          style={{ width: "100%", padding: "6px 9px", borderRadius: 7, border: `1px solid ${C.line}`, fontSize: 12.5, color: C.ink, background: "#fff", boxSizing: "border-box" }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Populated preview */}
+              {emailPreview.recipient && (
+                <div>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: C.ink3, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Preview</div>
+                  {emailPopulatedSubject && (
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: C.ink2, marginBottom: 8, padding: "7px 12px", background: C.surfaceAlt, borderRadius: 8, border: `1px solid ${C.line}` }}>
+                      <span style={{ color: C.ink3 }}>Subject: </span>{emailPopulatedSubject}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.7, whiteSpace: "pre-wrap", background: C.surfaceAlt, borderRadius: 10, padding: "14px 16px", border: `1px solid ${C.line}`, minHeight: 120 }}>
+                    {emailPopulatedBody}
+                  </div>
+                </div>
+              )}
+
+              {/* No recipient yet — prompt */}
+              {!emailPreview.recipient && !emailPreview.recipientSearch && (
+                <div style={{ textAlign: "center", padding: "28px 0", color: C.ink3, fontSize: 13 }}>
+                  <Users size={28} color={C.line} style={{ marginBottom: 10, display: "block", margin: "0 auto 10px" }} />
+                  Search above to select a client or studio partner
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: "12px 20px", borderTop: `1px solid ${C.line}`, display: "flex", gap: 8, justifyContent: "flex-end", background: C.surfaceAlt }}>
+              <button onClick={() => setEmailPreview(null)} style={{ padding: "8px 18px", borderRadius: 8, border: `1px solid ${C.line}`, background: "transparent", fontSize: 13, fontWeight: 600, color: C.ink2, cursor: "pointer" }}>Close</button>
+              {emailPreview.recipient && (
+                <button onClick={copyEmailText} style={{
+                  padding: "8px 20px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer",
+                  background: emailCopied ? "#4A8C6F" : "#2563EB", color: "#fff",
+                  display: "flex", alignItems: "center", gap: 6, transition: "background .15s",
+                }}>
+                  {emailCopied ? <><Check size={13} /> Copied!</> : <><Copy size={13} /> Copy message</>}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Template grid */}
       {filtered.length === 0 ? (
@@ -9204,6 +9427,14 @@ function TemplateLibraryView({ data, onOpen }) {
                     transition: "background .15s",
                   }}>
                     {isCopied ? <><Check size={13} /> Copied!</> : <><Copy size={13} /> Copy</>}
+                  </button>
+                  <button onClick={() => openEmailPreview(t)} style={{
+                    padding: "7px 14px", borderRadius: 8, cursor: "pointer",
+                    fontSize: 12.5, fontWeight: 600, background: "#EBF3FF",
+                    border: `1px solid #BFDBFE`, color: "#2563EB",
+                    display: "flex", alignItems: "center", gap: 5,
+                  }}>
+                    <Mail size={12} /> Email
                   </button>
                   <button onClick={() => onOpen({ db: "templates", record: t })} style={{
                     padding: "7px 14px", borderRadius: 8, cursor: "pointer",
