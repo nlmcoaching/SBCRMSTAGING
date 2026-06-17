@@ -4830,7 +4830,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                         fontSize: 11, fontWeight: 700, padding: "1px 6px", borderRadius: 20,
                         background: done === total ? "#4A8C6F" : tab === t ? "rgba(255,255,255,0.25)" : C.brandSoft,
                         color: done === total ? "#fff" : tab === t ? "#fff" : C.brandDeep,
-                      }}>{done}/{total}</span>
+                      }}>{done}{total != null ? `/${total}` : ""}</span>
                     )}
                   </button>
                 );
@@ -4860,7 +4860,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                   const isVirtual = db === "sessions" && !draft.studioId && (draft.locationType === "zoom" || draft.locationType === "custom" || !draft.locationType);
                   const isStudioSession = db === "sessions" && !!draft.studioId;
                   const zoomUrl = draft.locationJoinUrl;
-                  const virtualHidden = new Set(["studioId", "locationAddress", "equipmentNeeded", "locationType", "locationJoinUrl", "calendlyEventUri"]);
+                  const virtualHidden = new Set(["studioId", "locationAddress", "equipmentNeeded", "locationType", "locationJoinUrl", "calendlyEventUri", "roomSetupStatus", "musicSetupStatus"]);
                   const studioHidden  = new Set(["studioId", "equipmentNeeded", "capacity", "registered", "notes", "breakthroughNoted", "roomSetupStatus", "musicSetupStatus", "locationJoinUrl", "calendlyEventUri"]);
                   const baseFields = fields.filter((x) => !x.title
                     && !(isVirtual     && virtualHidden.has(x.key))
@@ -4951,23 +4951,59 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                                 {contactCard}
                                 {registeredFld    && <FieldInput key="reg"   fld={registeredFld}    value={draft.registered}        onChange={v => set("registered", v)}        data={data} />}
                                 {capacityFld      && <FieldInput key="cap"   fld={capacityFld}      value={draft.capacity}          onChange={v => set("capacity", v)}          data={data} />}
-                                {roomSetupFld     && <FieldInput key="room"  fld={roomSetupFld}     value={draft.roomSetupStatus}   onChange={v => set("roomSetupStatus", v)}   data={data} />}
-                                {musicSetupFld    && <FieldInput key="music" fld={musicSetupFld}    value={draft.musicSetupStatus}  onChange={v => set("musicSetupStatus", v)}  data={data} />}
+                                <div key="setup-row" style={{ gridColumn: "1 / -1", display: "flex", gap: 24 }}>
+                                  {[
+                                    { label: "Room setup status", key: "roomSetupStatus", val: draft.roomSetupStatus },
+                                    { label: "Music/headset status", key: "musicSetupStatus", val: draft.musicSetupStatus },
+                                  ].map(({ label, key, val }) => (
+                                    <div key={key} style={{ flex: 1 }}>
+                                      <div style={{ fontSize: 11, fontWeight: 600, color: C.ink3, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>{label}</div>
+                                      <div className="sb-chiprow">
+                                        {SETUP_STATUS.map(o => (
+                                          <button key={o} className="sb-selchip" onClick={() => set(key, o)}
+                                            style={{ background: val === o ? C.brand : C.surface, color: val === o ? "#fff" : C.ink2, borderColor: val === o ? C.brand : C.line }}>
+                                            {o}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
                                 {notesFld         && <FieldInput key="notes" fld={notesFld}         value={draft.notes}             onChange={v => set("notes", v)}             data={data} />}
                                 {breakthroughFld  && <FieldInput key="bk"   fld={breakthroughFld}  value={draft.breakthroughNoted} onChange={v => set("breakthroughNoted", v)} data={data} />}
                               </>
                             );
                           })()}
                           {isVirtual && fld.key === "durationMins" && (
-                            <div key="zoom-card" style={{ gridColumn: "1 / -1", background: C.brandMist, border: `1px solid ${C.brand}`, borderRadius: 10, padding: "10px 14px" }}>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: C.brand, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Zoom / Join Link</div>
-                              {zoomUrl && zoomUrl.startsWith("https://") ? (
-                                <a href={zoomUrl} target="_blank" rel="noreferrer noopener"
-                                  style={{ fontSize: 13, color: C.brand, fontWeight: 600, wordBreak: "break-all" }}>{zoomUrl}</a>
-                              ) : (
-                                <div style={{ fontSize: 13, color: C.ink3 }}>{zoomUrl || "No Zoom link on file"}</div>
-                              )}
-                            </div>
+                            <>
+                              <div key="zoom-card" style={{ gridColumn: "1 / -1", background: C.brandMist, border: `1px solid ${C.brand}`, borderRadius: 10, padding: "10px 14px" }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: C.brand, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Zoom / Join Link</div>
+                                {zoomUrl && zoomUrl.startsWith("https://") ? (
+                                  <a href={zoomUrl} target="_blank" rel="noreferrer noopener"
+                                    style={{ fontSize: 13, color: C.brand, fontWeight: 600, wordBreak: "break-all" }}>{zoomUrl}</a>
+                                ) : (
+                                  <div style={{ fontSize: 13, color: C.ink3 }}>{zoomUrl || "No Zoom link on file"}</div>
+                                )}
+                              </div>
+                              <div key="virtual-setup-row" style={{ gridColumn: "1 / -1", display: "flex", gap: 24 }}>
+                                {[
+                                  { label: "Room setup status", key: "roomSetupStatus", val: draft.roomSetupStatus },
+                                  { label: "Music/headset status", key: "musicSetupStatus", val: draft.musicSetupStatus },
+                                ].map(({ label, key, val }) => (
+                                  <div key={key} style={{ flex: 1 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 600, color: C.ink3, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>{label}</div>
+                                    <div className="sb-chiprow">
+                                      {SETUP_STATUS.map(o => (
+                                        <button key={o} className="sb-selchip" onClick={() => set(key, o)}
+                                          style={{ background: val === o ? C.brand : C.surface, color: val === o ? "#fff" : C.ink2, borderColor: val === o ? C.brand : C.line }}>
+                                          {o}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
                           )}
                         </>
                         );
@@ -5490,6 +5526,109 @@ function SessionPerformance({ record: r, derived, data }) {
   const revPerHead = r.attendance ? (net / r.attendance).toFixed(2) : 0;
   const fillRate = r.registered ? Math.round(((r.attendance || 0) / r.registered) * 100) : null;
   const studio = clientShort(derived.partnerName[r.studioId] || "");
+  const studioFull = derived.partnerName[r.studioId] || "";
+
+  const handleDownloadPDF = () => {
+    const sessionTitle = cleanName(r.name || "Session");
+    const rows = [
+      ["Status",          r.status || "—"],
+      ["Journey",         r.journey || "—"],
+      ["Studio",          studioFull || "—"],
+      ["Date & Time",     `${fmtDate(r.date)}${r.time ? " · " + r.time : ""}`],
+      ["Capacity",        r.capacity || "—"],
+      ["Registered",      r.registered || "—"],
+      ["Attended",        `${r.attendance || 0}${capUtil !== null ? ` (${capUtil}% full)` : ""}`],
+      ["Paid Attendees",  r.paidAttendees || r.attendance || 0],
+      ["Waivers",         r.waivers || 0],
+      ["No-shows",        r.noShows || 0],
+      ["Gross Revenue",   `$${Number(gross).toFixed(2)}`],
+      ["Studio Split",    `$${Number(split).toFixed(2)}`],
+      ["Net Revenue",     `$${Number(net).toFixed(2)}`],
+      ["Rev per Head",    `$${Number(revPerHead).toFixed(2)}`],
+      ["Conversion Rate", r.conversion ? `${Math.round(r.conversion * 100)}%` : "—"],
+      ["Packages Sold",   r.packagesSold || 0],
+      ["Testimonials",    r.testimonialsCapt || 0],
+      ["Referrals",       r.referralsGenerated || 0],
+    ];
+
+    const metricsHtml = rows.map(([label, val]) => `
+      <div class="metric">
+        <div class="metric-label">${label}</div>
+        <div class="metric-val">${val}</div>
+      </div>`).join("");
+
+    const revenueHtml = gross > 0 ? `
+      <div class="section">
+        <div class="section-title">Revenue Breakdown</div>
+        <table class="rev-table">
+          <tr><td>Gross Revenue</td><td class="amt">$${gross.toFixed(2)}</td></tr>
+          <tr><td>Studio Split</td><td class="amt minus">-$${split.toFixed(2)}</td></tr>
+          <tr class="net-row"><td>Your Net Revenue</td><td class="amt net">$${net.toFixed(2)}</td></tr>
+        </table>
+      </div>` : "";
+
+    const notesHtml = r.notes ? `
+      <div class="section">
+        <div class="section-title">Session Notes</div>
+        <div class="notes">${r.notes}</div>
+      </div>` : "";
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Session Report — ${sessionTitle}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1a2340; background: #fff; padding: 32px 40px; font-size: 13px; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #2E6FB0; padding-bottom: 14px; margin-bottom: 22px; }
+    .brand { font-size: 18px; font-weight: 800; color: #2E6FB0; letter-spacing: -0.3px; }
+    .brand-sub { font-size: 11px; color: #6b7a99; margin-top: 2px; }
+    .session-title { font-size: 20px; font-weight: 800; color: #1a2340; margin-bottom: 2px; }
+    .session-sub { font-size: 12px; color: #6b7a99; }
+    .section { margin-bottom: 22px; }
+    .section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #6b7a99; font-weight: 700; margin-bottom: 10px; }
+    .metrics-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px 16px; background: #f5f7fb; border-radius: 10px; padding: 14px 16px; }
+    .metric-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7a99; font-weight: 700; }
+    .metric-val { font-size: 13px; font-weight: 600; color: #1a2340; margin-top: 1px; }
+    .rev-table { width: 100%; border-collapse: collapse; background: #f5f7fb; border-radius: 10px; overflow: hidden; }
+    .rev-table td { padding: 10px 14px; border-bottom: 1px solid #e3e8f0; font-size: 13px; }
+    .amt { text-align: right; font-weight: 700; }
+    .minus { color: #D9892B; }
+    .net-row td { font-weight: 800; font-size: 14px; background: #eaf4ee; }
+    .net { color: #4A8C6F; }
+    .notes { background: #f5f7fb; border-radius: 8px; padding: 12px 14px; font-size: 13px; color: #3a4a6b; line-height: 1.6; font-style: italic; }
+    .footer { margin-top: 32px; border-top: 1px solid #e3e8f0; padding-top: 10px; font-size: 10px; color: #9aaccb; text-align: center; }
+    @media print { body { padding: 20px 28px; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div class="brand">Simply Breathe</div>
+      <div class="brand-sub">Session Performance Report</div>
+    </div>
+    <div style="text-align:right">
+      <div class="session-title">${sessionTitle}</div>
+      <div class="session-sub">${studioFull ? studioFull + " · " : ""}${fmtDate(r.date)}${r.time ? " · " + r.time : ""}</div>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-title">Session Metrics</div>
+    <div class="metrics-grid">${metricsHtml}</div>
+  </div>
+  ${revenueHtml}
+  ${notesHtml}
+  <div class="footer">Generated by Simply Breathe OS · ${new Date().toLocaleDateString()}</div>
+</body>
+</html>`;
+
+    const w = window.open("", "_blank", "width=800,height=900");
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => { w.print(); }, 400);
+  };
 
   // Benchmarks from all sessions
   const allSessions = data.sessions.filter((s) => s.id !== r.id && (Number(s.netRevenue) || 0) > 0);
@@ -5527,6 +5666,18 @@ function SessionPerformance({ record: r, derived, data }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* PDF download — studio sessions only */}
+      {r.studioId && (
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <button onClick={handleDownloadPDF} style={{
+            display: "flex", alignItems: "center", gap: 7,
+            padding: "8px 16px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600,
+            background: C.brand, color: "#fff", border: "none",
+          }}>
+            <Download size={14} strokeWidth={2} /> Download PDF
+          </button>
+        </div>
+      )}
       {/* Metrics grid */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 14px", background: C.surfaceAlt, borderRadius: 12, padding: "14px 16px" }}>
         {metrics.map(({ label, val, accent }) => (
