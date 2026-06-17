@@ -472,6 +472,68 @@ app.delete("/api/calendly/events", requireAdminToken, (_req, res) => {
   res.json({ status: "cleared" });
 });
 
+// ── Send Email via Resend ─────────────────────────────────────────────────
+const { Resend } = require("resend");
+const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+
+app.post("/api/send-email", requireFrontendSecret, async (req, res) => {
+  if (!resendClient) {
+    return res.status(503).json({ error: "Email service not configured (RESEND_API_KEY missing)." });
+  }
+
+  const { to, recipientName, subject, body } = req.body;
+
+  // Basic input validation
+  if (!to || !subject || !body) {
+    return res.status(400).json({ error: "Missing required fields: to, subject, body." });
+  }
+  if (typeof to !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+    return res.status(400).json({ error: "Invalid recipient email address." });
+  }
+  if (typeof subject !== "string" || subject.length > 200) {
+    return res.status(400).json({ error: "Invalid subject." });
+  }
+  if (typeof body !== "string" || body.length > 50000) {
+    return res.status(400).json({ error: "Message body too long." });
+  }
+
+  const FROM    = process.env.RESEND_FROM    || "jeff@simplybreathe.ai";
+  const REPLY   = process.env.RESEND_REPLY_TO || FROM;
+
+  // Convert plain text body to simple HTML (preserve line breaks)
+  const htmlBody = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+body { font-family: Georgia, serif; font-size: 16px; line-height: 1.7; color: #1a1a2e; max-width: 600px; margin: 40px auto; padding: 0 24px; }
+p { margin: 0 0 1em; }
+</style></head><body>
+${body.split(/\n\n+/).map(para =>
+  `<p>${para.replace(/\n/g, "<br>")}</p>`
+).join("")}
+</body></html>`;
+
+  try {
+    const { data, error } = await resendClient.emails.send({
+      from:     `Simply Breathe <${FROM}>`,
+      to:       [to],
+      replyTo:  REPLY,
+      subject,
+      html:     htmlBody,
+      text:     body,
+    });
+
+    if (error) {
+      console.error("[send-email] Resend API error:", error);
+      return res.status(502).json({ error: error.message || "Email service error." });
+    }
+
+    console.log(`[send-email] Sent to ${to} — id: ${data.id}`);
+    res.json({ success: true, id: data.id });
+  } catch (err) {
+    console.error("[send-email] Unexpected error:", err.message);
+    res.status(500).json({ error: "Failed to send email. Please try again." });
+  }
+});
+
 // ── Health check (unauthenticated — accepted: used by process monitors) ──
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 

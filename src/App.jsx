@@ -3504,7 +3504,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         : v.layout === "testimonial-library"
         ? <TestimonialLibraryView data={data} onOpen={onOpen} />
         : v.layout === "template-library"
-        ? <TemplateLibraryView data={data} onOpen={onOpen} currentUser={currentUser} />
+        ? <TemplateLibraryView data={data} setData={setData} onOpen={onOpen} currentUser={currentUser} />
         : v.layout === "workflows"
         ? <WorkflowsView data={data} derived={derived} today={today} />
         : v.layout === "user-management"
@@ -5127,6 +5127,28 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                 )}
               </>
             )}
+          {/* Email history — shown on clients and partners */}
+          {(db === "clients" || db === "partners") && (draft.emailHistory || []).length > 0 && (
+            <div style={{ marginTop: 20, padding: "0 0 4px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.ink3, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                <Send size={11} /> Emails Sent from CRM
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {[...(draft.emailHistory || [])].reverse().map(entry => (
+                  <div key={entry.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: C.surfaceAlt, borderRadius: 8, border: `1px solid ${C.line}`, fontSize: 12.5 }}>
+                    <Send size={12} color={C.brand} style={{ flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ fontWeight: 600, color: C.ink }}>{entry.templateName}</span>
+                      <span style={{ color: C.ink3 }}> → {entry.to}</span>
+                    </div>
+                    <span style={{ color: C.ink3, whiteSpace: "nowrap", flexShrink: 0 }}>
+                      {new Date(entry.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="sb-drawerfoot">
@@ -9566,13 +9588,17 @@ function EditUserPanel({ user, masterKeyRaw, onSave, onResetPin, saving }) {
 }
 
 /* ── TEMPLATE LIBRARY ── */
-function TemplateLibraryView({ data, onOpen, currentUser }) {
+function TemplateLibraryView({ data, setData, onOpen, currentUser }) {
+  const onUpdate = (db, id, fn) => setData(d => ({ ...d, [db]: (d[db] || []).map(r => r.id === id ? fn(r) : r) }));
   const [catFilter, setCatFilter] = useState("All");
   const [chanFilter, setChanFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [copied, setCopied] = useState(null);
   const [emailPreview, setEmailPreview] = useState(null); // { template, vars, recipient, recipientSearch }
-  const [emailCopied, setEmailCopied] = useState(false);
+  const [emailCopied, setEmailCopied]   = useState(false);
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailSent, setEmailSent]       = useState(false);
+  const [emailError, setEmailError]     = useState("");
 
   const templates  = data.templates  || [];
   const clients    = data.clients    || [];
@@ -9681,6 +9707,59 @@ function TemplateLibraryView({ data, onOpen, currentUser }) {
     navigator.clipboard?.writeText(full).catch(() => {});
     setEmailCopied(true);
     setTimeout(() => setEmailCopied(false), 2500);
+  };
+
+  const sendEmail = async () => {
+    if (!emailPreview?.recipient || emailSending) return;
+    const recipientEmail = emailPreview.recipient.email;
+    if (!recipientEmail) { setEmailError("Recipient has no email address on file."); return; }
+
+    setEmailSending(true);
+    setEmailError("");
+    try {
+      const secret = import.meta.env.VITE_FRONTEND_SECRET || "";
+      const res = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-frontend-secret": secret },
+        body: JSON.stringify({
+          to:            recipientEmail,
+          recipientName: cleanName(emailPreview.recipient.name || ""),
+          subject:       emailPopulatedSubject || emailPreview.template.name,
+          body:          emailPopulatedBody,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Send failed.");
+
+      // ── Workflow updates after successful send ──
+      const tmpl     = emailPreview.template;
+      const recip    = emailPreview.recipient;
+      const today    = new Date().toISOString().slice(0, 10);
+      const logEntry = { id: `em_${Date.now()}`, date: new Date().toISOString(), templateId: tmpl.id, templateName: tmpl.name, to: recipientEmail, recipientName: cleanName(recip.name || "") };
+
+      if (recip._type === "partner") {
+        // Update lastTouch on partner + append to emailHistory
+        onUpdate("partners", recip.id, p => ({ ...p, lastTouch: today, emailHistory: [...(p.emailHistory || []), logEntry] }));
+      } else if (recip._type === "client") {
+        // Log send on client record
+        onUpdate("clients", recip.id, c => ({ ...c, emailHistory: [...(c.emailHistory || []), logEntry] }));
+        // If Post-Session or Operations template, also mark followUpSent on most-recent unactioned session for this client
+        if (["Post-Session", "Operations"].includes(tmpl.category)) {
+          const sessions = data.sessions || [];
+          const regs = (data.registrations || []).filter(r => r.clientId === recip.id);
+          const sessionIds = new Set(regs.map(r => r.sessionId));
+          const target = sessions.find(s => sessionIds.has(s.id) && !s.followUpSent && s.status !== "Planned");
+          if (target) onUpdate("sessions", target.id, s => ({ ...s, followUpSent: true }));
+        }
+      }
+
+      setEmailSent(true);
+      setTimeout(() => { setEmailSent(false); setEmailPreview(null); }, 2000);
+    } catch (err) {
+      setEmailError(err.message || "Failed to send. Please try again.");
+    } finally {
+      setEmailSending(false);
+    }
   };
 
   // Highlight {{variables}} in body preview
@@ -9857,17 +9936,38 @@ function TemplateLibraryView({ data, onOpen, currentUser }) {
             </div>
 
             {/* Footer */}
-            <div style={{ padding: "12px 20px", borderTop: `1px solid ${C.line}`, display: "flex", gap: 8, justifyContent: "flex-end", background: C.surfaceAlt }}>
-              <button onClick={() => setEmailPreview(null)} style={{ padding: "8px 18px", borderRadius: 8, border: `1px solid ${C.line}`, background: "transparent", fontSize: 13, fontWeight: 600, color: C.ink2, cursor: "pointer" }}>Close</button>
-              {emailPreview.recipient && (
-                <button onClick={copyEmailText} style={{
-                  padding: "8px 20px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer",
-                  background: emailCopied ? "#4A8C6F" : "#2563EB", color: "#fff",
-                  display: "flex", alignItems: "center", gap: 6, transition: "background .15s",
-                }}>
-                  {emailCopied ? <><Check size={13} /> Copied!</> : <><Copy size={13} /> Copy message</>}
-                </button>
+            <div style={{ padding: "12px 20px", borderTop: `1px solid ${C.line}`, background: C.surfaceAlt }}>
+              {emailError && (
+                <div style={{ fontSize: 12.5, color: "#C0392B", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                  <AlertCircle size={13} /> {emailError}
+                </div>
               )}
+              {!emailPreview.recipient?.email && emailPreview.recipient && (
+                <div style={{ fontSize: 12.5, color: "#D9892B", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                  <AlertCircle size={13} /> This recipient has no email address on file — add one to their record first.
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => { setEmailPreview(null); setEmailError(""); }} style={{ padding: "8px 18px", borderRadius: 8, border: `1px solid ${C.line}`, background: "transparent", fontSize: 13, fontWeight: 600, color: C.ink2, cursor: "pointer" }}>Close</button>
+                {emailPreview.recipient && (
+                  <>
+                    <button onClick={copyEmailText} style={{
+                      padding: "8px 18px", borderRadius: 8, border: `1px solid ${C.line}`, fontSize: 13, fontWeight: 600, cursor: "pointer",
+                      background: emailCopied ? hexA("#4A8C6F", 0.1) : "transparent", color: emailCopied ? "#4A8C6F" : C.ink2,
+                      display: "flex", alignItems: "center", gap: 6, transition: "background .15s",
+                    }}>
+                      {emailCopied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy</>}
+                    </button>
+                    <button onClick={sendEmail} disabled={emailSending || emailSent || !emailPreview.recipient?.email} style={{
+                      padding: "8px 22px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 700, cursor: emailSending || emailSent || !emailPreview.recipient?.email ? "not-allowed" : "pointer",
+                      background: emailSent ? "#4A8C6F" : emailSending ? C.ink3 : "#2563EB", color: "#fff",
+                      display: "flex", alignItems: "center", gap: 6, transition: "background .15s", opacity: !emailPreview.recipient?.email ? 0.5 : 1,
+                    }}>
+                      {emailSent ? <><Check size={13} /> Sent!</> : emailSending ? <><RefreshCw size={13} style={{ animation: "spin 1s linear infinite" }} /> Sending…</> : <><Send size={13} /> Send Email</>}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>
