@@ -3425,7 +3425,26 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
   // search
   if (query.trim()) {
     const q = norm(query);
-    rows = rows.filter((r) => Object.values(r).some((val) => norm(val).includes(q)));
+    if (section === "sessions") {
+      // Build a map of sessionId → client names from registrations for richer search
+      const sessionClientMap = {};
+      (data?.registrations || []).forEach(reg => {
+        if (reg.sessionId) {
+          const client = (data?.clients || []).find(c => c.id === reg.clientId);
+          if (client) (sessionClientMap[reg.sessionId] ||= []).push(norm(cleanName(client.name)));
+        }
+      });
+      rows = rows.filter((r) => {
+        if (Object.values(r).some((val) => norm(val).includes(q))) return true;
+        const studioName = derived?.partnerName?.[r.studioId] ? norm(cleanName(derived.partnerName[r.studioId])) : "";
+        if (studioName.includes(q)) return true;
+        const clientNames = (sessionClientMap[r.id] || []).join(" ");
+        if (clientNames.includes(q)) return true;
+        return false;
+      });
+    } else {
+      rows = rows.filter((r) => Object.values(r).some((val) => norm(val).includes(q)));
+    }
   }
   const processed = v.run ? v.run(rows, { data, derived, today }) : { rows };
 
