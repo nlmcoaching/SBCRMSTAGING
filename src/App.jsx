@@ -6762,6 +6762,7 @@ const TL_COLORS = {
   referral:   C.gold,
   upcoming:   C.ink3,
   milestone:  C.brandDeep,
+  email_sent: "#2563EB",
 };
 
 function tlEvent(date, type, title, detail, extra = {}) {
@@ -6813,6 +6814,14 @@ function buildClientTimeline(record, data, today) {
       `${f.futype} follow-up`,
       f.outcome || "Pending response",
       { pending: !f.outcome, nextAction: f.nextAction }));
+  });
+
+  // Emails sent from CRM
+  (record.emailHistory || []).forEach(entry => {
+    const dateStr = entry.date ? entry.date.slice(0, 10) : "";
+    events.push(tlEvent(dateStr, "email_sent",
+      `Email sent: ${entry.templateName}`,
+      `To: ${entry.to}`));
   });
 
   // Next session (future)
@@ -6935,6 +6944,7 @@ function ContactTimeline({ db, record, data, derived, today, onOpenRelated }) {
     referral:   <Users size={13} />,
     upcoming:   <CalendarDays size={13} />,
     milestone:  <ArrowUpRight size={13} />,
+    email_sent: <Send size={13} />,
   };
 
   return (
