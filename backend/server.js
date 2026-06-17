@@ -201,10 +201,14 @@ function writeQueue(events) {
 // bursts from overwriting each other (lost update / event loss).
 let _queueLock = Promise.resolve();
 function withQueueLock(fn) {
+  // Chain onto the lock. Errors are logged AND re-thrown so callers can return
+  // a 500 to Calendly, triggering a retry rather than silently losing the event.
   const next = _queueLock.then(fn).catch((err) => {
     console.error("[ERROR] Queue lock operation failed:", err.message);
+    throw err;
   });
-  _queueLock = next;
+  // Prevent the shared lock chain from breaking on rejection by catching separately.
+  _queueLock = next.catch(() => {});
   return next;
 }
 
@@ -385,12 +389,17 @@ app.post("/api/webhooks/calendly", async (req, res) => {
     extracted.description = await fetchEventTypeDescription(eventTypeUri) || extracted.description;
   }
 
-  await withQueueLock(() => {
-    const queue = readQueue();
-    queue.push(extracted);
-    writeQueue(queue);
-    console.log(`[OK] Queued ${event} for ${extracted.email || "(no email)"} — queue length: ${queue.length}`);
-  });
+  try {
+    await withQueueLock(() => {
+      const queue = readQueue();
+      queue.push(extracted);
+      writeQueue(queue);
+      console.log(`[OK] Queued ${event} for ${extracted.email || "(no email)"} — queue length: ${queue.length}`);
+    });
+  } catch (err) {
+    console.error("[ERROR] Failed to persist webhook event — returning 500 so Calendly retries:", err.message);
+    return res.status(500).json({ error: "Failed to queue event — please retry" });
+  }
 
   res.status(200).json({ status: "queued", id: extracted.id });
 });
@@ -429,9 +438,10 @@ app.post("/api/calendly/acknowledge", requireFrontendSecret, async (req, res) =>
   if (!Array.isArray(ids)) return res.status(400).json({ error: "ids must be an array" });
   if (ids.length > 500) return res.status(400).json({ error: "Too many ids — max 500 per request" });
 
+  const idSet = new Set(ids);
   await withQueueLock(() => {
     const queue   = readQueue();
-    const updated = queue.map(e => ids.includes(e.id) ? { ...e, processed: true, processedAt: new Date().toISOString() } : e);
+    const updated = queue.map(e => idSet.has(e.id) ? { ...e, processed: true, processedAt: new Date().toISOString() } : e);
     writeQueue(updated);
   });
 
@@ -462,7 +472,7 @@ app.delete("/api/calendly/events", requireAdminToken, (_req, res) => {
   res.json({ status: "cleared" });
 });
 
-// ── Health check ──
+// ── Health check (unauthenticated — accepted: used by process monitors) ──
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
 app.listen(PORT, () => {
