@@ -4737,6 +4737,14 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
   useEffect(() => {
     if (isStudioSession) setDraft(d => ({ ...d, registered: actualRegistered }));
   }, [actualRegistered, isStudioSession]);
+
+  // For clients keep "Sessions Attended" in sync with actual registration records
+  const actualSessionsAttended = db === "clients"
+    ? (data.registrations || []).filter(r => r.clientId === record.id && r.status !== "canceled").length
+    : null;
+  useEffect(() => {
+    if (db === "clients") setDraft(d => ({ ...d, sessionsAttended: actualSessionsAttended }));
+  }, [actualSessionsAttended, db]);
   const fields = FIELDS[db];
   const titleField = fields.find((x) => x.title);
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
