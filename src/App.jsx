@@ -4611,13 +4611,13 @@ const FIELDS = {
   ],
   templates: [
     f("name",      "Template name",      "text",     { title: true }),
+    f("subject",   "Email subject line", "text"),
+    f("body",      "Message body",       "textarea", { rows: 9 }),
+    f("notes",     "Notes / usage tips", "textarea"),
+    f("variables", "Variables (e.g. {{clientName}})", "text"),
     f("category",  "Category",           "select",   { options: TMPL_CATEGORY }),
     f("channel",   "Channel",            "select",   { options: TMPL_CHANNEL }),
     f("linkedTo",  "Linked to",          "select",   { options: TMPL_LINKED_TO }),
-    f("subject",   "Email subject line", "text"),
-    f("body",      "Message body",       "textarea"),
-    f("variables", "Variables (e.g. {{clientName}})", "text"),
-    f("notes",     "Notes / usage tips", "textarea"),
   ],
   expenses: [
     f("date",          "Date",             "date",     { title: true }),
@@ -6723,7 +6723,7 @@ function FieldInput({ fld, value, onChange, data }) {
       </select>
     );
   } else if (type === "textarea") {
-    control = <textarea className="sb-input" rows={3} value={value || ""} onChange={(e) => onChange(e.target.value)} />;
+    control = <textarea className="sb-input" rows={fld.rows || 3} value={value || ""} onChange={(e) => onChange(e.target.value)} />;
   } else if (type === "checkbox") {
     control = (
       <div style={{ display: "flex", gap: 8 }}>
@@ -9429,17 +9429,18 @@ function TemplateLibraryView({ data, onOpen, currentUser }) {
                     {isCopied ? <><Check size={13} /> Copied!</> : <><Copy size={13} /> Copy</>}
                   </button>
                   <button onClick={() => openEmailPreview(t)} style={{
-                    padding: "7px 14px", borderRadius: 8, cursor: "pointer",
+                    flex: 1, padding: "7px 0", borderRadius: 8, cursor: "pointer",
                     fontSize: 12.5, fontWeight: 600, background: "#EBF3FF",
                     border: `1px solid #BFDBFE`, color: "#2563EB",
-                    display: "flex", alignItems: "center", gap: 5,
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                   }}>
                     <Mail size={12} /> Email
                   </button>
                   <button onClick={() => onOpen({ db: "templates", record: t })} style={{
-                    padding: "7px 14px", borderRadius: 8, cursor: "pointer",
+                    flex: 1, padding: "7px 0", borderRadius: 8, cursor: "pointer",
                     fontSize: 12.5, fontWeight: 600, background: "transparent",
                     border: `1px solid ${C.line}`, color: C.ink2,
+                    display: "flex", alignItems: "center", justifyContent: "center",
                   }}>Edit</button>
                 </div>
               </div>
