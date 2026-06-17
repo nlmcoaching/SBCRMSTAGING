@@ -4812,6 +4812,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                 ["details", "Details"],
                 ...(db === "clients" && !isNew ? [["sessions-attended", "Sessions Attended"]] : []),
                 ...(db === "partners" && !isNew ? [["partner-sessions", "Sessions"]] : []),
+                ...(db === "partners" && !isNew ? [["agreements", "Agreements"]] : []),
                 ...(hasChecklist ? [["checklist", "Launch Checklist"]] : []),
                 ["timeline", "Contact Timeline"],
               ]).map(([t, label]) => {
@@ -4823,7 +4824,8 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                 const activeEquipPhases = EQUIP_CHECKLIST_PHASES.map(p => ({ ...p, items: p.items.filter(i => isVirtualSession ? i.virtual : !i.virtual) })).filter(p => p.items.length);
                 const activeEquipItems = activeEquipPhases.flatMap(p => p.items);
                 const isStudioBookings = t === "bookings" && db === "sessions" && !!draft.studioId;
-                const done = (t === "partner-sessions") ? partnerSessionCount
+                const done = (t === "agreements") ? (draft.agreements || []).length
+                           : (t === "partner-sessions") ? partnerSessionCount
                            : (t === "sessions-attended") ? clientSessionCount
                            : (t === "checklist" && db === "partners") ? Object.values(draft.checklist || {}).filter(Boolean).length
                            : (t === "session-checklist") ? activeEquipItems.filter(i => draft.equipChecklist?.[i.id]).length + activeSessionChecklist.filter(i => draft.checklist?.[i.id]).length
@@ -4856,6 +4858,8 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
         <div className="sb-drawerbody" style={{ paddingTop: 16 }}>
           {db === "clients" && tab === "sessions-attended"
             ? <ClientSessionsTab record={draft} data={data} onOpenRelated={onOpenRelated} today={today} />
+            : db === "partners" && tab === "agreements"
+            ? <PartnerAgreementsTab agreements={draft.agreements || []} onChange={(a) => set("agreements", a)} partnerName={cleanName(draft.name)} />
             : db === "partners" && tab === "partner-sessions"
             ? <PartnerSessionsTab record={draft} data={data} onOpenRelated={onOpenRelated} today={today} />
             : hasTimeline && tab === "timeline"
@@ -5767,6 +5771,140 @@ function ClientSessionsTab({ record, data, onOpenRelated, today }) {
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function PartnerAgreementsTab({ agreements, onChange, partnerName }) {
+  const fileRef = useRef();
+  const [uploading, setUploading] = useState(false);
+  const [error, setError]         = useState("");
+
+  const MAX_FILE_MB = 5;
+  const ALLOWED_TYPES = new Set(["application/pdf","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document"]);
+  const ALLOWED_EXTS  = /\.(pdf|doc|docx)$/i;
+
+  const handleUpload = (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!ALLOWED_EXTS.test(file.name) && !ALLOWED_TYPES.has(file.type)) {
+      setError("Only PDF or Word documents (.pdf, .doc, .docx) are allowed.");
+      return;
+    }
+    if (file.size > MAX_FILE_MB * 1024 * 1024) {
+      setError(`File must be under ${MAX_FILE_MB} MB.`);
+      return;
+    }
+    setError("");
+    setUploading(true);
+    const reader = new FileReader();
+    reader.onerror = () => { setError("Could not read file. Please try again."); setUploading(false); };
+    reader.onload = (ev) => {
+      const newAgreement = {
+        id:         `agr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        name:       file.name,
+        size:       file.size,
+        type:       file.type,
+        uploadedAt: new Date().toISOString(),
+        dataUrl:    ev.target.result,
+      };
+      onChange([...agreements, newAgreement]);
+      setUploading(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const remove = (id) => onChange(agreements.filter(a => a.id !== id));
+
+  const open = (a) => {
+    const w = window.open("", "_blank");
+    if (!w) { alert("Pop-up blocked. Please allow pop-ups to view this file."); return; }
+    if (a.type === "application/pdf" || a.name.toLowerCase().endsWith(".pdf")) {
+      w.document.write(`<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; object-src 'self' data:;"><title>${a.name.replace(/</g,"&lt;").replace(/>/g,"&gt;")}</title><style>body{margin:0;height:100vh;display:flex;flex-direction:column}embed{flex:1;width:100%}</style></head><body><embed src="${a.dataUrl}" type="application/pdf" /></body></html>`);
+      w.document.close();
+    } else {
+      const link = w.document.createElement("a");
+      link.href = a.dataUrl;
+      link.download = a.name;
+      w.document.body.appendChild(link);
+      link.click();
+      w.close();
+    }
+  };
+
+  const fmtSize = (bytes) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  };
+
+  return (
+    <div style={{ padding: "0 22px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* Upload button */}
+      <div style={{ paddingTop: 4, display: "flex", alignItems: "center", gap: 12 }}>
+        <input ref={fileRef} type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style={{ display: "none" }} onChange={handleUpload} />
+        <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{
+          display: "flex", alignItems: "center", gap: 7, padding: "8px 18px",
+          borderRadius: 9, border: "none", cursor: uploading ? "wait" : "pointer",
+          background: C.brand, color: "#fff", fontSize: 13, fontWeight: 700,
+        }}>
+          <Upload size={14} /> {uploading ? "Uploading…" : "Upload Agreement"}
+        </button>
+        <span style={{ fontSize: 11.5, color: C.ink3 }}>PDF or Word only (.pdf, .doc, .docx) · max {MAX_FILE_MB} MB</span>
+      </div>
+
+      {error && (
+        <div style={{ fontSize: 12.5, color: "#C0392B", background: hexA("#C0392B", 0.07), border: `1px solid ${hexA("#C0392B", 0.2)}`, borderRadius: 8, padding: "8px 12px" }}>
+          {error}
+        </div>
+      )}
+
+      {/* Agreement list */}
+      {agreements.length === 0 ? (
+        <div style={{ padding: "32px 0", textAlign: "center", color: C.ink3, fontSize: 13.5 }}>
+          <FileSignature size={32} color={C.line} style={{ display: "block", margin: "0 auto 10px" }} />
+          No agreements uploaded yet for {partnerName}.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {agreements.map(a => (
+            <div key={a.id} style={{
+              display: "flex", alignItems: "center", gap: 12,
+              background: C.surfaceAlt, border: `1px solid ${C.line}`,
+              borderRadius: 10, padding: "11px 14px",
+            }}>
+              <div style={{ width: 36, height: 36, borderRadius: 8, background: hexA("#C0392B", 0.1), display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <FileSignature size={17} color="#C0392B" />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 13.5, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.name}</div>
+                <div style={{ fontSize: 11.5, color: C.ink3, marginTop: 2 }}>
+                  {fmtSize(a.size)} · Uploaded {a.uploadedAt ? new Date(a.uploadedAt).toLocaleDateString() : "—"}
+                </div>
+              </div>
+              <button onClick={() => open(a)} title="Open file" style={{
+                background: "#EBF3FF", border: "1px solid #BFDBFE", color: "#2563EB",
+                borderRadius: 7, padding: "6px 12px", cursor: "pointer", fontSize: 12, fontWeight: 600,
+                display: "flex", alignItems: "center", gap: 5, flexShrink: 0,
+              }}>
+                <Download size={12} /> Open
+              </button>
+              <button onClick={() => remove(a.id)} title="Remove" style={{
+                background: "none", border: "none", cursor: "pointer", color: C.ink3,
+                padding: 6, borderRadius: 7, flexShrink: 0,
+                display: "flex", alignItems: "center",
+              }}>
+                <Trash2 size={15} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ fontSize: 11, color: C.ink3, marginTop: 4 }}>
+        Files are stored locally in your encrypted data store and are included in CSV exports.
+      </div>
     </div>
   );
 }
