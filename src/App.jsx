@@ -5328,6 +5328,13 @@ function VirtualSessionChecklist({ equipChecklist, onEquipChange, checklist, onC
   const total      = equipItems.length + runItems.length;
   const pct        = total ? Math.round((totalDone / total) * 100) : 0;
 
+  // Items pulled from their equipment phases into the merged Pre-Session section
+  const virtualPreSessionEquipIds = new Set([
+    "eq_camera", "eq_do_not_disturb",   // from Virtual Setup
+    "eq_playlist_v", "eq_wifi_v",        // from Content & Tech
+    "eq_space_v", "eq_lighting_v",       // from Venue & Day-Of
+  ]);
+
   const criticalIds     = ["eq_zoom_tested", "eq_headset_v", "eq_do_not_disturb", "eq_contraindication"];
   const criticalMissing = criticalIds.filter(id => !equipChecklist[id]);
   const isCompleted     = ["Completed", "Follow-up pending", "Closed out"].includes(status);
@@ -5411,33 +5418,41 @@ function VirtualSessionChecklist({ equipChecklist, onEquipChange, checklist, onC
         )}
       </div>
 
-      {/* Equipment phases — all except Safety & Facilitation */}
-      {activeEquipPhases.filter(p => p.id !== "safety").map(phase => {
-        const phaseDone = phase.items.filter(i => equipChecklist[i.id]).length;
-        return (
-          <div key={phase.id}>
-            {renderPhaseHeader(phase.label, phase.color, phaseDone, phase.items.length, null)}
-            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              {phase.items.map(item => renderItem(item, !!equipChecklist[item.id], toggleEquip, phase.color, criticalIds.includes(item.id), false))}
+      {/* Equipment phases — except Safety & Facilitation and items moved to Pre-Session */}
+      {activeEquipPhases
+        .filter(p => p.id !== "safety")
+        .map(phase => ({ ...phase, items: phase.items.filter(i => !virtualPreSessionEquipIds.has(i.id)) }))
+        .filter(phase => phase.items.length > 0)
+        .map(phase => {
+          const phaseDone = phase.items.filter(i => equipChecklist[i.id]).length;
+          return (
+            <div key={phase.id}>
+              {renderPhaseHeader(phase.label, phase.color, phaseDone, phase.items.length, null)}
+              <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                {phase.items.map(item => renderItem(item, !!equipChecklist[item.id], toggleEquip, phase.color, criticalIds.includes(item.id), false))}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
 
-      {/* Pre-Session — run items + Safety & Facilitation merged */}
+      {/* Pre-Session — run items + moved equip items + Safety & Facilitation merged */}
       {(() => {
         const safetyPhase = activeEquipPhases.find(p => p.id === "safety");
         const safetyItems = safetyPhase ? safetyPhase.items : [];
+        const movedEquipItems = equipItems.filter(i => virtualPreSessionEquipIds.has(i.id));
         const preItems = runItems.filter(i => i.phase === "Pre-Session");
-        const allPreItems = [...preItems, ...safetyItems];
+        const allPreItems = [...preItems, ...movedEquipItems, ...safetyItems];
         if (!allPreItems.length) return null;
         const phColor = SESSION_PHASE_COLOR["Pre-Session"];
-        const done = preItems.filter(i => checklist[i.id]).length + safetyItems.filter(i => equipChecklist[i.id]).length;
+        const done = preItems.filter(i => checklist[i.id]).length
+                   + movedEquipItems.filter(i => equipChecklist[i.id]).length
+                   + safetyItems.filter(i => equipChecklist[i.id]).length;
         return (
           <div>
             {renderPhaseHeader("Pre-Session", phColor, done, allPreItems.length, null)}
             <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
               {preItems.map(item => renderItem(item, !!checklist[item.id], toggleRun, phColor, false, false))}
+              {movedEquipItems.map(item => renderItem(item, !!equipChecklist[item.id], toggleEquip, phColor, criticalIds.includes(item.id), false))}
               {safetyItems.map(item => renderItem(item, !!equipChecklist[item.id], toggleEquip, phColor, criticalIds.includes(item.id), false))}
             </div>
           </div>
