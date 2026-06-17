@@ -3483,12 +3483,13 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         ? <WorkflowsView data={data} derived={derived} today={today} />
         : v.layout === "user-management"
         ? <UserManagementView currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} onUsersUpdated={setSecUsers} onConfirm={setConfirm} />
-        : v.layout === "admin-overview"   ? <AdminView tab="overview"   data={data} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
-        : v.layout === "admin-schema"     ? <AdminView tab="schema"     data={data} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
-        : v.layout === "admin-integrity"  ? <AdminView tab="integrity"  data={data} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
-        : v.layout === "admin-storage"    ? <AdminView tab="storage"    data={data} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
-        : v.layout === "admin-settings"   ? <AdminView tab="settings"   data={data} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
-        : v.layout === "admin-journeys"   ? <AdminView tab="journeys"   data={data} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
+        : v.layout === "admin-overview"   ? <AdminView tab="overview"   data={data} setData={setData} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
+        : v.layout === "admin-schema"     ? <AdminView tab="schema"     data={data} setData={setData} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
+        : v.layout === "admin-integrity"  ? <AdminView tab="integrity"  data={data} setData={setData} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
+        : v.layout === "admin-storage"    ? <AdminView tab="storage"    data={data} setData={setData} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
+        : v.layout === "admin-settings"   ? <AdminView tab="settings"   data={data} setData={setData} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
+        : v.layout === "admin-journeys"   ? <AdminView tab="journeys"   data={data} setData={setData} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
+        : v.layout === "admin-reset"      ? <AdminView tab="reset"      data={data} setData={setData} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
         : v.layout === "expense-summary"  ? <ExpenseSummaryView data={data} today={today} canEdit={canEdit} onOpen={(r) => onOpen({ db: "expenses", record: r })} onImportExpenses={handleImportExpenses} />
         : v.layout === "outreach-hub"
         ? <OutreachHubView rows={processed.rows} data={data} today={today} onOpen={(r) => onOpen({ db: "outreach", record: r })} />
@@ -3542,6 +3543,7 @@ const VIEWS = {
       { name: "Schema Browser",  layout: "admin-schema" },
       { name: "Data Integrity",  layout: "admin-integrity" },
       { name: "Storage & Backup", layout: "admin-storage" },
+      { name: "Reset to Production", layout: "admin-reset" },
     ],
   },
   expenses: {
@@ -7434,7 +7436,135 @@ const DB_SCHEMA = [
   },
 ];
 
-function AdminView({ tab, data, secUsers, currentUser, today, crmSettings, onSaveSettings }) {
+/* ── RESET TO PRODUCTION ── */
+function ResetToProductionView({ data, setData, currentUser }) {
+  const [confirm, setConfirm] = useState("");
+  const [done, setDone]       = useState(false);
+  const [step, setStep]       = useState(1); // 1 = info, 2 = confirm
+
+  const TABLES_TO_WIPE   = ["clients","partners","sessions","registrations","offers","referrals","expenses","revenue","content","testimonials","sequences"];
+  const TABLES_TO_KEEP   = ["templates","_settings"];
+
+  const counts = TABLES_TO_WIPE.reduce((acc, t) => {
+    acc[t] = (data[t] || []).length;
+    return acc;
+  }, {});
+  const total = Object.values(counts).reduce((s, n) => s + n, 0);
+
+  const handleReset = () => {
+    if (confirm !== "RESET") return;
+    setData(prev => {
+      const clean = { ...prev };
+      TABLES_TO_WIPE.forEach(t => { clean[t] = []; });
+      return clean;
+    });
+    setDone(true);
+  };
+
+  if (done) return (
+    <div style={{ padding: "40px 24px", textAlign: "center" }}>
+      <CheckCircle size={48} color="#4A8C6F" style={{ marginBottom: 16 }} />
+      <div style={{ fontSize: 22, fontWeight: 800, color: "#2D6A50", marginBottom: 8 }}>Production reset complete</div>
+      <div style={{ fontSize: 14, color: C.ink2, maxWidth: 460, margin: "0 auto", lineHeight: 1.6 }}>
+        All test data has been wiped. Your templates, settings, journey descriptions, and user accounts are intact.
+        The app is ready for real data.
+      </div>
+      <div style={{ marginTop: 20, padding: "12px 18px", background: hexA("#D9892B", 0.1), border: `1px solid ${hexA("#D9892B", 0.3)}`, borderRadius: 10, display: "inline-block", fontSize: 13, color: "#9A5D10", fontWeight: 600 }}>
+        ⚠ Also clear the Calendly queue: run <code style={{ background: "#fff", padding: "1px 6px", borderRadius: 4, fontFamily: "monospace" }}>DELETE /api/calendly/events</code> with your admin token, or restart the backend to start fresh.
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ padding: "0 4px", display: "flex", flexDirection: "column", gap: 20, maxWidth: 640 }}>
+      {/* Header */}
+      <div style={{ background: hexA("#C0392B", 0.06), border: `1px solid ${hexA("#C0392B", 0.2)}`, borderRadius: 12, padding: "16px 18px", display: "flex", gap: 14, alignItems: "flex-start" }}>
+        <AlertCircle size={22} color="#C0392B" style={{ flexShrink: 0, marginTop: 2 }} />
+        <div>
+          <div style={{ fontWeight: 800, fontSize: 15, color: "#C0392B", marginBottom: 4 }}>Reset to Production</div>
+          <div style={{ fontSize: 13, color: C.ink2, lineHeight: 1.6 }}>
+            This permanently deletes all test/seed data and leaves the app clean for real clients, sessions, and studio partners.
+            <strong> This cannot be undone.</strong> Export a backup first if you need to preserve anything.
+          </div>
+        </div>
+      </div>
+
+      {step === 1 && (
+        <>
+          {/* What gets wiped */}
+          <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden" }}>
+            <div style={{ padding: "12px 16px", background: C.surfaceAlt, borderBottom: `1px solid ${C.line}`, fontWeight: 700, fontSize: 13, color: C.ink }}>
+              What will be wiped ({total} total records)
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0 }}>
+              {TABLES_TO_WIPE.map((t, i) => (
+                <div key={t} style={{ padding: "9px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: i < TABLES_TO_WIPE.length - 2 ? `1px solid ${C.lineSoft || C.line}` : "none", borderRight: i % 2 === 0 ? `1px solid ${C.lineSoft || C.line}` : "none" }}>
+                  <span style={{ fontSize: 13, color: C.ink, textTransform: "capitalize" }}>{t}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: counts[t] > 0 ? "#C0392B" : C.ink3 }}>{counts[t]} record{counts[t] !== 1 ? "s" : ""}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* What gets kept */}
+          <div style={{ background: C.surface, border: `1px solid ${hexA("#4A8C6F", 0.3)}`, borderRadius: 12, overflow: "hidden" }}>
+            <div style={{ padding: "12px 16px", background: hexA("#4A8C6F", 0.06), borderBottom: `1px solid ${hexA("#4A8C6F", 0.2)}`, fontWeight: 700, fontSize: 13, color: "#2D6A50" }}>
+              ✓ What will be preserved
+            </div>
+            <div style={{ padding: "12px 16px", display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {["14 message templates", "CRM settings & lists", "Journey descriptions", "User accounts & PINs", "Admin configuration"].map(item => (
+                <span key={item} style={{ fontSize: 12.5, fontWeight: 600, padding: "4px 12px", borderRadius: 20, background: hexA("#4A8C6F", 0.1), color: "#2D6A50" }}>{item}</span>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={() => setStep(2)} style={{
+              padding: "10px 24px", borderRadius: 9, border: "none", cursor: "pointer",
+              background: "#C0392B", color: "#fff", fontWeight: 700, fontSize: 13.5,
+            }}>
+              I understand — continue to reset
+            </button>
+          </div>
+        </>
+      )}
+
+      {step === 2 && (
+        <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, padding: "20px 20px" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.ink, marginBottom: 6 }}>Type RESET to confirm</div>
+          <div style={{ fontSize: 12.5, color: C.ink3, marginBottom: 14, lineHeight: 1.55 }}>
+            This will permanently delete <strong>{total} records</strong> across {TABLES_TO_WIPE.length} tables.
+            Your templates, settings, and user accounts will not be affected.
+          </div>
+          <input
+            value={confirm}
+            onChange={e => setConfirm(e.target.value)}
+            placeholder="Type RESET here"
+            autoFocus
+            style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `2px solid ${confirm === "RESET" ? "#4A8C6F" : C.line}`, fontSize: 14, fontWeight: 700, letterSpacing: "0.1em", color: C.ink, boxSizing: "border-box", outline: "none", marginBottom: 14 }}
+          />
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={() => { setStep(1); setConfirm(""); }} style={{
+              padding: "10px 20px", borderRadius: 9, border: `1px solid ${C.line}`,
+              background: "transparent", color: C.ink2, fontWeight: 600, fontSize: 13, cursor: "pointer",
+            }}>Back</button>
+            <button onClick={handleReset} disabled={confirm !== "RESET"} style={{
+              padding: "10px 24px", borderRadius: 9, border: "none", fontWeight: 700, fontSize: 13.5,
+              cursor: confirm === "RESET" ? "pointer" : "not-allowed",
+              background: confirm === "RESET" ? "#C0392B" : C.line,
+              color: confirm === "RESET" ? "#fff" : C.ink3,
+              transition: "background .15s",
+            }}>
+              Wipe {total} records — go live
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AdminView({ tab, data, setData, secUsers, currentUser, today, crmSettings, onSaveSettings }) {
   const [integrityResults, setIntegrityResults] = useState(null);
   const [runningCheck, setRunningCheck]         = useState(false);
   const [schemaTable,  setSchemaTable]          = useState(DB_SCHEMA[0].table);
@@ -7835,6 +7965,9 @@ function AdminView({ tab, data, secUsers, currentUser, today, crmSettings, onSav
 
       {tab === "journeys" && crmSettings && (
         <JourneyDescriptionsView settings={crmSettings} onSave={onSaveSettings} />
+      )}
+      {tab === "reset" && (
+        <ResetToProductionView data={data} setData={setData} currentUser={currentUser} />
       )}
     </div>
   );
