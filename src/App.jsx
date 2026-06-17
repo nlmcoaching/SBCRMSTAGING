@@ -3940,23 +3940,25 @@ const VIEWS = {
     views: [
       { name: "Due today", layout: "table",
         columns: [
-          col("name", "Follow-up", (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
-          col("clientId", "Client", (r, c) => clientShort(c.derived.clientName[r.clientId] || "—")),
-          col("futype", "Type", (r) => <Tag color={FUTYPE_COLOR[r.futype]} soft>{r.futype}</Tag>),
+          col("name",       "Follow-up",   (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
+          col("clientId",   "Client",      (r, c) => clientShort(c.derived.clientName[r.clientId] || "—")),
+          col("futype",     "Type",        (r) => <Tag color={FUTYPE_COLOR[r.futype]} soft>{r.futype}</Tag>),
           col("nextAction", "Next action", (r, c) => <DateChip iso={r.nextAction} today={c.today} />),
+          col("_send",      "",            (r, c) => <FollowUpSendButton r={r} data={c.data} setData={c.setData} today={c.today} />),
         ],
-        run: (rows, c) => ({ rows: rows.filter((r) => onOrBefore(r.nextAction, c.today) && !r.outcome).sort((a, b) => (a.nextAction || "").localeCompare(b.nextAction || "")) }) },
-      { name: "By type", layout: "board", card: ["clientId", "nextAction", "outcome"],
-        run: (rows) => ({ groups: FUTYPE.map((t) => ({ key: t, label: t, color: FUTYPE_COLOR[t], cards: rows.filter((r) => r.futype === t) })) }) },
+        run: (rows, c) => ({ rows: rows.filter((r) => r.nextAction && r.nextAction <= c.today).sort((a, b) => (a.nextAction || "").localeCompare(b.nextAction || "")) }) },
       { name: "All follow-ups", layout: "table",
         columns: [
-          col("name", "Follow-up", (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
-          col("clientId", "Client", (r, c) => clientShort(c.derived.clientName[r.clientId] || "—")),
-          col("futype", "Type", (r) => <Tag color={FUTYPE_COLOR[r.futype]} soft>{r.futype}</Tag>),
+          col("name",       "Follow-up",   (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
+          col("clientId",   "Client",      (r, c) => clientShort(c.derived.clientName[r.clientId] || "—")),
+          col("futype",     "Type",        (r) => <Tag color={FUTYPE_COLOR[r.futype]} soft>{r.futype}</Tag>),
           col("nextAction", "Next action", (r) => fmtDate(r.nextAction)),
-          col("outcome", "Outcome", (r) => r.outcome ? <span style={{ color: C.brand }}>{r.outcome}</span> : <span style={{ color: C.ink3 }}>pending</span>),
+          col("outcome",    "Outcome",     (r) => r.outcome ? <span style={{ color: C.brand }}>{r.outcome}</span> : <span style={{ color: C.ink3 }}>pending</span>),
+          col("_send",      "",            (r, c) => <FollowUpSendButton r={r} data={c.data} setData={c.setData} today={c.today} />),
         ],
         run: (rows) => ({ rows }) },
+      { name: "By type", layout: "board", card: ["clientId", "nextAction", "outcome"],
+        run: (rows) => ({ groups: FUTYPE.map((t) => ({ key: t, label: t, color: FUTYPE_COLOR[t], cards: rows.filter((r) => r.futype === t) })) }) },
     ],
   },
   testimonials: {
@@ -7606,6 +7608,7 @@ const EMAIL_STATUS_COLOR = {
 function EmailLogsView({ data, setData }) {
   const logs = [...(data.emailLog || [])].reverse();
   const [checking, setChecking] = useState({});
+  const [expanded, setExpanded] = useState(null);
 
   const checkStatus = async (entry) => {
     if (!entry.resendId || checking[entry.id]) return;
@@ -7679,56 +7682,87 @@ function EmailLogsView({ data, setData }) {
             <span>Date</span><span>Recipient</span><span>Template</span><span>Send</span><span>Delivery</span><span></span>
           </div>
           {logs.map((entry, i) => {
-            const sendColor    = EMAIL_STATUS_COLOR[entry.sendStatus]    || C.ink3;
-            const delivColor   = EMAIL_STATUS_COLOR[entry.deliveryStatus] || C.ink3;
-            const delivLabel   = entry.deliveryStatus
+            const sendColor  = EMAIL_STATUS_COLOR[entry.sendStatus]     || C.ink3;
+            const delivColor = EMAIL_STATUS_COLOR[entry.deliveryStatus] || C.ink3;
+            const delivLabel = entry.deliveryStatus
               ? entry.deliveryStatus.replace(/_/g, " ")
-              : entry.resendId ? "not checked" : "—";
+              : entry.resendId ? "checking…" : "—";
+            const isOpen     = expanded === entry.id;
             return (
-              <div key={entry.id} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 120px 110px 90px", gap: "0 12px", padding: "10px 16px", alignItems: "center", borderBottom: i < logs.length - 1 ? `1px solid ${C.line}` : "none", fontSize: 13 }}>
-                {/* Date */}
-                <div style={{ color: C.ink2, fontSize: 12 }}>
-                  {new Date(entry.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                  <div style={{ fontSize: 11, color: C.ink3 }}>{new Date(entry.date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</div>
+              <div key={entry.id} style={{ borderBottom: i < logs.length - 1 ? `1px solid ${C.line}` : "none" }}>
+                {/* Summary row — click to expand */}
+                <div
+                  onClick={() => setExpanded(isOpen ? null : entry.id)}
+                  style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 120px 110px 44px", gap: "0 12px", padding: "10px 16px", alignItems: "center", fontSize: 13, cursor: "pointer", background: isOpen ? C.surfaceAlt : "transparent", transition: "background .15s" }}
+                  onMouseEnter={e => { if (!isOpen) e.currentTarget.style.background = hexA(C.brand, 0.03); }}
+                  onMouseLeave={e => { if (!isOpen) e.currentTarget.style.background = "transparent"; }}
+                >
+                  {/* Date */}
+                  <div style={{ color: C.ink2, fontSize: 12 }}>
+                    {new Date(entry.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    <div style={{ fontSize: 11, color: C.ink3 }}>{new Date(entry.date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</div>
+                  </div>
+                  {/* Recipient */}
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.recipientName || entry.to}</div>
+                    <div style={{ fontSize: 11.5, color: C.ink3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.to}</div>
+                  </div>
+                  {/* Template */}
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: C.ink }}>{entry.templateName}</div>
+                    {entry.category && <div style={{ fontSize: 11.5, color: C.ink3 }}>{entry.category}</div>}
+                  </div>
+                  {/* Send status */}
+                  <div>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: hexA(sendColor, 0.1), color: sendColor }}>
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: sendColor, display: "inline-block" }} />
+                      {entry.sendStatus}
+                      {entry.errorMsg && <span title={entry.errorMsg} style={{ cursor: "help" }}>⚠</span>}
+                    </span>
+                  </div>
+                  {/* Delivery status */}
+                  <div>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: hexA(delivColor, 0.1), color: delivColor }}>
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: delivColor, display: "inline-block" }} />
+                      {delivLabel}
+                    </span>
+                  </div>
+                  {/* Expand chevron */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6 }}>
+                    {entry.resendId && entry.sendStatus === "sent" && (
+                      <button
+                        onClick={e => { e.stopPropagation(); checkStatus(entry); }}
+                        disabled={checking[entry.id]}
+                        title="Re-check delivery status"
+                        style={{ padding: "3px 6px", borderRadius: 6, border: `1px solid ${C.line}`, background: C.surface, color: C.ink3, cursor: checking[entry.id] ? "not-allowed" : "pointer", display: "flex", alignItems: "center" }}
+                      >
+                        <RefreshCw size={10} style={{ animation: checking[entry.id] ? "spin 1s linear infinite" : "none" }} />
+                      </button>
+                    )}
+                    <ChevronDown size={14} color={C.ink3} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: "transform .2s", flexShrink: 0 }} />
+                  </div>
                 </div>
-                {/* Recipient */}
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, color: C.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.recipientName || entry.to}</div>
-                  <div style={{ fontSize: 11.5, color: C.ink3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.to}</div>
-                </div>
-                {/* Template */}
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: C.ink }}>{entry.templateName}</div>
-                  {entry.category && <div style={{ fontSize: 11.5, color: C.ink3 }}>{entry.category}</div>}
-                </div>
-                {/* Send status */}
-                <div>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: hexA(sendColor, 0.1), color: sendColor }}>
-                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: sendColor, display: "inline-block" }} />
-                    {entry.sendStatus}
-                    {entry.errorMsg && <span title={entry.errorMsg} style={{ cursor: "help" }}>⚠</span>}
-                  </span>
-                </div>
-                {/* Delivery status */}
-                <div>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 20, fontSize: 11.5, fontWeight: 700, background: hexA(delivColor, 0.1), color: delivColor }}>
-                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: delivColor, display: "inline-block" }} />
-                    {delivLabel}
-                  </span>
-                  {entry.statusCheckedAt && (
-                    <div style={{ fontSize: 10.5, color: C.ink3, marginTop: 2 }}>
-                      checked {new Date(entry.statusCheckedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+
+                {/* Expanded email preview */}
+                {isOpen && (
+                  <div style={{ padding: "0 16px 16px", borderTop: `1px solid ${C.line}`, background: C.surfaceAlt }}>
+                    {/* Subject line */}
+                    <div style={{ padding: "10px 14px", margin: "12px 0 0", background: hexA(C.brand, 0.05), border: `1px solid ${hexA(C.brand, 0.15)}`, borderRadius: "8px 8px 0 0", fontSize: 13, color: C.ink2 }}>
+                      <span style={{ fontWeight: 700, color: C.ink3, marginRight: 8, fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em" }}>Subject</span>
+                      {entry.subject}
                     </div>
-                  )}
-                </div>
-                {/* Re-check button — only shown once a status is known */}
-                <div style={{ textAlign: "right" }}>
-                  {entry.resendId && entry.sendStatus === "sent" && (
-                    <button onClick={() => checkStatus(entry)} disabled={checking[entry.id]} title="Re-check delivery status" style={{ padding: "4px 8px", borderRadius: 7, border: `1px solid ${C.line}`, background: C.surface, fontSize: 11.5, fontWeight: 600, color: C.ink3, cursor: checking[entry.id] ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}>
-                      <RefreshCw size={11} style={{ animation: checking[entry.id] ? "spin 1s linear infinite" : "none" }} />
-                    </button>
-                  )}
-                </div>
+                    {/* Body */}
+                    <div style={{ padding: "14px", background: C.surface, border: `1px solid ${hexA(C.brand, 0.15)}`, borderTop: "none", borderRadius: "0 0 8px 8px", fontSize: 13.5, color: C.ink, lineHeight: 1.7, whiteSpace: "pre-wrap", maxHeight: 320, overflowY: "auto" }}>
+                      {entry.body || <span style={{ color: C.ink3, fontStyle: "italic" }}>Body not recorded (sent before logging was added)</span>}
+                    </div>
+                    {/* Meta footer */}
+                    <div style={{ display: "flex", gap: 16, marginTop: 10, fontSize: 11.5, color: C.ink3 }}>
+                      <span>To: <strong style={{ color: C.ink2 }}>{entry.to}</strong></span>
+                      {entry.resendId && <span>Resend ID: <strong style={{ color: C.ink2, fontFamily: "monospace" }}>{entry.resendId}</strong></span>}
+                      {entry.statusCheckedAt && <span>Status checked: <strong style={{ color: C.ink2 }}>{new Date(entry.statusCheckedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</strong></span>}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -8922,6 +8956,136 @@ function hexA(hex, a) {
    OUTREACH HUB
    ============================================================ */
 
+/* ── FOLLOW-UP SEND EMAIL BUTTON (inline table action) ── */
+function FollowUpSendButton({ r, data, setData, today }) {
+  const clients      = data.clients   || [];
+  const libraryTmpls = data.templates || [];
+  const client       = clients.find(c => c.id === r.clientId);
+
+  const fuOptions = FU_STEPS.map(s => ({
+    id: `fu_${s.id}`, name: s.label, category: "Follow-Up Sequence",
+    channel: s.channel, body: FU_TEMPLATES[s.id] || "", subject: `Follow-up: ${r.name}`,
+  }));
+  const allOptions = [...libraryTmpls, ...fuOptions];
+  const firstOpt   = allOptions[0];
+
+  // All hooks must come before any conditional return
+  const [open, setOpen]             = useState(false);
+  const [selectedId, setSelectedId] = useState(firstOpt?.id || "");
+  const [subject, setSubject]       = useState("");
+  const [body, setBody]             = useState("");
+  const [sending, setSending]       = useState(false);
+  const [sent, setSent]             = useState(false);
+  const [error, setError]           = useState("");
+  // Local completed flag — persists immediately after send without waiting for prop re-render
+  const [completed, setCompleted]   = useState(false);
+
+  // Show done badge if locally completed OR if r.outcome is already set (e.g. on load)
+  if (completed || r.outcome) {
+    return <span style={{ fontSize: 12, fontWeight: 600, color: "#4A8C6F", background: hexA("#4A8C6F", 0.1), border: `1px solid ${hexA("#4A8C6F", 0.25)}`, borderRadius: 20, padding: "3px 10px", display: "inline-flex", alignItems: "center", gap: 4 }}><Check size={11} /> {r.outcome || "Email sent"}</span>;
+  }
+
+  const populate = (tmpl) => {
+    const full  = (client?.name || "there").trim();
+    const first = full.split(" ")[0];
+    const rep = (s) => (s||"")
+      .replace(/\{\{ClientName\}\}/gi, full).replace(/\{\{FirstName\}\}/gi, first)
+      .replace(/\{first_name\}/g, first).replace(/\{name\}/g, full)
+      .replace(/\{\{Email\}\}/gi, client?.email || "")
+      .replace(/\{session_name\}/g, r.name || "our session");
+    return { body: rep(tmpl?.body || ""), subject: rep(tmpl?.subject || "") || `Follow-up: ${r.name}` };
+  };
+
+  const handleOpen = () => {
+    const tmpl = allOptions.find(t => t.id === selectedId) || firstOpt;
+    if (tmpl) { const { body: b, subject: s } = populate(tmpl); setBody(b); setSubject(s); setSelectedId(tmpl.id); }
+    setOpen(true);
+  };
+
+  const applyTmpl = (id) => {
+    const tmpl = allOptions.find(t => t.id === id);
+    if (!tmpl) return;
+    const { body: b, subject: s } = populate(tmpl);
+    setBody(b); setSubject(s); setSelectedId(id);
+  };
+
+  const send = async () => {
+    if (!client?.email) return;
+    setSending(true); setError("");
+    try {
+      const secret = import.meta.env.VITE_FRONTEND_SECRET || "";
+      const res  = await fetch("/api/send-email", {
+        method: "POST", headers: { "Content-Type": "application/json", "x-frontend-secret": secret },
+        body: JSON.stringify({ to: client.email, recipientName: (client.name||"").split(" ")[0], subject, body }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Send failed.");
+      const tmpl = allOptions.find(t => t.id === selectedId);
+      const logEntry = { id: `em_${Date.now()}`, date: new Date().toISOString(), templateId: tmpl?.id || "followup", templateName: tmpl?.name || r.name, category: tmpl?.category || "Follow-Up", to: client.email, recipientName: cleanName(client.name||""), recipientType: "client", subject, body, resendId: json.id || null, sendStatus: "sent" };
+      setData(d => ({
+        ...d,
+        emailLog: [...(d.emailLog||[]), logEntry],
+        clients: (d.clients||[]).map(c => c.id === client.id ? { ...c, emailHistory: [...(c.emailHistory||[]), logEntry] } : c),
+        followups: (d.followups||[]).map(f => f.id === r.id ? { ...f, outcome: "Email sent", lastContact: today } : f),
+      }));
+      setSent(true);
+      // Brief "Sent!" feedback, then mark completed — this closes modal and shows green badge
+      setTimeout(() => { setCompleted(true); }, 900);
+    } catch (err) { setError(err.message); }
+    setSending(false);
+  };
+
+  if (!open) {
+    return (
+      <button onClick={handleOpen} style={{ padding: "4px 12px", borderRadius: 7, fontSize: 12, fontWeight: 600, background: C.brand, color: "#fff", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap" }}>
+        <Send size={11} /> Send Email
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 1200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={e => { if (e.target === e.currentTarget) setOpen(false); }}>
+      <div style={{ background: C.surface, borderRadius: 14, padding: 24, width: "min(520px,95vw)", display: "flex", flexDirection: "column", gap: 12, boxShadow: "0 24px 80px rgba(0,0,0,.18)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>Send Email · {cleanName(client?.name || r.name)}</div>
+          <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3 }}><X size={16} /></button>
+        </div>
+        <div style={{ fontSize: 11.5, color: C.ink3 }}>To: <strong style={{ color: C.ink2 }}>{client?.email || <span style={{ color:"#C0392B" }}>No email on file</span>}</strong></div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: C.ink3, textTransform: "uppercase", whiteSpace: "nowrap" }}>Template</label>
+          <div style={{ position: "relative", flex: 1 }}>
+            <select value={selectedId} onChange={e => applyTmpl(e.target.value)} style={{ width: "100%", padding: "6px 26px 6px 10px", border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 12.5, color: C.ink, background: C.surfaceAlt, appearance: "none", outline: "none" }}>
+              {allOptions.length === 0 && <option value="">No templates yet</option>}
+              {libraryTmpls.length > 0 && (
+                <optgroup label="── Template Library ──">
+                  {libraryTmpls.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}{t.category ? ` · ${t.category}` : ""}{t.channel && t.channel !== "Email" ? ` [${t.channel}]` : ""}</option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label="── Follow-Up Engine Sequences ──">
+                {fuOptions.map(t => (
+                  <option key={t.id} value={t.id}>{t.name} · {t.channel === "email" ? "Email" : "Text"}</option>
+                ))}
+              </optgroup>
+            </select>
+            <ChevronDown size={12} color={C.ink3} style={{ position: "absolute", right: 7, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+          </div>
+        </div>
+        <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject" style={{ padding: "7px 10px", border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 13, outline: "none" }} />
+        <textarea value={body} onChange={e => setBody(e.target.value)} rows={8} style={{ padding: "10px 12px", border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 13, resize: "vertical", lineHeight: 1.7, fontFamily: "inherit", outline: "none" }} />
+        {error && <div style={{ fontSize: 12, color: "#C0392B" }}>{error}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button onClick={() => setOpen(false)} style={{ padding: "7px 16px", borderRadius: 8, border: `1px solid ${C.line}`, background: "transparent", fontSize: 13, fontWeight: 600, color: C.ink2, cursor: "pointer" }}>Close</button>
+          <button onClick={send} disabled={sending || sent || !client?.email} style={{ padding: "7px 20px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 700, background: sent ? "#4A8C6F" : C.brand, color: "#fff", cursor: sending || sent ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+            {sent ? <><Check size={13}/> Sent!</> : sending ? <><RefreshCw size={13} style={{ animation: "spin 1s linear infinite" }}/> Sending…</> : <><Send size={13}/> Send Email</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function OutreachHubView({ rows, data, today, onOpen }) {
   const daysAgo  = (d) => !d ? 0  : Math.round((new Date(today) - new Date(d)) / 86400000);
   const daysAway = (d) => !d ? 999: Math.round((new Date(d) - new Date(today)) / 86400000);
@@ -9915,6 +10079,7 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser }) {
           : cleanName(recip.name || ""),
         recipientType: recip._type,
         subject:       emailPopulatedSubject || tmpl.name,
+        body:          emailBodyOverride ?? emailPopulatedBody,
         resendId:      json.id || null,
         sendStatus:    "sent",
       };
@@ -11265,6 +11430,7 @@ function FollowUpEngine({ data, setData, today, onOpen, canEdit = true }) {
         <MessageQueue
           overdue={overdueItems} todayItems={todayItems} upcoming={upcomingItems}
           today={today} markSent={markSent}
+          data={data} setData={setData}
           onOpenClient={(clientId) => {
             const c = (data.clients || []).find(x => x.id === clientId);
             if (c) onOpen({ db: "clients", record: c });
@@ -11274,14 +11440,106 @@ function FollowUpEngine({ data, setData, today, onOpen, canEdit = true }) {
       {tab === "sequences" && (
         <SequencesView sequences={sequences} clients={data.clients || []} today={today} onOpen={onOpen} togglePause={togglePause} />
       )}
-      {tab === "templates" && <TemplatesView />}
+      {tab === "templates" && <TemplatesView data={data} setData={setData} />}
     </div>
   );
 }
 
-function MessageQueue({ overdue, todayItems, upcoming, today, markSent, onOpenClient }) {
-  const [copied, setCopied] = useState(null);
+function MessageQueue({ overdue, todayItems, upcoming, today, markSent, onOpenClient, data, setData }) {
+  const [copied, setCopied]   = useState(null);
   const [expanded, setExpanded] = useState({});
+  const [composing, setComposing] = useState(null); // key of item being composed
+  const [emailState, setEmailState] = useState({}); // { [key]: { subject, body, sending, sent, error } }
+
+  const emailTemplates = (data?.templates || []).filter(t => (t.channel || "").toLowerCase() === "email");
+
+  const populateForClient = (tmplBody, tmplSubject, client, item) => {
+    const fullName  = (client?.name || "there").trim();
+    const firstName = fullName.split(" ")[0];
+    const replace   = (str) => (str || "")
+      .replace(/\{\{ClientName\}\}/gi, fullName)
+      .replace(/\{\{FirstName\}\}/gi, firstName)
+      .replace(/\{\{first_name\}\}/gi, firstName)
+      .replace(/\{\{name\}\}/gi, fullName)
+      .replace(/\{\{Email\}\}/gi, client?.email || "")
+      .replace(/\{\{Phone\}\}/gi, client?.phone || "")
+      .replace(/\{first_name\}/g, firstName)
+      .replace(/\{name\}/g, fullName)
+      .replace(/\{session_name\}/g, item?.sessionName || "our session")
+      .replace(/\{session_date\}/g, item?.sessionDate ? fmtDate(item.sessionDate) : "");
+    return { body: replace(tmplBody), subject: replace(tmplSubject) };
+  };
+
+  const startCompose = (key, item, defaultBody) => {
+    const subject = `Follow-up: ${item.sessionName || "your session"}`;
+    setEmailState(s => ({ ...s, [key]: { subject, body: defaultBody, selectedTemplateId: "__followup__", sending: false, sent: false, error: "" } }));
+    setComposing(key);
+    setExpanded(e => ({ ...e, [key]: true }));
+  };
+
+  const applyTemplate = (key, tmplId, item) => {
+    if (tmplId === "__followup__") {
+      const msg = interpolateTemplate(FU_TEMPLATES[item.stepId], item.client, item);
+      setEmailState(s => ({ ...s, [key]: { ...s[key], selectedTemplateId: tmplId, subject: `Follow-up: ${item.sessionName || "your session"}`, body: msg } }));
+    } else {
+      const tmpl = emailTemplates.find(t => t.id === tmplId);
+      if (!tmpl) return;
+      const { body, subject } = populateForClient(tmpl.body, tmpl.subject, item.client, item);
+      setEmailState(s => ({ ...s, [key]: { ...s[key], selectedTemplateId: tmplId, subject, body } }));
+    }
+  };
+
+  const sendFollowUpEmail = async (key, item) => {
+    const state = emailState[key];
+    if (!state || !item.client?.email) return;
+    setEmailState(s => ({ ...s, [key]: { ...s[key], sending: true, error: "" } }));
+    try {
+      const secret = import.meta.env.VITE_FRONTEND_SECRET || "";
+      const res  = await fetch("/api/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-frontend-secret": secret },
+        body: JSON.stringify({
+          to:            item.client.email,
+          recipientName: (item.client.name || "").split(" ")[0],
+          subject:       state.subject,
+          body:          state.body,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Send failed.");
+
+      // Write to global email log
+      const selectedTmpl = eState.selectedTemplateId && eState.selectedTemplateId !== "__followup__"
+        ? emailTemplates.find(t => t.id === eState.selectedTemplateId) : null;
+      const logEntry = {
+        id:            `em_${Date.now()}`,
+        date:          new Date().toISOString(),
+        templateId:    selectedTmpl?.id || item.stepId,
+        templateName:  selectedTmpl?.name || item.stepDef?.label || item.stepId,
+        category:      selectedTmpl?.category || "Follow-Up",
+        to:            item.client.email,
+        recipientName: cleanName(item.client.name || ""),
+        recipientType: "client",
+        subject:       state.subject,
+        body:          state.body,
+        resendId:      json.id || null,
+        sendStatus:    "sent",
+      };
+      setData(d => ({
+        ...d,
+        emailLog: [...(d.emailLog || []), logEntry],
+        clients: (d.clients || []).map(c =>
+          c.id === item.clientId ? { ...c, emailHistory: [...(c.emailHistory || []), logEntry] } : c
+        ),
+      }));
+
+      setEmailState(s => ({ ...s, [key]: { ...s[key], sending: false, sent: true } }));
+      markSent(item.seqId, item.stepId);
+      setTimeout(() => { setComposing(null); setExpanded(e => ({ ...e, [key]: false })); }, 1500);
+    } catch (err) {
+      setEmailState(s => ({ ...s, [key]: { ...s[key], sending: false, error: err.message || "Send failed." } }));
+    }
+  };
 
   const copyMsg = (key, text) => {
     try { navigator.clipboard.writeText(text); } catch (e) {}
@@ -11300,11 +11558,14 @@ function MessageQueue({ overdue, todayItems, upcoming, today, markSent, onOpenCl
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {items.map(item => {
-            const key = `${item.seqId}_${item.stepId}`;
-            const isOpen = expanded[key];
-            const msg = interpolateTemplate(FU_TEMPLATES[item.stepId], item.client, item);
-            const wasCopied = copied === key;
-            const daysAgo = Math.round((new Date(today) - new Date(item.sessionDate)) / 86400000);
+            const key        = `${item.seqId}_${item.stepId}`;
+            const isOpen     = expanded[key];
+            const isEmail    = item.stepDef?.channel === "email";
+            const isComposing = composing === key;
+            const eState     = emailState[key] || {};
+            const msg        = interpolateTemplate(FU_TEMPLATES[item.stepId], item.client, item);
+            const wasCopied  = copied === key;
+            const daysAgo    = Math.round((new Date(today) - new Date(item.sessionDate)) / 86400000);
             return (
               <div key={key} style={{
                 background: C.surface, border: `1px solid ${C.line}`, borderLeft: `4px solid ${item.stepDef?.accent || C.brand}`,
@@ -11312,7 +11573,7 @@ function MessageQueue({ overdue, todayItems, upcoming, today, markSent, onOpenCl
               }}>
                 <div style={{ padding: "12px 14px" }}>
                   {/* Header row */}
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: isOpen ? 10 : 0 }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: isOpen || isComposing ? 10 : 0 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         <button onClick={() => onOpenClient(item.clientId)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontWeight: 700, fontSize: 14, color: C.ink, textDecoration: "underline" }}>
@@ -11320,7 +11581,7 @@ function MessageQueue({ overdue, todayItems, upcoming, today, markSent, onOpenCl
                         </button>
                         <Tag color={item.stepDef?.accent || C.brand} soft>{item.stepDef?.label}</Tag>
                         <MiniChip color={item.stepDef?.accent}>
-                          {item.stepDef?.channel === "email" ? "Email" : "Text"}
+                          {isEmail ? "Email" : "Text"}
                         </MiniChip>
                       </div>
                       <div style={{ fontSize: 12, color: C.ink3, marginTop: 3 }}>
@@ -11330,26 +11591,101 @@ function MessageQueue({ overdue, todayItems, upcoming, today, markSent, onOpenCl
                       </div>
                     </div>
                     <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
-                      <button onClick={() => toggle(key)} style={{ padding: "5px 11px", background: C.surfaceAlt, border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 12, cursor: "pointer", color: C.ink2 }}>
-                        {isOpen ? "Hide" : "View message"}
-                      </button>
-                      <button onClick={() => copyMsg(key, msg)} style={{
-                        padding: "5px 11px", borderRadius: 7, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
-                        background: wasCopied ? hexA("#4A8C6F", 0.12) : C.surfaceAlt,
-                        color: wasCopied ? "#4A8C6F" : C.ink2, border: `1px solid ${wasCopied ? hexA("#4A8C6F", 0.35) : C.line}`,
-                      }}>
-                        {wasCopied ? <><Check size={12} /> Copied!</> : <><Copy size={12} /> Copy</>}
-                      </button>
-                      <button onClick={() => markSent(item.seqId, item.stepId)} style={{
-                        padding: "5px 14px", borderRadius: 7, fontSize: 12, cursor: "pointer", fontWeight: 600,
-                        background: C.brand, color: "#fff", border: "none",
-                      }}>
-                        Mark Sent ✓
-                      </button>
+                      {!isComposing && (
+                        <button onClick={() => toggle(key)} style={{ padding: "5px 11px", background: C.surfaceAlt, border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 12, cursor: "pointer", color: C.ink2 }}>
+                          {isOpen ? "Hide" : "View"}
+                        </button>
+                      )}
+                      {!isComposing && !isEmail && (
+                        <button onClick={() => copyMsg(key, msg)} style={{
+                          padding: "5px 11px", borderRadius: 7, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
+                          background: wasCopied ? hexA("#4A8C6F", 0.12) : C.surfaceAlt,
+                          color: wasCopied ? "#4A8C6F" : C.ink2, border: `1px solid ${wasCopied ? hexA("#4A8C6F", 0.35) : C.line}`,
+                        }}>
+                          {wasCopied ? <><Check size={12} /> Copied!</> : <><Copy size={12} /> Copy</>}
+                        </button>
+                      )}
+                      {isComposing ? (
+                        <button onClick={() => { setComposing(null); setExpanded(e => ({ ...e, [key]: false })); }} style={{ padding: "5px 11px", borderRadius: 7, fontSize: 12, cursor: "pointer", background: C.surfaceAlt, border: `1px solid ${C.line}`, color: C.ink2 }}>
+                          Cancel
+                        </button>
+                      ) : (
+                        <>
+                          {!isEmail && (
+                            <button onClick={() => markSent(item.seqId, item.stepId)} style={{ padding: "5px 14px", borderRadius: 7, fontSize: 12, cursor: "pointer", fontWeight: 600, background: C.surfaceAlt, color: C.ink2, border: `1px solid ${C.line}` }}>
+                              Mark Sent ✓
+                            </button>
+                          )}
+                          <button onClick={() => startCompose(key, item, msg)} style={{ padding: "5px 14px", borderRadius: 7, fontSize: 12, cursor: "pointer", fontWeight: 600, background: C.brand, color: "#fff", border: "none", display: "flex", alignItems: "center", gap: 5 }}>
+                            <Send size={12} /> Send Email
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
-                  {/* Expanded message */}
-                  {isOpen && (
+
+                  {/* Inline email compose */}
+                  {isComposing && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {/* Template picker */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <label style={{ fontSize: 11.5, fontWeight: 700, color: C.ink3, textTransform: "uppercase", letterSpacing: ".05em", whiteSpace: "nowrap" }}>Template</label>
+                        <div style={{ position: "relative", flex: 1 }}>
+                          <select
+                            value={eState.selectedTemplateId || "__followup__"}
+                            onChange={e => applyTemplate(key, e.target.value, item)}
+                            style={{ width: "100%", padding: "6px 28px 6px 10px", border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 12.5, color: C.ink, background: C.surfaceAlt, appearance: "none", cursor: "pointer", outline: "none" }}
+                          >
+                            <option value="__followup__">Follow-up sequence message ({item.stepDef?.label})</option>
+                            {emailTemplates.length > 0 && (
+                              <optgroup label="─── Template Library ───">
+                                {emailTemplates.map(t => (
+                                  <option key={t.id} value={t.id}>{t.name}{t.category ? ` · ${t.category}` : ""}</option>
+                                ))}
+                              </optgroup>
+                            )}
+                          </select>
+                          <ChevronDown size={13} color={C.ink3} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 11.5, color: C.ink3 }}>
+                        To: <strong style={{ color: C.ink2 }}>{item.client?.email || <span style={{ color: "#C0392B" }}>No email on file</span>}</strong>
+                      </div>
+                      <input
+                        value={eState.subject || ""}
+                        onChange={e => setEmailState(s => ({ ...s, [key]: { ...s[key], subject: e.target.value } }))}
+                        placeholder="Subject"
+                        style={{ padding: "7px 10px", border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 13, color: C.ink, background: C.surfaceAlt, outline: "none" }}
+                      />
+                      <textarea
+                        value={eState.body || ""}
+                        onChange={e => setEmailState(s => ({ ...s, [key]: { ...s[key], body: e.target.value } }))}
+                        rows={8}
+                        style={{ padding: "10px 12px", border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 13, color: C.ink, background: C.surfaceAlt, resize: "vertical", lineHeight: 1.7, fontFamily: "inherit", outline: "none" }}
+                      />
+                      {eState.error && <div style={{ fontSize: 12, color: "#C0392B" }}>{eState.error}</div>}
+                      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                        <button
+                          onClick={() => applyTemplate(key, eState.selectedTemplateId || "__followup__", item)}
+                          style={{ padding: "5px 11px", borderRadius: 7, fontSize: 12, cursor: "pointer", background: C.surfaceAlt, border: `1px solid ${C.line}`, color: C.ink3 }}
+                        >
+                          Reset message
+                        </button>
+                        <button
+                          onClick={() => sendFollowUpEmail(key, item)}
+                          disabled={eState.sending || eState.sent || !item.client?.email}
+                          style={{ padding: "6px 18px", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: eState.sending || eState.sent ? "not-allowed" : "pointer", background: eState.sent ? "#4A8C6F" : C.brand, color: "#fff", border: "none", display: "flex", alignItems: "center", gap: 6 }}
+                        >
+                          {eState.sent ? <><Check size={12} /> Sent!</>
+                            : eState.sending ? <><RefreshCw size={12} style={{ animation: "spin 1s linear infinite" }} /> Sending…</>
+                            : <><Send size={12} /> Send Email</>}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* View-only message preview (non-email or before composing) */}
+                  {isOpen && !isComposing && (
                     <div style={{
                       background: C.surfaceAlt, borderRadius: 8, padding: "12px 14px",
                       fontSize: 13, color: C.ink, lineHeight: 1.75, whiteSpace: "pre-wrap",
@@ -11467,47 +11803,299 @@ function SequencesView({ sequences, clients, today, onOpen, togglePause }) {
   );
 }
 
-function TemplatesView() {
-  const [copied, setCopied] = useState(null);
+/* ── FU TEMPLATE EMAIL MODAL — recipient search + compose ── */
+function FUTemplateEmailModal({ templateBody, templateName, data, setData, onClose }) {
+  const [search, setSearch]     = useState("");
+  const [recipient, setRecipient] = useState(null);
+  const [subject, setSubject]   = useState(`Follow-up: ${templateName}`);
+  const [body, setBody]         = useState("");
+  const [sending, setSending]   = useState(false);
+  const [sent, setSent]         = useState(false);
+  const [error, setError]       = useState("");
 
-  const copyTpl = (id) => {
-    try { navigator.clipboard.writeText(FU_TEMPLATES[id]); } catch (e) {}
-    setCopied(id);
-    setTimeout(() => setCopied(null), 2000);
+  const clients  = data.clients  || [];
+  const partners = data.partners || [];
+  const q = search.toLowerCase().trim();
+
+  const populate = (recip) => {
+    const full  = (recip?.name || "there").trim();
+    const first = full.split(" ")[0];
+    const contact = recip?._type === "partner" ? (recip.contact || full) : full;
+    const rep = (s) => (s||"")
+      .replace(/\{\{ClientName\}\}/gi, full).replace(/\{\{FirstName\}\}/gi, first)
+      .replace(/\{first_name\}/g, contact.split(" ")[0]).replace(/\{name\}/g, contact)
+      .replace(/\{\{ContactName\}\}/gi, contact).replace(/\{\{StudioName\}\}/gi, full)
+      .replace(/\{\{Email\}\}/gi, recip?.email || "");
+    return rep(templateBody);
+  };
+
+  const suggestions = q.length < 1 ? [] : [
+    ...clients.filter(c => (c.name||"").toLowerCase().includes(q)).slice(0, 4).map(c => ({ ...c, _type: "client" })),
+    ...partners.filter(p => (p.name||"").toLowerCase().includes(q) || (p.contact||"").toLowerCase().includes(q)).slice(0, 3).map(p => ({ ...p, _type: "partner" })),
+  ];
+
+  const selectRecipient = (r) => {
+    setRecipient(r);
+    setSearch(r._type === "partner" ? (r.contact || r.name) : cleanName(r.name));
+    setBody(populate(r));
+  };
+
+  const recipientEmail = recipient?._type === "partner" ? recipient.email : recipient?.email;
+
+  const send = async () => {
+    if (!recipientEmail) return;
+    setSending(true); setError("");
+    try {
+      const secret = import.meta.env.VITE_FRONTEND_SECRET || "";
+      const res = await fetch("/api/send-email", {
+        method: "POST", headers: { "Content-Type": "application/json", "x-frontend-secret": secret },
+        body: JSON.stringify({ to: recipientEmail, recipientName: recipient?._type === "partner" ? (recipient.contact || recipient.name) : cleanName(recipient?.name || ""), subject, body }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Send failed.");
+      const logEntry = { id: `em_${Date.now()}`, date: new Date().toISOString(), templateId: "fu_custom", templateName, category: "Follow-Up", to: recipientEmail, recipientName: recipient?._type === "partner" ? (recipient.contact || recipient.name) : cleanName(recipient?.name || ""), recipientType: recipient?._type, subject, body, resendId: json.id || null, sendStatus: "sent" };
+      setData(d => ({
+        ...d,
+        emailLog: [...(d.emailLog || []), logEntry],
+        clients:  recipient?._type === "client"  ? (d.clients  || []).map(c => c.id === recipient.id ? { ...c, emailHistory: [...(c.emailHistory||[]), logEntry] } : c) : (d.clients  || []),
+        partners: recipient?._type === "partner" ? (d.partners || []).map(p => p.id === recipient.id ? { ...p, lastTouch: new Date().toISOString().slice(0,10), emailHistory: [...(p.emailHistory||[]), logEntry] } : p) : (d.partners || []),
+      }));
+      setSent(true);
+      setTimeout(() => { setSent(false); onClose(); }, 1500);
+    } catch (err) { setError(err.message); }
+    setSending(false);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 1200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background: C.surface, borderRadius: 14, padding: 24, width: "min(560px,95vw)", display: "flex", flexDirection: "column", gap: 12, boxShadow: "0 24px 80px rgba(0,0,0,.18)", maxHeight: "90vh", overflowY: "auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}><Send size={14} style={{ marginRight: 6 }} />{templateName}</div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3 }}><X size={16} /></button>
+        </div>
+
+        {/* Recipient search */}
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: C.ink3, textTransform: "uppercase", letterSpacing: ".05em", marginBottom: 6 }}>Send To</div>
+          <div style={{ position: "relative" }}>
+            <input value={search} onChange={e => { setSearch(e.target.value); setRecipient(null); }} placeholder="Search client or studio contact…"
+              style={{ width: "100%", padding: "8px 12px", border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, outline: "none" }} />
+            {suggestions.length > 0 && !recipient && (
+              <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 8, marginTop: 4, zIndex: 10, boxShadow: "0 8px 24px rgba(0,0,0,.1)" }}>
+                {suggestions.map(r => (
+                  <div key={r.id} onClick={() => selectRecipient(r)}
+                    style={{ padding: "9px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, borderBottom: `1px solid ${C.line}` }}
+                    onMouseEnter={e => e.currentTarget.style.background = C.surfaceAlt}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                    <div style={{ width: 30, height: 30, borderRadius: "50%", background: r._type === "partner" ? hexA("#D9892B", 0.15) : hexA(C.brand, 0.12), display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      {r._type === "partner" ? <Building2 size={14} color="#D9892B" /> : <Users size={14} color={C.brand} />}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{r._type === "partner" ? (r.contact || r.name) : cleanName(r.name)}</div>
+                      <div style={{ fontSize: 11.5, color: C.ink3 }}>{r._type === "partner" ? `Studio · ${r.name}` : r.email}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {recipient && (
+            <div style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 6, background: recipient._type === "partner" ? hexA("#D9892B", 0.1) : hexA(C.brand, 0.1), border: `1px solid ${recipient._type === "partner" ? "#F6D9A8" : hexA(C.brand, 0.3)}`, borderRadius: 20, padding: "4px 10px 4px 8px" }}>
+              {recipient._type === "partner" ? <Building2 size={11} color="#D9892B" /> : <Users size={11} color={C.brand} />}
+              <span style={{ fontSize: 12.5, fontWeight: 600 }}>{recipient._type === "partner" ? (recipient.contact || recipient.name) : cleanName(recipient.name)}</span>
+              <button onClick={() => { setRecipient(null); setSearch(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, padding: 0, display: "flex" }}><X size={12} /></button>
+            </div>
+          )}
+        </div>
+
+        <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject"
+          style={{ padding: "7px 10px", border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 13, outline: "none" }} />
+        <textarea value={body} onChange={e => setBody(e.target.value)} rows={9} placeholder={recipient ? "" : "Select a recipient to auto-populate…"}
+          style={{ padding: "10px 12px", border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 13, resize: "vertical", lineHeight: 1.75, fontFamily: "inherit", outline: "none" }} />
+        {error && <div style={{ fontSize: 12, color: "#C0392B" }}>{error}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{ padding: "7px 16px", borderRadius: 8, border: `1px solid ${C.line}`, background: "transparent", fontSize: 13, fontWeight: 600, color: C.ink2, cursor: "pointer" }}>Close</button>
+          <button onClick={send} disabled={sending || sent || !recipientEmail}
+            style={{ padding: "7px 20px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 700, background: sent ? "#4A8C6F" : C.brand, color: "#fff", cursor: sending || sent || !recipientEmail ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6, opacity: !recipientEmail ? 0.5 : 1 }}>
+            {sent ? <><Check size={13}/> Sent!</> : sending ? <><RefreshCw size={13} style={{ animation: "spin 1s linear infinite" }}/> Sending…</> : <><Send size={13}/> Send Email</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TemplatesView({ data, setData }) {
+  const [copied, setCopied]     = useState(null);
+  const [editing, setEditing]   = useState(null);   // id of card being edited
+  const [editText, setEditText] = useState("");
+  const [addingNew, setAddingNew] = useState(false);
+  const [newTmpl, setNewTmpl]   = useState({ name: "", channel: "email", body: "" });
+  const [emailModal, setEmailModal] = useState(null); // { id, body, name }
+
+  // Overrides / custom templates stored in data.fuTemplates
+  const fuOverrides = data.fuTemplates || [];
+  const getBody = (stepId) => fuOverrides.find(t => t.id === stepId)?.body ?? FU_TEMPLATES[stepId] ?? "";
+  const customTmpls = fuOverrides.filter(t => t.isCustom);
+
+  const saveEdit = (id) => {
+    setData(d => {
+      const existing = (d.fuTemplates || []).find(t => t.id === id);
+      if (existing) return { ...d, fuTemplates: (d.fuTemplates).map(t => t.id === id ? { ...t, body: editText } : t) };
+      return { ...d, fuTemplates: [...(d.fuTemplates || []), { id, body: editText }] };
+    });
+    setEditing(null);
+  };
+
+  const resetToDefault = (id) => {
+    setData(d => ({ ...d, fuTemplates: (d.fuTemplates || []).filter(t => t.id !== id) }));
+    setEditing(null);
+  };
+
+  const saveNew = () => {
+    if (!newTmpl.name.trim() || !newTmpl.body.trim()) return;
+    setData(d => ({
+      ...d,
+      fuTemplates: [...(d.fuTemplates || []), {
+        id: `fuc_${Date.now()}`, name: newTmpl.name.trim(),
+        channel: newTmpl.channel, body: newTmpl.body.trim(), isCustom: true,
+        accent: "#6B5CE7",
+      }],
+    }));
+    setNewTmpl({ name: "", channel: "email", body: "" });
+    setAddingNew(false);
+  };
+
+  const deleteCustom = (id) => {
+    setData(d => ({ ...d, fuTemplates: (d.fuTemplates || []).filter(t => t.id !== id) }));
+  };
+
+  const copyTpl = (id, body) => {
+    try { navigator.clipboard.writeText(body); } catch (e) {}
+    setCopied(id); setTimeout(() => setCopied(null), 2000);
+  };
+
+  const btnStyle = (active, color) => ({
+    padding: "5px 11px", borderRadius: 7, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
+    background: active ? hexA(color, 0.12) : C.surfaceAlt,
+    color: active ? color : C.ink2, border: `1px solid ${active ? hexA(color, 0.35) : C.line}`,
+  });
+
+  const renderCard = (id, label, channel, accent, delayDays, body, isCustom = false) => {
+    const isEdit = editing === id;
+    const isCopied = copied === id;
+    return (
+      <div key={id} style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `4px solid ${accent}`, borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ padding: "12px 16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+            <Tag color={accent} soft>{label}</Tag>
+            <MiniChip color={accent}>{channel === "email" ? "Email" : "Text"}</MiniChip>
+            {delayDays !== undefined && (
+              <span style={{ fontSize: 12, color: C.ink3, flex: 1 }}>
+                {delayDays === 0 ? "Send same day as session" : `Send ~${delayDays} days after session`}
+              </span>
+            )}
+            <div style={{ display: "flex", gap: 6, marginLeft: "auto", flexWrap: "wrap" }}>
+              {!isEdit && (
+                <>
+                  <button onClick={() => copyTpl(id, body)} style={btnStyle(isCopied, "#4A8C6F")}>
+                    {isCopied ? <><Check size={12} /> Copied!</> : <><Copy size={12} /> Copy</>}
+                  </button>
+                  <button onClick={() => { setEditing(id); setEditText(body); }} style={btnStyle(false, C.brand)}>
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => setEmailModal({ id, body, name: label })}
+                    style={{ padding: "5px 11px", borderRadius: 7, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, background: C.brand, color: "#fff", border: "none", fontWeight: 600 }}
+                  >
+                    <Send size={12} /> Email
+                  </button>
+                  {isCustom && (
+                    <button onClick={() => deleteCustom(id)} style={{ padding: "5px 8px", borderRadius: 7, fontSize: 12, cursor: "pointer", background: hexA("#C0392B", 0.07), color: "#C0392B", border: `1px solid ${hexA("#C0392B", 0.2)}` }}>
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </>
+              )}
+              {isEdit && (
+                <>
+                  <button onClick={() => saveEdit(id)} style={{ padding: "5px 14px", borderRadius: 7, fontSize: 12, cursor: "pointer", fontWeight: 600, background: C.brand, color: "#fff", border: "none" }}>Save</button>
+                  {!isCustom && <button onClick={() => resetToDefault(id)} style={btnStyle(false, C.ink3)}>Reset default</button>}
+                  <button onClick={() => setEditing(null)} style={btnStyle(false, C.ink2)}>Cancel</button>
+                </>
+              )}
+            </div>
+          </div>
+          {isEdit ? (
+            <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={8}
+              style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.brand}`, borderRadius: 8, fontSize: 13, lineHeight: 1.75, fontFamily: "inherit", resize: "vertical", outline: "none", color: C.ink }} />
+          ) : (
+            <div style={{ background: C.surfaceAlt, borderRadius: 8, padding: "12px 14px", fontSize: 13, color: C.ink, lineHeight: 1.75, whiteSpace: "pre-wrap" }}>
+              {body}
+              {!isCustom && fuOverrides.find(t => t.id === id) && (
+                <div style={{ marginTop: 8, fontSize: 11, color: C.brand, fontWeight: 600 }}>✎ Custom edit</div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
   };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ fontSize: 13, color: C.ink3, padding: "2px 0 6px" }}>
-        These templates are auto-personalized with the client's first name when you view messages in the queue. Copy any template to edit before sending.
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ fontSize: 13, color: C.ink3 }}>
+          Templates are auto-personalized with the client's name. Edit any template or add custom messages.
+        </div>
+        <button onClick={() => setAddingNew(true)} style={{ padding: "7px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, background: C.brand, color: "#fff", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+          <Plus size={13} /> Add Template
+        </button>
       </div>
-      {FU_STEPS.map(step => (
-        <div key={step.id} style={{ background: C.surface, border: `1px solid ${C.line}`, borderLeft: `4px solid ${step.accent}`, borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ padding: "12px 16px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-              <Tag color={step.accent} soft>{step.label}</Tag>
-              <MiniChip color={step.accent}>{step.channel === "email" ? "Email" : "Text"}</MiniChip>
-              <span style={{ fontSize: 12, color: C.ink3, flex: 1 }}>
-                {step.delayDays === 0 ? "Send same day as session" : `Send ~${step.delayDays} days after session`}
-              </span>
-              <button onClick={() => copyTpl(step.id)} style={{
-                padding: "5px 11px", borderRadius: 7, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 4,
-                background: copied === step.id ? hexA("#4A8C6F", 0.12) : C.surfaceAlt,
-                color: copied === step.id ? "#4A8C6F" : C.ink2,
-                border: `1px solid ${copied === step.id ? hexA("#4A8C6F", 0.35) : C.line}`,
-              }}>
-                {copied === step.id ? <><Check size={12} /> Copied!</> : <><Copy size={12} /> Copy</>}
-              </button>
-            </div>
-            <div style={{
-              background: C.surfaceAlt, borderRadius: 8, padding: "12px 14px",
-              fontSize: 13, color: C.ink, lineHeight: 1.75, whiteSpace: "pre-wrap",
-            }}>
-              {FU_TEMPLATES[step.id]}
+
+      {/* Sequence templates */}
+      {FU_STEPS.map(step => renderCard(step.id, step.label, step.channel, step.accent, step.delayDays, getBody(step.id), false))}
+
+      {/* Custom templates */}
+      {customTmpls.map(t => renderCard(t.id, t.name, t.channel, t.accent || "#6B5CE7", undefined, t.body, true))}
+
+      {/* Add new template form */}
+      {addingNew && (
+        <div style={{ background: C.surface, border: `2px solid ${C.brand}`, borderRadius: 10, padding: "16px" }}>
+          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>New Template</div>
+          <div style={{ display: "flex", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+            <input value={newTmpl.name} onChange={e => setNewTmpl(n => ({ ...n, name: e.target.value }))} placeholder="Template name"
+              style={{ flex: 2, minWidth: 160, padding: "7px 10px", border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 13, outline: "none" }} />
+            <div style={{ position: "relative" }}>
+              <select value={newTmpl.channel} onChange={e => setNewTmpl(n => ({ ...n, channel: e.target.value }))}
+                style={{ padding: "7px 28px 7px 10px", border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 13, appearance: "none", outline: "none", background: C.surfaceAlt }}>
+                <option value="email">Email</option>
+                <option value="text">Text</option>
+              </select>
+              <ChevronDown size={12} color={C.ink3} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
             </div>
           </div>
+          <textarea value={newTmpl.body} onChange={e => setNewTmpl(n => ({ ...n, body: e.target.value }))} rows={6} placeholder="Write your template… use {first_name} for auto-fill"
+            style={{ width: "100%", padding: "10px 12px", border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, lineHeight: 1.75, fontFamily: "inherit", resize: "vertical", outline: "none" }} />
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 10 }}>
+            <button onClick={() => setAddingNew(false)} style={{ padding: "6px 14px", borderRadius: 7, border: `1px solid ${C.line}`, background: "transparent", fontSize: 13, fontWeight: 600, color: C.ink2, cursor: "pointer" }}>Cancel</button>
+            <button onClick={saveNew} disabled={!newTmpl.name.trim() || !newTmpl.body.trim()}
+              style={{ padding: "6px 18px", borderRadius: 7, border: "none", fontSize: 13, fontWeight: 700, background: C.brand, color: "#fff", cursor: "pointer", opacity: (!newTmpl.name.trim() || !newTmpl.body.trim()) ? 0.5 : 1 }}>
+              Save Template
+            </button>
+          </div>
         </div>
-      ))}
+      )}
+
+      {/* Email compose modal with recipient search */}
+      {emailModal && (
+        <FUTemplateEmailModal
+          templateBody={emailModal.body}
+          templateName={emailModal.name}
+          data={data} setData={setData}
+          onClose={() => setEmailModal(null)}
+        />
+      )}
     </div>
   );
 }
