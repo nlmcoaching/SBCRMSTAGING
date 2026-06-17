@@ -5128,7 +5128,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
               </>
             )}
           {/* Email history — shown on clients and partners */}
-          {(db === "clients" || db === "partners") && (draft.emailHistory || []).length > 0 && (
+          {db === "partners" && (draft.emailHistory || []).length > 0 && (
             <div style={{ marginTop: 20, padding: "0 0 4px" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: C.ink3, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
                 <Send size={11} /> Emails Sent from CRM
