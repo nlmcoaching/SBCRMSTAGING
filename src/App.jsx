@@ -1478,6 +1478,7 @@ export default function App() {
         setCurrentUser(owner);
         loaded.current = true;
         setLocked(false);
+        setSection("today"); setView(0);
         return;
       }
 
@@ -1569,6 +1570,7 @@ export default function App() {
       try { localStorage.removeItem(STORE_KEY); } catch (_) {}
       loaded.current = true;
       setLocked(false);
+      setSection("today"); setView(0);
     } catch (e) {
       if (!e.message?.includes("PIN")) setPinError("Something went wrong. Please try again.");
     }
@@ -1604,6 +1606,7 @@ export default function App() {
       loaded.current = true;
       setNeedsSetup(false);
       setLocked(false);
+      setSection("today"); setView(0);
     } catch (e) {
       setPinError("Setup failed. Please try again.");
     }
