@@ -469,6 +469,12 @@ Overall and per-phase progress bars are shown. Completed phases are visually dis
 
 Each studio partner record includes an **Agreements** tab for uploading Studio Partner Agreement PDFs (also accepts Word documents). Files are stored in the encrypted local data store.
 
+**Upload validation:** Only `.pdf`, `.doc`, and `.docx` files are accepted (max 5 MB). The file extension, browser-reported MIME type, and file header (magic bytes) must all match — mismatched or disguised files are rejected.
+
+**Opening files:** PDFs open in a new browser tab via a verified blob URL (not inline HTML). Word documents download instead. Stored files are re-checked before open; files that fail validation cannot be opened.
+
+**View-only mode:** When a partner record is opened read-only (no save handler), upload and remove controls are hidden; existing files can still be opened.
+
 **Missing-agreement alerts:**
 - Active partners (Recurring Partner, First Session Scheduled, or Pilot Completed) with **no PDF** on the Agreements tab trigger a **critical alert** in the header **Alerts** bell (next to your profile picture). Each studio is listed separately with a **View** button to open their record.
 - A red **AlertCircle** icon also appears next to the studio name on the **Active Partners** tab; hover text: *"Please upload Studio Partner Agreement"*.
@@ -1852,7 +1858,7 @@ All state is managed via React `useState` and `useMemo` in the root `App` compon
 | `ContentAnalyticsView` | Content funnel and performance |
 | `FollowUpEngine` | Sequence management and message queue |
 | `PartnerLaunchChecklist` | 4-phase studio onboarding checklist |
-| `PartnerAgreementsTab` | Agreements tab in partner drawer — upload/view/remove PDF or Word agreements |
+| `PartnerAgreementsTab` | Agreements tab in partner drawer — validated upload/view/remove of PDF or Word agreements (magic-byte checks; blob URL open for PDFs) |
 | `EquipmentChecklist` | Per-session gear and setup checklist |
 | `PipelineSnapshot` | 9-metric business overview panel |
 | `AlertsPanel` | Smart alert list with severity and actions |

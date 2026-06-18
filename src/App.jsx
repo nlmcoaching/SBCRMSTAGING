@@ -4100,9 +4100,7 @@ const VIEWS = {
 };
 
 function partnerHasAgreementPdf(partner) {
-  return (partner.agreements || []).some(
-    (a) => a.type === "application/pdf" || (a.name && /\.pdf$/i.test(a.name))
-  );
+  return (partner.agreements || []).some((a) => agreementRecordIsPdf(a));
 }
 
 function partnerCols() {
@@ -5089,7 +5087,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
           {db === "clients" && tab === "sessions-attended"
             ? <ClientSessionsTab record={draft} data={data} onOpenRelated={onOpenRelated} today={today} />
             : db === "partners" && tab === "agreements"
-            ? <PartnerAgreementsTab agreements={draft.agreements || []} onChange={(a) => set("agreements", a)} partnerName={cleanName(draft.name)} />
+            ? <PartnerAgreementsTab agreements={draft.agreements || []} onChange={(a) => set("agreements", a)} partnerName={cleanName(draft.name)} canEdit={!!onSave} />
             : db === "partners" && tab === "partner-sessions"
             ? <PartnerSessionsTab record={draft} data={data} onOpenRelated={onOpenRelated} today={today} />
             : hasTimeline && tab === "timeline"
@@ -6006,63 +6004,156 @@ function ClientSessionsTab({ record, data, onOpenRelated, today }) {
   );
 }
 
-function PartnerAgreementsTab({ agreements, onChange, partnerName }) {
+/** Agreement file helpers — validate magic bytes; never trust extension/MIME alone */
+function agreementExt(name) {
+  const m = /\.(pdf|doc|docx)$/i.exec(name || "");
+  return m ? m[1].toLowerCase() : "";
+}
+
+function agreementMimeForExt(ext) {
+  if (ext === "pdf") return "application/pdf";
+  if (ext === "doc") return "application/msword";
+  if (ext === "docx") return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  return "";
+}
+
+function dataUrlToBytes(dataUrl) {
+  if (typeof dataUrl !== "string") return null;
+  const comma = dataUrl.indexOf(",");
+  if (comma < 0) return null;
+  try {
+    const bin = atob(dataUrl.slice(comma + 1));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  } catch { return null; }
+}
+
+function isPdfBytes(bytes) {
+  return bytes && bytes.length >= 5 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46 && bytes[4] === 0x2D;
+}
+
+function isDocxBytes(bytes) {
+  return bytes && bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4B && bytes[2] === 0x03 && bytes[3] === 0x04;
+}
+
+function isDocBytes(bytes) {
+  return bytes && bytes.length >= 8 && bytes[0] === 0xD0 && bytes[1] === 0xCF && bytes[2] === 0x11 && bytes[3] === 0xE0;
+}
+
+function bytesMatchExt(bytes, ext) {
+  if (ext === "pdf") return isPdfBytes(bytes);
+  if (ext === "docx") return isDocxBytes(bytes);
+  if (ext === "doc") return isDocBytes(bytes);
+  return false;
+}
+
+function agreementRecordIsPdf(a) {
+  if (agreementExt(a.name) !== "pdf") return false;
+  if (!a.dataUrl) return false;
+  const bytes = dataUrlToBytes(a.dataUrl);
+  return !!(bytes && isPdfBytes(bytes));
+}
+
+async function validateAgreementUpload(file) {
+  const ext = agreementExt(file.name);
+  if (!ext) return { ok: false, error: "Only PDF or Word documents (.pdf, .doc, .docx) are allowed." };
+
+  const expectedMime = agreementMimeForExt(ext);
+  const allowedMimes = new Set([
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-word",
+  ]);
+  if (file.type && (!allowedMimes.has(file.type) || file.type !== expectedMime)) {
+    return { ok: false, error: "File type does not match the file extension." };
+  }
+
+  let bytes;
+  try {
+    bytes = new Uint8Array(await file.arrayBuffer());
+  } catch {
+    return { ok: false, error: "Could not read file. Please try again." };
+  }
+
+  if (!bytesMatchExt(bytes, ext)) {
+    return { ok: false, error: `File content does not match a valid .${ext} document.` };
+  }
+
+  return { ok: true, ext, mime: expectedMime };
+}
+
+function openAgreementFile(a) {
+  const ext = agreementExt(a.name);
+  const bytes = dataUrlToBytes(a.dataUrl);
+  if (!bytes) { alert("Could not read this file."); return; }
+  if (!bytesMatchExt(bytes, ext)) {
+    alert("This file failed a safety check and cannot be opened.");
+    return;
+  }
+
+  const blob = new Blob([bytes], { type: agreementMimeForExt(ext) || "application/octet-stream" });
+  const url = URL.createObjectURL(blob);
+
+  if (ext === "pdf") {
+    const w = window.open(url, "_blank", "noopener,noreferrer");
+    if (!w) {
+      URL.revokeObjectURL(url);
+      alert("Pop-up blocked. Please allow pop-ups to view this PDF.");
+      return;
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    return;
+  }
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = a.name || `agreement.${ext}`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5_000);
+}
+
+function PartnerAgreementsTab({ agreements, onChange, partnerName, canEdit = true }) {
   const fileRef = useRef();
   const [uploading, setUploading] = useState(false);
   const [error, setError]         = useState("");
 
   const MAX_FILE_MB = 5;
-  const ALLOWED_TYPES = new Set(["application/pdf","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document"]);
-  const ALLOWED_EXTS  = /\.(pdf|doc|docx)$/i;
 
-  const handleUpload = (e) => {
+  const handleUpload = async (e) => {
     const file = e.target.files[0];
     e.target.value = "";
     if (!file) return;
-    if (!ALLOWED_EXTS.test(file.name) && !ALLOWED_TYPES.has(file.type)) {
-      setError("Only PDF or Word documents (.pdf, .doc, .docx) are allowed.");
-      return;
-    }
     if (file.size > MAX_FILE_MB * 1024 * 1024) {
       setError(`File must be under ${MAX_FILE_MB} MB.`);
       return;
     }
     setError("");
     setUploading(true);
+    const check = await validateAgreementUpload(file);
+    if (!check.ok) {
+      setError(check.error);
+      setUploading(false);
+      return;
+    }
     const reader = new FileReader();
     reader.onerror = () => { setError("Could not read file. Please try again."); setUploading(false); };
     reader.onload = (ev) => {
-      const newAgreement = {
+      onChange([...agreements, {
         id:         `agr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         name:       file.name,
         size:       file.size,
-        type:       file.type,
+        type:       check.mime,
         uploadedAt: new Date().toISOString(),
         dataUrl:    ev.target.result,
-      };
-      onChange([...agreements, newAgreement]);
+      }]);
       setUploading(false);
     };
     reader.readAsDataURL(file);
   };
 
   const remove = (id) => onChange(agreements.filter(a => a.id !== id));
-
-  const open = (a) => {
-    const w = window.open("", "_blank");
-    if (!w) { alert("Pop-up blocked. Please allow pop-ups to view this file."); return; }
-    if (a.type === "application/pdf" || a.name.toLowerCase().endsWith(".pdf")) {
-      w.document.write(`<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; object-src 'self' data:;"><title>${a.name.replace(/</g,"&lt;").replace(/>/g,"&gt;")}</title><style>body{margin:0;height:100vh;display:flex;flex-direction:column}embed{flex:1;width:100%}</style></head><body><embed src="${a.dataUrl}" type="application/pdf" /></body></html>`);
-      w.document.close();
-    } else {
-      const link = w.document.createElement("a");
-      link.href = a.dataUrl;
-      link.download = a.name;
-      w.document.body.appendChild(link);
-      link.click();
-      w.close();
-    }
-  };
 
   const fmtSize = (bytes) => {
     if (bytes < 1024) return `${bytes} B`;
@@ -6073,6 +6164,7 @@ function PartnerAgreementsTab({ agreements, onChange, partnerName }) {
   return (
     <div style={{ padding: "0 22px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
       {/* Upload button */}
+      {canEdit && (
       <div style={{ paddingTop: 4, display: "flex", alignItems: "center", gap: 12 }}>
         <input ref={fileRef} type="file" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style={{ display: "none" }} onChange={handleUpload} />
         <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{
@@ -6084,6 +6176,7 @@ function PartnerAgreementsTab({ agreements, onChange, partnerName }) {
         </button>
         <span style={{ fontSize: 11.5, color: C.ink3 }}>PDF or Word only (.pdf, .doc, .docx) · max {MAX_FILE_MB} MB</span>
       </div>
+      )}
 
       {error && (
         <div style={{ fontSize: 12.5, color: "#C0392B", background: hexA("#C0392B", 0.07), border: `1px solid ${hexA("#C0392B", 0.2)}`, borderRadius: 8, padding: "8px 12px" }}>
@@ -6114,13 +6207,14 @@ function PartnerAgreementsTab({ agreements, onChange, partnerName }) {
                   {fmtSize(a.size)} · Uploaded {a.uploadedAt ? new Date(a.uploadedAt).toLocaleDateString() : "—"}
                 </div>
               </div>
-              <button onClick={() => open(a)} title="Open file" style={{
+              <button onClick={() => openAgreementFile(a)} title="Open file" style={{
                 background: "#EBF3FF", border: "1px solid #BFDBFE", color: "#2563EB",
                 borderRadius: 7, padding: "6px 12px", cursor: "pointer", fontSize: 12, fontWeight: 600,
                 display: "flex", alignItems: "center", gap: 5, flexShrink: 0,
               }}>
                 <Download size={12} /> Open
               </button>
+              {canEdit && (
               <button onClick={() => remove(a.id)} title="Remove" style={{
                 background: "none", border: "none", cursor: "pointer", color: C.ink3,
                 padding: 6, borderRadius: 7, flexShrink: 0,
@@ -6128,13 +6222,14 @@ function PartnerAgreementsTab({ agreements, onChange, partnerName }) {
               }}>
                 <Trash2 size={15} />
               </button>
+              )}
             </div>
           ))}
         </div>
       )}
 
       <div style={{ fontSize: 11, color: C.ink3, marginTop: 4 }}>
-        Files are stored locally in your encrypted data store and are included in CSV exports.
+        Files are stored locally in your encrypted data store and are included in Owner JSON backups.
       </div>
     </div>
   );

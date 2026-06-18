@@ -329,6 +329,12 @@ To fix it, open the studio's record → **Agreements** tab → **Upload Agreemen
 
 Open any active studio partner and click the **Agreements** tab to upload their signed Studio Partner Agreement (PDF or Word). Keep this current for every active partner.
 
+**What you can upload:** PDF or Word only (`.pdf`, `.doc`, `.docx`), up to 5 MB. The app checks that each file is a real document — renamed or invalid files are rejected with an error message.
+
+**Opening a file:** Click **Open** on any uploaded agreement. PDFs open in a new tab; Word files download to your computer.
+
+If you open a partner record in view-only mode, you can still open existing agreements but cannot upload or remove files.
+
 ---
 
 ## Running Sessions
