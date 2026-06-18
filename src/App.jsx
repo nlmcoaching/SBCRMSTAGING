@@ -1703,6 +1703,21 @@ export default function App() {
           const isVirtualSession = !updated.studioId && (updated.locationType === "zoom" || updated.locationType === "custom" || !updated.locationType);
           if (isVirtualSession && s.capacity !== 1) { updated.capacity = 1; changed = true; }
 
+          // Fix studio session names that have a duplicated studio prefix:
+          // e.g. "YogoKula - YogoKula - Berkeley, CA" → "YogoKula - Berkeley, CA"
+          if (updated.studioId) {
+            const partnerObj = partners.find(p => p.id === updated.studioId);
+            if (partnerObj) {
+              const pName = cleanName(partnerObj.name || "");
+              const sName = cleanName(updated.name || "");
+              // Detect double-prefix: "StudioName - StudioName - ..."
+              const doublePrefix = new RegExp(`^(${pName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*[-–]\\s*)\\1`, "i");
+              if (doublePrefix.test(sName)) {
+                updated.name = sName.replace(doublePrefix, "$1").trim();
+                changed = true;
+              }
+            }
+          }
 
           if (changed) sessions[i] = updated;
         });
@@ -1821,9 +1836,18 @@ export default function App() {
               } else {
                 // Detect if virtual vs studio based on location type
                 const isVirtual = !resolvedStudioId && !isPhysical;
+                // For studio sessions, store "Studio Name - Location" as the canonical name.
+                // extractStudio already parsed the Calendly event name into { name, location },
+                // so we reconstruct a clean "StudioName - Location" without duplication.
+                const extracted2 = resolvedStudioId && matchedPartner
+                  ? extractStudio(evt.eventName || "", evt.locationAddress || "")
+                  : null;
+                const cleanSessionName = extracted2
+                  ? `${cleanName(matchedPartner.name)} - ${extracted2.location || evt.locationAddress || evt.eventName}`
+                  : (evt.eventName || "Calendly Session");
                 const newSession = {
                   id: uid("se"),
-                  name: evt.eventName || "Calendly Session",
+                  name: cleanSessionName,
                   studioId: resolvedStudioId,
                   date: sessionDate,
                   time: sessionTime,
