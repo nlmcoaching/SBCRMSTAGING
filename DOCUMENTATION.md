@@ -223,7 +223,7 @@ All user-supplied strings (session name, studio name, notes, time, journey) inte
 | Editor | ✓ | ✓ | — | — |
 | Viewer | ✓ | — | — | — |
 
-Viewers can open session records and view the Calendly event description (ⓘ), but auto-saving a fetched description to shared CRM data requires **Edit** permission (`onSave` must be present — same gate as agreement uploads and the NBA email compose flow).
+Viewers can open session records and view the studio event description (ⓘ), but auto-saving a fetched description to shared CRM data requires **Edit** permission (`onSave` must be present — same gate as agreement uploads, the NBA email compose flow, and the background Calendly description backfill during sync).
 
 ### Adding a User
 
@@ -680,7 +680,7 @@ When a booking arrives via Calendly webhook, a session record is automatically c
 - `locationType` / `locationJoinUrl` stored for virtual sessions
 - `durationMins` = calculated from Calendly `start_time` and `end_time` (in minutes)
 - `locationAddress` = studio address from Calendly physical location
-- `calendlyDescription` = Calendly event type description; accessible via the **ⓘ icon** next to the session name in the drawer header — click to expand/collapse a fixed-height scrollable panel below the title (supports touch scrolling on iPad). On open, the CRM re-fetches the full event-type text from Calendly via `calendlyEventTypeUri` or `calendlyEventUri`, replacing any short preview ending in `...` stored on sync.
+- `calendlyDescription` = Calendly event type description; accessible via the **ⓘ icon** next to the session name in the drawer header — click to expand/collapse the **Studio Event Description** scrollable panel below the title (supports touch scrolling on iPad). On open, the CRM re-fetches the full event-type text from Calendly via `calendlyEventTypeUri` or `calendlyEventUri`, replacing any short preview ending in `...` stored on sync.
 - `calendlyEventTypeUri` = Calendly event type API URI; used to fetch the full event description without resolving the scheduled event
 - Zoom join URL is written to both `locationJoinUrl` and appended to `notes` for quick reference
 - `registered` increments for each new invitee on the same event
@@ -1591,7 +1591,7 @@ Requires `CALENDLY_API_TOKEN` in `backend/.env`. Restart the backend after chang
 
 If `CALENDLY_API_TOKEN` is not set, the description is left blank and no API call is made.
 
-The description is surfaced in the session drawer via the **ⓘ icon** next to the session name, and also powers the **Journey Description ⓘ popup** on virtual session cards (see Virtual Session Cards section above).
+The description is surfaced in the studio session drawer as **Studio Event Description** via the **ⓘ icon** next to the session name, and also powers the **Journey Description ⓘ popup** on virtual session cards (see Virtual Session Cards section above).
 
 ### Calendly Bookings Sidebar Section
 **Navigation:** Sidebar → Calendly Bookings

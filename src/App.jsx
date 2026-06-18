@@ -2181,7 +2181,8 @@ export default function App() {
       if (processed > 0) setLastCalendlyReceived({ count: processed, atFull: now.toLocaleString() });
 
       // Backfill truncated session descriptions from Calendly event types (async, non-blocking)
-      if (sessionsNeedingDesc.length) {
+      // Requires Edit — same gate as the studio event description panel (Viewers may fetch/read only).
+      if (sessionsNeedingDesc.length && currentUser?.permissions?.edit) {
         Promise.all(sessionsNeedingDesc.slice(0, 10).map(async (s) => {
           try {
             const { description: desc, error } = await fetchCalendlyDescriptionForSession(s, data.registrations || []);
@@ -5725,7 +5726,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
               {isStudioSession && (
                 <button
                   onClick={() => setShowCalendlyDesc(d => !d)}
-                  title="View Calendly event description"
+                  title="View studio event description"
                   style={{
                     position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
                     background: showCalendlyDesc ? C.brand : "transparent",
@@ -5798,7 +5799,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                 background: hexA(C.brand, 0.06), flexShrink: 0,
               }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.brand, textTransform: "uppercase", letterSpacing: 0.6 }}>
-                  Calendly Event Description
+                  Studio Event Description
                 </div>
                 <button onClick={() => setShowCalendlyDesc(false)}
                   style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, fontSize: 18, lineHeight: 1, padding: "2px 4px" }}>

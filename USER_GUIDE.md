@@ -418,7 +418,7 @@ When you open a session record, the first tab is **Session Details**. The layout
 
 **Registered Attendees** on studio sessions updates automatically every time you open the session — it always reflects the real number of non-canceled bookings from the Bookings tab, so there's no need to update it manually.
 
-**Calendly event description:** Click the **ⓘ icon** next to the session name at the top of the drawer to expand the Calendly event type description below the title. The full text loads from Calendly when you open the panel (replacing any short preview). Long descriptions scroll inside the panel — swipe or scroll to read the full text.
+**Studio event description:** Click the **ⓘ icon** next to the session name at the top of the drawer to expand the studio event description below the title. The full text loads from Calendly when you open the panel (replacing any short preview). Long descriptions scroll inside the panel — swipe or scroll to read the full text.
 
 ### Journey Description Popup (Virtual Sessions)
 
