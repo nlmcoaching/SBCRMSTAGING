@@ -9098,15 +9098,15 @@ function FollowUpSendButton({ r, data, setData, today }) {
 
   if (!open) {
     return (
-      <button onClick={handleOpen} style={{ padding: "4px 12px", borderRadius: 7, fontSize: 12, fontWeight: 600, background: C.brand, color: "#fff", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap" }}>
+      <button onClick={e => { e.stopPropagation(); handleOpen(); }} style={{ padding: "4px 12px", borderRadius: 7, fontSize: 12, fontWeight: 600, background: C.brand, color: "#fff", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, whiteSpace: "nowrap" }}>
         <Send size={11} /> Send Email
       </button>
     );
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 1200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={e => { if (e.target === e.currentTarget) setOpen(false); }}>
-      <div style={{ background: C.surface, borderRadius: 14, padding: 24, width: "min(520px,95vw)", display: "flex", flexDirection: "column", gap: 12, boxShadow: "0 24px 80px rgba(0,0,0,.18)" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 1200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={e => { e.stopPropagation(); if (e.target === e.currentTarget) setOpen(false); }}>
+      <div style={{ background: C.surface, borderRadius: 14, padding: 24, width: "min(520px,95vw)", display: "flex", flexDirection: "column", gap: 12, boxShadow: "0 24px 80px rgba(0,0,0,.18)" }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>Send Email · {cleanName(client?.name || r.name)}</div>
           <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3 }}><X size={16} /></button>
