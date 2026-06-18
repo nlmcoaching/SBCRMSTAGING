@@ -87,7 +87,6 @@ Everything related to individual clients and leads.
 | Section | What It's For |
 |---|---|
 | Clients | All your individual clients and leads |
-| Testimonials | Client testimonials and social proof |
 | Follow-Ups | Manual follow-up records |
 | Referrals | Who's referring who and the value they generate |
 | Follow-up Engine | Automated post-session follow-up sequences |
@@ -99,6 +98,7 @@ System-wide tools that support everything else.
 |---|---|
 | Today | Your daily dashboard and action list |
 | Sessions | Every breathwork session you've run or planned |
+| Testimonials | Client testimonials and social proof |
 | Offers & Sales | Packages and proposals you've made to clients |
 | Revenue | Revenue tracking and attribution |
 | Expenses | Business expense tracking and P&L |
@@ -196,7 +196,7 @@ For **virtual sessions today or tomorrow**, the action clears when the **Virtual
 
 ### Client List — Default Sort
 
-The **All Clients** view is sorted **A–Z by client name** automatically when you open it. No action is needed — the list is always in alphabetical order when you arrive.
+The **All Clients** view is sorted **A–Z by client name** automatically when you open it. The table shows client name, email, phone, status, segment, referral potential, and lifetime value.
 
 ### Adding a New Client
 

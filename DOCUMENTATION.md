@@ -363,7 +363,7 @@ Each client record includes a full chronological timeline tab showing:
 
 ### Views Available
 
-- **All Clients** — Full table, sorted **A–Z by client name** by default (no user action required)
+- **All Clients** — Full table (Client, Email, Phone, Status, Segment, Referral, LTV), sorted **A–Z by client name** by default (no user action required)
 - **New Leads** — Filtered to relationship status "New lead"
 - **Active Members** — Filtered to type "Member"
 - **VIP & Advocates** — High-value clients
@@ -904,7 +904,7 @@ This allows quick verification that the Net Revenue MTD card on the dashboard ma
 
 ## Testimonial Library
 
-**Navigation:** Sidebar → Testimonials (B2C lane)
+**Navigation:** Sidebar → Testimonials (Core section, directly below Sessions)
 
 ### Purpose
 
@@ -1186,7 +1186,7 @@ Per-table counts: total fields · required fields · dropdown fields · checkbox
 | `referrals` | Referrals | B2C | 11 |
 | `content` | Content Calendar | B2C | 20 |
 | `outreach` | Outreach Hub | B2B | 14 |
-| `testimonials` | Testimonials | B2C | 15 |
+| `testimonials` | Testimonials | Core | 15 |
 | `templates` | Templates | Core | 8 |
 
 **Total: 150 documented fields across 10 tables.**
@@ -1645,7 +1645,6 @@ Sections are grouped into three visual lanes rendered in this order:
 
 **B2C — Personal Clients** (brand left border accent)
 - Clients
-- Testimonials
 - Follow-Ups
 - Referrals
 - Follow-up Engine
@@ -1653,6 +1652,7 @@ Sections are grouped into three visual lanes rendered in this order:
 **Core — Operations** (no accent, always visible)
 - Today (Command Center) — pinned at top
 - Sessions
+- Testimonials
 - Offers & Sales
 - Revenue
 - Expenses

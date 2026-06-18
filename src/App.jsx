@@ -2264,7 +2264,6 @@ export default function App() {
     { id: "today",    label: "Command Center",     Icon: LayoutGrid,  lane: "core" },
     // B2C — individual clients
     { id: "clients",      label: "Clients",            Icon: Users,       lane: "b2c"  },
-    { id: "testimonials", label: "Testimonials",       Icon: ArrowUpRight, lane: "b2c" },
     { id: "followups",    label: "Follow-Ups",         Icon: RefreshCw,   lane: "b2c"  },
     { id: "referrals",    label: "Referrals",          Icon: Users,       lane: "b2c"  },
     { id: "engine",       label: "Follow-up Engine",   Icon: Zap,         lane: "b2c"  },
@@ -2273,6 +2272,7 @@ export default function App() {
     { id: "outreach", label: "Outreach Hub",       Icon: Send,        lane: "b2b"  },
     // Shared — financial & ops
     { id: "sessions", label: "Sessions",           Icon: CalendarDays,lane: "core" },
+    { id: "testimonials", label: "Testimonials",       Icon: ArrowUpRight, lane: "core" },
     { id: "offers",   label: "Offers & Sales",     Icon: DollarSign,  lane: "core" },
     { id: "revenue",  label: "Revenue",            Icon: TrendingUp,  lane: "core" },
     { id: "expenses", label: "Expenses",           Icon: BarChart2,   lane: "core" },
@@ -4355,10 +4355,10 @@ const VIEWS = {
       { name: "All clients", layout: "table",
         columns: [
           col("name", "Client", clientCell.name),
+          col("email", "Email", (r) => r.email ? <a href={`mailto:${r.email}`} style={{ color: C.brand }} onClick={e => e.stopPropagation()}>{r.email}</a> : "—"),
+          col("phone", "Phone", (r) => r.phone ? <a href={`tel:${r.phone}`} style={{ color: C.brand }} onClick={e => e.stopPropagation()}>{r.phone}</a> : "—"),
           col("status", "Status", clientCell.status),
           col("clientType", "Segment", clientCell.type),
-          col("source", "Source", (r) => r.source),
-          col("tags", "Intent", clientCell.tags),
           col("referral", "Referral", (r) => <Tag color={REFERRAL_COLOR[r.referral]} soft>{r.referral}</Tag>),
           col("lifetimeValue", "LTV", (r) => money(r.lifetimeValue), { align: "right" }),
         ],
@@ -8583,7 +8583,7 @@ const DB_SCHEMA = [
     ],
   },
   {
-    table: "testimonials", label: "Testimonials", lane: "B2C",
+    table: "testimonials", label: "Testimonials", lane: "Core",
     description: "Client testimonials — written, video, and usage permissions.",
     fields: [
       { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
