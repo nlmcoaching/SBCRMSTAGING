@@ -459,11 +459,19 @@ Overall and per-phase progress bars are shown. Completed phases are visually dis
 
 | Tab | Description |
 |---|---|
-| **Active Partners** | Studios at Recurring Partner, First Session Scheduled, or Pilot Completed stage — sorted A–Z. **Default first tab.** |
+| **Active Partners** | Studios at Recurring Partner, First Session Scheduled, or Pilot Completed stage — sorted A–Z. **Default first tab.** Per-row alert icon when no PDF is on the **Agreements** tab; full alert also appears in the header **Alerts** bell. |
 | **Pipeline** | Kanban board grouped by pipeline stage |
 | **In Outreach** | Studios being actively pursued, sorted by next action date |
 | **Revenue Forecast** | All non-lost studios ranked by revenue potential with pipeline total |
 | **All Partners** | Every studio sorted A–Z with address, contact name, phone, email, rev share, contract status, and last touch date |
+
+### Partner Record — Agreements Tab
+
+Each studio partner record includes an **Agreements** tab for uploading Studio Partner Agreement PDFs (also accepts Word documents). Files are stored in the encrypted local data store.
+
+**Missing-agreement alerts:**
+- Active partners (Recurring Partner, First Session Scheduled, or Pilot Completed) with **no PDF** on the Agreements tab trigger a **critical alert** in the header **Alerts** bell (next to your profile picture). Each studio is listed separately with a **View** button to open their record.
+- A red **AlertCircle** icon also appears next to the studio name on the **Active Partners** tab; hover text: *"Please upload Studio Partner Agreement"*.
 
 ### Partner Record — Sessions Tab
 
@@ -1844,6 +1852,7 @@ All state is managed via React `useState` and `useMemo` in the root `App` compon
 | `ContentAnalyticsView` | Content funnel and performance |
 | `FollowUpEngine` | Sequence management and message queue |
 | `PartnerLaunchChecklist` | 4-phase studio onboarding checklist |
+| `PartnerAgreementsTab` | Agreements tab in partner drawer — upload/view/remove PDF or Word agreements |
 | `EquipmentChecklist` | Per-session gear and setup checklist |
 | `PipelineSnapshot` | 9-metric business overview panel |
 | `AlertsPanel` | Smart alert list with severity and actions |

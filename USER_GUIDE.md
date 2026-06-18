@@ -319,6 +319,16 @@ This is the tab to open when you're preparing a partner revenue report or decidi
 
 When you open Studio Partners, the **Active Partners** tab loads first (studios at Recurring Partner, First Session Scheduled, or Pilot Completed stage), sorted A–Z. This is your fastest path to the studios you're actively working with.
 
+**Missing agreement alerts:** If an active partner does not have a PDF uploaded on their **Agreements** tab, you'll see:
+1. A **critical alert** in the **Alerts bell** (next to your profile picture) — click the bell to see which studio(s) need an agreement and tap **View** to open their record.
+2. A **red alert icon** next to that studio's name on the **Active Partners** tab. Hover over the icon to see: *"Please upload Studio Partner Agreement."*
+
+To fix it, open the studio's record → **Agreements** tab → **Upload Agreement** (PDF).
+
+### Studio Partner Agreements
+
+Open any active studio partner and click the **Agreements** tab to upload their signed Studio Partner Agreement (PDF or Word). Keep this current for every active partner.
+
 ---
 
 ## Running Sessions

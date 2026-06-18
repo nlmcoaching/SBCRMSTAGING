@@ -2944,6 +2944,16 @@ function buildAlerts(data, today) {
         db: "referrals", record: r });
     });
 
+  // 13 — Active partners missing Studio Partner Agreement PDF
+  partners
+    .filter((p) => (p.stage === "Recurring partner" || p.stage === "First session scheduled" || p.stage === "Pilot completed") && !partnerHasAgreementPdf(p))
+    .forEach((p) => {
+      alerts.push({ id: "agr_" + p.id, severity: "critical", category: "operational",
+        title: `Studio Partner Agreement missing — ${cleanName(p.name)}`,
+        detail: "Please update the studio partner agreement.",
+        db: "partners", record: p });
+    });
+
   const order = { critical: 0, warning: 1, info: 2 };
   return alerts.sort((a, b) => order[a.severity] - order[b.severity]);
 }
@@ -3820,7 +3830,7 @@ const VIEWS = {
   partners: {
     views: [
       { name: "Active partners", layout: "table",
-        columns: partnerCols(),
+        columns: activePartnerCols(),
         run: (rows) => ({ rows: rows.filter((r) => r.stage === "Recurring partner" || r.stage === "First session scheduled" || r.stage === "Pilot completed").sort((a, b) => (a.name || "").toLowerCase().localeCompare((b.name || "").toLowerCase())) }) },
       { name: "Pipeline", layout: "partner-pipeline",
         run: (rows) => ({ groups: STAGE.map((s) => ({ key: s, label: s, color: STAGE_COLOR[s], cards: rows.filter((r) => r.stage === s) })) }) },
@@ -4089,6 +4099,12 @@ const VIEWS = {
   },
 };
 
+function partnerHasAgreementPdf(partner) {
+  return (partner.agreements || []).some(
+    (a) => a.type === "application/pdf" || (a.name && /\.pdf$/i.test(a.name))
+  );
+}
+
 function partnerCols() {
   return [
     col("name", "Studio", (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
@@ -4099,6 +4115,21 @@ function partnerCols() {
     col("avgAttendance", "Avg att.", (r) => r.avgAttendance || "—", { align: "right" }),
     col("sessionsPerMonth", "Sess/mo", (r) => r.sessionsPerMonth || "—", { align: "right" }),
     col("revenuePotential", "Rev. potential", (r) => money(r.revenuePotential), { align: "right" }),
+  ];
+}
+function activePartnerCols() {
+  return [
+    col("name", "Studio", (r) => (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        {!partnerHasAgreementPdf(r) && (
+          <span title="Please upload Studio Partner Agreement" style={{ display: "inline-flex", flexShrink: 0, cursor: "help" }}>
+            <AlertCircle size={15} color="#C0392B" />
+          </span>
+        )}
+        <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>
+      </span>
+    )),
+    ...partnerCols().slice(1),
   ];
 }
 function offerCols() {
