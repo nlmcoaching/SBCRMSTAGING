@@ -1761,32 +1761,16 @@ Seed data is loaded on first run only. All subsequent loads use the encrypted st
 
 ## Staging Environment
 
-A separate staging deployment mirrors production on the same VPS for safe testing before release.
+The app is **local-only** (not externally hosted). Staging is a **second GitHub repo** used to hold work-in-progress code before it is merged into production.
 
 | | Production | Staging |
 |---|---|---|
-| URL | Production domain | `https://sbcrm-staging.simplybreathe.ai` |
 | GitHub | `nlmcoaching/SBCRM` (`origin`) | `nlmcoaching/SBCRMSTAGING` (`staging`) |
-| Backend port | `3001` | `3002` |
+| Branch | `master` | `staging` |
 
-**Workflow:** Push changes to the `staging` remote, deploy and test on staging, then push to `origin` for production.
+**Workflow:** Develop on `staging` branch → test locally → `git push staging staging` → when ready, merge into `master` and `git push origin master`.
 
-**Isolation:**
-- Separate Calendly webhook subscription pointing at the staging URL
-- Separate `backend/.env` secrets (never reuse production keys)
-- Separate browser `localStorage` (different subdomain)
-- Resend sends real emails — test with care
-
-**Setup files:**
-
-| File | Purpose |
-|---|---|
-| `STAGING.md` | Full staging setup and deploy guide |
-| `backend/.env.staging.example` | Staging environment variable template |
-| `deploy/nginx-staging.conf.example` | Nginx config for `sbcrm-staging.simplybreathe.ai` |
-| `deploy/sbcrm-staging.service.example` | Systemd unit (port 3002) |
-
-See **STAGING.md** for DNS, Calendly webhook, VPS deploy, and promote workflow.
+See **STAGING.md** for the full branch workflow and commands.
 
 ---
 
