@@ -1104,6 +1104,58 @@ const apiHeaders = (json = true) => {
   if (s) h["x-frontend-secret"] = s;
   return h;
 };
+const CALENDLY_BACKEND = import.meta.env.VITE_CALENDLY_BACKEND || "";
+const calendlyApiUrl = (path) => `${CALENDLY_BACKEND}${path}`;
+
+function isTruncatedPreview(text) {
+  const t = String(text || "").trim();
+  return t.endsWith("...") || t.endsWith("…");
+}
+function resolveCalendlyDescription(stored, fetched) {
+  const s = String(stored || "").trim();
+  if (fetched == null) return s;
+  const f = String(fetched || "").trim();
+  if (f && (!s || isTruncatedPreview(s) || f.length > s.length)) return f;
+  return s || f;
+}
+function sessionCalendlyLookupName(session, registrations) {
+  const strip = (v) => String(v || "").replace(/^Sample\s*-\s*/i, "").trim();
+  const journey = strip(session?.journey);
+  if (journey) return journey;
+  const reg = (registrations || []).find(r => r.sessionId === session?.id && r.eventName);
+  if (reg?.eventName) return strip(reg.eventName);
+  const name = strip(session?.name);
+  const parts = name.split(/\s*[-–]\s*/);
+  if (parts.length >= 2) return parts.slice(1).join(" - ").trim();
+  return name;
+}
+async function fetchCalendlyDescriptionForSession(session, registrations) {
+  const eventUri = session?.calendlyEventUri
+    || (registrations || []).find(r => r.sessionId === session?.id && r.calendlyEventUri)?.calendlyEventUri
+    || "";
+  const eventTypeUri = session?.calendlyEventTypeUri || "";
+  const eventName = sessionCalendlyLookupName(session, registrations);
+  const params = new URLSearchParams();
+  if (eventTypeUri) params.set("eventTypeUri", eventTypeUri);
+  else if (eventUri) params.set("eventUri", eventUri);
+  if (eventName) params.set("eventName", eventName);
+  if (!params.toString()) return { description: "", error: "No Calendly link or event name on this session" };
+  const res = await fetch(calendlyApiUrl(`/api/calendly/event-description?${params}`), { headers: apiHeaders() });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) return { description: "", error: j.error || `Request failed (${res.status})` };
+  return { description: (j.description || "").trim(), error: "" };
+}
+function applyCalendlyDescriptionToSessions(setData, sessionId, desc, onSave) {
+  if (!desc || !setData) return;
+  setData(prev => ({
+    ...prev,
+    sessions: (prev.sessions || []).map(s => {
+      if (s.id !== sessionId) return s;
+      const merged = resolveCalendlyDescription(s.calendlyDescription, desc);
+      return merged === s.calendlyDescription ? s : { ...s, calendlyDescription: merged };
+    }),
+  }));
+}
 
 // Unified storage — uses window.storage (Cursor canvas) when available, falls back to localStorage
 const store = {
@@ -1775,7 +1827,6 @@ export default function App() {
   };
 
   /* ── Calendly Sync ── */
-  const CALENDLY_BACKEND    = import.meta.env.VITE_CALENDLY_BACKEND || "";
   // x-frontend-secret is injected by the Vite proxy in dev and by the production
   // reverse proxy (Nginx/Caddy) at the network layer — never via VITE_* env vars,
   // as those are baked into the public JS bundle.
@@ -1785,7 +1836,7 @@ export default function App() {
     if (locked) return;
     setCalendlyStatus({ syncing: true });
     try {
-      const res = await fetch(`${CALENDLY_BACKEND}/api/calendly/pending`, { headers: _calendlyHeaders() });
+      const res = await fetch(calendlyApiUrl("/api/calendly/pending"), { headers: _calendlyHeaders() });
       if (!res.ok) throw new Error("Backend unavailable");
       const { events } = await res.json();
 
@@ -1813,6 +1864,7 @@ export default function App() {
 
       let processed = 0;
       const ids = [];
+      const sessionsNeedingDesc = [];
       setData(prev => {
         let next = { ...prev };
         const clients       = [...(next.clients       || [])];
@@ -1836,6 +1888,15 @@ export default function App() {
             if (match) { updated.studioId = match.id; changed = true; }
           }
 
+          // Backfill Calendly event URI from a linked registration (needed for description fetch)
+          if (!updated.calendlyEventUri) {
+            const linkedReg = registrations.find(r => r.sessionId === s.id && r.calendlyEventUri);
+            if (linkedReg?.calendlyEventUri) {
+              updated.calendlyEventUri = linkedReg.calendlyEventUri;
+              changed = true;
+            }
+          }
+
           // Fix capacity: all virtual Calendly 1:1 sessions should have capacity 1
           const isVirtualSession = !updated.studioId && (updated.locationType === "zoom" || updated.locationType === "custom" || !updated.locationType);
           if (isVirtualSession && s.capacity !== 1) { updated.capacity = 1; changed = true; }
@@ -1857,6 +1918,9 @@ export default function App() {
           }
 
           if (changed) sessions[i] = updated;
+          if (updated.calendlyEventUri && isTruncatedPreview(updated.calendlyDescription)) {
+            sessionsNeedingDesc.push({ ...updated });
+          }
         });
 
         if (!events.length) return { ...next, sessions, partners };
@@ -1966,7 +2030,8 @@ export default function App() {
                   studioId: existingSession.studioId || resolvedStudioId,
                   locationJoinUrl: zoomUrl || existingSession.locationJoinUrl,
                   durationMins: existingSession.durationMins || durationMins || 0,
-                  calendlyDescription: existingSession.calendlyDescription || evt.description || "",
+                  calendlyDescription: resolveCalendlyDescription(existingSession.calendlyDescription, evt.description),
+                  calendlyEventTypeUri: existingSession.calendlyEventTypeUri || evt.calendlyEventTypeUri || "",
                   locationAddress: existingSession.locationAddress || evt.locationAddress || "",
                 };
                 sessionId = sessions[existingSessionIdx].id;
@@ -2001,7 +2066,8 @@ export default function App() {
                   referralsRequested: false, breakthroughNoted: false,
                   notes: "",
                   durationMins: durationMins || 0,
-                  calendlyDescription: evt.description || "",
+                  calendlyDescription: resolveCalendlyDescription("", evt.description),
+                  calendlyEventTypeUri: evt.calendlyEventTypeUri || "",
                   calendlyEventUri: evt.calendlyEventUri,
                   locationType: evt.locationType,
                   locationJoinUrl: evt.locationJoinUrl,
@@ -2103,7 +2169,7 @@ export default function App() {
 
       // Acknowledge processed events
       if (ids.length) {
-        await fetch(`${CALENDLY_BACKEND}/api/calendly/acknowledge`, {
+        await fetch(calendlyApiUrl("/api/calendly/acknowledge"), {
           method: "POST",
           headers: { "Content-Type": "application/json", ..._calendlyHeaders() },
           body: JSON.stringify({ ids }),
@@ -2113,10 +2179,28 @@ export default function App() {
       const now = new Date();
       setCalendlyStatus({ synced: processed, count: processed, at: now.toLocaleTimeString(), atFull: now.toLocaleString() });
       if (processed > 0) setLastCalendlyReceived({ count: processed, atFull: now.toLocaleString() });
+
+      // Backfill truncated session descriptions from Calendly event types (async, non-blocking)
+      if (sessionsNeedingDesc.length) {
+        Promise.all(sessionsNeedingDesc.slice(0, 10).map(async (s) => {
+          try {
+            const { description: desc, error } = await fetchCalendlyDescriptionForSession(s, data.registrations || []);
+            if (error || !desc || isTruncatedPreview(desc)) return;
+            setData(prev => ({
+              ...prev,
+              sessions: (prev.sessions || []).map(x => {
+                if (x.id !== s.id) return x;
+                const merged = resolveCalendlyDescription(x.calendlyDescription, desc);
+                return merged === x.calendlyDescription ? x : { ...x, calendlyDescription: merged };
+              }),
+            }));
+          } catch { /* ignore background refresh errors */ }
+        })).catch(() => {});
+      }
     } catch {
       // Backend not running or unreachable — check silently and surface pending count only
       try {
-        const res = await fetch(`${CALENDLY_BACKEND}/api/calendly/pending`, { headers: _calendlyHeaders() });
+        const res = await fetch(calendlyApiUrl("/api/calendly/pending"), { headers: _calendlyHeaders() });
         const { total } = await res.json();
         if (total > 0) setCalendlyStatus({ pending: total });
         else setCalendlyStatus(null);
@@ -5445,6 +5529,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
   const [showCalendlyDesc, setShowCalendlyDesc]     = useState(false);
   const [fetchedCalendlyDesc, setFetchedCalendlyDesc] = useState(null); // null = not yet fetched
   const [fetchingCalendlyDesc, setFetchingCalendlyDesc] = useState(false);
+  const [calendlyDescFetchError, setCalendlyDescFetchError] = useState("");
   useEffect(() => {
     setDraft(record);
     setTab(pickTab(initialTab));
@@ -5452,6 +5537,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
     setShowCalendlyDesc(false);
     setFetchedCalendlyDesc(null);
     setFetchingCalendlyDesc(false);
+    setCalendlyDescFetchError("");
   }, [record, initialTab, db, isNew]);
   const isVirtualDrawer = db === "sessions" && !record.studioId && (record.locationType === "zoom" || record.locationType === "custom" || !record.locationType);
 
@@ -5472,6 +5558,40 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
   useEffect(() => {
     if (db === "clients") setDraft(d => ({ ...d, sessionsAttended: actualSessionsAttended }));
   }, [actualSessionsAttended, db]);
+
+  // Always fetch the full event-type description when the panel opens.
+  useEffect(() => {
+    if (!showCalendlyDesc || !isStudioSession) return;
+    let cancelled = false;
+    setFetchingCalendlyDesc(true);
+    setCalendlyDescFetchError("");
+    fetchCalendlyDescriptionForSession(draft, data.registrations)
+      .then(({ description: desc, error }) => {
+        if (cancelled) return;
+        setFetchedCalendlyDesc(desc);
+        if (error) {
+          setCalendlyDescFetchError(error);
+          return;
+        }
+        if (!desc) {
+          setCalendlyDescFetchError("Calendly returned no description for this event type");
+          return;
+        }
+        setDraft(d => {
+          const merged = resolveCalendlyDescription(d.calendlyDescription, desc);
+          return merged === d.calendlyDescription ? d : { ...d, calendlyDescription: merged };
+        });
+        if (setData && onSave) applyCalendlyDescriptionToSessions(setData, draft.id, desc, onSave);
+      })
+      .catch(err => {
+        if (cancelled) return;
+        setFetchedCalendlyDesc("");
+        setCalendlyDescFetchError(err.message || "Could not load full description from Calendly");
+      })
+      .finally(() => { if (!cancelled) setFetchingCalendlyDesc(false); });
+    return () => { cancelled = true; };
+  }, [showCalendlyDesc, isStudioSession, draft.id, draft.calendlyEventUri, draft.calendlyEventTypeUri, draft.journey, draft.name, data.registrations]);
+
   const fields = FIELDS[db];
   if (!fields) {
     return (
@@ -5563,7 +5683,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
         )}
 
         {/* Title + tab switcher */}
-        <div style={{ padding: "14px 22px 0", borderBottom: `1px solid ${C.line}` }}>
+        <div style={{ padding: "14px 22px 0", borderBottom: `1px solid ${C.line}`, flexShrink: 0 }}>
           {/* Session: show studio + cleaned session name as formatted header */}
           {hasSessionTabs && derived.partnerName[draft.studioId] && (() => {
             const studioName = cleanName(derived.partnerName[draft.studioId]);
@@ -5604,32 +5724,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
               )}
               {isStudioSession && (
                 <button
-                  onClick={() => {
-                    const opening = !showCalendlyDesc;
-                    setShowCalendlyDesc(opening);
-                    // On first open, if no stored description and we have a Calendly event URI, fetch it
-                    if (opening && !draft.calendlyDescription && fetchedCalendlyDesc === null && draft.calendlyEventUri && !fetchingCalendlyDesc) {
-                      setFetchingCalendlyDesc(true);
-                      fetch(`/api/calendly/event-description?eventUri=${encodeURIComponent(draft.calendlyEventUri)}`, { headers: apiHeaders() })
-                        .then(r => r.json())
-                        .then(j => {
-                          const desc = j.description || "";
-                          setFetchedCalendlyDesc(desc);
-                          // Persist it on the session record so it's available next time
-                          if (desc) {
-                            setDraft(d => ({ ...d, calendlyDescription: desc }));
-                            if (setData) {
-                              setData(prev => ({
-                                ...prev,
-                                sessions: (prev.sessions || []).map(s => s.id === draft.id ? { ...s, calendlyDescription: desc } : s),
-                              }));
-                            }
-                          }
-                        })
-                        .catch(() => setFetchedCalendlyDesc(""))
-                        .finally(() => setFetchingCalendlyDesc(false));
-                    }
-                  }}
+                  onClick={() => setShowCalendlyDesc(d => !d)}
                   title="View Calendly event description"
                   style={{
                     position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
@@ -5658,13 +5753,12 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                   marginTop: 8, borderRadius: 12,
                   border: `1px solid ${C.line}`,
                   background: C.surface,
-                  overflow: "hidden",
                   boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
                 }}>
                   <div style={{
                     display: "flex", alignItems: "center", justifyContent: "space-between",
                     padding: "10px 14px", borderBottom: `1px solid ${C.line}`,
-                    background: hexA(C.brand, 0.06),
+                    background: hexA(C.brand, 0.06), flexShrink: 0,
                   }}>
                     <div>
                       <div style={{ fontSize: 11, fontWeight: 700, color: C.brand, textTransform: "uppercase", letterSpacing: 0.6 }}>Journey Description</div>
@@ -5675,7 +5769,10 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                       &times;
                     </button>
                   </div>
-                  <div style={{ padding: "12px 14px", fontSize: 13, color: C.ink, lineHeight: 1.7, whiteSpace: "pre-wrap", maxHeight: 220, overflowY: "auto" }}>
+                  <div
+                    style={{ ...DESC_PANEL_BODY_STYLE, color: C.ink }}
+                    onWheel={(e) => e.stopPropagation()}
+                  >
                     {match?.description
                       ? match.description
                       : <span style={{ color: C.ink3, fontStyle: "italic" }}>
@@ -5693,13 +5790,12 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
               marginTop: 8, borderRadius: 12,
               border: `1px solid ${C.line}`,
               background: C.surface,
-              overflow: "hidden",
               boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
             }}>
               <div style={{
                 display: "flex", alignItems: "center", justifyContent: "space-between",
                 padding: "10px 14px", borderBottom: `1px solid ${C.line}`,
-                background: hexA(C.brand, 0.06),
+                background: hexA(C.brand, 0.06), flexShrink: 0,
               }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: C.brand, textTransform: "uppercase", letterSpacing: 0.6 }}>
                   Calendly Event Description
@@ -5709,15 +5805,33 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                   &times;
                 </button>
               </div>
-              <div style={{ padding: "12px 14px", fontSize: 13, lineHeight: 1.7, whiteSpace: "pre-wrap", maxHeight: 260, overflowY: "auto" }}>
+              <div
+                style={{ ...DESC_PANEL_BODY_STYLE, color: C.ink }}
+                onWheel={(e) => e.stopPropagation()}
+              >
                 {fetchingCalendlyDesc
                   ? <span style={{ color: C.ink3, fontStyle: "italic" }}>Fetching description from Calendly…</span>
                   : (() => {
-                      const desc = draft.calendlyDescription || fetchedCalendlyDesc;
-                      if (desc) return <span style={{ color: C.ink }}>{desc}</span>;
-                      if (fetchedCalendlyDesc === "") return <span style={{ color: C.ink3, fontStyle: "italic" }}>No description found in Calendly for this event type.</span>;
-                      if (!draft.calendlyEventUri) return <span style={{ color: C.ink3, fontStyle: "italic" }}>No Calendly event URI stored — description unavailable.</span>;
-                      return <span style={{ color: C.ink3, fontStyle: "italic" }}>No description stored. Opening will fetch from Calendly automatically.</span>;
+                      const stored = String(draft.calendlyDescription || "").trim();
+                      const desc = resolveCalendlyDescription(stored, fetchedCalendlyDesc);
+                      const showFull = desc && !isTruncatedPreview(desc);
+                      if (showFull) return <span style={{ color: C.ink }}>{desc}</span>;
+                      if (calendlyDescFetchError) {
+                        return (
+                          <span style={{ color: "#B4513B", fontStyle: "italic", lineHeight: 1.6 }}>
+                            {calendlyDescFetchError}
+                            {isTruncatedPreview(stored) && (
+                              <span style={{ display: "block", marginTop: 8, color: C.ink3 }}>
+                                The stored preview is incomplete. Set CALENDLY_API_TOKEN in backend/.env and restart the backend.
+                              </span>
+                            )}
+                          </span>
+                        );
+                      }
+                      if (fetchedCalendlyDesc === "") {
+                        return <span style={{ color: C.ink3, fontStyle: "italic" }}>No description found in Calendly for this event type.</span>;
+                      }
+                      return <span style={{ color: C.ink3, fontStyle: "italic" }}>Loading description from Calendly…</span>;
                     })()
                 }
               </div>
@@ -10023,6 +10137,18 @@ function Empty({ children, pad }) {
 
 /* ---------- tiny utils ---------- */
 function cleanName(n) { return String(n || "").replace(/^Sample\s*-\s*/i, ""); }
+function preferLongerText(a, b) {
+  const sa = String(a || "").trim();
+  const sb = String(b || "").trim();
+  if (!sa) return sb;
+  if (!sb) return sa;
+  return sb.length > sa.length ? sb : sa;
+}
+const DESC_PANEL_BODY_STYLE = {
+  padding: "12px 14px", fontSize: 13, lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "break-word",
+  overflowX: "hidden", overflowY: "auto", WebkitOverflowScrolling: "touch", overscrollBehavior: "contain",
+  touchAction: "pan-y", height: "min(240px, 38vh)", boxSizing: "border-box",
+};
 function clientShort(n) { return cleanName(n); }
 function sectionLabel(db) { return { clients: "Clients", partners: "Studio Partners", sessions: "Sessions", offers: "Offers & Sales", content: "Content & Referral", followups: "Follow-Ups", revenue: "Revenue", expenses: "Expenses", testimonials: "Testimonials", templates: "Templates", referrals: "Referrals", outreach: "Outreach Hub", registrations: "Calendly Registrations" }[db] || db; }
 function hexA(hex, a) {

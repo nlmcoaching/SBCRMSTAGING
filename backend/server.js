@@ -335,6 +335,7 @@ function extractEvent(event, payload) {
     // Scheduled event
     calendlyInviteeUri:   payload.uri || "",
     calendlyEventUri:     scheduled.uri || "",
+    calendlyEventTypeUri: scheduled.event_type || "",
     eventName:            scheduled.name || "",
     description:          scheduled.description || "",
     startTime:            scheduled.start_time || "",
@@ -368,6 +369,29 @@ const CALENDLY_API_BASE = "https://api.calendly.com/";
 
 const CALENDLY_API_TIMEOUT_MS = 10_000; // 10 s — prevents hanging webhook handler
 
+function stripHtml(html) {
+  return String(html || "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function pickEventTypeDescription(resource) {
+  const plain = String(resource?.description_plain || "").trim();
+  const fromHtml = stripHtml(resource?.description_html || "");
+  if (!plain) return fromHtml;
+  if (!fromHtml) return plain;
+  const plainTruncated = plain.endsWith("...") || plain.endsWith("…");
+  if (plainTruncated && fromHtml.length > plain.length) return fromHtml;
+  return plain.length >= fromHtml.length ? plain : fromHtml;
+}
+
 async function fetchEventTypeDescription(eventTypeUri) {
   if (!eventTypeUri) return "";
 
@@ -377,7 +401,8 @@ async function fetchEventTypeDescription(eventTypeUri) {
     return "";
   }
 
-  if (_eventTypeDescCache[eventTypeUri] !== undefined) return _eventTypeDescCache[eventTypeUri];
+  const cached = _eventTypeDescCache[eventTypeUri];
+  if (cached) return cached;
 
   const token = process.env.CALENDLY_API_TOKEN;
   if (!token) return "";
@@ -393,21 +418,84 @@ async function fetchEventTypeDescription(eventTypeUri) {
     clearTimeout(timer);
     if (!res.ok) throw new Error(`Calendly API ${res.status}`);
     const data = await res.json();
-    const desc = data.resource?.description_plain || data.resource?.description_html || "";
-    // Evict oldest entries if cache exceeds 500 to prevent unbounded growth
-    const cacheKeys = Object.keys(_eventTypeDescCache);
-    if (cacheKeys.length >= 500) {
-      cacheKeys.slice(0, 250).forEach(k => delete _eventTypeDescCache[k]);
+    const desc = pickEventTypeDescription(data.resource);
+    if (desc) {
+      const cacheKeys = Object.keys(_eventTypeDescCache);
+      if (cacheKeys.length >= 500) {
+        cacheKeys.slice(0, 250).forEach(k => delete _eventTypeDescCache[k]);
+      }
+      _eventTypeDescCache[eventTypeUri] = desc;
+      console.log(`[OK] Fetched event type description for ${eventTypeUri.split("/").pop()}: "${desc.slice(0, 60)}${desc.length > 60 ? "…" : ""}"`);
     }
-    _eventTypeDescCache[eventTypeUri] = desc;
-    console.log(`[OK] Fetched event type description for ${eventTypeUri.split("/").pop()}: "${desc.slice(0, 60)}${desc.length > 60 ? "…" : ""}"`);
     return desc;
   } catch (err) {
     clearTimeout(timer);
     console.warn(`[WARN] Could not fetch event type description: ${err.message}`);
-    _eventTypeDescCache[eventTypeUri] = ""; // cache miss so we don't retry on every webhook
+    delete _eventTypeDescCache[eventTypeUri];
     return "";
   }
+}
+
+let _calendlyUserUri = null;
+let _eventTypesByNameCache = null;
+let _eventTypesByNameCacheAt = 0;
+const EVENT_TYPES_CACHE_MS = 5 * 60 * 1000;
+
+async function calendlyApiGet(path, token) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CALENDLY_API_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${CALENDLY_API_BASE}${path}`, {
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`Calendly API ${res.status}`);
+    return res.json();
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
+  }
+}
+
+async function getCalendlyUserUri(token) {
+  if (_calendlyUserUri) return _calendlyUserUri;
+  const data = await calendlyApiGet("users/me", token);
+  _calendlyUserUri = data.resource?.uri || "";
+  return _calendlyUserUri;
+}
+
+async function getEventTypesByNameIndex(token) {
+  if (_eventTypesByNameCache && Date.now() - _eventTypesByNameCacheAt < EVENT_TYPES_CACHE_MS) {
+    return _eventTypesByNameCache;
+  }
+  const userUri = await getCalendlyUserUri(token);
+  if (!userUri) return {};
+  const index = {};
+  let pageToken = null;
+  do {
+    const qs = new URLSearchParams({ user: userUri, count: "100" });
+    if (pageToken) qs.set("page_token", pageToken);
+    const data = await calendlyApiGet(`event_types?${qs}`, token);
+    for (const et of data.collection || []) {
+      const name = String(et.name || "").trim().toLowerCase();
+      if (name && !index[name]) index[name] = et.uri;
+    }
+    pageToken = data.pagination?.next_page_token || null;
+  } while (pageToken);
+  _eventTypesByNameCache = index;
+  _eventTypesByNameCacheAt = Date.now();
+  return index;
+}
+
+async function fetchEventTypeDescriptionByName(eventName, token) {
+  const needle = String(eventName || "").trim().toLowerCase();
+  if (!needle) return "";
+  const index = await getEventTypesByNameIndex(token);
+  if (index[needle]) return fetchEventTypeDescription(index[needle]);
+  const matchKey = Object.keys(index).find(k => needle.includes(k) || k.includes(needle));
+  if (matchKey) return fetchEventTypeDescription(index[matchKey]);
+  return "";
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -520,9 +608,10 @@ app.post("/api/calendly/acknowledge", requireFrontendSecret, async (req, res) =>
 // GET /api/calendly/event-description
 // Fetch the event-type description for a scheduled event URI.
 // The frontend calls this when a studio session has no stored description.
-// Query params (one required):
+// Query params (at least one):
 //   ?eventUri=https://api.calendly.com/scheduled_events/<uuid>
 //   ?eventTypeUri=https://api.calendly.com/event_types/<uuid>
+//   ?eventName=Indiga Yoga - Walnut Creek, CA
 // ────────────────────────────────────────────────────────────────
 app.get("/api/calendly/event-description", requireFrontendSecret, async (req, res) => {
   const token = process.env.CALENDLY_API_TOKEN;
@@ -530,21 +619,26 @@ app.get("/api/calendly/event-description", requireFrontendSecret, async (req, re
     return res.status(503).json({ error: "CALENDLY_API_TOKEN not configured" });
   }
 
-  let { eventUri, eventTypeUri } = req.query;
+  let { eventUri, eventTypeUri, eventName } = req.query;
+  eventName = typeof eventName === "string" ? eventName.trim().slice(0, 200) : "";
 
   // Basic SSRF guard
   const CALENDLY_BASE = "https://api.calendly.com/";
   const isValidUri = (u) => typeof u === "string" && u.startsWith(CALENDLY_BASE) && u.length <= 300;
 
-  if (!eventUri && !eventTypeUri) {
-    return res.status(400).json({ error: "Provide eventUri or eventTypeUri" });
+  if (!eventUri && !eventTypeUri && !eventName) {
+    return res.status(400).json({ error: "Provide eventUri, eventTypeUri, or eventName" });
   }
 
   res.set("Cache-Control", "no-store");
   try {
-    // If we only have the scheduled-event URI, resolve it to the event-type URI first
-    if (!eventTypeUri) {
-      if (!isValidUri(eventUri)) return res.status(400).json({ error: "Invalid eventUri" });
+    let description = "";
+
+    if (eventTypeUri && isValidUri(eventTypeUri)) {
+      description = await fetchEventTypeDescription(eventTypeUri);
+    }
+
+    if (!description && eventUri && isValidUri(eventUri)) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), CALENDLY_API_TIMEOUT_MS);
       let evtRes;
@@ -558,18 +652,20 @@ app.get("/api/calendly/event-description", requireFrontendSecret, async (req, re
         return res.status(evtRes.status).json({ error: `Calendly API returned ${evtRes.status}` });
       }
       const evtData = await evtRes.json();
-      eventTypeUri = evtData.resource?.event_type || "";
+      const resolvedTypeUri = evtData.resource?.event_type || "";
+      if (isValidUri(resolvedTypeUri)) {
+        description = await fetchEventTypeDescription(resolvedTypeUri);
+      }
     }
 
-    if (!isValidUri(eventTypeUri)) {
-      return res.status(400).json({ error: "Could not resolve a valid event_type URI" });
+    if (!description && eventName) {
+      description = await fetchEventTypeDescriptionByName(eventName, token);
     }
 
-    const description = await fetchEventTypeDescription(eventTypeUri);
     res.json({ description });
   } catch (err) {
     console.warn("[WARN] /api/calendly/event-description error:", err.message);
-    res.status(500).json({ error: "Failed to fetch description" });
+    res.status(500).json({ error: err.message || "Failed to fetch description" });
   }
 });
 

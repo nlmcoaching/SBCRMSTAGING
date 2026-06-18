@@ -418,7 +418,7 @@ When you open a session record, the first tab is **Session Details**. The layout
 
 **Registered Attendees** on studio sessions updates automatically every time you open the session — it always reflects the real number of non-canceled bookings from the Bookings tab, so there's no need to update it manually.
 
-**Calendly event description:** Click the **ⓘ icon** next to the session name at the top of the drawer to expand or collapse the Calendly event type description inline below the title.
+**Calendly event description:** Click the **ⓘ icon** next to the session name at the top of the drawer to expand the Calendly event type description below the title. The full text loads from Calendly when you open the panel (replacing any short preview). Long descriptions scroll inside the panel — swipe or scroll to read the full text.
 
 ### Journey Description Popup (Virtual Sessions)
 
@@ -1156,7 +1156,7 @@ Open the offer record and update the **Status** to Accepted, Paid, or Declined a
 Open the session record and go to the **Equipment** tab. Completed items have a checkmark. The session list also shows a setup status indicator.
 
 **I can't see the New button or Save button on some pages. Why?**
-Your account may have Viewer or Editor permissions that restrict certain actions. Contact your Owner or Admin to update your permissions if you need more access.
+Your account may have Viewer or Editor permissions that restrict certain actions. Viewers can still browse records and view details (including fetched Calendly session descriptions), but changes are not saved to shared data. Contact your Owner or Admin to update your permissions if you need more access.
 
 **How do I back up my data?**
 Go to **Admin** in the sidebar, click the **Storage & Backup** tab, and click **Download Backup**. This saves a JSON file to your computer. Keep it somewhere safe.

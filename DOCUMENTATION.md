@@ -223,6 +223,8 @@ All user-supplied strings (session name, studio name, notes, time, journey) inte
 | Editor | ✓ | ✓ | — | — |
 | Viewer | ✓ | — | — | — |
 
+Viewers can open session records and view the Calendly event description (ⓘ), but auto-saving a fetched description to shared CRM data requires **Edit** permission (`onSave` must be present — same gate as agreement uploads and the NBA email compose flow).
+
 ### Adding a User
 
 - Fields: Full Name · PIN · Role (Owner / Admin / Editor / Viewer).
@@ -678,7 +680,8 @@ When a booking arrives via Calendly webhook, a session record is automatically c
 - `locationType` / `locationJoinUrl` stored for virtual sessions
 - `durationMins` = calculated from Calendly `start_time` and `end_time` (in minutes)
 - `locationAddress` = studio address from Calendly physical location
-- `calendlyDescription` = Calendly event type description; accessible via the **ⓘ icon** next to the session name in the drawer header — click to expand/collapse inline below the title
+- `calendlyDescription` = Calendly event type description; accessible via the **ⓘ icon** next to the session name in the drawer header — click to expand/collapse a fixed-height scrollable panel below the title (supports touch scrolling on iPad). On open, the CRM re-fetches the full event-type text from Calendly via `calendlyEventTypeUri` or `calendlyEventUri`, replacing any short preview ending in `...` stored on sync.
+- `calendlyEventTypeUri` = Calendly event type API URI; used to fetch the full event description without resolving the scheduled event
 - Zoom join URL is written to both `locationJoinUrl` and appended to `notes` for quick reference
 - `registered` increments for each new invitee on the same event
 - Cancellations decrement `registered`; no-shows update `noShows`
@@ -1569,14 +1572,21 @@ Each individual Calendly booking is stored as a `registration` record:
 
 ### Event Type Description Fetching
 
-When a webhook arrives, the backend calls `GET /event_types/{uuid}` on the Calendly API to retrieve the event type description and stores it on the session record as `calendlyDescription`.
+When a webhook arrives, the backend calls `GET /event_types/{uuid}` on the Calendly API to retrieve the event type description and stores it on the session record as `calendlyDescription`. The webhook’s `scheduled_event.description` is only a short preview (often ending in `...`) — the full text always comes from the event type API.
+
+**On-demand fetch:** `GET /api/calendly/event-description` accepts any of:
+- `eventTypeUri` — direct Calendly event type URI (stored on session as `calendlyEventTypeUri`)
+- `eventUri` — scheduled event URI (resolved to event type on the backend)
+- `eventName` — fallback match against your Calendly event type names (e.g. `Indiga Yoga - Walnut Creek, CA`)
+
+Requires `CALENDLY_API_TOKEN` in `backend/.env`. Restart the backend after changing env vars or deploying code changes.
 
 | Detail | Value |
 |---|---|
-| Trigger | Each `invitee.created` or `invitee.canceled` webhook |
-| API call | `GET https://api.calendly.com/event_types/{uuid}` |
+| Trigger | Each `invitee.created` or `invitee.canceled` webhook; also when opening the ⓘ panel in the session drawer |
+| API call | `GET https://api.calendly.com/event_types/{uuid}` (or list + name match) |
 | Auth | Bearer `CALENDLY_API_TOKEN` |
-| Caching | In-memory per event type UUID — fetched once per server process, not per booking |
+| Caching | In-memory per event type UUID — successful fetches only; failures are not cached |
 | Env var required | `CALENDLY_API_TOKEN` in `backend/.env` (see `backend/.env.example`) |
 
 If `CALENDLY_API_TOKEN` is not set, the description is left blank and no API call is made.
