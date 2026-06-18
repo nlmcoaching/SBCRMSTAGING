@@ -50,6 +50,16 @@ const path       = require("path");
       desc: "Resend API key — without this the Send Email feature will return 503",
       critical: false,
     },
+    {
+      key: "CALENDLY_API_TOKEN",
+      desc: "Calendly PAT — without this session descriptions will not be fetched and /api/calendly/event-description returns 503",
+      critical: false,
+    },
+    {
+      key: "ALLOWED_ORIGINS",
+      desc: "Comma-separated allowed CORS origins — defaults to http://localhost:5173 (dev only); set your production domain before going live",
+      critical: false,
+    },
   ];
 
   const missing = checks.filter(({ key }) => !process.env[key]);
@@ -356,6 +366,8 @@ const _eventTypeDescCache = {};
 
 const CALENDLY_API_BASE = "https://api.calendly.com/";
 
+const CALENDLY_API_TIMEOUT_MS = 10_000; // 10 s — prevents hanging webhook handler
+
 async function fetchEventTypeDescription(eventTypeUri) {
   if (!eventTypeUri) return "";
 
@@ -370,10 +382,15 @@ async function fetchEventTypeDescription(eventTypeUri) {
   const token = process.env.CALENDLY_API_TOKEN;
   if (!token) return "";
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CALENDLY_API_TIMEOUT_MS);
+
   try {
     const res = await fetch(eventTypeUri, {
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      signal: controller.signal,
     });
+    clearTimeout(timer);
     if (!res.ok) throw new Error(`Calendly API ${res.status}`);
     const data = await res.json();
     const desc = data.resource?.description_plain || data.resource?.description_html || "";
@@ -386,6 +403,7 @@ async function fetchEventTypeDescription(eventTypeUri) {
     console.log(`[OK] Fetched event type description for ${eventTypeUri.split("/").pop()}: "${desc.slice(0, 60)}${desc.length > 60 ? "…" : ""}"`);
     return desc;
   } catch (err) {
+    clearTimeout(timer);
     console.warn(`[WARN] Could not fetch event type description: ${err.message}`);
     _eventTypeDescCache[eventTypeUri] = ""; // cache miss so we don't retry on every webhook
     return "";
@@ -467,6 +485,7 @@ function requireFrontendSecret(req, res, next) {
 // React CRM polls this to retrieve unprocessed events
 // ────────────────────────────────────────────────────────────────
 app.get("/api/calendly/pending", requireFrontendSecret, (_req, res) => {
+  res.set("Cache-Control", "no-store");
   const queue   = readQueue();
   const pending = queue.filter(e => !e.processed);
   res.json({ events: pending, total: pending.length });
@@ -485,6 +504,7 @@ app.post("/api/calendly/acknowledge", requireFrontendSecret, async (req, res) =>
     return res.status(400).json({ error: "All ids must be non-empty strings (max 100 chars each)." });
   }
 
+  res.set("Cache-Control", "no-store");
   const idSet = new Set(ids);
   await withQueueLock(() => {
     const queue   = readQueue();
@@ -520,13 +540,20 @@ app.get("/api/calendly/event-description", requireFrontendSecret, async (req, re
     return res.status(400).json({ error: "Provide eventUri or eventTypeUri" });
   }
 
+  res.set("Cache-Control", "no-store");
   try {
     // If we only have the scheduled-event URI, resolve it to the event-type URI first
     if (!eventTypeUri) {
       if (!isValidUri(eventUri)) return res.status(400).json({ error: "Invalid eventUri" });
-      const evtRes = await fetch(eventUri, {
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), CALENDLY_API_TIMEOUT_MS);
+      let evtRes;
+      try {
+        evtRes = await fetch(eventUri, {
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          signal: controller.signal,
+        });
+      } finally { clearTimeout(timer); }
       if (!evtRes.ok) {
         return res.status(evtRes.status).json({ error: `Calendly API returned ${evtRes.status}` });
       }
@@ -655,6 +682,7 @@ app.get("/api/email-status/:id", requireFrontendSecret, async (req, res) => {
     return res.status(400).json({ error: "Invalid email ID." });
   }
 
+  res.set("Cache-Control", "no-store");
   try {
     const email = await resendClient.emails.get(id);
     if (email.error) return res.status(502).json({ error: email.error.message });
