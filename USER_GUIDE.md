@@ -598,7 +598,7 @@ The **Message Queue** tab shows every pending follow-up across all active sequen
 
 Overdue follow-ups are flagged in the Smart Alerts on the dashboard.
 
-Each item in the queue has a **Send Email** button. Clicking it opens an inline compose area:
+Each item in the queue has a **Send Email** button (all steps are sent by email until in-app texting is enabled). Clicking it opens an inline compose area:
 
 1. Choose a template from the dropdown — all templates from your **Template Library** plus the Follow-Up Engine's own sequence templates are listed.
 2. The subject and body are pre-filled and interpolated with the client's name and session details.
@@ -851,6 +851,12 @@ When someone tells you a friend referred them, create a record:
 ### The Referral Tree
 
 The **Referral Tree** view shows visual chains — Dana referred Maya, Maya referred someone else — so you can see who your most powerful advocates are and how much business they've generated.
+
+If any referrals still need follow-up, a yellow **Action needed** banner appears at the top. The number matches the **Action needed** tab — it disappears once you've marked every pending referral as completed there.
+
+### Action Needed Tab
+
+Open **Action needed** to see referrals that still need a thank-you, follow-up, or reward. Click **Mark Completed** on each row when you're done. When the tab is empty, the banner on the Referral Tree view clears too.
 
 ### Referral Lifecycle
 

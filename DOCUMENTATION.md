@@ -766,7 +766,7 @@ Automates post-session communication sequences so that no revenue window is miss
 
 ### Send Email from Message Queue
 
-Each item in the **Message Queue** has a **Send Email** button (email-type steps) or an additional **Send Email** option (text-type steps). Clicking it opens an inline compose area:
+Each item in the **Message Queue** has a **Send Email** button. All sequence steps use the email channel (SMS/text dispatch is not yet enabled). Clicking **Send Email** opens an inline compose area:
 
 - Template picker dropdown listing all **Template Library** templates (email channel) and all **Follow-Up Engine sequence templates** (custom overrides + FU_STEPS defaults).
 - Editable subject and body, pre-populated from the selected template with client variables interpolated.
@@ -1039,6 +1039,12 @@ Referred-by (client name) · Referred person · Referral date · Status · Did t
 ### Referral Tree View
 
 Visual tree showing referral chains — e.g., Dana → Maya → (Maya's referrals). Each node shows revenue generated from that branch.
+
+When any referral is not yet marked completed (`rewardGiven` is false), an **Action needed** banner appears on the Referral Tree tab. The count matches the **Action needed** table view. The banner clears automatically once every pending referral has been marked completed in that view.
+
+### Action Needed View
+
+Table of referrals where **Action Status** is not yet completed. Click **Mark Completed** on each row when follow-up (thank-you, outreach, reward, etc.) is done. Completed rows leave this view and remove the referral from the Action needed banner count.
 
 ### Metrics
 

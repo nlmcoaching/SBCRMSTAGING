@@ -573,11 +573,11 @@ const emptySessionChecklist = () => Object.fromEntries(SESSION_CHECKLIST.map((i)
    FOLLOW-UP SEQUENCE ENGINE
    ============================================================ */
 const FU_STEPS = [
-  { id: "same_day", label: "Same Day",    delayDays: 0,  channel: "text",  accent: "#3A8BCD" },
-  { id: "h24",      label: "24 Hours",    delayDays: 1,  channel: "text",  accent: "#7B68EE" },
+  { id: "same_day", label: "Same Day",    delayDays: 0,  channel: "email", accent: "#3A8BCD" },
+  { id: "h24",      label: "24 Hours",    delayDays: 1,  channel: "email", accent: "#7B68EE" },
   { id: "h72",      label: "48–72 Hours", delayDays: 3,  channel: "email", accent: "#D9892B" },
   { id: "d5",       label: "5–7 Days",    delayDays: 6,  channel: "email", accent: "#4A8C6F" },
-  { id: "d14",      label: "14–21 Days",  delayDays: 14, channel: "text",  accent: "#9B7EC8" },
+  { id: "d14",      label: "14–21 Days",  delayDays: 14, channel: "email", accent: "#9B7EC8" },
 ];
 
 const FU_TEMPLATES = {
@@ -4665,7 +4665,7 @@ const VIEWS = {
       { name: "Action needed", layout: "table",
         columns: refActionCols(),
         run: (rows, c) => ({
-          rows: rows.filter(r => !r.rewardGiven)
+          rows: rows.filter(referralActionPending)
                     .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
         }) },
       { name: "All referrals", layout: "table", columns: refCols(), run: (rows) => ({ rows: [...rows].sort((a, b) => b.date.localeCompare(a.date)) }) },
@@ -4741,6 +4741,9 @@ function offerCols() {
     col("expireDate", "Expires", (r, c) => <DateChip iso={r.expireDate} today={c.today} />),
     col("followUpDate", "Follow-up", (r, c) => <DateChip iso={r.followUpDate} today={c.today} />),
   ];
+}
+function referralActionPending(r) {
+  return !r.rewardGiven;
 }
 function refCols() {
   return [
@@ -11878,7 +11881,7 @@ function ReferralTreeView({ data, derived, today, onOpen }) {
     b.totalRev += Number(r.revenue) || 0;
     if (["Attended", "Purchased"].includes(r.status)) b.attended++;
     if (r.status === "Purchased") b.purchased++;
-    if (!r.thankYouSent || r.status === "Referred") b.actionNeeded++;
+    if (referralActionPending(r)) b.actionNeeded++;
   });
 
   const sorted = Object.entries(byReferrer)
@@ -11889,7 +11892,7 @@ function ReferralTreeView({ data, derived, today, onOpen }) {
   const totalPurch  = refs.filter(r => r.status === "Purchased").length;
   const totalRefs   = refs.length;
   const convRate    = totalRefs > 0 ? Math.round((totalPurch / totalRefs) * 100) : 0;
-  const needAction  = refs.filter(r => !r.thankYouSent || r.status === "Referred").length;
+  const needAction  = refs.filter(referralActionPending).length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
@@ -11898,14 +11901,14 @@ function ReferralTreeView({ data, derived, today, onOpen }) {
         <Stat label="Referral revenue"  value={money(totalRev)}   accent={C.brand} hint="total from all referrals" />
         <Stat label="Conversion rate"   value={convRate + "%"}    accent={convRate >= 50 ? "#4A8C6F" : C.gold} hint={`${totalPurch} purchased of ${totalRefs}`} />
         <Stat label="Active referrers"  value={sorted.length}     hint="clients who have referred" />
-        <Stat label="Action needed"     value={needAction}        accent={needAction > 0 ? "#D9892B" : C.ink3} hint="thank-you or follow-up" />
+        <Stat label="Action needed"     value={needAction}        accent={needAction > 0 ? "#D9892B" : C.ink3} hint="not marked completed" />
       </div>
 
-      {/* Action needed banner */}
+      {/* Action needed banner — clears when Action needed tab is empty */}
       {needAction > 0 && (
         <div style={{ background: hexA("#D9892B", 0.09), border: `1px solid ${hexA("#D9892B", 0.3)}`, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 13, color: "#7A4D0F", fontWeight: 600 }}>
-            {needAction} referral{needAction !== 1 ? "s" : ""} need attention — thank you note sent or follow-up pending
+            {needAction} referral{needAction !== 1 ? "s" : ""} need attention — mark completed in Action needed view
           </span>
           <div style={{ flex: 1 }} />
           <span style={{ fontSize: 12, color: "#D9892B" }}>Check "Action needed" view →</span>
@@ -12585,8 +12588,8 @@ function MessageQueue({ overdue, todayItems, upcoming, today, markSent, onOpenCl
       if (!res.ok) throw new Error(json.error || "Send failed.");
 
       // Write to global email log
-      const selectedTmpl = eState.selectedTemplateId && eState.selectedTemplateId !== "__followup__"
-        ? emailTemplates.find(t => t.id === eState.selectedTemplateId) : null;
+      const selectedTmpl = state.selectedTemplateId && state.selectedTemplateId !== "__followup__"
+        ? emailTemplates.find(t => t.id === state.selectedTemplateId) : null;
       const logEntry = {
         id:            `em_${Date.now()}`,
         date:          new Date().toISOString(),
