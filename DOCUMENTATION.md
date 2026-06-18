@@ -303,6 +303,10 @@ Three-column ranked action list (Revenue · Relationship · Operational), showin
 
 Each action row has a **× dismiss button** (right side, fades in on hover). Dismissed actions are hidden for the rest of the day and automatically reset at midnight. Dismissals are persisted to `localStorage` under `sb:dismissed-actions:v1`.
 
+**Relationship actions:** Clicking a row opens the **Send email** compose modal (not the record drawer). The recipient is pre-filled from the action (client or studio contact). Choose a **Message template** from the dropdown (Engagement / Studio Outreach templates suggested first), edit the subject and body, then send. On successful send, the action is dismissed for the day and related records are updated (e.g. referral thank-you marked sent, partner `lastTouch` updated, email logged to contact timeline).
+
+**Revenue and Operational actions:** Clicking a row opens the related record in the drawer. **Revenue actions** also show a **Call** banner at the top of the drawer with the contact's phone number (tap-to-call on mobile) when a phone is on file — resolved from the linked client for follow-ups/offers, or from the client/partner record directly. The phone also appears in the action sub-line in the Revenue column list when available.
+
 **Revenue actions include:**
 - Follow up on expiring open offers
 - Chase unpaid completed sessions
@@ -316,9 +320,9 @@ Each action row has a **× dismiss button** (right side, fades in on hover). Dis
 - Invite warm contacts to upcoming sessions
 
 **Operational actions include:**
-- Sessions happening today / tomorrow
+- Sessions happening today / tomorrow (virtual sessions show **Virtual** and Zoom/setup wording; studio sessions show the studio name). These **auto-clear** when the session **Virtual Setup** checklist phase is complete (Zoom + headset tested) and no linked booking is **unpaid**. Pre-Session items below that (space, camera, playlist, etc.) do not block the action.
 - Missing waivers
-- Setup checklist not started
+- Setup checklist not started (studio sessions only)
 - Follow-up emails not yet scheduled
 
 ---
@@ -1574,8 +1578,8 @@ The description is surfaced in the session drawer via the **ⓘ icon** next to t
 ### Calendly Bookings Sidebar Section
 **Navigation:** Sidebar → Calendly Bookings
 
-Views:
-- **All Bookings** — all registrations sorted by session date (newest first)
+Views (all sorted by session date/time, newest first; uses `scheduledAt`, falling back to linked session date/time when empty):
+- **All Bookings** — all registrations; columns: Session Date/Time, Client, Email, Event, Status, Waiver, Attendance
 - **Pending Waivers** — active registrations where waiver is not yet signed
 - **Unpaid** — active registrations with unpaid status
 - **Cancellations** — canceled and rescheduled registrations
@@ -1842,6 +1846,7 @@ All state is managed via React `useState` and `useMemo` in the root `App` compon
 | `App` | Root — auth gate, layout, data state |
 | `LockScreen` | PIN login, user tile selection |
 | `Today` | Dashboard with stats, alerts, NBA |
+| `ActionEmailModal` | Relationship NBA email compose — template dropdown, pre-filled recipient, editable subject/body, send via Resend |
 | `Section` | Dynamic view renderer for all data sections |
 | `RecordDrawer` | Slide-in detail/edit panel |
 | `EditProfileModal` | Profile photo + info + PIN change |

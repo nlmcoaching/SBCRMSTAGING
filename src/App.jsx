@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import Papa from "papaparse";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell } from "recharts";
 import {
@@ -292,6 +292,93 @@ const TMPL_CHANNEL       = ["Email","SMS","DM"];
 const TMPL_CHANNEL_COLOR = { Email:"#D9892B", SMS:"#4A8C6F", DM:"#E1306C" };
 const TMPL_LINKED_TO     = ["clients","partners","sessions","any"];
 
+function extractTemplateVars(t) {
+  const matches = [...(t.subject || "").matchAll(/\{\{([^}]+)\}\}/g),
+                   ...(t.body   || "").matchAll(/\{\{([^}]+)\}\}/g)];
+  return [...new Set(matches.map(m => m[1].trim()))];
+}
+
+function autoFillTemplateVars(varKeys, recipient, type, currentUser) {
+  const vals = {};
+  const filled = new Set();
+  const yourFirstName = (currentUser?.name || "").split(" ")[0] || "";
+  const set = (k, v) => { vals[k] = v; filled.add(k); };
+
+  varKeys.forEach(k => {
+    const lk = k.toLowerCase();
+    if (lk === "yourname") { set(k, yourFirstName); return; }
+    if (type === "client") {
+      const firstName = (recipient.name || "").split(" ")[0];
+      if (lk === "clientname")       { set(k, cleanName(recipient.name || "")); return; }
+      if (lk === "firstname")        { set(k, firstName); return; }
+      if (lk === "email")            { set(k, recipient.email || ""); return; }
+      if (lk === "phone")            { set(k, recipient.phone || ""); return; }
+    }
+    if (type === "partner") {
+      if (lk === "studioname")       { set(k, recipient.name || ""); return; }
+      if (lk === "contactname")      { set(k, recipient.contact || ""); return; }
+      if (lk === "email")            { set(k, recipient.email || ""); return; }
+      if (lk === "phone")            { set(k, recipient.phone || ""); return; }
+      if (lk === "location")         { set(k, recipient.location || ""); return; }
+      if (lk === "avgattendance" || lk === "avgattendan") { set(k, recipient.avgAttendance != null ? String(recipient.avgAttendance) : ""); return; }
+      if (lk === "lastcontactdate")  { set(k, recipient.lastTouch ? fmtDate(recipient.lastTouch) : ""); return; }
+      if (lk === "sessionspermonth") { set(k, recipient.sessionsPerMonth != null ? String(recipient.sessionsPerMonth) : ""); return; }
+      if (lk === "revsplit")         { set(k, recipient.revShare || ""); return; }
+      if (lk === "referencestudio")  { set(k, recipient.name || ""); return; }
+    }
+    vals[k] = "";
+  });
+  return { vars: vals, autoFilledKeys: filled };
+}
+
+function applyTemplateVars(text, vars) {
+  return (text || "").replace(/\{\{([^}]+)\}\}/g, (_, k) => vars[k.trim()] || `{{${k.trim()}}}`);
+}
+
+function resolveRelationshipActionRecipient(action, data) {
+  const { db, record: r } = action;
+  if (!r) return null;
+  const clients  = data.clients  || [];
+  const partners = data.partners || [];
+
+  if (db === "clients") {
+    const client = clients.find(c => c.id === r.id) || r;
+    return { recipient: { ...client, _type: "client" }, type: "client" };
+  }
+  if (db === "partners") {
+    const partner = partners.find(p => p.id === r.id) || r;
+    return { recipient: { ...partner, _type: "partner" }, type: "partner" };
+  }
+  if (db === "followups") {
+    const client = clients.find(c => c.id === r.clientId);
+    if (client) return { recipient: { ...client, _type: "client" }, type: "client" };
+    return { recipient: { id: r.clientId || r.id, name: r.name || "Client", email: "", _type: "client" }, type: "client" };
+  }
+  if (db === "referrals") {
+    if (action.id.startsWith("rty_")) {
+      const referrer = clients.find(c => c.id === r.referrerId);
+      if (referrer) return { recipient: { ...referrer, _type: "client" }, type: "client" };
+    }
+    if (action.id.startsWith("rnc_")) {
+      if (r.referredId) {
+        const referred = clients.find(c => c.id === r.referredId);
+        if (referred) return { recipient: { ...referred, _type: "client" }, type: "client" };
+      }
+      return { recipient: { id: `${r.id}_referred`, name: r.referredName || "Referred contact", email: "", _type: "client", _pseudo: true }, type: "client" };
+    }
+  }
+  return null;
+}
+
+function suggestEmailTemplatesForAction(action, templates) {
+  const email = (templates || []).filter(t => t.channel === "Email");
+  const cats = action.id.startsWith("pi_")
+    ? ["Studio Outreach", "Engagement"]
+    : ["Engagement", "Post-Session", "Sales & Offers"];
+  const matched = email.filter(t => cats.includes(t.category));
+  return matched.length ? matched : email;
+}
+
 /* ── Expenses ── */
 const EXPENSE_CATEGORY = [
   "Equipment & Supplies","Software & Subscriptions","Marketing & Advertising",
@@ -465,6 +552,19 @@ const EQUIP_CHECKLIST_PHASES = [
 ];
 const EQUIP_CHECKLIST = EQUIP_CHECKLIST_PHASES.flatMap(p => p.items.map(i => ({ ...i, phase: p.id })));
 const emptyEquipChecklist = () => Object.fromEntries(EQUIP_CHECKLIST.map(i => [i.id, false]));
+
+/** Equip items shown under Pre-Session in VirtualSessionChecklist (not the Virtual Setup phase block) */
+const VIRTUAL_PRE_SESSION_MOVED_EQUIP_IDS = new Set([
+  "eq_camera", "eq_do_not_disturb",
+  "eq_playlist_v", "eq_wifi_v",
+]);
+
+function virtualEquipPhaseItems(phaseId) {
+  const phase = EQUIP_CHECKLIST_PHASES.find((p) => p.id === phaseId);
+  if (!phase) return [];
+  return phase.items.filter((i) => i.virtual && !VIRTUAL_PRE_SESSION_MOVED_EQUIP_IDS.has(i.id));
+}
+
 const SESSION_CHECKLIST_PHASES = ["Pre-Session", "Post-Session"];
 const SESSION_PHASE_COLOR = { "Pre-Session": C.brand, "Post-Session": "#4A8C6F" };
 const emptySessionChecklist = () => Object.fromEntries(SESSION_CHECKLIST.map((i) => [i.id, false]));
@@ -1339,6 +1439,25 @@ function LockScreen({ onUnlock, error, initialising, users }) {
 }
 
 const DISMISSED_ALERTS_KEY = "sb:dismissed-alerts:v1";
+
+class DrawerErrorBoundary extends React.Component {
+  state = { error: null };
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="sb-drawerwrap" onClick={this.props.onClose}>
+          <div className="sb-drawer" onClick={(e) => e.stopPropagation()} style={{ padding: 24 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: C.ink, marginBottom: 8 }}>Could not open this record</div>
+            <div style={{ fontSize: 13, color: C.ink3, marginBottom: 16 }}>{this.state.error?.message || "Something went wrong loading the drawer."}</div>
+            <button className="sb-primary" onClick={this.props.onClose}>Close</button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export default function App() {
   const [data, setData] = useState(SEED);
@@ -2445,7 +2564,7 @@ export default function App() {
 
           <div className="sb-content">
             {section === "today"
-              ? <Today data={data} derived={derived} today={today} onOpen={setOpen} onGo={go} />
+              ? <Today data={data} derived={derived} today={today} onOpen={setOpen} onGo={go} setData={setData} currentUser={currentUser} canEdit={can.edit} />
               : section === "engine"
               ? <FollowUpEngine data={data} setData={setData} today={today} onOpen={setOpen} canEdit={can.edit} />
               :               <Section section={section} data={data} derived={derived} today={today}
@@ -2456,15 +2575,22 @@ export default function App() {
       </div>
 
       {open && (
-        <RecordDrawer db={open.db} record={open.record} data={data} derived={derived} today={today}
-          crmSettings={crmSettings}
-          onClose={() => setOpen(null)} onSave={can.edit ? (rec) => { saveRecord(open.db, rec); setOpen(null); } : null}
-          onDelete={can.delete ? (id) => setConfirm({
-            message: `Delete this record? This action cannot be undone.`,
-            okLabel: "Delete", danger: true,
-            onOk: () => deleteRecord(open.db, id),
-          }) : null} onOpenRelated={setOpen}
-          sequences={data.sequences || []} onStartSequence={can.edit ? startSequence : null} />
+        <DrawerErrorBoundary onClose={() => setOpen(null)}>
+          <RecordDrawer
+            key={`${open.db}:${open.record?.id}:${open.initialTab || "details"}`}
+            db={open.db} record={open.record} data={data} derived={derived} today={today}
+            crmSettings={crmSettings} initialTab={open.initialTab}
+            actionContact={open.actionContact}
+            setData={setData}
+            onClose={() => setOpen(null)} onSave={can.edit ? (rec) => { saveRecord(open.db, rec); setOpen(null); } : null}
+            onDelete={can.delete ? (id) => setConfirm({
+              message: `Delete this record? This action cannot be undone.`,
+              okLabel: "Delete", danger: true,
+              onOk: () => deleteRecord(open.db, id),
+            }) : null} onOpenRelated={(args) => setOpen(args)}
+            sequences={data.sequences || []} onStartSequence={can.edit ? startSequence : null}
+          />
+        </DrawerErrorBoundary>
       )}
 
       {importing && <ImportModal data={data} setData={setData} onClose={() => setImporting(false)} />}
@@ -2525,6 +2651,100 @@ const LANE = {
 };
 const URGENCY_DOT = { high: "#C0573F", medium: C.gold, low: C.ink3 };
 
+function sessionIsVirtual(s) {
+  return !s.studioId && (s.locationType === "zoom" || s.locationType === "custom" || !s.locationType);
+}
+
+function sessionActionLocation(s, derived) {
+  if (sessionIsVirtual(s)) return "Virtual";
+  const studio = derived.partnerName[s.studioId];
+  return studio ? cleanName(studio) : "—";
+}
+
+function sessionVirtualPreSessionComplete(s, data) {
+  const equip = s.equipChecklist || {};
+  // Match VirtualSessionChecklist "Virtual Setup" phase — not the merged Pre-Session block
+  const virtualSetupItems = virtualEquipPhaseItems("virtual_setup");
+  if (!virtualSetupItems.every((i) => equip[i.id])) return false;
+  const regs = (data.registrations || []).filter(
+    (r) => r.sessionId === s.id && r.status !== "cancelled" && r.status !== "canceled"
+  );
+  if (regs.some((r) => r.paymentStatus === "unpaid")) return false;
+  return true;
+}
+
+function sessionStudioPreSessionComplete(s, data) {
+  const checklist = s.checklist || {};
+  const setupReady = s.roomSetupStatus === "Ready" || checklist.room_setup_done || checklist.tech_room_setup;
+  const audioReady = s.musicSetupStatus === "Ready" || checklist.audio_tested;
+  if (!setupReady || !audioReady) return false;
+  const regs = (data.registrations || []).filter(
+    (r) => r.sessionId === s.id && r.status !== "cancelled" && r.status !== "canceled"
+  );
+  if (regs.some((r) => r.paymentStatus === "unpaid")) return false;
+  return true;
+}
+
+function sessionPreSessionComplete(s, data) {
+  return sessionIsVirtual(s)
+    ? sessionVirtualPreSessionComplete(s, data)
+    : sessionStudioPreSessionComplete(s, data);
+}
+
+function normalizeChecklistMap(cl, emptyFn) {
+  if (!cl || typeof cl !== "object" || Array.isArray(cl)) return emptyFn();
+  return cl;
+}
+
+/** Resolve a Next Best Action to a live record + optional drawer tab */
+function resolveActionOpen(action, data) {
+  const db = action.db;
+  if (!db || !action.record?.id) return null;
+  const list = data[db] || [];
+  let record = list.find((r) => r.id === action.record.id) || action.record;
+  if (db === "sessions") {
+    record = {
+      ...record,
+      checklist: normalizeChecklistMap(record.checklist, emptySessionChecklist),
+      equipChecklist: normalizeChecklistMap(record.equipChecklist, emptyEquipChecklist),
+    };
+  }
+  let initialTab;
+  if (db === "sessions" && (action.id.startsWith("tod_") || action.id.startsWith("tmr_"))) {
+    initialTab = "session-checklist";
+  } else if (db === "clients" && action.id.startsWith("nfu_")) {
+    initialTab = "timeline";
+  }
+  return { db, record, initialTab };
+}
+
+/** Client/partner phone + name for NBA revenue actions (follow-ups, offers, etc.) */
+function resolveActionContact(action, data) {
+  const { db, record: r } = action;
+  if (!r) return null;
+  const clients = data.clients || [];
+  const partners = data.partners || [];
+  if (db === "clients") {
+    const c = clients.find((x) => x.id === r.id) || r;
+    return { name: cleanName(c.name), phone: c.phone || "", email: c.email || "" };
+  }
+  if (db === "followups" || db === "offers") {
+    const c = clients.find((x) => x.id === r.clientId);
+    if (c) return { name: cleanName(c.name || r.name), phone: c.phone || "", email: c.email || "" };
+  }
+  if (db === "partners") {
+    const p = partners.find((x) => x.id === r.id) || r;
+    return { name: cleanName(p.contact || p.name), phone: p.phone || "", email: p.email || "" };
+  }
+  return null;
+}
+
+/** Map record db key → main nav section id (for NBA deep-links) */
+const NBA_SECTION_FOR_DB = {
+  sessions: "sessions", clients: "clients", partners: "partners",
+  followups: "followups", offers: "offers",
+};
+
 function buildActions(data, derived, today) {
   const daysBetween = (a, b) => (!a || !b) ? 0 : Math.round((new Date(b) - new Date(a)) / 86400000);
   const tomorrowISO = (() => { const d = new Date(today); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
@@ -2540,7 +2760,7 @@ function buildActions(data, derived, today) {
       const label = f.futype === "24h" ? "24-hour" : "72-hour";
       actions.push({ id: "fu_" + f.id, priority: d >= 2 ? 1 : 2, urgency: d >= 2 ? "high" : "medium", category: "revenue",
         text: `Call ${cleanName(client?.name || f.name)} — ${label} post-session follow-up ${d > 0 ? `${d} day${d !== 1 ? "s" : ""} overdue` : "due today"}`,
-        sub: `${label} follow-up · client since ${fmtDate(client?.firstSession) || "—"}`, db: "followups", record: f });
+        sub: `${label} follow-up · client since ${fmtDate(client?.firstSession) || "—"}${client?.phone ? ` · ${client.phone}` : ""}`, db: "followups", record: f });
     });
 
   // Open offers
@@ -2551,7 +2771,7 @@ function buildActions(data, derived, today) {
       const d = daysBetween(o.dateOffered, today);
       actions.push({ id: "off_" + o.id, priority: d >= 5 ? 2 : 3, urgency: d >= 5 ? "high" : "medium", category: "revenue",
         text: `Follow up with ${cleanName(client?.name || o.name)} — open ${o.offerType} offer${d ? `, offered ${d} day${d !== 1 ? "s" : ""} ago` : ""}`,
-        sub: `${o.offerType} · ${money(o.price)} · offered ${fmtDate(o.dateOffered)}`, db: "offers", record: o });
+        sub: `${o.offerType} · ${money(o.price)} · offered ${fmtDate(o.dateOffered)}${client?.phone ? ` · ${client.phone}` : ""}`, db: "offers", record: o });
     });
 
   // Attended 1x — no rebook
@@ -2560,7 +2780,7 @@ function buildActions(data, derived, today) {
     .forEach((c) => {
       actions.push({ id: "reb_" + c.id, priority: 3, urgency: "medium", category: "revenue",
         text: `Rebook ${cleanName(c.name)} — attended once on ${fmtDate(c.lastSession)}, no next session set`,
-        sub: `Attended 1x · source: ${c.source} · ${c.referral} referral potential`, db: "clients", record: c });
+        sub: `Attended 1x · source: ${c.source} · ${c.referral} referral potential${c.phone ? ` · ${c.phone}` : ""}`, db: "clients", record: c });
     });
 
   // Leads with no follow-up at all
@@ -2569,7 +2789,7 @@ function buildActions(data, derived, today) {
     .forEach((c) => {
       actions.push({ id: "ld_" + c.id, priority: 4, urgency: "medium", category: "revenue",
         text: `Convert lead ${cleanName(c.name)} — no follow-up scheduled yet`,
-        sub: `Lead · ${c.source} · next session: ${fmtDate(c.nextSession) || "none"}`, db: "clients", record: c });
+        sub: `Lead · ${c.source} · next session: ${fmtDate(c.nextSession) || "none"}${c.phone ? ` · ${c.phone}` : ""}`, db: "clients", record: c });
     });
 
   // Studio partners needing next step
@@ -2579,7 +2799,7 @@ function buildActions(data, derived, today) {
     .forEach((p) => {
       actions.push({ id: "sp_" + p.id, priority: 3, urgency: "medium", category: "revenue",
         text: `Book next session with ${cleanName(p.name)} — ${p.stage.toLowerCase()}, no upcoming session`,
-        sub: `${p.stage} · contact: ${p.contact} · ${p.email}`, db: "partners", record: p });
+        sub: `${p.stage} · contact: ${p.contact} · ${p.email}${p.phone ? ` · ${p.phone}` : ""}`, db: "partners", record: p });
     });
 
   // Engaged clients (2-3x) — no package yet
@@ -2588,7 +2808,7 @@ function buildActions(data, derived, today) {
     .forEach((c) => {
       actions.push({ id: "pkg_" + c.id, priority: 4, urgency: "medium", category: "revenue",
         text: `Offer package to ${cleanName(c.name)} — ${c.sessionsAttended} sessions in, still on drop-in`,
-        sub: `Engaged · LTV: ${money(c.lifetimeValue)} · last seen: ${fmtDate(c.lastSession)}`, db: "clients", record: c });
+        sub: `Engaged · LTV: ${money(c.lifetimeValue)} · last seen: ${fmtDate(c.lastSession)}${c.phone ? ` · ${c.phone}` : ""}`, db: "clients", record: c });
     });
 
   // ── RELATIONSHIP ──────────────────────────────────────────────────────
@@ -2639,22 +2859,24 @@ function buildActions(data, derived, today) {
     });
 
   // ── DELIVERY ──────────────────────────────────────────────────────────
-  // Sessions today
+  // Sessions today — hide once pre-session checklist is complete
   data.sessions
-    .filter((s) => s.date === today)
+    .filter((s) => s.date === today && !sessionPreSessionComplete(s, data))
     .forEach((s) => {
+      const virtual = sessionIsVirtual(s);
       actions.push({ id: "tod_" + s.id, priority: 1, urgency: "high", category: "operational",
-        text: `Session today: ${cleanName(s.name)} — confirm room setup and payment link`,
-        sub: `${cleanName(derived.partnerName[s.studioId] || "unknown studio")} · ${today}`, db: "sessions", record: s });
+        text: `Session today: ${cleanName(s.name)} — confirm ${virtual ? "Zoom setup" : "room setup"} and payment link`,
+        sub: `${sessionActionLocation(s, derived)} · ${today}`, db: "sessions", record: s });
     });
 
-  // Sessions tomorrow
+  // Sessions tomorrow — hide once pre-session checklist is complete
   data.sessions
-    .filter((s) => s.date === tomorrowISO)
+    .filter((s) => s.date === tomorrowISO && !sessionPreSessionComplete(s, data))
     .forEach((s) => {
+      const virtual = sessionIsVirtual(s);
       actions.push({ id: "tmr_" + s.id, priority: 2, urgency: "medium", category: "operational",
-        text: `Session tomorrow: ${cleanName(s.name)} — run through setup checklist today`,
-        sub: `${cleanName(derived.partnerName[s.studioId] || "unknown studio")} · ${fmtDate(tomorrowISO)}`, db: "sessions", record: s });
+        text: `Session tomorrow: ${cleanName(s.name)} — run through ${virtual ? "virtual setup checklist" : "setup checklist"} today`,
+        sub: `${sessionActionLocation(s, derived)} · ${fmtDate(tomorrowISO)}`, db: "sessions", record: s });
     });
 
   // Attended clients with no follow-up within 4 days
@@ -2886,8 +3108,9 @@ function buildAlerts(data, today) {
         db: "partners", record: p });
     });
 
-  // 8 — Room/music setup not started for session < 7 days away
+  // 8 — Room/music setup not started for session < 7 days away (studio sessions only)
   sessions.filter(s => {
+    if (sessionIsVirtual(s)) return false;
     const away = daysAway(s.date);
     return away >= 0 && away <= 7 && (s.roomSetupStatus === "Not started" || s.musicSetupStatus === "Not started");
   }).forEach(s => {
@@ -3209,8 +3432,309 @@ function PipelineSnapshot({ data, today }) {
 
 const DISMISSED_ACTIONS_KEY = "sb:dismissed-actions:v1";
 
-function Today({ data, derived, today, onOpen, onGo }) {
+function ActionEmailModal({ action, data, setData, currentUser, onClose, onSent }) {
+  const templates = data.templates || [];
+  const clients   = data.clients   || [];
+  const partners  = data.partners  || [];
+  const suggested = useMemo(() => suggestEmailTemplatesForAction(action, templates), [action, templates]);
+
+  const resolved = useMemo(() => resolveRelationshipActionRecipient(action, data), [action, data]);
+  const [template, setTemplate] = useState(() => suggested[0] || templates.find(t => t.channel === "Email") || null);
+  const [recipient, setRecipient] = useState(() => resolved?.recipient || null);
+  const [recipientSearch, setRecipientSearch] = useState(() => {
+    const r = resolved?.recipient;
+    if (!r) return "";
+    return r._type === "partner" ? (r.contact || r.name || "") : cleanName(r.name || "");
+  });
+  const initialCompose = (() => {
+    const tmpl = suggested[0] || templates.find(t => t.channel === "Email") || null;
+    const recip = resolved?.recipient || null;
+    if (!tmpl || !recip) return { vars: {}, autoFilledKeys: new Set(), subjectEdit: tmpl?.subject || tmpl?.name || "" };
+    const varKeys = extractTemplateVars(tmpl);
+    const { vars: v, autoFilledKeys: k } = autoFillTemplateVars(varKeys, recip, recip._type, currentUser);
+    return { vars: v, autoFilledKeys: k, subjectEdit: applyTemplateVars(tmpl.subject || tmpl.name, v) };
+  })();
+  const [vars, setVars] = useState(initialCompose.vars);
+  const [autoFilledKeys, setAutoFilledKeys] = useState(initialCompose.autoFilledKeys);
+  const [subjectEdit, setSubjectEdit] = useState(initialCompose.subjectEdit);
+  const [bodyOverride, setBodyOverride] = useState(null);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
+
+  const applyTemplateToRecipient = useCallback((tmpl, recip, type) => {
+    if (!tmpl || !recip) return;
+    const varKeys = extractTemplateVars(tmpl);
+    const { vars: filled, autoFilledKeys: filledKeys } = autoFillTemplateVars(varKeys, recip, type, currentUser);
+    setVars(filled);
+    setAutoFilledKeys(filledKeys);
+    setSubjectEdit(applyTemplateVars(tmpl.subject || tmpl.name, filled));
+    setBodyOverride(null);
+  }, [currentUser]);
+
+  const populatedBody = template ? applyTemplateVars(template.body, vars) : "";
+
+  const manualVars = Object.keys(vars).filter(k => !autoFilledKeys.has(k));
+
+  const recipientResults = useMemo(() => {
+    const q = recipientSearch.toLowerCase().trim();
+    if (!q) return [];
+    const matchClients  = clients.filter(c => (c.name || "").toLowerCase().includes(q)).slice(0, 6).map(c => ({ ...c, _type: "client" }));
+    const matchPartners = partners.filter(p => (p.name || "").toLowerCase().includes(q) || (p.contact || "").toLowerCase().includes(q)).slice(0, 4).map(p => ({ ...p, _type: "partner" }));
+    return [...matchClients, ...matchPartners];
+  }, [recipientSearch, clients, partners]);
+
+  const selectRecipient = (r) => {
+    setRecipient(r);
+    setRecipientSearch(r._type === "partner" ? (r.contact || r.name || "") : cleanName(r.name || ""));
+    if (template) applyTemplateToRecipient(template, r, r._type);
+  };
+
+  const selectTemplate = (tmplId) => {
+    const tmpl = templates.find(t => t.id === tmplId);
+    if (!tmpl) return;
+    setTemplate(tmpl);
+    if (recipient) applyTemplateToRecipient(tmpl, recipient, recipient._type);
+    else {
+      const varKeys = extractTemplateVars(tmpl);
+      const emptyVars = Object.fromEntries(varKeys.map(k => [k, ""]));
+      setVars(emptyVars);
+      setAutoFilledKeys(new Set());
+      setSubjectEdit(tmpl.subject || tmpl.name || "");
+      setBodyOverride(null);
+    }
+  };
+
+  const send = async () => {
+    if (!template || !recipient?.email || sending) return;
+    setSending(true);
+    setError("");
+    const today = new Date().toISOString().slice(0, 10);
+    const finalSubject = subjectEdit || applyTemplateVars(template.subject || template.name, vars);
+    const finalBody = bodyOverride ?? populatedBody;
+
+    try {
+      const res = await fetch("/api/send-email", {
+        method: "POST",
+        headers: apiHeaders(),
+        body: JSON.stringify({
+          to: recipient.email,
+          recipientName: recipient._type === "partner"
+            ? (recipient.contact || recipient.name || "")
+            : cleanName(recipient.name || ""),
+          subject: finalSubject,
+          body: finalBody,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Send failed.");
+
+      const logEntry = {
+        id: `em_${Date.now()}`,
+        date: new Date().toISOString(),
+        templateId: template.id,
+        templateName: template.name,
+        category: template.category || "",
+        to: recipient.email,
+        recipientName: recipient._type === "partner"
+          ? (recipient.contact || recipient.name || "")
+          : cleanName(recipient.name || ""),
+        recipientType: recipient._type,
+        subject: finalSubject,
+        body: finalBody,
+        resendId: json.id || null,
+        sendStatus: "sent",
+      };
+
+      setData(d => {
+        let next = { ...d, emailLog: [...(d.emailLog || []), logEntry] };
+        next.templates = (next.templates || []).map(t =>
+          t.id === template.id ? { ...t, usageCount: (Number(t.usageCount) || 0) + 1 } : t
+        );
+        if (recipient._type === "partner") {
+          next.partners = (next.partners || []).map(p => p.id === recipient.id
+            ? { ...p, lastTouch: today, emailHistory: [...(p.emailHistory || []), logEntry] }
+            : p);
+        } else if (recipient._type === "client" && !recipient._pseudo) {
+          next.clients = (next.clients || []).map(c => c.id === recipient.id
+            ? { ...c, emailHistory: [...(c.emailHistory || []), logEntry] }
+            : c);
+        }
+        if (action.id.startsWith("rty_")) {
+          next.referrals = (next.referrals || []).map(r =>
+            r.id === action.record.id ? { ...r, thankYouSent: true } : r
+          );
+        }
+        if (action.id.startsWith("rnc_")) {
+          next.referrals = (next.referrals || []).map(r =>
+            r.id === action.record.id && r.status === "Referred" ? { ...r, status: "Contacted" } : r
+          );
+        }
+        if (action.id.startsWith("ref_")) {
+          next.followups = (next.followups || []).map(f =>
+            f.id === action.record.id ? { ...f, lastContact: today, outcome: "Email sent" } : f
+          );
+        }
+        return next;
+      });
+
+      setSent(true);
+      setTimeout(() => { onSent?.(); onClose(); }, 1500);
+    } catch (err) {
+      setError(err.message);
+    }
+    setSending(false);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1200, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background: C.surface, borderRadius: 16, boxShadow: "0 8px 48px rgba(0,0,0,0.22)", width: "100%", maxWidth: 720, maxHeight: "95vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ padding: "16px 20px 14px", borderBottom: `1px solid ${C.line}`, display: "flex", alignItems: "center", gap: 10 }}>
+          <Mail size={16} color="#2563EB" />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 14.5, color: C.ink }}>Send email</div>
+            <div style={{ fontSize: 11.5, color: C.ink3, marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{action.text}</div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, padding: 4 }}><X size={16} /></button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* Template picker */}
+          <div>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: C.ink3, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Message template</div>
+            <select
+              value={template?.id || ""}
+              onChange={e => selectTemplate(e.target.value)}
+              style={{ width: "100%", padding: "8px 10px", borderRadius: 9, border: `1px solid ${C.line}`, fontSize: 13, color: C.ink, background: "#fff" }}
+            >
+              {!template && <option value="">Select a template…</option>}
+              {suggested.map(t => (
+                <option key={t.id} value={t.id}>{t.name} ({t.category})</option>
+              ))}
+              {templates.filter(t => t.channel === "Email" && !suggested.some(s => s.id === t.id)).length > 0 && (
+                <optgroup label="Other templates">
+                  {templates.filter(t => t.channel === "Email" && !suggested.some(s => s.id === t.id)).map(t => (
+                    <option key={t.id} value={t.id}>{t.name} ({t.category})</option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+          </div>
+
+          {/* Recipient */}
+          <div style={{ position: "relative" }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: C.ink3, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Send to</div>
+            <div style={{ position: "relative" }}>
+              <Search size={14} color={C.ink3} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} />
+              <input
+                value={recipientSearch}
+                onChange={e => { setRecipientSearch(e.target.value); setRecipient(null); }}
+                placeholder="Search clients or studio partners…"
+                style={{ width: "100%", padding: "8px 10px 8px 32px", borderRadius: 9, border: `1px solid ${C.line}`, fontSize: 13, color: C.ink, background: "#fff", boxSizing: "border-box" }}
+              />
+            </div>
+            {recipientResults.length > 0 && !recipient && (
+              <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 4px 20px rgba(0,0,0,0.12)", zIndex: 10, marginTop: 4, overflow: "hidden" }}>
+                {recipientResults.map(r => (
+                  <div key={r.id} onClick={() => selectRecipient(r)}
+                    style={{ padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, borderBottom: `1px solid ${C.lineSoft || C.line}` }}
+                    onMouseEnter={e => e.currentTarget.style.background = C.surfaceAlt}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                    <div style={{ width: 30, height: 30, borderRadius: "50%", background: r._type === "partner" ? hexA("#D9892B", 0.15) : hexA(C.brand, 0.12), display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      {r._type === "partner" ? <Building2 size={14} color="#D9892B" /> : <Users size={14} color={C.brand} />}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{r._type === "partner" ? (r.contact || r.name) : cleanName(r.name)}</div>
+                      <div style={{ fontSize: 11.5, color: C.ink3 }}>{r.email || "No email on file"}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {recipient && (
+              <div style={{ marginTop: 8, display: "inline-flex", alignItems: "center", gap: 6, background: recipient._type === "partner" ? hexA("#D9892B", 0.1) : hexA(C.brand, 0.1), border: `1px solid ${recipient._type === "partner" ? "#F6D9A8" : hexA(C.brand, 0.3)}`, borderRadius: 20, padding: "4px 10px 4px 8px" }}>
+                {recipient._type === "partner" ? <Building2 size={11} color="#D9892B" /> : <Users size={11} color={C.brand} />}
+                <span style={{ fontSize: 12.5, fontWeight: 600 }}>{recipient._type === "partner" ? (recipient.contact || recipient.name) : cleanName(recipient.name)}</span>
+                <button onClick={() => { setRecipient(null); setRecipientSearch(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, padding: 0, display: "flex" }}><X size={12} /></button>
+              </div>
+            )}
+          </div>
+
+          {manualVars.length > 0 && recipient && (
+            <div style={{ background: "#F0F6FF", border: "1px solid #BFDBFE", borderRadius: 10, padding: "12px 14px" }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: "#2563EB", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>Fill in remaining variables</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 12px" }}>
+                {manualVars.map(k => (
+                  <div key={k}>
+                    <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#3D2DA0", marginBottom: 3 }}>{`{{${k}}}`}</label>
+                    <input
+                      value={vars[k] || ""}
+                      onChange={e => {
+                        const next = { ...vars, [k]: e.target.value };
+                        setVars(next);
+                        if (template) setSubjectEdit(applyTemplateVars(template.subject || template.name, next));
+                        setBodyOverride(null);
+                      }}
+                      style={{ width: "100%", padding: "6px 9px", borderRadius: 7, border: `1px solid ${C.line}`, fontSize: 12.5, boxSizing: "border-box" }}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {template && recipient && (
+            <>
+              <div>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: C.ink3, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Subject</div>
+                <input
+                  value={subjectEdit}
+                  onChange={e => setSubjectEdit(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 9, border: `1px solid ${C.line}`, fontSize: 13, boxSizing: "border-box" }}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: C.ink3, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", justifyContent: "space-between" }}>
+                  <span>Message — edit before sending</span>
+                  {bodyOverride !== null && (
+                    <button onClick={() => setBodyOverride(null)} style={{ fontSize: 11, fontWeight: 600, color: C.brand, background: "none", border: "none", cursor: "pointer", padding: 0 }}>Reset to template</button>
+                  )}
+                </div>
+                <textarea
+                  value={bodyOverride ?? populatedBody}
+                  onChange={e => setBodyOverride(e.target.value)}
+                  rows={10}
+                  style={{ width: "100%", boxSizing: "border-box", fontSize: 13, lineHeight: 1.7, borderRadius: 10, padding: "12px 14px", border: `1px solid ${C.line}`, resize: "vertical", fontFamily: "inherit", outline: "none" }}
+                />
+              </div>
+            </>
+          )}
+        </div>
+
+        <div style={{ padding: "12px 20px", borderTop: `1px solid ${C.line}`, background: C.surfaceAlt }}>
+          {error && <div style={{ fontSize: 12.5, color: "#C0392B", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><AlertCircle size={13} /> {error}</div>}
+          {!recipient?.email && recipient && (
+            <div style={{ fontSize: 12.5, color: "#D9892B", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+              <AlertCircle size={13} /> No email on file — add one to their record or pick a different recipient.
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button onClick={onClose} style={{ padding: "8px 18px", borderRadius: 8, border: `1px solid ${C.line}`, background: "transparent", fontSize: 13, fontWeight: 600, color: C.ink2, cursor: "pointer" }}>Cancel</button>
+            <button onClick={send} disabled={sending || sent || !template || !recipient?.email}
+              style={{ padding: "8px 22px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 700, cursor: sending || sent || !recipient?.email ? "not-allowed" : "pointer", background: sent ? "#4A8C6F" : "#2563EB", color: "#fff", display: "flex", alignItems: "center", gap: 6, opacity: !recipient?.email ? 0.5 : 1 }}>
+              {sent ? <><Check size={13} /> Sent!</> : sending ? <><RefreshCw size={13} style={{ animation: "spin 1s linear infinite" }} /> Sending…</> : <><Send size={13} /> Send Email</>}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Today({ data, derived, today, onOpen, onGo, setData, currentUser, canEdit }) {
   const [showAll, setShowAll] = useState(null); // null | "revenue" | "relationship" | "operational"
+  const [emailAction, setEmailAction] = useState(null);
   const [dismissedActions, setDismissedActions] = useState(() => {
     try {
       const stored = localStorage.getItem(DISMISSED_ACTIONS_KEY);
@@ -3305,7 +3829,19 @@ function Today({ data, derived, today, onOpen, onGo }) {
                         borderBottom: i < shown.length - 1 ? `1px solid ${C.lineSoft}` : "none",
                       }}>
                       <button
-                        onClick={() => a.record ? onOpen({ db: a.db, record: a.record }) : null}
+                        onClick={() => {
+                          if (cat === "relationship" && a.record && canEdit) {
+                            setEmailAction(a);
+                          } else if (a.record) {
+                            const target = resolveActionOpen(a, data);
+                            if (target) {
+                              const nav = NBA_SECTION_FOR_DB[target.db];
+                              if (nav) onGo(nav);
+                              const actionContact = cat === "revenue" ? resolveActionContact(a, data) : null;
+                              onOpen(actionContact ? { ...target, actionContact } : target);
+                            }
+                          }
+                        }}
                         style={{
                           flex: 1, display: "flex", alignItems: "flex-start", gap: 9,
                           padding: "11px 6px 11px 13px",
@@ -3368,6 +3904,17 @@ function Today({ data, derived, today, onOpen, onGo }) {
           })}
         </div>
       </div>
+
+      {emailAction && canEdit && (
+        <ActionEmailModal
+          action={emailAction}
+          data={data}
+          setData={setData}
+          currentUser={currentUser}
+          onClose={() => setEmailAction(null)}
+          onSent={() => dismissAction(emailAction.id)}
+        />
+      )}
 
       {/* Stats */}
       <div className="sb-stats">
@@ -3608,6 +4155,25 @@ const clientCell = {
   tags: (r) => <TagList tags={r.tags} />,
 };
 
+function registrationSessionTimestamp(reg, data) {
+  if (reg.scheduledAt) {
+    const t = Date.parse(reg.scheduledAt);
+    if (!Number.isNaN(t)) return t;
+  }
+  if (reg.sessionId && data?.sessions) {
+    const s = data.sessions.find(x => x.id === reg.sessionId);
+    if (s?.date) {
+      const t = Date.parse(`${s.date}T${(s.time || "00:00").slice(0, 5)}`);
+      if (!Number.isNaN(t)) return t;
+    }
+  }
+  return 0;
+}
+
+function sortRegistrationsBySessionTime(rows, data) {
+  return [...rows].sort((a, b) => registrationSessionTimestamp(b, data) - registrationSessionTimestamp(a, data));
+}
+
 const VIEWS = {
   workflows: {
     views: [{ name: "All workflows", layout: "workflows" }],
@@ -3698,23 +4264,18 @@ const VIEWS = {
         columns: [
           col("scheduledAt", "Session Date/Time", r => r.scheduledAt ? new Date(r.scheduledAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"),
           col("clientId",    "Client",       (r, ctx) => { const c = (ctx.data.clients||[]).find(x => x.id === r.clientId); return c ? <strong style={{color:C.ink}}>{cleanName(c.name)}</strong> : <span style={{color:C.ink3}}>—</span>; }),
+          col("email",       "Email",        (r, ctx) => { const c = (ctx.data.clients||[]).find(x => x.id === r.clientId); return c?.email ? <a href={`mailto:${c.email}`} style={{ color: C.brand }} onClick={e => e.stopPropagation()}>{c.email}</a> : "—"; }),
           col("eventName",   "Event",        r => r.eventName || "—"),
           col("status",      "Status",       r => {
             const clr = { booked: C.brand, attended: "#4A8C6F", canceled: "#C0573F", rescheduled: C.gold, no_show: "#8A96AC" }[r.status] || C.ink3;
             return <span style={{fontSize:12,padding:"2px 8px",borderRadius:8,background:hexA(clr,0.12),color:clr,fontWeight:600}}>{r.status}</span>;
           }),
-          col("paymentStatus","Payment",     r => {
-            const clr = { paid: "#4A8C6F", unpaid: "#C0573F", unknown: C.ink3 }[r.paymentStatus] || C.ink3;
-            return <span style={{fontSize:12,padding:"2px 8px",borderRadius:8,background:hexA(clr,0.12),color:clr,fontWeight:600}}>{r.paymentStatus}</span>;
-          }),
           col("waiverStatus", "Waiver",      r => r.waiverStatus === "signed"
             ? <span style={{color:"#4A8C6F",fontWeight:700}}>✓ Signed</span>
             : <span style={{color:C.ink3}}>Pending</span>),
           col("attendanceType","Attendance", r => r.attendanceType || "—"),
-          col("locationType", "Location",   r => r.locationType || "—"),
-          col("howHeard",     "How Heard",  r => r.howHeard || "—"),
         ],
-        run: (rows) => ({ rows: [...rows].sort((a,b) => (b.scheduledAt||"").localeCompare(a.scheduledAt||"")) }),
+        run: (rows, ctx) => ({ rows: sortRegistrationsBySessionTime(rows, ctx.data) }),
       },
       {
         name: "Pending Waivers", layout: "table",
@@ -3726,7 +4287,7 @@ const VIEWS = {
           col("waiverStatus","Waiver",       r => <span style={{color:"#C0573F",fontWeight:600}}>⚠ Pending</span>),
           col("concerns",    "Concerns",     r => r.concerns || "—"),
         ],
-        run: (rows) => ({ rows: rows.filter(r => r.waiverStatus !== "signed" && r.status !== "canceled") }),
+        run: (rows, ctx) => ({ rows: sortRegistrationsBySessionTime(rows.filter(r => r.waiverStatus !== "signed" && r.status !== "canceled"), ctx.data) }),
       },
       {
         name: "Unpaid", layout: "table",
@@ -3737,7 +4298,7 @@ const VIEWS = {
           col("status",      "Booking",      r => r.status),
           col("paymentStatus","Payment",     r => <span style={{color:"#C0573F",fontWeight:700}}>Unpaid</span>),
         ],
-        run: (rows) => ({ rows: rows.filter(r => r.paymentStatus === "unpaid" && r.status !== "canceled") }),
+        run: (rows, ctx) => ({ rows: sortRegistrationsBySessionTime(rows.filter(r => r.paymentStatus === "unpaid" && r.status !== "canceled"), ctx.data) }),
       },
       {
         name: "Cancellations", layout: "table",
@@ -3752,7 +4313,7 @@ const VIEWS = {
           col("howHeard",    "How Heard",    r => r.howHeard || "—"),
           col("referredBy",  "Referred By",  r => r.referredBy || "—"),
         ],
-        run: (rows) => ({ rows: rows.filter(r => r.status === "canceled" || r.status === "rescheduled").sort((a,b) => (b.scheduledAt||"").localeCompare(a.scheduledAt||"")) }),
+        run: (rows, ctx) => ({ rows: sortRegistrationsBySessionTime(rows.filter(r => r.status === "canceled" || r.status === "rescheduled"), ctx.data) }),
       },
     ],
   },
@@ -4806,14 +5367,36 @@ const FIELDS = {
 };
 function f(key, label, type, opts = {}) { return { key, label, type, ...opts }; }
 
-function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, onSave, onDelete, onOpenRelated, sequences, onStartSequence }) {
+function resolveDrawerTab(preferred, { db, isNew, hasTimeline, hasSessionTabs, hasChecklist }) {
+  if (!preferred || preferred === "details") return "details";
+  if (preferred === "timeline" && hasTimeline) return "timeline";
+  if (preferred === "checklist" && (hasChecklist || hasSessionTabs)) return "checklist";
+  if (hasSessionTabs && ["session-checklist", "bookings", "performance"].includes(preferred)) return preferred;
+  return "details";
+}
+
+function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, onSave, onDelete, onOpenRelated, sequences, onStartSequence, initialTab, setData, actionContact }) {
+  const isNew = !(data[db] || []).some((r) => r.id === record.id);
+  const hasTimeline = (db === "clients" || db === "partners") && !isNew;
+  const hasChecklist = db === "partners" && !isNew;
+  const hasSessionTabs = db === "sessions" && !isNew;
+  const tabCtx = { db, isNew, hasTimeline, hasSessionTabs, hasChecklist };
+  const pickTab = (t) => resolveDrawerTab(t, tabCtx);
+
   const [draft, setDraft] = useState(record);
-  const [tab, setTab] = useState("details");
+  const [tab, setTab] = useState(() => pickTab(initialTab));
   const [showJourneyDesc, setShowJourneyDesc]       = useState(false);
   const [showCalendlyDesc, setShowCalendlyDesc]     = useState(false);
   const [fetchedCalendlyDesc, setFetchedCalendlyDesc] = useState(null); // null = not yet fetched
   const [fetchingCalendlyDesc, setFetchingCalendlyDesc] = useState(false);
-  useEffect(() => { setDraft(record); setTab("details"); setShowJourneyDesc(false); setShowCalendlyDesc(false); setFetchedCalendlyDesc(null); setFetchingCalendlyDesc(false); }, [record]);
+  useEffect(() => {
+    setDraft(record);
+    setTab(pickTab(initialTab));
+    setShowJourneyDesc(false);
+    setShowCalendlyDesc(false);
+    setFetchedCalendlyDesc(null);
+    setFetchingCalendlyDesc(false);
+  }, [record, initialTab, db, isNew]);
   const isVirtualDrawer = db === "sessions" && !record.studioId && (record.locationType === "zoom" || record.locationType === "custom" || !record.locationType);
 
   // For studio sessions keep "Registered Attendees" in sync with the actual
@@ -4834,19 +5417,26 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
     if (db === "clients") setDraft(d => ({ ...d, sessionsAttended: actualSessionsAttended }));
   }, [actualSessionsAttended, db]);
   const fields = FIELDS[db];
-  const titleField = fields.find((x) => x.title);
+  if (!fields) {
+    return (
+      <div className="sb-drawerwrap" onClick={onClose}>
+        <div className="sb-drawer" onClick={(e) => e.stopPropagation()}>
+          <div className="sb-drawerhead">
+            <span className="sb-eyebrow">Record</span>
+            <button className="sb-iconbtn" onClick={onClose}><X size={18} /></button>
+          </div>
+          <div className="sb-drawerbody"><Empty pad>Unknown record type: {db}</Empty></div>
+        </div>
+      </div>
+    );
+  }
+  const titleField = fields.find((x) => x.title) || fields[0] || { key: "name", label: "Name" };
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
-  const isNew = !(data[db] || []).some((r) => r.id === record.id);
-  const hasTimeline = (db === "clients" || db === "partners") && !isNew;
-  const hasChecklist = db === "partners" && !isNew;
-  const hasSessionTabs = db === "sessions" && !isNew;
-  const isVirtualSession = hasSessionTabs && !draft.studioId && (draft.locationType === "zoom" || draft.locationType === "custom" || !draft.locationType);
-
   // related records (used in details tab)
   const related = [];
   if (db === "clients") {
-    related.push({ label: "Offers", items: data.offers.filter((o) => o.clientId === draft.id), dbk: "offers", render: (o) => `${o.offerType} · ${money(o.price)} · ${o.status}` });
-    related.push({ label: "Follow-ups", items: data.followups.filter((x) => x.clientId === draft.id), dbk: "followups", render: (x) => `${x.futype} · ${fmtDate(x.nextAction)}${x.outcome ? " · done" : ""}` });
+    related.push({ label: "Offers", items: (data.offers || []).filter((o) => o.clientId === draft.id), dbk: "offers", render: (o) => `${o.offerType} · ${money(o.price)} · ${o.status}` });
+    related.push({ label: "Follow-ups", items: (data.followups || []).filter((x) => x.clientId === draft.id), dbk: "followups", render: (x) => `${x.futype} · ${fmtDate(x.nextAction)}${x.outcome ? " · done" : ""}` });
     const acc = derived.acceptedByClient[draft.id] || 0;
     related.unshift({ label: "Accepted offers total", note: money(acc) });
   }
@@ -4855,11 +5445,12 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
     related.push({ label: "Sessions", items: ses, dbk: "sessions", render: (s) => `${fmtDate(s.date)} · ${s.attendance} in room · ${money(s.netRevenue)} net` });
     if (ses.length) related.unshift({ label: "Logged", note: `${ses.length} sessions · avg ${Math.round(sum(ses, "attendance") / ses.length)} attending` });
   }
+  const isVirtualSession = hasSessionTabs && !draft.studioId && (draft.locationType === "zoom" || draft.locationType === "custom" || !draft.locationType);
 
   return (
-    <div className="sb-drawerwrap" onMouseDown={onClose}>
+    <div className="sb-drawerwrap" onClick={onClose}>
       <div className={"sb-drawer" + (hasTimeline && tab === "timeline" ? " sb-drawer-wide" : "")}
-        onMouseDown={(e) => e.stopPropagation()}>
+        onClick={(e) => e.stopPropagation()}>
 
         {/* Accent stripe */}
         <div style={{ height: 4, background: `linear-gradient(90deg, ${C.brand}, ${C.brandDeep})`, flexShrink: 0 }} />
@@ -4868,6 +5459,29 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
           <span className="sb-eyebrow">{isNew ? "New" : "Edit"} · {sectionLabel(db)}</span>
           <button className="sb-iconbtn" onClick={onClose}><X size={18} /></button>
         </div>
+
+        {actionContact?.phone && (
+          <div style={{
+            padding: "12px 22px", background: C.brandMist, borderBottom: `1px solid ${C.line}`,
+            display: "flex", alignItems: "center", gap: 12, flexShrink: 0,
+          }}>
+            <div style={{
+              width: 36, height: 36, borderRadius: "50%", background: C.brand,
+              display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+            }}>
+              <Phone size={16} color="#fff" strokeWidth={2} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.brand, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                {actionContact.name ? `Call ${actionContact.name}` : "Phone"}
+              </div>
+              <a href={`tel:${String(actionContact.phone).replace(/[^\d+]/g, "")}`}
+                style={{ fontSize: 16, fontWeight: 700, color: C.ink, textDecoration: "none", letterSpacing: 0.3 }}>
+                {actionContact.phone}
+              </a>
+            </div>
+          </div>
+        )}
 
         {/* Title + tab switcher */}
         <div style={{ padding: "14px 22px 0", borderBottom: `1px solid ${C.line}` }}>
@@ -4925,10 +5539,12 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                           // Persist it on the session record so it's available next time
                           if (desc) {
                             setDraft(d => ({ ...d, calendlyDescription: desc }));
-                            setData(prev => ({
-                              ...prev,
-                              sessions: (prev.sessions || []).map(s => s.id === draft.id ? { ...s, calendlyDescription: desc } : s),
-                            }));
+                            if (setData) {
+                              setData(prev => ({
+                                ...prev,
+                                sessions: (prev.sessions || []).map(s => s.id === draft.id ? { ...s, calendlyDescription: desc } : s),
+                              }));
+                            }
                           }
                         })
                         .catch(() => setFetchedCalendlyDesc(""))
@@ -5159,7 +5775,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                       {isVirtual && sessionClient && (
                         <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 10, background: C.surfaceAlt, border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 14px" }}>
                           <div style={{ width: 34, height: 34, borderRadius: "50%", background: C.brand, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: "#fff", flexShrink: 0 }}>
-                            {sessionClient.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
+                            {(sessionClient.name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
                           </div>
                           <div>
                             <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{cleanName(sessionClient.name)}</div>
@@ -5577,10 +6193,7 @@ function VirtualSessionChecklist({ equipChecklist, onEquipChange, checklist, onC
   const pct        = total ? Math.round((totalDone / total) * 100) : 0;
 
   // Items pulled from their equipment phases into the merged Pre-Session section
-  const virtualPreSessionEquipIds = new Set([
-    "eq_camera", "eq_do_not_disturb",   // from Virtual Setup
-    "eq_playlist_v", "eq_wifi_v",        // from Content & Tech
-  ]);
+  const virtualPreSessionEquipIds = VIRTUAL_PRE_SESSION_MOVED_EQUIP_IDS;
 
   const criticalIds     = ["eq_zoom_tested", "eq_headset_v", "eq_do_not_disturb", "eq_contraindication"];
   const criticalMissing = criticalIds.filter(id => !equipChecklist[id]);
@@ -7016,8 +7629,8 @@ function tlEvent(date, type, title, detail, extra = {}) {
 
 function buildClientTimeline(record, data, today) {
   const events = [];
-  const clientOffers = data.offers.filter((o) => o.clientId === record.id);
-  const clientFUs = data.followups.filter((f) => f.clientId === record.id);
+  const clientOffers = (data.offers || []).filter((o) => o.clientId === record.id);
+  const clientFUs = (data.followups || []).filter((f) => f.clientId === record.id);
 
   // First contact / lead added
   const firstDate = record.firstSession || record.nextSession || "";
@@ -7092,7 +7705,7 @@ function buildClientTimeline(record, data, today) {
       { label: "Sessions",      value: `${record.sessionsAttended || 0} attended` },
       { label: "Package",       value: record.packageType || "None" },
       { label: "Lifetime value",value: money(record.lifetimeValue || 0) },
-      { label: "Referral",      value: record.referral + " potential", accent: REFERRAL_COLOR[record.referral] },
+      { label: "Referral",      value: (record.referral || "—") + " potential", accent: REFERRAL_COLOR[record.referral] },
       { label: "Open offers",   value: clientOffers.filter((o) => OPEN_STATUSES.includes(o.status)).length + " pending" },
       { label: "Intent tags",   value: (record.tags || []).join(", ") || "None set" },
       { label: "Testimonial",   value: isAdvocate ? "Advocate — request now" : highReferral ? "High potential — not yet requested" : "Not yet requested" },

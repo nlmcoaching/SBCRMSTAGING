@@ -182,9 +182,11 @@ Your three most important actions for today, organized into three columns:
 
 - **Revenue** — Follow up on expiring offers, chase unpaid sessions, re-engage clients who haven't rebooked
 - **Relationship** — Thank referral sources, check in with studios, request testimonials
-- **Operational** — Sessions happening today, missing waivers, setup checklists not started
+- **Operational** — Sessions happening today or tomorrow (auto-clear when the session **Virtual Setup** checklist is complete), missing waivers, setup checklists not started
 
-These are ranked automatically based on urgency and due dates. Click any action to open the related record. Use the **× button** on the right side of each action to dismiss it for the day — dismissed actions reset automatically at midnight.
+These are ranked automatically based on urgency and due dates. **Relationship** actions open an email compose window when clicked — the person is pre-selected, you pick a message template from the dropdown, edit the subject and body if needed, then send. **Revenue** actions open the related record with a **Call** banner at the top showing the person's phone number (tap to dial on your phone). **Operational** actions open the related record as before. Use the **× button** on the right side of each action to dismiss it for the day — dismissed actions reset automatically at midnight.
+
+For **virtual sessions today or tomorrow**, the action clears when the **Virtual Setup** section on the Session Checklist is fully ticked (Zoom audio/video tested + headset charged and tested) and no linked booking is marked unpaid. Other Pre-Session items (space, camera, playlist, etc.) are separate and do not block this action. Click **Save** after ticking items.
 
 ---
 
@@ -515,10 +517,10 @@ All bookings that come through Calendly are automatically marked as **waiver sig
 
 | View | What it shows |
 |---|---|
-| All Bookings | Every registration, newest first |
-| Pending Waivers | Manually-created registrations without a signed waiver |
-| Unpaid | Clients who haven't paid |
-| Cancellations | Canceled and rescheduled bookings |
+| All Bookings | Every registration (session date, client, email, event, status, waiver, attendance), newest session first |
+| Pending Waivers | Manually-created registrations without a signed waiver, newest session first |
+| Unpaid | Clients who haven't paid, newest session first |
+| Cancellations | Canceled and rescheduled bookings, newest session first |
 
 ### Session Descriptions from Calendly
 
