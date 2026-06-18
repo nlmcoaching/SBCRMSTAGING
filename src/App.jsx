@@ -4990,6 +4990,20 @@ function cardChip(k, r, ctx) {
 /* ============================================================
    CALENDAR (month)
    ============================================================ */
+function sessionStartSortKey(session) {
+  if (session.date && session.time) {
+    const t = Date.parse(`${session.date} ${session.time}`);
+    if (!Number.isNaN(t)) return t;
+    const t24 = Date.parse(`${session.date}T${session.time.slice(0, 5)}`);
+    if (!Number.isNaN(t24)) return t24;
+  }
+  if (session.date) {
+    const t = Date.parse(`${session.date}T23:59:59`);
+    if (!Number.isNaN(t)) return t;
+  }
+  return Number.MAX_SAFE_INTEGER;
+}
+
 function CalendarView({ rows, today, derived, data, onOpen }) {
   const [cursor, setCursor] = useState(today.slice(0, 7));
   const [calSearch, setCalSearch] = useState("");
@@ -5021,6 +5035,7 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
 
   const byDay = {};
   filteredRows.forEach((s) => { if (s.date && s.date.slice(0, 7) === cursor) (byDay[Number(s.date.slice(8, 10))] ||= []).push(s); });
+  Object.values(byDay).forEach((daySessions) => daySessions.sort((a, b) => sessionStartSortKey(a) - sessionStartSortKey(b)));
   const shift = (n) => { let mm = m + n, yy = y; if (mm < 1) { mm = 12; yy--; } if (mm > 12) { mm = 1; yy++; } setCursor(`${yy}-${String(mm).padStart(2, "0")}`); };
   const cells = [];
   for (let i = 0; i < startDow; i++) cells.push(null);

@@ -585,7 +585,7 @@ Intended for sharing with the studio partner to show confirmed attendees. All va
 
 ### Views Available
 
-- **Calendar** — Monthly calendar showing all sessions. Pills display `Studio · Journey` for studio sessions and `Client · Journey` for virtual/Calendly sessions. The calendar tab has a **dedicated search bar** that filters visible sessions by client name, studio name, or journey name. The global header search bar is hidden when the calendar tab is active to avoid redundancy.
+- **Calendar** — Monthly calendar showing all sessions. Pills display `Studio · Journey` for studio sessions and `Client · Journey` for virtual/Calendly sessions. Within each day cell, pills are sorted by session start time (earliest first). The calendar tab has a **dedicated search bar** that filters visible sessions by client name, studio name, or journey name. The global header search bar is hidden when the calendar tab is active to avoid redundancy.
 - **Performance** — Revenue and attendance analytics
 - **Revenue Leaderboard** — Sessions ranked by revenue
 - **Conversion** — Package and offer conversion rates

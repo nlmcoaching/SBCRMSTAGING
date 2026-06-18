@@ -385,7 +385,7 @@ Check items off before you leave for the venue. This ensures you never forget so
 
 ### Session Calendar View
 
-The Sessions calendar shows one month at a time. Each session appears as a colored pill. The color tells you the session type at a glance — a **legend in the top-right corner** of the calendar explains it:
+The Sessions calendar shows one month at a time. Each session appears as a colored pill. On days with multiple sessions, pills are listed **earliest start time first**. The color tells you the session type at a glance — a **legend in the top-right corner** of the calendar explains it:
 
 - **Purple pill — Studio session:** `Studio Name · Journey · X spots left`
   - The left edge of the pill turns **red** when only 3 or fewer spots remain — a quick visual alert that the session is nearly full
