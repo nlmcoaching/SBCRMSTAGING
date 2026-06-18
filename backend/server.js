@@ -496,6 +496,56 @@ app.post("/api/calendly/acknowledge", requireFrontendSecret, async (req, res) =>
   res.json({ acknowledged: ids.length });
 });
 
+// ────────────────────────────────────────────────────────────────
+// GET /api/calendly/event-description
+// Fetch the event-type description for a scheduled event URI.
+// The frontend calls this when a studio session has no stored description.
+// Query params (one required):
+//   ?eventUri=https://api.calendly.com/scheduled_events/<uuid>
+//   ?eventTypeUri=https://api.calendly.com/event_types/<uuid>
+// ────────────────────────────────────────────────────────────────
+app.get("/api/calendly/event-description", requireFrontendSecret, async (req, res) => {
+  const token = process.env.CALENDLY_API_TOKEN;
+  if (!token) {
+    return res.status(503).json({ error: "CALENDLY_API_TOKEN not configured" });
+  }
+
+  let { eventUri, eventTypeUri } = req.query;
+
+  // Basic SSRF guard
+  const CALENDLY_BASE = "https://api.calendly.com/";
+  const isValidUri = (u) => typeof u === "string" && u.startsWith(CALENDLY_BASE) && u.length <= 300;
+
+  if (!eventUri && !eventTypeUri) {
+    return res.status(400).json({ error: "Provide eventUri or eventTypeUri" });
+  }
+
+  try {
+    // If we only have the scheduled-event URI, resolve it to the event-type URI first
+    if (!eventTypeUri) {
+      if (!isValidUri(eventUri)) return res.status(400).json({ error: "Invalid eventUri" });
+      const evtRes = await fetch(eventUri, {
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      if (!evtRes.ok) {
+        return res.status(evtRes.status).json({ error: `Calendly API returned ${evtRes.status}` });
+      }
+      const evtData = await evtRes.json();
+      eventTypeUri = evtData.resource?.event_type || "";
+    }
+
+    if (!isValidUri(eventTypeUri)) {
+      return res.status(400).json({ error: "Could not resolve a valid event_type URI" });
+    }
+
+    const description = await fetchEventTypeDescription(eventTypeUri);
+    res.json({ description });
+  } catch (err) {
+    console.warn("[WARN] /api/calendly/event-description error:", err.message);
+    res.status(500).json({ error: "Failed to fetch description" });
+  }
+});
+
 // ── Admin token guard (for debug endpoints) ──
 function requireAdminToken(req, res, next) {
   const token = process.env.ADMIN_SECRET;

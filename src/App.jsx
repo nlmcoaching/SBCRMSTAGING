@@ -4417,16 +4417,25 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
     return Math.max(0, cap - reg);
   };
 
+  const stripStudioPrefix = (label, studioName) => {
+    if (!studioName || !label) return label;
+    // Remove "Studio Name - " or "Studio Name – " prefix (case-insensitive)
+    const escaped = studioName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return label.replace(new RegExp(`^${escaped}\\s*[-–]\\s*`, "i"), "").trim() || label;
+  };
+
   const pillLabel = (s) => {
     const partner = derived.partnerName[s.studioId] ? cleanName(derived.partnerName[s.studioId]) : "";
     const clientName = sessionClientName[s.id] || "";
     const rawName = cleanName(s.name);
-    const journeyLabel = partner
+    let journeyLabel = partner
       ? (s.journey || rawName)
       : (rawName.includes(" - ") ? rawName.slice(rawName.indexOf(" - ") + 3) : rawName);
+    // Strip the studio name prefix if it leaked into the journey/name field
+    if (partner) journeyLabel = stripStudioPrefix(journeyLabel, partner);
     const spots = spotsLeft(s);
     const spotsTag = spots != null ? `${spots} spot${spots !== 1 ? "s" : ""} left` : "";
-    // Studio: Studio · Journey · spots left  |  Virtual: Client · Journey
+    // Studio: Studio · Location · spots left  |  Virtual: Client · Journey
     const parts = partner
       ? [partner, journeyLabel, spotsTag]
       : [clientName, journeyLabel];
@@ -4739,8 +4748,11 @@ function f(key, label, type, opts = {}) { return { key, label, type, ...opts }; 
 function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, onSave, onDelete, onOpenRelated, sequences, onStartSequence }) {
   const [draft, setDraft] = useState(record);
   const [tab, setTab] = useState("details");
-  const [showJourneyDesc, setShowJourneyDesc] = useState(false);
-  useEffect(() => { setDraft(record); setTab("details"); setShowJourneyDesc(false); }, [record]);
+  const [showJourneyDesc, setShowJourneyDesc]       = useState(false);
+  const [showCalendlyDesc, setShowCalendlyDesc]     = useState(false);
+  const [fetchedCalendlyDesc, setFetchedCalendlyDesc] = useState(null); // null = not yet fetched
+  const [fetchingCalendlyDesc, setFetchingCalendlyDesc] = useState(false);
+  useEffect(() => { setDraft(record); setTab("details"); setShowJourneyDesc(false); setShowCalendlyDesc(false); setFetchedCalendlyDesc(null); setFetchingCalendlyDesc(false); }, [record]);
   const isVirtualDrawer = db === "sessions" && !record.studioId && (record.locationType === "zoom" || record.locationType === "custom" || !record.locationType);
 
   // For studio sessions keep "Registered Attendees" in sync with the actual
@@ -4818,7 +4830,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
           })()}
           <div style={{ marginBottom: 10 }}>
             <div style={{ position: "relative" }}>
-              <input className="sb-titleinput" style={{ width: "100%", paddingRight: isVirtualDrawer ? 32 : undefined }}
+              <input className="sb-titleinput" style={{ width: "100%", paddingRight: (isVirtualDrawer || isStudioSession) ? 32 : undefined }}
                 value={draft[titleField.key] || ""} placeholder="Untitled"
                 onChange={(e) => set(titleField.key, e.target.value)} />
               {isVirtualDrawer && (
@@ -4831,6 +4843,44 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                     border: `1.5px solid ${showJourneyDesc ? C.brand : C.line}`,
                     borderRadius: 6, cursor: "pointer", padding: "2px 6px",
                     color: showJourneyDesc ? "#fff" : C.ink3,
+                    fontSize: 12, fontWeight: 700, lineHeight: 1.4, transition: "all 0.15s",
+                  }}>
+                  {"\u24D8"}
+                </button>
+              )}
+              {isStudioSession && (
+                <button
+                  onClick={() => {
+                    const opening = !showCalendlyDesc;
+                    setShowCalendlyDesc(opening);
+                    // On first open, if no stored description and we have a Calendly event URI, fetch it
+                    if (opening && !draft.calendlyDescription && fetchedCalendlyDesc === null && draft.calendlyEventUri && !fetchingCalendlyDesc) {
+                      setFetchingCalendlyDesc(true);
+                      fetch(`/api/calendly/event-description?eventUri=${encodeURIComponent(draft.calendlyEventUri)}`, { headers: apiHeaders() })
+                        .then(r => r.json())
+                        .then(j => {
+                          const desc = j.description || "";
+                          setFetchedCalendlyDesc(desc);
+                          // Persist it on the session record so it's available next time
+                          if (desc) {
+                            setDraft(d => ({ ...d, calendlyDescription: desc }));
+                            setData(prev => ({
+                              ...prev,
+                              sessions: (prev.sessions || []).map(s => s.id === draft.id ? { ...s, calendlyDescription: desc } : s),
+                            }));
+                          }
+                        })
+                        .catch(() => setFetchedCalendlyDesc(""))
+                        .finally(() => setFetchingCalendlyDesc(false));
+                    }
+                  }}
+                  title="View Calendly event description"
+                  style={{
+                    position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
+                    background: showCalendlyDesc ? C.brand : "transparent",
+                    border: `1.5px solid ${showCalendlyDesc ? C.brand : C.line}`,
+                    borderRadius: 6, cursor: "pointer", padding: "2px 6px",
+                    color: showCalendlyDesc ? "#fff" : C.ink3,
                     fontSize: 12, fontWeight: 700, lineHeight: 1.4, transition: "all 0.15s",
                   }}>
                   {"\u24D8"}
@@ -4882,6 +4932,41 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                 </div>
               );
             })()}
+          {isStudioSession && showCalendlyDesc && (
+            <div style={{
+              marginTop: 8, borderRadius: 12,
+              border: `1px solid ${C.line}`,
+              background: C.surface,
+              overflow: "hidden",
+              boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
+            }}>
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "10px 14px", borderBottom: `1px solid ${C.line}`,
+                background: hexA(C.brand, 0.06),
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.brand, textTransform: "uppercase", letterSpacing: 0.6 }}>
+                  Calendly Event Description
+                </div>
+                <button onClick={() => setShowCalendlyDesc(false)}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, fontSize: 18, lineHeight: 1, padding: "2px 4px" }}>
+                  &times;
+                </button>
+              </div>
+              <div style={{ padding: "12px 14px", fontSize: 13, lineHeight: 1.7, whiteSpace: "pre-wrap", maxHeight: 260, overflowY: "auto" }}>
+                {fetchingCalendlyDesc
+                  ? <span style={{ color: C.ink3, fontStyle: "italic" }}>Fetching description from Calendly…</span>
+                  : (() => {
+                      const desc = draft.calendlyDescription || fetchedCalendlyDesc;
+                      if (desc) return <span style={{ color: C.ink }}>{desc}</span>;
+                      if (fetchedCalendlyDesc === "") return <span style={{ color: C.ink3, fontStyle: "italic" }}>No description found in Calendly for this event type.</span>;
+                      if (!draft.calendlyEventUri) return <span style={{ color: C.ink3, fontStyle: "italic" }}>No Calendly event URI stored — description unavailable.</span>;
+                      return <span style={{ color: C.ink3, fontStyle: "italic" }}>No description stored. Opening will fetch from Calendly automatically.</span>;
+                    })()
+                }
+              </div>
+            </div>
+          )}
           </div>
           {(hasTimeline || hasSessionTabs) && (
             <div style={{ display: "flex", gap: 2 }}>
