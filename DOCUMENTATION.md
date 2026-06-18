@@ -509,7 +509,7 @@ The "Emails Sent from CRM" summary card has been removed from the partner **Deta
 
 ## Sessions
 
-**Navigation:** Sidebar → Sessions (Core section)
+**Navigation:** Sidebar → Sessions (directly below Command Center, above B2B · Studios)
 
 ### Fields Tracked
 
@@ -907,7 +907,7 @@ This allows quick verification that the Net Revenue MTD card on the dashboard ma
 
 ## Testimonial Library
 
-**Navigation:** Sidebar → Testimonials (Core section, directly below Sessions)
+**Navigation:** Sidebar → Testimonials (Core section, first item below B2B and B2C lanes)
 
 ### Purpose
 
@@ -1033,7 +1033,7 @@ Clicking **Send Email** in the compose modal sends the message immediately via t
 
 ## Referral Tracking
 
-**Navigation:** Sidebar → Referrals (B2C lane)
+**Navigation:** Sidebar → Referrals (Core section, directly below Testimonials)
 
 ### Fields Tracked
 
@@ -1655,6 +1655,9 @@ See `backend/README.md` for manual setup instructions.
 
 Sections are grouped into three visual lanes rendered in this order:
 
+- Today (Command Center) — pinned at top
+- Sessions — pinned directly below Command Center, above B2B
+
 **B2B — Studio Partners** (teal left border accent)
 - Studio Partners
 - Outreach Hub
@@ -1662,18 +1665,16 @@ Sections are grouped into three visual lanes rendered in this order:
 **B2C — Personal Clients** (brand left border accent)
 - Clients
 - Follow-Ups
-- Referrals
 - Follow-up Engine
 
 **Core — Operations** (no accent, always visible)
-- Today (Command Center) — pinned at top
-- Sessions
 - Testimonials
+- Referrals
 - Offers & Sales
 - Revenue
 - Expenses
-- Calendly Bookings
 - Workflows
+- Calendly Bookings
 - Content Calendar
 - Templates
 - Admin

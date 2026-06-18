@@ -2350,7 +2350,6 @@ export default function App() {
     // B2C — individual clients
     { id: "clients",      label: "Clients",            Icon: Users,       lane: "b2c"  },
     { id: "followups",    label: "Follow-Ups",         Icon: RefreshCw,   lane: "b2c"  },
-    { id: "referrals",    label: "Referrals",          Icon: Users,       lane: "b2c"  },
     { id: "engine",       label: "Follow-up Engine",   Icon: Zap,         lane: "b2c"  },
     // B2B — studio partners
     { id: "partners", label: "Studio Partners",    Icon: Building2,   lane: "b2b"  },
@@ -2358,11 +2357,12 @@ export default function App() {
     // Shared — financial & ops
     { id: "sessions", label: "Sessions",           Icon: CalendarDays,lane: "core" },
     { id: "testimonials", label: "Testimonials",       Icon: ArrowUpRight, lane: "core" },
+    { id: "referrals",    label: "Referrals",          Icon: Users,       lane: "core" },
     { id: "offers",   label: "Offers & Sales",     Icon: DollarSign,  lane: "core" },
     { id: "revenue",  label: "Revenue",            Icon: TrendingUp,  lane: "core" },
     { id: "expenses", label: "Expenses",           Icon: BarChart2,   lane: "core" },
-    { id: "registrations", label: "Calendly Bookings", Icon: CalendarCheck, lane: "core" },
     { id: "workflows", label: "Workflows",        Icon: Milestone,   lane: "core" },
+    { id: "registrations", label: "Calendly Bookings", Icon: CalendarCheck, lane: "core" },
     { id: "content",   label: "Content Calendar",  Icon: Megaphone,   lane: "core" },
     { id: "templates", label: "Templates",          Icon: Copy,        lane: "core" },
     { id: "admin",     label: "Admin",              Icon: Shield,      lane: "core" },
@@ -2394,6 +2394,20 @@ export default function App() {
                   style={{ background: active ? C.brandSoft : "transparent", color: active ? C.brandDeep : C.ink2, fontWeight: active ? 600 : 500 }}>
                   <s.Icon size={17} strokeWidth={1.5} style={{ flexShrink: 0 }} />
                   <span style={{ flex: 1, textAlign: "left" }}>{s.label}</span>
+                </button>
+              );
+            })}
+
+            {/* Sessions — pinned above B2B */}
+            {sections.filter(s => s.id === "sessions").map(s => {
+              const active = section === s.id;
+              const count = (data[s.id] || []).length;
+              return (
+                <button key={s.id} onClick={() => go(s.id)} className="sb-navbtn"
+                  style={{ marginTop: 6, background: active ? C.brandSoft : "transparent", color: active ? C.brandDeep : C.ink2, fontWeight: active ? 600 : 500 }}>
+                  <s.Icon size={16} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+                  <span style={{ flex: 1, textAlign: "left" }}>{s.label}</span>
+                  {count > 0 && <span style={{ fontSize: 11, color: active ? C.brand : C.ink3 }}>{count}</span>}
                 </button>
               );
             })}
@@ -2447,7 +2461,7 @@ export default function App() {
             {/* Shared / core at bottom */}
             <div style={{ marginTop: 10 }}>
               <div style={{ height: 1, background: C.line, margin: "2px 6px 6px" }} />
-              {sections.filter(s => s.lane === "core" && s.id !== "today" && !s.parent).map(s => {
+              {sections.filter(s => s.lane === "core" && s.id !== "today" && s.id !== "sessions" && !s.parent).map(s => {
                 const active = section === s.id;
                 const count = (data[s.id] || []).length;
                 const children = sections.filter(c => c.parent === s.id);

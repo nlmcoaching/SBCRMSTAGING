@@ -71,7 +71,12 @@ If your PIN is correct, you'll go straight to the **Today — Command Center** d
 
 ### The Sidebar
 
-The left sidebar is your main navigation. It is organized into three groups:
+The left sidebar is your main navigation. At the top:
+
+| Section | What It's For |
+|---|---|
+| Command Center | Your daily dashboard and action list |
+| Sessions | Every breathwork session you've run or planned |
 
 **Studio Partners (B2B)**
 Everything related to studios and business-to-business relationships.
@@ -88,7 +93,6 @@ Everything related to individual clients and leads.
 |---|---|
 | Clients | All your individual clients and leads |
 | Follow-Ups | Manual follow-up records |
-| Referrals | Who's referring who and the value they generate |
 | Follow-up Engine | Automated post-session follow-up sequences |
 
 **Core — Operations**
@@ -96,14 +100,13 @@ System-wide tools that support everything else.
 
 | Section | What It's For |
 |---|---|
-| Today | Your daily dashboard and action list |
-| Sessions | Every breathwork session you've run or planned |
 | Testimonials | Client testimonials and social proof |
+| Referrals | Who's referring who and the value they generate |
 | Offers & Sales | Packages and proposals you've made to clients |
 | Revenue | Revenue tracking and attribution |
 | Expenses | Business expense tracking and P&L |
-| Calendly Bookings | Bookings synced automatically from Calendly |
 | Workflows | A visual view of your five core business pipelines |
+| Calendly Bookings | Bookings synced automatically from Calendly |
 | Content Calendar | Your content calendar and social post planning |
 | Templates | Pre-written email and SMS templates ready to use |
 | Admin | System health, database info, and backup tools |
