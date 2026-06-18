@@ -7791,8 +7791,8 @@ function ResetToProductionView({ data, setData, currentUser }) {
   const [pinErr, setPinErr]     = useState("");
   const [verifying, setVerifying] = useState(false);
 
-  const TABLES_TO_WIPE   = ["clients","partners","sessions","registrations","offers","referrals","expenses","revenue","content","testimonials","sequences"];
-  const TABLES_TO_KEEP   = ["templates","_settings"];
+  const TABLES_TO_WIPE   = ["clients","partners","sessions","registrations","offers","referrals","expenses","revenue","testimonials"];
+  const TABLES_TO_KEEP   = ["templates","_settings","sequences","content"];
 
   const counts = TABLES_TO_WIPE.reduce((acc, t) => {
     acc[t] = (data[t] || []).length;
@@ -7873,7 +7873,7 @@ function ResetToProductionView({ data, setData, currentUser }) {
               ✓ What will be preserved
             </div>
             <div style={{ padding: "12px 16px", display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {["14 message templates", "CRM settings & lists", "Journey descriptions", "User accounts & PINs", "Admin configuration"].map(item => (
+              {["14 message templates", "CRM settings & lists", "Journey descriptions", "User accounts & PINs", "Admin configuration", "Workflows & sequences", "Content calendar"].map(item => (
                 <span key={item} style={{ fontSize: 12.5, fontWeight: 600, padding: "4px 12px", borderRadius: 20, background: hexA("#4A8C6F", 0.1), color: "#2D6A50" }}>{item}</span>
               ))}
             </div>
