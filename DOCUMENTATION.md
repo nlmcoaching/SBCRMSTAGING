@@ -471,9 +471,11 @@ Overall and per-phase progress bars are shown. Completed phases are visually dis
 
 ### Partner Record — Agreements Tab
 
-Each studio partner record includes an **Agreements** tab for uploading Studio Partner Agreement PDFs (also accepts Word documents). Files are stored in the encrypted local data store.
+Each studio partner record includes an **Agreements** tab for uploading Studio Partner Agreement PDFs (also accepts Word documents). File metadata is stored on the partner record; the file bytes are kept in separate encrypted storage keys so large PDFs do not blow the main CRM storage quota.
 
-**Upload validation:** Only `.pdf`, `.doc`, and `.docx` files are accepted (max 5 MB). The file extension, browser-reported MIME type, and file header (magic bytes) must all match — mismatched or disguised files are rejected.
+**Upload validation:** Only `.pdf`, `.doc`, and `.docx` files are accepted (max 5 MB). The file extension, browser-reported MIME type, and file header (magic bytes) must all match — mismatched or disguised files are rejected. Browsers that report `application/octet-stream` are accepted when magic bytes match.
+
+**Persistence:** Agreements **save automatically** when uploaded (no separate Save click required). Each file is encrypted and stored under `sb:agreement:v1:{id}`; the partner record stores metadata only (`isPdf`, name, size, upload date).
 
 **Opening files:** PDFs open in a new browser tab via a verified blob URL (not inline HTML). Word documents download instead. Stored files are re-checked before open; files that fail validation cannot be opened.
 

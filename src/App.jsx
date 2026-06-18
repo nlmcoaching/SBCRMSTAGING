@@ -1083,6 +1083,7 @@ Warm,
 /* ---------- Helpers ---------- */
 const STORE_KEY     = "simplybreathe:data:v4";           // legacy (unencrypted)
 const STORE_KEY_ENC = "simplybreathe:data:v5:enc";       // encrypted storage
+const AGREEMENT_BLOB_PREFIX = "sb:agreement:v1:";      // per-file encrypted blobs (kept out of main CRM payload)
 const SEC_META_KEY  = "sb:security:v1";                  // { users: [...] }
 
 // Centralized API headers — the Vite proxy (dev) and production reverse proxy both inject
@@ -1121,6 +1122,14 @@ const store = {
         return window.storage.set(key, value);
       }
       localStorage.setItem(key, value);
+    } catch { /* storage unavailable */ }
+  },
+  async remove(key) {
+    try {
+      if (typeof window !== "undefined" && window.storage?.remove) {
+        return window.storage.remove(key);
+      }
+      localStorage.removeItem(key);
     } catch { /* storage unavailable */ }
   },
   available() { return true; }, // store always works via localStorage fallback
@@ -1482,6 +1491,7 @@ export default function App() {
   const [calendlyStatus, setCalendlyStatus] = useState(null); // null | { pending: n } | { syncing: true } | { synced: n, at: time }
   const [lastCalendlyReceived, setLastCalendlyReceived] = useState(null); // { count, atFull } — only set when bookings > 0
   const loaded = useRef(false);
+  const agreementsMigrated = useRef(false);
   const today = todayISO();
 
   /* ── Auth state ── */
@@ -2159,13 +2169,33 @@ export default function App() {
     setSaved("saving");
     (async () => {
       try {
-        const enc = await Sec.encrypt(data, cryptoKey);
+        await persistAllAgreementBlobs(data, cryptoKey);
+        const enc = await Sec.encrypt(dataForEncryptedStore(data), cryptoKey);
         if (alive) await store.set(STORE_KEY_ENC, enc);
-      } catch (_) {}
-      finally { if (alive) { setSaved("saved"); setTimeout(() => alive && setSaved("idle"), 1400); } }
+        if (alive) { setSaved("saved"); setTimeout(() => alive && setSaved("idle"), 1400); }
+      } catch (e) {
+        console.error("CRM persist failed:", e);
+      }
     })();
     return () => { alive = false; };
   }, [data, cryptoKey]);
+
+  /* ── Migrate legacy inline agreement blobs to separate encrypted storage ── */
+  useEffect(() => {
+    if (!cryptoKey || !loaded.current || agreementsMigrated.current) return;
+    const hasInline = (data.partners || []).some(p => (p.agreements || []).some(a => a.dataUrl));
+    if (!hasInline) return;
+    agreementsMigrated.current = true;
+    (async () => {
+      try {
+        await persistAllAgreementBlobs(data, cryptoKey);
+        setData(d => dataForEncryptedStore(d));
+      } catch (e) {
+        console.error("Agreement migration failed:", e);
+        agreementsMigrated.current = false;
+      }
+    })();
+  }, [cryptoKey, data]);
 
   /* ── Lock gate ── */
   // Derived rollups — must be called unconditionally (Rules of Hooks)
@@ -2201,8 +2231,10 @@ export default function App() {
     delete: currentUser?.permissions?.delete ?? false,
     manage: currentUser?.role === "Owner" || !!(currentUser?.permissions?.manage),
   };
-  const saveRecord = (db, rec) =>
-    update(db, (rows) => (rows.some((r) => r.id === rec.id) ? rows.map((r) => (r.id === rec.id ? rec : r)) : [...rows, rec]));
+  const saveRecord = (db, rec) => {
+    const toSave = db === "partners" ? { ...rec, agreements: stripAgreementForStore(rec.agreements) } : rec;
+    update(db, (rows) => (rows.some((r) => r.id === toSave.id) ? rows.map((r) => (r.id === toSave.id ? toSave : r)) : [...rows, toSave]));
+  };
   const deleteRecord = (db, id) => { update(db, (rows) => rows.filter((r) => r.id !== id)); setOpen(null); };
 
   const saveCrmSettings = (next) => {
@@ -2582,6 +2614,7 @@ export default function App() {
             crmSettings={crmSettings} initialTab={open.initialTab}
             actionContact={open.actionContact}
             setData={setData}
+            cryptoKey={cryptoKey}
             onClose={() => setOpen(null)} onSave={can.edit ? (rec) => { saveRecord(open.db, rec); setOpen(null); } : null}
             onDelete={can.delete ? (id) => setConfirm({
               message: `Delete this record? This action cannot be undone.`,
@@ -4661,7 +4694,12 @@ const VIEWS = {
 };
 
 function partnerHasAgreementPdf(partner) {
-  return (partner.agreements || []).some((a) => agreementRecordIsPdf(a));
+  return (partner.agreements || []).some((a) => {
+    if (a.isPdf === false) return false;
+    if (agreementExt(a.name) !== "pdf") return false;
+    if (a.isPdf === true || a.id) return true;
+    return agreementRecordIsPdf(a);
+  });
 }
 
 function partnerCols() {
@@ -5390,7 +5428,7 @@ function resolveDrawerTab(preferred, { db, isNew, hasTimeline, hasSessionTabs, h
   return "details";
 }
 
-function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, onSave, onDelete, onOpenRelated, sequences, onStartSequence, initialTab, setData, actionContact }) {
+function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, onSave, onDelete, onOpenRelated, sequences, onStartSequence, initialTab, setData, cryptoKey, actionContact }) {
   const isNew = !(data[db] || []).some((r) => r.id === record.id);
   const hasTimeline = (db === "clients" || db === "partners") && !isNew;
   const hasChecklist = db === "partners" && !isNew;
@@ -5447,6 +5485,29 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
   }
   const titleField = fields.find((x) => x.title) || fields[0] || { key: "name", label: "Name" };
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
+
+  const handleAgreementsChange = async (nextAgreements) => {
+    const prev = draft.agreements || [];
+    const removed = prev.filter(a => !nextAgreements.some(n => n.id === a.id));
+    set("agreements", nextAgreements);
+    if (!cryptoKey) return;
+    try {
+      for (const a of removed) await deleteAgreementBlob(a.id);
+      for (const a of nextAgreements) {
+        if (a.dataUrl) await persistAgreementBlob(cryptoKey, a.id, a.dataUrl);
+      }
+      const stored = stripAgreementForStore(nextAgreements);
+      if (setData) {
+        setData(prevData => ({
+          ...prevData,
+          partners: (prevData.partners || []).map(p => p.id === record.id ? { ...p, agreements: stored } : p),
+        }));
+      }
+    } catch (e) {
+      console.error("Agreement save failed:", e);
+      alert("Could not save the agreement file. Try a smaller PDF (under 5 MB) or free up browser storage.");
+    }
+  };
   // related records (used in details tab)
   const related = [];
   if (db === "clients") {
@@ -5718,7 +5779,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
           {db === "clients" && tab === "sessions-attended"
             ? <ClientSessionsTab record={draft} data={data} onOpenRelated={onOpenRelated} today={today} />
             : db === "partners" && tab === "agreements"
-            ? <PartnerAgreementsTab agreements={draft.agreements || []} onChange={(a) => set("agreements", a)} partnerName={cleanName(draft.name)} canEdit={!!onSave} />
+            ? <PartnerAgreementsTab agreements={draft.agreements || []} onChange={handleAgreementsChange} cryptoKey={cryptoKey} partnerName={cleanName(draft.name)} canEdit={!!onSave} />
             : db === "partners" && tab === "partner-sessions"
             ? <PartnerSessionsTab record={draft} data={data} onOpenRelated={onOpenRelated} today={today} />
             : hasTimeline && tab === "timeline"
@@ -6638,6 +6699,53 @@ function agreementExt(name) {
   return m ? m[1].toLowerCase() : "";
 }
 
+function stripAgreementForStore(agreements) {
+  return (agreements || []).map(({ dataUrl, ...rest }) => ({
+    ...rest,
+    isPdf: rest.isPdf ?? (agreementExt(rest.name) === "pdf"),
+  }));
+}
+
+function dataForEncryptedStore(data) {
+  if (!data?.partners?.length) return data;
+  return {
+    ...data,
+    partners: data.partners.map(p => ({
+      ...p,
+      agreements: stripAgreementForStore(p.agreements),
+    })),
+  };
+}
+
+async function persistAgreementBlob(cryptoKey, agreementId, dataUrl) {
+  if (!cryptoKey || !agreementId || !dataUrl) return;
+  const enc = await Sec.encrypt({ dataUrl }, cryptoKey);
+  await store.set(AGREEMENT_BLOB_PREFIX + agreementId, enc);
+}
+
+async function loadAgreementBlob(cryptoKey, agreementId) {
+  if (!cryptoKey || !agreementId) return null;
+  try {
+    const raw = await store.get(AGREEMENT_BLOB_PREFIX + agreementId);
+    if (!raw?.value) return null;
+    const dec = await Sec.decrypt(raw.value, cryptoKey);
+    return dec?.dataUrl || null;
+  } catch { return null; }
+}
+
+async function deleteAgreementBlob(agreementId) {
+  if (!agreementId) return;
+  await store.remove(AGREEMENT_BLOB_PREFIX + agreementId);
+}
+
+async function persistAllAgreementBlobs(data, cryptoKey) {
+  for (const p of data.partners || []) {
+    for (const a of p.agreements || []) {
+      if (a.dataUrl) await persistAgreementBlob(cryptoKey, a.id, a.dataUrl);
+    }
+  }
+}
+
 function agreementMimeForExt(ext) {
   if (ext === "pdf") return "application/pdf";
   if (ext === "doc") return "application/msword";
@@ -6693,9 +6801,10 @@ async function validateAgreementUpload(file) {
     "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.ms-word",
+    "application/octet-stream",
   ]);
-  if (file.type && (!allowedMimes.has(file.type) || file.type !== expectedMime)) {
-    return { ok: false, error: "File type does not match the file extension." };
+  if (file.type && !allowedMimes.has(file.type)) {
+    return { ok: false, error: "File type is not allowed." };
   }
 
   let bytes;
@@ -6709,43 +6818,61 @@ async function validateAgreementUpload(file) {
     return { ok: false, error: `File content does not match a valid .${ext} document.` };
   }
 
+  if (file.type && file.type !== "application/octet-stream" && file.type !== expectedMime) {
+    return { ok: false, error: "File type does not match the file extension." };
+  }
+
   return { ok: true, ext, mime: expectedMime };
 }
 
-function openAgreementFile(a) {
-  const ext = agreementExt(a.name);
-  const bytes = dataUrlToBytes(a.dataUrl);
-  if (!bytes) { alert("Could not read this file."); return; }
-  if (!bytesMatchExt(bytes, ext)) {
-    alert("This file failed a safety check and cannot be opened.");
-    return;
-  }
-
-  const blob = new Blob([bytes], { type: agreementMimeForExt(ext) || "application/octet-stream" });
-  const url = URL.createObjectURL(blob);
-
-  if (ext === "pdf") {
-    const w = window.open(url, "_blank", "noopener,noreferrer");
-    if (!w) {
-      URL.revokeObjectURL(url);
-      alert("Pop-up blocked. Please allow pop-ups to view this PDF.");
+function openAgreementFile(a, cryptoKey) {
+  const openWithDataUrl = (dataUrl) => {
+    if (!dataUrl) { alert("Could not read this file."); return; }
+    const ext = agreementExt(a.name);
+    const bytes = dataUrlToBytes(dataUrl);
+    if (!bytes) { alert("Could not read this file."); return; }
+    if (!bytesMatchExt(bytes, ext)) {
+      alert("This file failed a safety check and cannot be opened.");
       return;
     }
-    setTimeout(() => URL.revokeObjectURL(url), 120_000);
+
+    const blob = new Blob([bytes], { type: agreementMimeForExt(ext) || "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+
+    if (ext === "pdf") {
+      const w = window.open(url, "_blank", "noopener,noreferrer");
+      if (!w) {
+        URL.revokeObjectURL(url);
+        alert("Pop-up blocked. Please allow pop-ups to view this PDF.");
+        return;
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 120_000);
+      return;
+    }
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = a.name || `agreement.${ext}`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5_000);
+  };
+
+  if (a.dataUrl) {
+    openWithDataUrl(a.dataUrl);
     return;
   }
-
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = a.name || `agreement.${ext}`;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 5_000);
+  if (!cryptoKey || !a.id) {
+    alert("Could not read this file.");
+    return;
+  }
+  loadAgreementBlob(cryptoKey, a.id).then(openWithDataUrl);
 }
 
-function PartnerAgreementsTab({ agreements, onChange, partnerName, canEdit = true }) {
+function PartnerAgreementsTab({ agreements, onChange, cryptoKey, partnerName, canEdit = true }) {
   const fileRef = useRef();
   const [uploading, setUploading] = useState(false);
   const [error, setError]         = useState("");
+  const [savedMsg, setSavedMsg]   = useState("");
 
   const MAX_FILE_MB = 5;
 
@@ -6767,21 +6894,35 @@ function PartnerAgreementsTab({ agreements, onChange, partnerName, canEdit = tru
     }
     const reader = new FileReader();
     reader.onerror = () => { setError("Could not read file. Please try again."); setUploading(false); };
-    reader.onload = (ev) => {
-      onChange([...agreements, {
+    reader.onload = async (ev) => {
+      const next = [...agreements, {
         id:         `agr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         name:       file.name,
         size:       file.size,
         type:       check.mime,
         uploadedAt: new Date().toISOString(),
+        isPdf:      check.ext === "pdf",
         dataUrl:    ev.target.result,
-      }]);
+      }];
+      try {
+        await onChange(next);
+        setSavedMsg("Agreement saved.");
+        setTimeout(() => setSavedMsg(""), 3000);
+      } catch {
+        setError("Could not save the agreement. Please try again.");
+      }
       setUploading(false);
     };
     reader.readAsDataURL(file);
   };
 
-  const remove = (id) => onChange(agreements.filter(a => a.id !== id));
+  const remove = async (id) => {
+    try {
+      await onChange(agreements.filter(a => a.id !== id));
+    } catch {
+      setError("Could not remove the agreement. Please try again.");
+    }
+  };
 
   const fmtSize = (bytes) => {
     if (bytes < 1024) return `${bytes} B`;
@@ -6811,6 +6952,11 @@ function PartnerAgreementsTab({ agreements, onChange, partnerName, canEdit = tru
           {error}
         </div>
       )}
+      {savedMsg && (
+        <div style={{ fontSize: 12.5, color: "#4A8C6F", background: hexA("#4A8C6F", 0.08), border: `1px solid ${hexA("#4A8C6F", 0.25)}`, borderRadius: 8, padding: "8px 12px" }}>
+          {savedMsg}
+        </div>
+      )}
 
       {/* Agreement list */}
       {agreements.length === 0 ? (
@@ -6835,7 +6981,7 @@ function PartnerAgreementsTab({ agreements, onChange, partnerName, canEdit = tru
                   {fmtSize(a.size)} · Uploaded {a.uploadedAt ? new Date(a.uploadedAt).toLocaleDateString() : "—"}
                 </div>
               </div>
-              <button onClick={() => openAgreementFile(a)} title="Open file" style={{
+              <button onClick={() => openAgreementFile(a, cryptoKey)} title="Open file" style={{
                 background: "#EBF3FF", border: "1px solid #BFDBFE", color: "#2563EB",
                 borderRadius: 7, padding: "6px 12px", cursor: "pointer", fontSize: 12, fontWeight: 600,
                 display: "flex", alignItems: "center", gap: 5, flexShrink: 0,
@@ -6857,7 +7003,7 @@ function PartnerAgreementsTab({ agreements, onChange, partnerName, canEdit = tru
       )}
 
       <div style={{ fontSize: 11, color: C.ink3, marginTop: 4 }}>
-        Files are stored locally in your encrypted data store and are included in Owner JSON backups.
+        Agreements save automatically when uploaded. File bytes are kept in separate encrypted storage so large PDFs persist reliably.
       </div>
     </div>
   );

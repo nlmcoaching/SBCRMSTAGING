@@ -329,7 +329,7 @@ To fix it, open the studio's record → **Agreements** tab → **Upload Agreemen
 
 ### Studio Partner Agreements
 
-Open any active studio partner and click the **Agreements** tab to upload their signed Studio Partner Agreement (PDF or Word). Keep this current for every active partner.
+Open any active studio partner and click the **Agreements** tab to upload their signed Studio Partner Agreement (PDF or Word). Keep this current for every active partner. **Uploads save automatically** — you do not need to click Save on the drawer for the file to stick.
 
 **What you can upload:** PDF or Word only (`.pdf`, `.doc`, `.docx`), up to 5 MB. The app checks that each file is a real document — renamed or invalid files are rejected with an error message.
 
