@@ -32,7 +32,8 @@
 21. [Data Import / Export](#data-import--export)
 22. [Profile & Account](#profile--account)
 23. [Seed Data](#seed-data)
-24. [Technical Architecture](#technical-architecture)
+24. [Staging Environment](#staging-environment)
+25. [Technical Architecture](#technical-architecture)
 
 ---
 
@@ -1755,6 +1756,37 @@ The application ships with pre-populated sample data to demonstrate all features
 | Referrals | 5 |
 
 Seed data is loaded on first run only. All subsequent loads use the encrypted stored data.
+
+---
+
+## Staging Environment
+
+A separate staging deployment mirrors production on the same VPS for safe testing before release.
+
+| | Production | Staging |
+|---|---|---|
+| URL | Production domain | `https://sbcrm-staging.simplybreathe.ai` |
+| GitHub | `nlmcoaching/SBCRM` (`origin`) | `nlmcoaching/SBCRMSTAGING` (`staging`) |
+| Backend port | `3001` | `3002` |
+
+**Workflow:** Push changes to the `staging` remote, deploy and test on staging, then push to `origin` for production.
+
+**Isolation:**
+- Separate Calendly webhook subscription pointing at the staging URL
+- Separate `backend/.env` secrets (never reuse production keys)
+- Separate browser `localStorage` (different subdomain)
+- Resend sends real emails — test with care
+
+**Setup files:**
+
+| File | Purpose |
+|---|---|
+| `STAGING.md` | Full staging setup and deploy guide |
+| `backend/.env.staging.example` | Staging environment variable template |
+| `deploy/nginx-staging.conf.example` | Nginx config for `sbcrm-staging.simplybreathe.ai` |
+| `deploy/sbcrm-staging.service.example` | Systemd unit (port 3002) |
+
+See **STAGING.md** for DNS, Calendly webhook, VPS deploy, and promote workflow.
 
 ---
 

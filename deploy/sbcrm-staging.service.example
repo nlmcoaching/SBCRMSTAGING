@@ -1,0 +1,27 @@
+# Systemd unit for the staging backend
+# Copy to /etc/systemd/system/sbcrm-staging.service
+#
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable sbcrm-staging
+#   sudo systemctl start sbcrm-staging
+
+[Unit]
+Description=Simply Breathe CRM — Staging Backend
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/sbcrm-staging/backend
+Environment=NODE_ENV=production
+EnvironmentFile=/var/www/sbcrm-staging/backend/.env
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+
+# Hardening (adjust if your Node path differs)
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
