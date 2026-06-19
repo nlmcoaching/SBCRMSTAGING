@@ -1078,6 +1078,7 @@ Warm,
     { id: "exp10", date: "2026-05-01", vendor: "Squarespace",      description: "Website hosting — annual (monthly equiv)", amount: 19.17, category: "Administrative",         paymentMethod: "Credit Card", taxDeductible: true,  recurring: true,  recurringFreq: "Monthly",   linkedSession: "", linkedPartner: "", notes: "" },
   ],
   registrations: [],
+  payments: [],
 };
 
 /* ---------- Helpers ---------- */
@@ -1293,18 +1294,417 @@ const deriveRegistrationPaymentStatus = (amount, successful) => {
   if (amount != null && amount !== "" && !Number.isNaN(Number(amount)) && successful === false) return "unpaid";
   return "unknown";
 };
+const STRIPE_MATCH_WINDOW_MS = 24 * 60 * 60 * 1000; // 24h — Calendly + Stripe timestamps can diverge
+const normalizeEmail = (e) => String(e || "").trim().toLowerCase();
+const amountsMatch = (a, b, tolerance = 0.01) => {
+  const na = Number(a);
+  const nb = Number(b);
+  if (Number.isNaN(na) || Number.isNaN(nb)) return false;
+  return Math.abs(na - nb) <= tolerance;
+};
 const applyRegistrationPaymentLookup = (reg, pay) => {
   if (!pay || pay.paymentAmount == null) return reg;
+  const paymentAmount = pay.paymentAmount;
+  const paidAmount = pay.paidAmount != null ? pay.paidAmount : reg.paidAmount;
+  let paymentStatus = reg.paymentStatus;
+  if (reg.stripeVerified) {
+    paymentStatus = reg.paymentStatus;
+  } else if (paymentAmount === 0) {
+    paymentStatus = "paid";
+  } else if (paymentAmount > 0) {
+    paymentStatus = "pending_verification";
+  } else {
+    paymentStatus = deriveRegistrationPaymentStatus(
+      paidAmount != null ? paidAmount : paymentAmount,
+      pay.paymentSuccessful,
+    );
+  }
+  return { ...reg, paymentAmount, paidAmount, paymentStatus };
+};
+function stripePaymentExists(payments, stripeEvt) {
+  const list = payments || [];
+  if (list.some(p => p.stripeEventId && p.stripeEventId === stripeEvt.stripeEventId)) return true;
+  if (stripeEvt.stripePaymentIntentId && list.some(p =>
+    p.stripePaymentIntentId === stripeEvt.stripePaymentIntentId
+    && p.status === stripeEvt.status
+    && ["paid", "failed"].includes(stripeEvt.status),
+  )) return true;
+  return false;
+}
+function buildStripePaymentRecord(stripeEvt, extra = {}) {
+  return {
+    id: uid("pay"),
+    clientId: extra.clientId || "",
+    bookingId: extra.bookingId || "",
+    sessionId: extra.sessionId || "",
+    provider: "stripe",
+    stripePaymentIntentId: stripeEvt.stripePaymentIntentId || "",
+    stripeChargeId: stripeEvt.stripeChargeId || "",
+    stripeCheckoutSessionId: stripeEvt.stripeCheckoutSessionId || "",
+    stripeEventId: stripeEvt.stripeEventId || "",
+    stripeQueueId: stripeEvt.id || "",
+    customerEmail: stripeEvt.customerEmail || "",
+    amountGross: stripeEvt.amountGross,
+    amountRefunded: stripeEvt.amountRefunded || 0,
+    currency: stripeEvt.currency || "usd",
+    status: extra.status || stripeEvt.status || "paid",
+    matchScore: extra.matchScore ?? null,
+    matchStatus: extra.matchStatus || "unmatched",
+    paidAt: stripeEvt.paidAt || stripeEvt.receivedAt || "",
+    refundedAt: extra.refundedAt || "",
+    receiptUrl: stripeEvt.receiptUrl || "",
+    paymentMethodType: stripeEvt.paymentMethodType || "",
+    failureMessage: stripeEvt.failureMessage || "",
+    createdAt: new Date().toISOString(),
+    notes: extra.notes || "",
+  };
+}
+function applyStripePaymentToRegistration(reg, stripeEvt, paymentId) {
+  const gross = Number(stripeEvt.amountGross) || 0;
+  let paymentStatus = "paid";
+  if (stripeEvt.status === "failed") paymentStatus = "failed";
+  else if (stripeEvt.status === "refunded") paymentStatus = "refunded";
+  else if (stripeEvt.status === "partial_refund") paymentStatus = "partial_refund";
   return {
     ...reg,
-    paymentAmount: pay.paymentAmount,
-    paidAmount: pay.paidAmount != null ? pay.paidAmount : reg.paidAmount,
-    paymentStatus: deriveRegistrationPaymentStatus(
-      pay.paidAmount != null ? pay.paidAmount : pay.paymentAmount,
-      pay.paymentSuccessful,
-    ),
+    paidAmount: gross,
+    paymentStatus,
+    stripeVerified: ["paid", "partial_refund"].includes(stripeEvt.status),
+    stripePaymentIntentId: stripeEvt.stripePaymentIntentId || reg.stripePaymentIntentId || "",
+    stripeChargeId: stripeEvt.stripeChargeId || reg.stripeChargeId || "",
+    paidAt: stripeEvt.paidAt || reg.paidAt || "",
+    paymentId: paymentId || reg.paymentId || "",
+    amountRefunded: stripeEvt.amountRefunded ?? reg.amountRefunded ?? 0,
   };
-};
+}
+function registrationBookingTimestamp(reg, data) {
+  const created = registrationCreatedTimestamp(reg);
+  if (created) return created;
+  if (reg.scheduledAt) {
+    const t = Date.parse(reg.scheduledAt);
+    if (!Number.isNaN(t)) return t;
+  }
+  if (reg.sessionId && data?.sessions) {
+    const s = data.sessions.find(x => x.id === reg.sessionId);
+    if (s?.date) {
+      const t = Date.parse(`${s.date}T${(s.time || "12:00").slice(0, 5)}`);
+      if (!Number.isNaN(t)) return t;
+    }
+  }
+  return 0;
+}
+function findStripeBookingMatch(registrations, clients, stripeEvt, data = {}) {
+  const email = normalizeEmail(stripeEvt.customerEmail);
+  if (!email || stripeEvt.amountGross == null) return null;
+  const payTs = Date.parse(stripeEvt.paidAt || stripeEvt.receivedAt || "");
+  if (Number.isNaN(payTs)) return null;
+
+  const pendingForEmail = registrations.filter(r => {
+    if (r.status === "canceled" || r.status === "rescheduled") return false;
+    if (r.paymentId && r.stripeVerified) return false;
+    const client = clients.find(c => c.id === r.clientId);
+    if (normalizeEmail(client?.email) !== email) return false;
+    return r.paymentStatus === "pending_verification" || !r.stripeVerified;
+  });
+
+  const amountMatches = pendingForEmail.filter(r => {
+    const expected = registrationSessionAmount(r);
+    return expected != null && amountsMatch(expected, stripeEvt.amountGross);
+  });
+
+  // Single pending booking for this email — link using Stripe amount as session price
+  if (amountMatches.length === 0 && pendingForEmail.length === 1 && stripeEvt.amountGross > 0) {
+    const reg = pendingForEmail[0];
+    const client = clients.find(c => c.id === reg.clientId);
+    const score = scoreStripeBookingMatch(reg, client, stripeEvt, data);
+    return { reg, score: Math.max(score, 80), auto: true, ambiguous: false, fillAmount: stripeEvt.amountGross };
+  }
+
+  // Single email + amount match → auto-link even if timestamps are messy
+  if (amountMatches.length === 1) {
+    const reg = amountMatches[0];
+    const client = clients.find(c => c.id === reg.clientId);
+    const score = scoreStripeBookingMatch(reg, client, stripeEvt, data);
+    return { reg, score: Math.max(score, 85), auto: true, ambiguous: false };
+  }
+
+  const candidates = amountMatches.filter(r => {
+    const bookingTs = registrationBookingTimestamp(r, data);
+    if (!bookingTs) return true; // no timestamp — still consider if amount unique above failed
+    return Math.abs(payTs - bookingTs) <= STRIPE_MATCH_WINDOW_MS;
+  });
+
+  if (!candidates.length) return null;
+  const scored = candidates.map(r => ({
+    reg: r,
+    score: scoreStripeBookingMatch(r, clients.find(c => c.id === r.clientId), stripeEvt, data),
+  })).sort((a, b) => b.score - a.score);
+  const best = scored[0];
+  return {
+    ...best,
+    auto: candidates.length === 1 && best.score >= 80,
+    ambiguous: candidates.length > 1,
+  };
+}
+function scoreStripeBookingMatch(reg, client, stripeEvt, data = {}) {
+  let score = 0;
+  const email = normalizeEmail(stripeEvt.customerEmail);
+  const regEmail = normalizeEmail(client?.email);
+  if (email && regEmail && email === regEmail) score += 50;
+  const expected = registrationSessionAmount(reg);
+  if (expected != null && amountsMatch(expected, stripeEvt.amountGross)) score += 25;
+  const bookingTs = registrationBookingTimestamp(reg, data);
+  const payTs = Date.parse(stripeEvt.paidAt || stripeEvt.receivedAt || "");
+  if (bookingTs && !Number.isNaN(payTs) && Math.abs(payTs - bookingTs) <= STRIPE_MATCH_WINDOW_MS) score += 15;
+  if (reg.paymentStatus === "pending_verification") score += 10;
+  return score;
+}
+function stripePaymentFromRecord(p) {
+  return {
+    customerEmail: p.customerEmail,
+    amountGross: p.amountGross,
+    paidAt: p.paidAt,
+    receivedAt: p.createdAt,
+    stripePaymentIntentId: p.stripePaymentIntentId,
+    stripeChargeId: p.stripeChargeId,
+    stripeEventId: p.stripeEventId,
+    status: p.status,
+  };
+}
+function applyStripeMatchToRecords(payments, registrations, payIdx, match, stripeEvt) {
+  const p = payments[payIdx];
+  payments[payIdx] = {
+    ...p,
+    clientId: match.reg.clientId,
+    bookingId: match.reg.id,
+    sessionId: match.reg.sessionId,
+    matchScore: match.score,
+    matchStatus: match.ambiguous ? "needs_review" : "auto",
+    customerEmail: p.customerEmail || stripeEvt.customerEmail || "",
+    stripeChargeId: p.stripeChargeId || stripeEvt.stripeChargeId || "",
+    notes: match.ambiguous ? "Multiple bookings matched — needs manual link" : (p.notes || "Matched to Calendly booking"),
+  };
+  if (match.ambiguous) return payments;
+  const regIdx = registrations.findIndex(r => r.id === match.reg.id);
+  if (regIdx >= 0) {
+    let reg = registrations[regIdx];
+    if ((registrationSessionAmount(reg) == null || match.fillAmount) && stripeEvt.amountGross != null) {
+      reg = { ...reg, paymentAmount: stripeEvt.amountGross };
+    }
+    registrations[regIdx] = applyStripePaymentToRegistration(reg, stripeEvt, p.id);
+  }
+  return payments;
+}
+function reconcileUnmatchedStripePayments(prevData) {
+  let payments = [...(prevData.payments || [])];
+  let registrations = [...(prevData.registrations || [])];
+  const clients = prevData.clients || [];
+
+  for (let i = 0; i < payments.length; i++) {
+    const p = payments[i];
+    if (p.bookingId || p.status !== "paid") continue;
+    if (p.matchStatus === "manual") continue;
+    const stripeEvt = stripePaymentFromRecord(p);
+    if (!stripeEvt.customerEmail) continue;
+    const match = findStripeBookingMatch(registrations, clients, stripeEvt, prevData);
+    if (!match?.auto && !(match && match.score >= 80 && !match.ambiguous)) continue;
+    applyStripeMatchToRecords(payments, registrations, i, match, stripeEvt);
+  }
+
+  const sessions = refreshCalendlySessionRevenue(prevData.sessions || [], registrations);
+  const ltvData = { registrations, revenue: prevData.revenue || [], offers: prevData.offers || [] };
+  return {
+    payments,
+    registrations,
+    sessions,
+    clients: applyRegistrationLifetimeValues(clients, ltvData),
+  };
+}
+function reconcileAmountMismatches(prevData) {
+  let registrations = [...(prevData.registrations || [])];
+  let changed = false;
+
+  registrations = registrations.map(r => {
+    if (!r.stripeVerified || r.paidAmount == null) return r;
+    const expected = r.paymentAmount != null && r.paymentAmount !== ""
+      ? Number(r.paymentAmount)
+      : registrationSessionAmount(r);
+    const stripeAmt = Number(r.paidAmount);
+    if (expected == null || Number.isNaN(stripeAmt) || amountsMatch(expected, stripeAmt)) return r;
+
+    changed = true;
+    return {
+      ...r,
+      paymentAmount: stripeAmt,
+      lastAmountMismatch: {
+        expectedAmount: expected,
+        stripeAmount: stripeAmt,
+        correctedAt: new Date().toISOString(),
+      },
+    };
+  });
+
+  if (!changed) {
+    return {
+      registrations,
+      sessions: prevData.sessions,
+      clients: prevData.clients,
+    };
+  }
+
+  const sessions = refreshCalendlySessionRevenue(prevData.sessions || [], registrations);
+  const ltvData = { registrations, revenue: prevData.revenue || [], offers: prevData.offers || [] };
+  return {
+    registrations,
+    sessions,
+    clients: applyRegistrationLifetimeValues(prevData.clients || [], ltvData),
+  };
+}
+function applyPaymentReconciliation(prevData) {
+  const afterMatch = reconcileUnmatchedStripePayments(prevData);
+  return reconcileAmountMismatches({ ...prevData, ...afterMatch });
+}
+function processStripeWebhookEvents(prevData, events) {
+  const ackIds = [];
+  let payments = [...(prevData.payments || [])];
+  let registrations = [...(prevData.registrations || [])];
+  const clients = prevData.clients || [];
+
+  for (const stripeEvt of events) {
+    ackIds.push(stripeEvt.id);
+    const dupIdx = payments.findIndex(p =>
+      p.stripeEventId && p.stripeEventId === stripeEvt.stripeEventId,
+    );
+    if (dupIdx >= 0) continue;
+
+    const piIdx = stripeEvt.stripePaymentIntentId
+      ? payments.findIndex(p => p.stripePaymentIntentId === stripeEvt.stripePaymentIntentId && p.status === stripeEvt.status && ["paid", "failed"].includes(stripeEvt.status))
+      : -1;
+    if (piIdx >= 0) {
+      // Same payment intent fired twice (checkout.session + payment_intent) — enrich and retry match
+      payments[piIdx] = {
+        ...payments[piIdx],
+        customerEmail: payments[piIdx].customerEmail || stripeEvt.customerEmail || "",
+        stripeChargeId: payments[piIdx].stripeChargeId || stripeEvt.stripeChargeId || "",
+        receiptUrl: payments[piIdx].receiptUrl || stripeEvt.receiptUrl || "",
+      };
+      if (!payments[piIdx].bookingId) {
+        const enriched = { ...stripePaymentFromRecord(payments[piIdx]), ...stripeEvt, customerEmail: payments[piIdx].customerEmail || stripeEvt.customerEmail };
+        const match = findStripeBookingMatch(registrations, clients, enriched, prevData);
+        if (match?.auto) applyStripeMatchToRecords(payments, registrations, piIdx, match, enriched);
+      }
+      continue;
+    }
+
+    if (stripeEvt.status === "refunded" || stripeEvt.status === "partial_refund") {
+      const payIdx = payments.findIndex(p =>
+        (stripeEvt.stripeChargeId && p.stripeChargeId === stripeEvt.stripeChargeId)
+        || (stripeEvt.stripePaymentIntentId && p.stripePaymentIntentId === stripeEvt.stripePaymentIntentId),
+      );
+      if (payIdx >= 0) {
+        payments[payIdx] = {
+          ...payments[payIdx],
+          status: stripeEvt.status,
+          amountRefunded: stripeEvt.amountRefunded || payments[payIdx].amountRefunded,
+          refundedAt: stripeEvt.paidAt || new Date().toISOString(),
+        };
+        if (payments[payIdx].bookingId) {
+          const regIdx = registrations.findIndex(r => r.id === payments[payIdx].bookingId);
+          if (regIdx >= 0) {
+            registrations[regIdx] = applyStripePaymentToRegistration(registrations[regIdx], stripeEvt, payments[payIdx].id);
+          }
+        }
+      } else {
+        payments.push(buildStripePaymentRecord(stripeEvt, { matchStatus: "unmatched", notes: "Refund with no linked payment" }));
+      }
+      continue;
+    }
+
+    if (stripeEvt.status === "failed") {
+      payments.push(buildStripePaymentRecord(stripeEvt, { matchStatus: "unmatched", status: "failed" }));
+      continue;
+    }
+
+    const match = findStripeBookingMatch(registrations, clients, stripeEvt, prevData);
+    if (match?.auto) {
+      const payRec = buildStripePaymentRecord(stripeEvt, {
+        clientId: match.reg.clientId,
+        bookingId: match.reg.id,
+        sessionId: match.reg.sessionId,
+        matchScore: match.score,
+        matchStatus: "auto",
+        status: "paid",
+      });
+      payments.push(payRec);
+      const regIdx = registrations.findIndex(r => r.id === match.reg.id);
+      if (regIdx >= 0) {
+        let reg = registrations[regIdx];
+        if (registrationSessionAmount(reg) == null && stripeEvt.amountGross != null) {
+          reg = { ...reg, paymentAmount: stripeEvt.amountGross };
+        }
+        registrations[regIdx] = applyStripePaymentToRegistration(reg, stripeEvt, payRec.id);
+      }
+    } else if (match && match.score >= 50) {
+      payments.push(buildStripePaymentRecord(stripeEvt, {
+        clientId: match.reg.clientId,
+        sessionId: match.reg.sessionId,
+        matchScore: match.score,
+        matchStatus: "needs_review",
+        status: "paid",
+        notes: match.ambiguous ? "Multiple bookings matched — needs manual link" : "Possible match — review before linking",
+      }));
+    } else {
+      payments.push(buildStripePaymentRecord(stripeEvt, { matchStatus: "unmatched", status: "paid" }));
+    }
+  }
+
+  const reconciled = applyPaymentReconciliation({ ...prevData, payments, registrations, clients });
+  return {
+    payments: reconciled.payments ?? payments,
+    registrations: reconciled.registrations,
+    sessions: reconciled.sessions,
+    clients: reconciled.clients,
+    ackIds,
+  };
+}
+function manualLinkStripePayment(setData, paymentId, registrationId) {
+  setData(prev => {
+    const payments = [...(prev.payments || [])];
+    const registrations = [...(prev.registrations || [])];
+    const payIdx = payments.findIndex(p => p.id === paymentId);
+    const regIdx = registrations.findIndex(r => r.id === registrationId);
+    if (payIdx < 0 || regIdx < 0) return prev;
+    const pay = payments[payIdx];
+    const reg = registrations[regIdx];
+    payments[payIdx] = {
+      ...pay,
+      bookingId: reg.id,
+      clientId: reg.clientId,
+      sessionId: reg.sessionId,
+      matchStatus: "manual",
+      matchScore: 100,
+      notes: pay.notes ? `${pay.notes} · manually linked` : "Manually linked",
+    };
+    registrations[regIdx] = applyStripePaymentToRegistration(reg, {
+      amountGross: pay.amountGross,
+      amountRefunded: pay.amountRefunded,
+      status: pay.status,
+      stripePaymentIntentId: pay.stripePaymentIntentId,
+      stripeChargeId: pay.stripeChargeId,
+      paidAt: pay.paidAt,
+    }, pay.id);
+    const sessions = refreshCalendlySessionRevenue(prev.sessions || [], registrations);
+    const ltvData = { registrations, revenue: prev.revenue || [], offers: prev.offers || [] };
+    const amountFix = reconcileAmountMismatches({ ...prev, payments, registrations, sessions });
+    return {
+      ...prev,
+      payments,
+      registrations: amountFix.registrations,
+      sessions: amountFix.sessions,
+      clients: amountFix.clients,
+    };
+  });
+}
 const LTV_OFFER_STATUSES = new Set(["Paid", "Accepted"]);
 function registrationSessionAmount(reg) {
   if (!reg) return null;
@@ -1372,7 +1772,13 @@ async function backfillRegistrationPaymentsForRegs(regs, setData) {
 }
 function registrationPaymentForLtv(reg) {
   if (!reg || reg.status === "canceled" || reg.status === "rescheduled") return 0;
-  if (reg.paymentStatus === "unpaid") return 0;
+  if (["unpaid", "pending_verification", "failed"].includes(reg.paymentStatus)) return 0;
+  if (reg.stripeVerified && reg.paidAmount != null) {
+    const paid = Number(reg.paidAmount);
+    const refunded = Number(reg.amountRefunded) || 0;
+    if (!Number.isNaN(paid)) return Math.max(0, Math.round((paid - refunded) * 100) / 100);
+  }
+  if (reg.paymentStatus === "refunded") return 0;
   const amt = registrationSessionAmount(reg);
   if (amt == null || amt <= 0) return 0;
   return amt;
@@ -1440,6 +1846,15 @@ function buildSessionListPriceMap(registrations) {
   return map;
 }
 function registrationRevenueAmount(reg, listPrices) {
+  if (reg.stripeVerified && reg.paidAmount != null) {
+    const paid = Number(reg.paidAmount);
+    const refunded = Number(reg.amountRefunded) || 0;
+    if (!Number.isNaN(paid)) return Math.max(0, Math.round((paid - refunded) * 100) / 100);
+  }
+  if (reg.paymentStatus === "paid" || reg.paymentStatus === "partial_refund") {
+    const paid = Number(reg.paidAmount);
+    if (!Number.isNaN(paid) && paid > 0) return paid;
+  }
   const direct = registrationSessionAmount(reg);
   if (direct != null) return direct;
   if (reg.sessionId && listPrices?.[reg.sessionId] != null) return listPrices[reg.sessionId];
@@ -1460,7 +1875,8 @@ function buildRegistrationRevenueRows(data = {}) {
   const clients = Object.fromEntries((data.clients || []).map(c => [c.id, c]));
   const listPrices = buildSessionListPriceMap(data.registrations);
   return (data.registrations || [])
-    .filter(r => r.status !== "canceled" && r.status !== "rescheduled" && r.paymentStatus !== "unpaid")
+    .filter(r => r.status !== "canceled" && r.status !== "rescheduled"
+      && !["unpaid", "pending_verification", "failed"].includes(r.paymentStatus))
     .map(r => {
       const session = sessions[r.sessionId];
       const client = clients[r.clientId];
@@ -1827,6 +2243,7 @@ export default function App() {
   const [confirm, setConfirm] = useState(null); // { message, onOk, okLabel?, danger? }
   const [saved, setSaved] = useState("idle"); // idle | saving | saved
   const [calendlyStatus, setCalendlyStatus] = useState(null); // null | { pending: n } | { syncing: true } | { synced: n, at: time }
+  const [stripeStatus, setStripeStatus] = useState(null);
   const [lastCalendlyReceived, setLastCalendlyReceived] = useState(null); // { count, atFull } — only set when bookings > 0
   const loaded = useRef(false);
   const agreementsMigrated = useRef(false);
@@ -2376,12 +2793,19 @@ export default function App() {
             const prevReg = existingRegIdx >= 0 ? registrations[existingRegIdx] : null;
             const paymentAmount = evt.paymentAmount != null ? evt.paymentAmount : (prevReg?.paymentAmount ?? null);
             const paidAmount = evt.paidAmount != null ? evt.paidAmount : (prevReg?.paidAmount ?? null);
-            const paymentStatus = evt.paymentAmount != null || evt.paidAmount != null || evt.paymentSuccessful != null
-              ? deriveRegistrationPaymentStatus(
+            let paymentStatus = prevReg?.paymentStatus || "unknown";
+            if (prevReg?.stripeVerified && prevReg?.paymentId) {
+              paymentStatus = prevReg.paymentStatus;
+            } else if (paymentAmount != null && Number(paymentAmount) > 0) {
+              paymentStatus = "pending_verification";
+            } else if (paymentAmount === 0) {
+              paymentStatus = "paid";
+            } else if (evt.paidAmount != null || evt.paymentSuccessful != null) {
+              paymentStatus = deriveRegistrationPaymentStatus(
                 evt.paidAmount != null ? evt.paidAmount : evt.paymentAmount,
                 evt.paymentSuccessful,
-              )
-              : (prevReg?.paymentStatus || "unknown");
+              );
+            }
             const regRecord = {
               id: existingRegIdx >= 0 ? registrations[existingRegIdx].id : uid("reg"),
               clientId: client.id, sessionId,
@@ -2393,6 +2817,12 @@ export default function App() {
               paymentAmount,
               paidAmount,
               paymentStatus,
+              stripeVerified: prevReg?.stripeVerified || false,
+              stripePaymentIntentId: prevReg?.stripePaymentIntentId || "",
+              stripeChargeId: prevReg?.stripeChargeId || "",
+              paymentId: prevReg?.paymentId || "",
+              paidAt: prevReg?.paidAt || "",
+              amountRefunded: prevReg?.amountRefunded || 0,
               waiverStatus:       "signed", // client accepts waiver during Calendly booking
               createdAt:          existingRegIdx >= 0
                 ? (registrations[existingRegIdx].createdAt || evt.createdAt || evt.receivedAt || new Date().toISOString())
@@ -2562,11 +2992,61 @@ export default function App() {
     }
   };
 
-  // Poll for pending Calendly events every 5 minutes when logged in
+  const syncStripe = async () => {
+    if (locked) return;
+    setStripeStatus({ syncing: true });
+    try {
+      const res = await fetch(calendlyApiUrl("/api/stripe/pending"), { headers: _calendlyHeaders() });
+      if (!res.ok) throw new Error(`Backend returned ${res.status}`);
+      const { events, total } = await res.json();
+      let processed = 0;
+      let ackIds = [];
+      setData(prev => {
+        let next = prev;
+        if (events?.length) {
+          const result = processStripeWebhookEvents(prev, events);
+          processed = events.length;
+          ackIds = result.ackIds;
+          next = { ...prev, payments: result.payments, registrations: result.registrations, sessions: result.sessions, clients: result.clients };
+        } else {
+          const reconciled = applyPaymentReconciliation(prev);
+          next = { ...prev, payments: reconciled.payments ?? prev.payments, registrations: reconciled.registrations, sessions: reconciled.sessions, clients: reconciled.clients };
+        }
+        const amountFix = reconcileAmountMismatches(next);
+        return { ...next, registrations: amountFix.registrations, sessions: amountFix.sessions, clients: amountFix.clients };
+      });
+      if (ackIds.length) {
+        await fetch(calendlyApiUrl("/api/stripe/acknowledge"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ..._calendlyHeaders() },
+          body: JSON.stringify({ ids: ackIds }),
+        }).catch(() => {});
+      }
+      const now = new Date();
+      const pendingBackend = total ?? 0;
+      setStripeStatus({
+        synced: processed,
+        count: processed,
+        at: now.toLocaleTimeString(),
+        pending: pendingBackend > processed ? pendingBackend - processed : 0,
+      });
+    } catch (err) {
+      console.error("syncStripe:", err);
+      try {
+        const res = await fetch(calendlyApiUrl("/api/stripe/pending"), { headers: _calendlyHeaders() });
+        const { total } = await res.json();
+        if (total > 0) setStripeStatus({ pending: total, error: "Sync failed — retry or check backend" });
+        else setStripeStatus({ error: "Cannot reach backend on port 3001" });
+      } catch { setStripeStatus({ error: "Cannot reach backend on port 3001" }); }
+    }
+  };
+
+  // Poll for pending Calendly + Stripe events every 5 minutes when logged in
   useEffect(() => {
     if (locked) return;
     syncCalendly();
-    const interval = setInterval(syncCalendly, 5 * 60 * 1000);
+    syncStripe();
+    const interval = setInterval(() => { syncCalendly(); syncStripe(); }, 5 * 60 * 1000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locked]);
@@ -3083,7 +3563,7 @@ export default function App() {
               ? <FollowUpEngine data={data} setData={setData} today={today} onOpen={setOpen} canEdit={can.edit} />
               :               <Section section={section} data={data} derived={derived} today={today}
                   view={view} setView={setView} query={query} onOpen={setOpen}
-                  currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} setSecUsers={setSecUsers} setData={setData} canEdit={can.edit} setConfirm={setConfirm} crmSettings={crmSettings} saveCrmSettings={saveCrmSettings} />}
+                  currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} setSecUsers={setSecUsers} setData={setData} canEdit={can.edit} setConfirm={setConfirm} crmSettings={crmSettings} saveCrmSettings={saveCrmSettings} syncStripe={syncStripe} stripeStatus={stripeStatus} />}
           </div>
         </main>
       </div>
@@ -3145,7 +3625,7 @@ function newRecord(db) {
     testimonials: { name: "", clientId: "", sessionId: "", status: "Breakthrough noted", type: "Written", content: "", bestQuote: "", beforeSummary: "", afterSummary: "", themes: [], permissionReceived: false, useOnWebsite: false, useOnSocial: false, firstNameOnly: false, videoUrl: "", dateReceived: "", datePublished: "", notes: "" },
     templates:    { name: "", category: "Post-Session", channel: "Email", subject: "", body: "", variables: "", linkedTo: "clients", usageCount: 0, notes: "" },
     expenses:     { date: "", vendor: "", description: "", amount: 0, category: "Equipment & Supplies", paymentMethod: "Credit Card", taxDeductible: true, recurring: false, recurringFreq: "One-time", linkedSession: "", linkedPartner: "", receiptUrl: "", notes: "" },
-    registrations: { clientId: "", sessionId: "", calendlyInviteeUri: "", calendlyEventUri: "", calendlyEventTypeUri: "", eventName: "", status: "booked", paymentAmount: null, paidAmount: null, paymentStatus: "unknown", waiverStatus: "pending", createdAt: new Date().toISOString(), scheduledAt: "", timezone: "", locationType: "", locationJoinUrl: "", locationAddress: "", attendanceType: "", checkedIn: false, attended: false, noShow: false, doneBreathworkBefore: "", howHeard: "", referredBy: "", concerns: "", reviewedContraindications: "", notes: "" },
+    registrations: { clientId: "", sessionId: "", calendlyInviteeUri: "", calendlyEventUri: "", calendlyEventTypeUri: "", eventName: "", status: "booked", paymentAmount: null, paidAmount: null, paymentStatus: "unknown", stripeVerified: false, stripePaymentIntentId: "", stripeChargeId: "", paymentId: "", paidAt: "", amountRefunded: 0, waiverStatus: "pending", createdAt: new Date().toISOString(), scheduledAt: "", timezone: "", locationType: "", locationJoinUrl: "", locationAddress: "", attendanceType: "", checkedIn: false, attended: false, noShow: false, doneBreathworkBefore: "", howHeard: "", referredBy: "", concerns: "", reviewedContraindications: "", notes: "" },
   };
   return { ...base, ...m[db] };
 }
@@ -4435,7 +4915,7 @@ function Today({ data, derived, today, onOpen, onGo, setData, currentUser, canEd
 
       {/* Stats */}
       <div className="sb-stats">
-        <Stat label="Net revenue MTD"   value={money(mtdRevenue)}  hint="virtual + studio session prices this month" onClick={() => onGo("revenue", 1)} />
+        <Stat label="Net revenue MTD"   value={money(mtdRevenue)}  hint="virtual + studio session prices this month" onClick={() => onGo("revenue", 2)} />
         <Stat label="Referral revenue"  value={money(refRevenue)}  hint="from all referrals" accent={refRevenue > 0 ? "#4A8C6F" : C.ink3} onClick={() => onGo("referrals")} />
         <Stat label="Active clients"    value={activeMembers}      hint="total clients in system"            onClick={() => onGo("clients")} />
         <Stat label="Active sequences"  value={activeSeqs}         hint="clients in follow-up nurture"       onClick={() => onGo("engine")} />
@@ -4537,7 +5017,7 @@ function SourceBreakdown({ data }) {
 /* ============================================================
    SECTION (per database, with views)
    ============================================================ */
-function Section({ section, data, derived, today, view, setView, query, onOpen, currentUser, secUsers, masterKeyRaw, setSecUsers, setData, canEdit, setConfirm, crmSettings, saveCrmSettings }) {
+function Section({ section, data, derived, today, view, setView, query, onOpen, currentUser, secUsers, masterKeyRaw, setSecUsers, setData, canEdit, setConfirm, crmSettings, saveCrmSettings, syncStripe, stripeStatus }) {
   const cfg = VIEWS[section];
   const v = cfg.views[Math.min(view, cfg.views.length - 1)];
   let rows = data[section] || [];
@@ -4614,6 +5094,8 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         ? <OfferConversionView data={data} derived={derived} today={today} onOpen={(r) => onOpen({ db: "offers", record: r })} />
         : v.layout === "revenue-analytics"
         ? <RevenueAttributionView data={data} derived={derived} today={today} onOpen={(r) => openRevenueViewRow(r, data, onOpen)} />
+        : v.layout === "payment-reconciliation"
+        ? <PaymentReconciliationView data={data} derived={derived} setData={setData} onOpen={onOpen} syncStripe={syncStripe} stripeStatus={stripeStatus} canEdit={canEdit} />
         : v.layout === "referral-tree"
         ? <ReferralTreeView data={data} derived={derived} today={today} onOpen={(r) => onOpen({ db: "referrals", record: r })} />
         : v.layout === "content-analytics"
@@ -5039,6 +5521,7 @@ const VIEWS = {
   revenue: {
     views: [
       { name: "Revenue attribution", layout: "revenue-analytics" },
+      { name: "Payment reconciliation", layout: "payment-reconciliation" },
       { name: "This month", layout: "table", columns: revCols(),
         run: (rows, c) => {
           const r = [...rows]
@@ -5925,8 +6408,14 @@ const FIELDS = {
     f("clientId",       "Client",                      "relation", { target: "clients" }),
     f("status",         "Booking Status",              "select",   { options: ["booked", "attended", "canceled", "rescheduled", "no_show"] }),
     f("paymentAmount",  "Session Price ($)",           "number"),
-    f("paidAmount",     "Amount Paid ($)",             "number"),
-    f("paymentStatus",  "Payment Status",              "select",   { options: ["paid", "unpaid", "unknown"] }),
+    f("paymentStatus",  "Payment Status",              "select",   { options: ["paid", "pending_verification", "unpaid", "partial_refund", "refunded", "failed", "unknown"] }),
+    f("paidAmount",     "Stripe Amount Paid ($)",      "number"),
+    f("paidAt",         "Stripe Paid At",              "text"),
+    f("stripeVerified", "Stripe Verified?",            "checkbox"),
+    f("stripePaymentIntentId", "Stripe Payment Intent ID", "text"),
+    f("stripeChargeId", "Stripe Charge ID",            "text"),
+    f("paymentId",      "Linked Payment Record",       "text"),
+    f("amountRefunded", "Amount Refunded ($)",         "number"),
     f("waiverStatus",   "Waiver Status",               "select",   { options: ["pending", "signed"] }),
     f("createdAt",      "Scheduled On",                "text"),
     f("scheduledAt",    "Session Date/Time",           "text"),
@@ -12600,6 +13089,337 @@ function ReferralTreeView({ data, derived, today, onOpen }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/* ============================================================
+   PAYMENT RECONCILIATION VIEW
+   ============================================================ */
+
+function paymentStatusLabel(status) {
+  const map = {
+    paid: { text: "Paid", color: "#2D6A50" },
+    pending_verification: { text: "Pending verification", color: "#D9892B" },
+    unpaid: { text: "Unpaid", color: "#C0573F" },
+    partial_refund: { text: "Partial refund", color: "#9B59B6" },
+    refunded: { text: "Refunded", color: "#C0573F" },
+    failed: { text: "Failed", color: "#C0573F" },
+    unknown: { text: "Unknown", color: C.ink3 },
+  };
+  return map[status] || map.unknown;
+}
+
+function registrationSessionMeta(reg, data) {
+  const session = (data.sessions || []).find(s => s.id === reg.sessionId);
+  const channel = registrationRevenueChannel(session);
+  let sessionDate = "—";
+  if (reg.scheduledAt) sessionDate = formatRegistrationDateTime(reg.scheduledAt);
+  else if (session?.date) sessionDate = `${fmtDate(session.date, true)}${session.time ? ` · ${session.time}` : ""}`;
+  return {
+    session,
+    channel,
+    sessionDate,
+    sessionName: cleanName(session?.name || reg.eventName || "Session"),
+  };
+}
+function registrationVerifiedTimestamp(reg) {
+  if (reg.paidAt) {
+    const t = Date.parse(reg.paidAt);
+    if (!Number.isNaN(t)) return t;
+  }
+  return registrationCreatedTimestamp(reg);
+}
+function registrationVerifiedAmount(reg) {
+  if (reg.paidAmount != null && !Number.isNaN(Number(reg.paidAmount))) return Number(reg.paidAmount);
+  return registrationSessionAmount(reg);
+}
+
+function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe, stripeStatus, canEdit }) {
+  const payments = data.payments || [];
+  const registrations = data.registrations || [];
+  const clients = data.clients || [];
+  const [linkTargets, setLinkTargets] = useState({});
+
+  useEffect(() => {
+    const needsFix = registrations.some(r =>
+      r.stripeVerified && r.paidAmount != null
+      && !amountsMatch(r.paymentAmount ?? registrationSessionAmount(r), r.paidAmount),
+    );
+    if (!needsFix || !setData) return;
+    setData(prev => {
+      const fix = reconcileAmountMismatches(prev);
+      if (fix.registrations === prev.registrations) return prev;
+      return { ...prev, registrations: fix.registrations, sessions: fix.sessions, clients: fix.clients };
+    });
+  }, [registrations, setData]);
+
+  const unmatchedPayments = payments.filter(p =>
+    !p.bookingId && (p.matchStatus === "unmatched" || p.matchStatus === "needs_review") && p.status !== "failed",
+  );
+  const pendingBookings = registrations.filter(r =>
+    r.status !== "canceled" && r.status !== "rescheduled" && r.paymentStatus === "pending_verification",
+  );
+  const amountMismatchCards = registrations
+    .filter(r => r.lastAmountMismatch)
+    .sort((a, b) => (b.lastAmountMismatch?.correctedAt || "").localeCompare(a.lastAmountMismatch?.correctedAt || ""));
+  const activeAmountMismatches = registrations.filter(r => {
+    if (!r.stripeVerified || r.paidAmount == null) return false;
+    return !amountsMatch(r.paymentAmount ?? registrationSessionAmount(r), r.paidAmount);
+  });
+  const amountMismatchCount = amountMismatchCards.length || activeAmountMismatches.length;
+  const recentlyVerifiedPayments = registrations
+    .filter(r =>
+      r.stripeVerified
+      && r.paymentStatus === "paid"
+      && r.status !== "canceled"
+      && r.status !== "rescheduled",
+    )
+    .sort((a, b) => registrationVerifiedTimestamp(b) - registrationVerifiedTimestamp(a));
+  const refundedPayments = payments.filter(p => p.status === "refunded" || p.status === "partial_refund");
+  const failedPayments = payments.filter(p => p.status === "failed");
+  const pendingOptions = pendingBookings.map(r => {
+    const client = clients.find(c => c.id === r.clientId);
+    return {
+      id: r.id,
+      label: `${cleanName(client?.name || "Client")} · ${formatRegistrationAmount(r) || money(r.paymentAmount)} · ${formatRegistrationDateTime(r.createdAt)}`,
+    };
+  });
+
+  const thS = { fontSize: 11.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 600, padding: "10px 12px", borderBottom: `1px solid ${C.line}`, textAlign: "left" };
+  const tdS = { padding: "11px 12px", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 13, color: C.ink2, lineHeight: 1.5, maxWidth: 640 }}>
+          Stripe is the source of truth for payment amount and status. Calendly bookings with a session price start as <strong>Pending verification</strong> until a Stripe payment is matched (email + amount).
+        </div>
+        <button type="button" className="sb-ghost" onClick={syncStripe} disabled={stripeStatus?.syncing}
+          style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <RefreshCw size={15} style={{ animation: stripeStatus?.syncing ? "spin 1s linear infinite" : "none" }} />
+          {stripeStatus?.syncing ? "Syncing Stripe…" : "Sync Stripe now"}
+        </button>
+      </div>
+
+      {stripeStatus?.error && (
+        <div style={{ background: hexA("#C0573F", 0.08), border: `1px solid ${hexA("#C0573F", 0.25)}`, borderRadius: 10, padding: "10px 14px", fontSize: 13, color: "#8B3A2F" }}>
+          {stripeStatus.error}
+        </div>
+      )}
+
+      {pendingBookings.length > 0 && unmatchedPayments.length === 0 && (data.payments || []).length === 0 && (
+        <div style={{ background: hexA("#D9892B", 0.09), border: `1px solid ${hexA("#D9892B", 0.3)}`, borderRadius: 10, padding: "12px 16px", fontSize: 13, color: "#7A4D0F", lineHeight: 1.55 }}>
+          <strong>No Stripe payments in the CRM yet.</strong> Your Calendly booking synced, but the backend has not received a Stripe webhook.
+          In Stripe Dashboard → Webhooks, point your endpoint at your public backend URL (e.g. ngrok) → <code>/api/webhooks/stripe</code>, then click Sync Stripe now.
+        </div>
+      )}
+
+      <div className="sb-stats">
+        <Stat label="Unmatched Stripe payments" value={unmatchedPayments.length} accent="#C0573F" hint="no booking linked yet" />
+        <Stat label="Pending verification" value={pendingBookings.length} accent="#D9892B" hint="booked, awaiting Stripe" />
+        <Stat label="Amount mismatches" value={amountMismatchCount} accent="#9B59B6" hint="Calendly price ≠ Stripe — corrected to Stripe" />
+        <Stat label="Refunds" value={refundedPayments.length} accent={C.brand} hint="Stripe refund events" />
+      </div>
+
+      <Panel title={`Unmatched Stripe payments (${unmatchedPayments.length})`}>
+        {!unmatchedPayments.length ? <Empty pad>All recent Stripe payments are linked to bookings.</Empty> : (
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={thS}>Date</th>
+                <th style={thS}>Email</th>
+                <th style={thS}>Amount</th>
+                <th style={thS}>Status</th>
+                <th style={thS}>Match</th>
+                {canEdit && <th style={thS}>Link to booking</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {unmatchedPayments.map(p => (
+                <tr key={p.id}>
+                  <td style={tdS}>{formatRegistrationDateTime(p.paidAt || p.createdAt)}</td>
+                  <td style={tdS}>{p.customerEmail || "—"}</td>
+                  <td style={tdS}>{money(p.amountGross)}</td>
+                  <td style={tdS}>{p.status}</td>
+                  <td style={tdS}>
+                    {p.matchStatus === "needs_review"
+                      ? <span style={{ color: "#D9892B", fontWeight: 600 }}>Review ({p.matchScore})</span>
+                      : <span style={{ color: "#C0573F", fontWeight: 600 }}>Unmatched</span>}
+                    {p.notes && <div style={{ fontSize: 11, color: C.ink3, marginTop: 2 }}>{p.notes}</div>}
+                  </td>
+                  {canEdit && (
+                    <td style={tdS}>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                        <select value={linkTargets[p.id] || ""}
+                          onChange={e => setLinkTargets(prev => ({ ...prev, [p.id]: e.target.value }))}
+                          style={{ minWidth: 220, padding: "6px 8px", borderRadius: 8, border: `1px solid ${C.line}`, fontSize: 12 }}>
+                          <option value="">Select booking…</option>
+                          {pendingOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                        </select>
+                        <button type="button" className="sb-primary" style={{ padding: "6px 12px", fontSize: 12 }}
+                          disabled={!linkTargets[p.id]}
+                          onClick={() => {
+                            manualLinkStripePayment(setData, p.id, linkTargets[p.id]);
+                            setLinkTargets(prev => { const n = { ...prev }; delete n[p.id]; return n; });
+                          }}>
+                          Match
+                        </button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Panel>
+
+      <Panel title={`Bookings pending payment verification (${pendingBookings.length})`}>
+        {!pendingBookings.length ? <Empty pad>No bookings waiting on Stripe.</Empty> : (
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={thS}>Client</th>
+                <th style={thS}>Session</th>
+                <th style={thS}>Expected</th>
+                <th style={thS}>Booked</th>
+                <th style={thS}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortRegistrationsByCreatedAt(pendingBookings).map(r => {
+                const client = clients.find(c => c.id === r.clientId);
+                const ps = paymentStatusLabel(r.paymentStatus);
+                return (
+                  <tr key={r.id}>
+                    <td style={tdS}><strong>{cleanName(client?.name || "—")}</strong><div style={{ fontSize: 11, color: C.ink3 }}>{client?.email}</div></td>
+                    <td style={tdS}>{cleanName(r.eventName || "—")}</td>
+                    <td style={tdS}>{formatRegistrationAmount(r) || money(r.paymentAmount)}</td>
+                    <td style={tdS}>{formatRegistrationDateTime(r.createdAt)}</td>
+                    <td style={tdS}>
+                      <span style={{ fontSize: 11, color: ps.color, fontWeight: 600 }}>{ps.text}</span>
+                      <button type="button" onClick={() => onOpen({ db: "registrations", record: r })} style={{ marginLeft: 10, padding: "4px 10px", fontSize: 11, background: C.surfaceAlt, border: `1px solid ${C.line}`, borderRadius: 7, cursor: "pointer" }}>Open</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </Panel>
+
+      {amountMismatchCount > 0 && (
+        <Panel title={`Amount mismatches (${amountMismatchCount})`}>
+          <div style={{ fontSize: 12, color: C.ink3, marginBottom: 12, lineHeight: 1.5 }}>
+            When Calendly expected price differs from Stripe, the booking session amount is updated to the Stripe amount (source of truth).
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={thS}>Client</th>
+                <th style={thS}>Session</th>
+                <th style={thS}>Session date</th>
+                <th style={thS}>Type</th>
+                <th style={{ ...thS, textAlign: "right" }}>Expected</th>
+                <th style={{ ...thS, textAlign: "right" }}>Stripe</th>
+                <th style={{ ...thS, textAlign: "right" }}>Session amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(amountMismatchCards.length ? amountMismatchCards : activeAmountMismatches).map(r => {
+                const client = clients.find(c => c.id === r.clientId);
+                const meta = registrationSessionMeta(r, data);
+                const mm = r.lastAmountMismatch;
+                const expected = mm?.expectedAmount ?? r.paymentAmount ?? registrationSessionAmount(r);
+                const stripeAmt = mm?.stripeAmount ?? r.paidAmount;
+                const sessionAmt = mm ? mm.stripeAmount : r.paidAmount;
+                return (
+                  <tr key={r.id}>
+                    <td style={tdS}>
+                      <strong>{cleanName(client?.name || "Client")}</strong>
+                      {client?.email && <div style={{ fontSize: 11, color: C.ink3 }}>{client.email}</div>}
+                    </td>
+                    <td style={tdS}>{meta.sessionName}</td>
+                    <td style={tdS}>{meta.sessionDate}</td>
+                    <td style={tdS}>
+                      <span style={{
+                        fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20,
+                        background: meta.channel === "Virtual session" ? hexA("#2F6FD0", 0.12) : hexA(C.gold, 0.15),
+                        color: meta.channel === "Virtual session" ? "#2F6FD0" : C.gold,
+                      }}>
+                        {meta.channel === "Virtual session" ? "Virtual" : "Studio"}
+                      </span>
+                    </td>
+                    <td style={{ ...tdS, textAlign: "right", color: "#C0573F", textDecoration: mm ? "line-through" : "none" }}>{money(expected)}</td>
+                    <td style={{ ...tdS, textAlign: "right", fontWeight: 600, color: "#2D6A50" }}>{money(stripeAmt)}</td>
+                    <td style={{ ...tdS, textAlign: "right", fontWeight: 700 }}>{money(sessionAmt)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Panel>
+      )}
+
+      <Panel title={`Recently verified payments (${recentlyVerifiedPayments.length})`}>
+        {!recentlyVerifiedPayments.length ? (
+          <Empty pad>No Stripe-verified bookings yet — matched payments will appear here.</Empty>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={thS}>Client</th>
+                <th style={thS}>Session</th>
+                <th style={thS}>Session date</th>
+                <th style={thS}>Type</th>
+                <th style={{ ...thS, textAlign: "right" }}>Session amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentlyVerifiedPayments.map(r => {
+                const client = clients.find(c => c.id === r.clientId);
+                const meta = registrationSessionMeta(r, data);
+                const amt = registrationVerifiedAmount(r);
+                return (
+                  <tr key={r.id}>
+                    <td style={tdS}>
+                      <strong>{cleanName(client?.name || "Client")}</strong>
+                      {client?.email && <div style={{ fontSize: 11, color: C.ink3 }}>{client.email}</div>}
+                    </td>
+                    <td style={tdS}>{meta.sessionName}</td>
+                    <td style={tdS}>{meta.sessionDate}</td>
+                    <td style={tdS}>
+                      <span style={{
+                        fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20,
+                        background: meta.channel === "Virtual session" ? hexA("#2F6FD0", 0.12) : hexA(C.gold, 0.15),
+                        color: meta.channel === "Virtual session" ? "#2F6FD0" : C.gold,
+                      }}>
+                        {meta.channel === "Virtual session" ? "Virtual" : "Studio"}
+                      </span>
+                    </td>
+                    <td style={{ ...tdS, textAlign: "right", fontWeight: 700, color: "#2D6A50" }}>{amt != null ? money(amt) : "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </Panel>
+
+      {(refundedPayments.length > 0 || failedPayments.length > 0) && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }} className="sb-grid2">
+          {refundedPayments.length > 0 && (
+            <Panel title={`Refunded payments (${refundedPayments.length})`}>
+              {refundedPayments.map(p => (
+                <div key={p.id} style={{ padding: "10px 0", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 }}>
+                  {p.customerEmail || "—"} · {money(p.amountGross)} · refunded {money(p.amountRefunded)}
+                </div>
+              ))}
+            </Panel>
+          )}
+        </div>
+      )}
     </div>
   );
 }

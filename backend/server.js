@@ -11,6 +11,7 @@
 //      Events: invitee.created, invitee.canceled, invitee_no_show.created
 
 require("dotenv").config();
+const { SUPPORTED_EVENTS, extractStripePayment, verifyStripeSignature } = require("./stripe-handlers");
 const express    = require("express");
 const crypto     = require("crypto");
 const cors       = require("cors");
@@ -56,6 +57,11 @@ const path       = require("path");
       critical: false,
     },
     {
+      key: "STRIPE_WEBHOOK_SECRET",
+      desc: "Stripe webhook signing secret (whsec_...) — without this ALL incoming Stripe webhooks are accepted without verification",
+      critical: false,
+    },
+    {
       key: "ALLOWED_ORIGINS",
       desc: "Comma-separated allowed CORS origins — defaults to http://localhost:5173 (dev only); set your production domain before going live",
       critical: false,
@@ -88,6 +94,9 @@ const isProd = process.env.NODE_ENV === "production";
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
+
+// ngrok / reverse proxies set X-Forwarded-For — required for rate-limit + webhooks
+app.set("trust proxy", 1);
 
 // ── Security headers ──
 app.use(helmet({
@@ -149,6 +158,7 @@ const emailLimiter = rateLimit({
   message: { error: "Too many email requests — please wait before sending more." },
 });
 app.use("/api/webhooks/calendly", webhookLimiter);
+app.use("/api/webhooks/stripe", webhookLimiter);
 app.use("/api/send-email", emailLimiter);
 app.use("/api/", generalLimiter);
 
@@ -176,6 +186,9 @@ app.use(express.json({
 // ── Data store: encrypted JSON file queue ──
 const DATA_DIR   = path.join(__dirname, "data");
 const QUEUE_FILE = path.join(DATA_DIR, "pending-events.json");
+const STRIPE_QUEUE_FILE = path.join(DATA_DIR, "stripe-pending-events.json");
+const WEBHOOK_LOG_FILE = path.join(DATA_DIR, "webhook-events-log.json");
+const WEBHOOK_LOG_MAX = 500;
 
 // AES-256-GCM helpers for queue file at rest
 function _queueKey() {
@@ -248,6 +261,41 @@ function writeQueue(events) {
   const pruned = _pruneQueue(events);
   const json = JSON.stringify(pruned, null, 2);
   fs.writeFileSync(QUEUE_FILE, _encryptQueue(json), "utf8");
+}
+
+function readNamedQueue(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return [];
+    const raw = fs.readFileSync(filePath, "utf8");
+    const json = _decryptQueue(raw);
+    return JSON.parse(json);
+  } catch { return []; }
+}
+
+function writeNamedQueue(filePath, events) {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  const pruned = _pruneQueue(events);
+  const json = JSON.stringify(pruned, null, 2);
+  fs.writeFileSync(filePath, _encryptQueue(json), "utf8");
+}
+
+function appendWebhookLog(entry) {
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    let log = [];
+    if (fs.existsSync(WEBHOOK_LOG_FILE)) {
+      try {
+        const raw = fs.readFileSync(WEBHOOK_LOG_FILE, "utf8");
+        log = JSON.parse(_decryptQueue(raw));
+        if (!Array.isArray(log)) log = [];
+      } catch { log = []; }
+    }
+    log.push(entry);
+    if (log.length > WEBHOOK_LOG_MAX) log = log.slice(-WEBHOOK_LOG_MAX);
+    fs.writeFileSync(WEBHOOK_LOG_FILE, _encryptQueue(JSON.stringify(log, null, 2)), "utf8");
+  } catch (err) {
+    console.warn("[WARN] Failed to append webhook log:", err.message);
+  }
 }
 
 // ── In-process async mutex for queue file access ──
@@ -708,6 +756,66 @@ app.post("/api/webhooks/calendly", async (req, res) => {
   res.status(200).json({ status: "queued", id: extracted.id });
 });
 
+// ────────────────────────────────────────────────────────────────
+// POST /api/webhooks/stripe
+// Receives Stripe payment events, verifies signature, queues for CRM
+// ────────────────────────────────────────────────────────────────
+app.post("/api/webhooks/stripe", async (req, res) => {
+  const sigHeader = req.headers["stripe-signature"] || "";
+  const verify = verifyStripeSignature(req.rawBody, sigHeader, process.env.STRIPE_WEBHOOK_SECRET);
+  if (!verify.ok) {
+    console.warn("[WARN] Invalid Stripe signature — rejected:", verify.error);
+    return res.status(401).json({ error: "Invalid signature" });
+  }
+
+  let event;
+  try {
+    event = JSON.parse(req.rawBody.toString("utf8"));
+  } catch {
+    return res.status(400).json({ error: "Invalid JSON body" });
+  }
+
+  const eventType = event?.type;
+  if (!SUPPORTED_EVENTS.has(eventType)) {
+    console.log(`[INFO] Ignoring unsupported Stripe event: ${eventType}`);
+    return res.status(200).json({ status: "ignored", event: eventType });
+  }
+
+  const extracted = extractStripePayment(event);
+  if (!extracted) {
+    return res.status(200).json({ status: "skipped", reason: "could not extract payment" });
+  }
+
+  appendWebhookLog({
+    id: extracted.id,
+    provider: "stripe",
+    eventType: eventType,
+    receivedAt: extracted.receivedAt,
+    processed: false,
+    customerEmail: extracted.customerEmail || "",
+    amountGross: extracted.amountGross,
+    status: extracted.status,
+  });
+
+  try {
+    await withQueueLock(() => {
+      const queue = readNamedQueue(STRIPE_QUEUE_FILE);
+      if (queue.some(e => e.id === extracted.id || e.stripeEventId === extracted.stripeEventId)) {
+        console.log(`[INFO] Duplicate Stripe event ${extracted.stripeEventId} — skipping`);
+        return;
+      }
+      queue.push({ ...extracted, processed: false });
+      writeNamedQueue(STRIPE_QUEUE_FILE, queue);
+      console.log(`[OK] Queued Stripe ${eventType} for ${extracted.customerEmail || "(no email)"} — queue length: ${queue.length}`);
+    });
+  } catch (err) {
+    console.error("[ERROR] Failed to persist Stripe event:", err.message);
+    return res.status(500).json({ error: "Failed to queue event — please retry" });
+  }
+
+  res.status(200).json({ status: "queued", id: extracted.id });
+});
+
 // ── Frontend secret guard (for CRM-facing endpoints) ──
 function requireFrontendSecret(req, res, next) {
   const secret = process.env.FRONTEND_SECRET;
@@ -805,6 +913,41 @@ app.post("/api/calendly/payment-lookup", requireFrontendSecret, async (req, res)
     }
   }
   res.json({ payments, eventPrices });
+});
+
+// ────────────────────────────────────────────────────────────────
+// GET /api/stripe/pending
+// CRM polls unprocessed Stripe payment events
+// ────────────────────────────────────────────────────────────────
+app.get("/api/stripe/pending", requireFrontendSecret, (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  const queue = readNamedQueue(STRIPE_QUEUE_FILE);
+  const pending = queue.filter(e => !e.processed);
+  res.json({ events: pending, total: pending.length });
+});
+
+// ────────────────────────────────────────────────────────────────
+// POST /api/stripe/acknowledge
+// Body: { ids: ["stripe_evt_...", ...] }
+// ────────────────────────────────────────────────────────────────
+app.post("/api/stripe/acknowledge", requireFrontendSecret, async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids)) return res.status(400).json({ error: "ids must be an array" });
+  if (ids.length > 500) return res.status(400).json({ error: "Too many ids — max 500 per request" });
+  if (!ids.every(id => typeof id === "string" && id.length > 0 && id.length <= 120)) {
+    return res.status(400).json({ error: "All ids must be non-empty strings (max 120 chars each)." });
+  }
+
+  res.set("Cache-Control", "no-store");
+  const idSet = new Set(ids);
+  await withQueueLock(() => {
+    const queue = readNamedQueue(STRIPE_QUEUE_FILE);
+    const updated = queue.map(e => idSet.has(e.id) ? { ...e, processed: true, processedAt: new Date().toISOString() } : e);
+    writeNamedQueue(STRIPE_QUEUE_FILE, updated);
+  });
+
+  console.log(`[OK] Acknowledged ${ids.length} Stripe event(s)`);
+  res.json({ acknowledged: ids.length });
 });
 
 // ────────────────────────────────────────────────────────────────
@@ -1003,6 +1146,8 @@ app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
 app.listen(PORT, () => {
   console.log(`\n✅ Simply Breathe webhook backend running on http://localhost:${PORT}`);
-  console.log(`   Webhook endpoint: POST http://localhost:${PORT}/api/webhooks/calendly`);
-  console.log(`   Pending events:   GET  http://localhost:${PORT}/api/calendly/pending\n`);
+  console.log(`   Calendly webhook: POST http://localhost:${PORT}/api/webhooks/calendly`);
+  console.log(`   Stripe webhook:   POST http://localhost:${PORT}/api/webhooks/stripe`);
+  console.log(`   Pending events:   GET  http://localhost:${PORT}/api/calendly/pending`);
+  console.log(`   Stripe pending:   GET  http://localhost:${PORT}/api/stripe/pending\n`);
 });

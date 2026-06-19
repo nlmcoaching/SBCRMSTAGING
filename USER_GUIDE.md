@@ -145,7 +145,7 @@ Start every working day here. The Today dashboard is designed to answer one ques
 ### Stats Row
 
 Four numbers at the top give you an instant health check:
-- **Net Revenue MTD** — Sum of Calendly session prices (virtual + studio) for sessions this month. Click to open Revenue → **This month**.
+- **Net Revenue MTD** — Sum of verified booking revenue (virtual + studio) for sessions this month. Click to open Revenue → **This month**.
 - **Referral Revenue** — Revenue that came from referrals
 - **Active Clients** — Total number of clients in the system
 - **Active Sequences** — Clients currently in a follow-up sequence
@@ -535,17 +535,17 @@ All bookings that come through Calendly are automatically marked as **waiver sig
 
 When a booking arrives, the system automatically fetches the event type description from Calendly and stores it on the session record. This description powers the **ⓘ popup** on virtual session cards.
 
-Payment amounts are captured from the Calendly webhook when Calendly collects payment directly. For all studio/virtual sessions, the **Amount** column shows the event type’s configured session price (the same **Payment required amount** you set in Calendly). Calendly’s API does not expose that dollar field — keep it mirrored in each event type’s **Internal Note** (e.g. `Studio` on one line, `$55` on the next, or `virtual|$100`). Click the refresh icon on Calendly Bookings to backfill existing rows — requires `CALENDLY_API_TOKEN` on the backend.
+Payment amounts show the event type’s configured **session price** (Internal Note in Calendly). When someone books a paid session, **payment status** starts as **Pending verification** until Stripe confirms the charge (see Payment reconciliation under Revenue).
 
-> **Setup required:** This feature needs a Calendly Personal Access Token. If you're not seeing descriptions, ask your system administrator to add `CALENDLY_API_TOKEN` to the backend configuration (from Calendly → Integrations → API & Webhooks).
+> **Setup required:** Descriptions and session prices need a Calendly Personal Access Token. Stripe payment matching needs a Stripe webhook — ask your administrator to configure both (see Tracking Revenue).
 
 ### Booking Record Fields
 
 Each booking record captures everything from the Calendly confirmation:
 - When the booking was created (**Scheduled On**) and session date/time
-- **Amount paid** (from Calendly checkout; shows — if not yet synced or no payment on the booking)
+- **Amount paid** — Stripe-verified amount once matched; **Expected price** is the Calendly session price until then
 - Status (booked, attended, canceled, rescheduled, no-show)
-- Waiver status (auto-signed for Calendly bookings) and payment status
+- Waiver status (auto-signed for Calendly bookings) and payment status (`Pending verification` → `Paid` after Stripe match)
 - Location type and Zoom link (for virtual sessions)
 - Custom question answers: how they heard about you, health concerns, prior breathwork experience, referral source
 
@@ -689,6 +689,20 @@ When a target converts to an active partner, link them to a Studio Partner recor
 
 **Navigate to:** Sidebar → Revenue
 
+### Stripe payment reconciliation
+
+Calendly tells the CRM **who booked** and **expected session price**. **Stripe** is the source of truth for what was actually paid.
+
+1. Open **Revenue → Payment reconciliation**.
+2. Review **Unmatched Stripe payments** — use the dropdown to link a payment to the correct booking if auto-match did not run.
+3. Check **Pending verification** — bookings waiting for a Stripe charge (usually clears within minutes of checkout).
+4. Watch **Amount mismatches** — if Calendly expected price and Stripe differ, the CRM updates the session amount to Stripe and shows client name, session, date, studio/virtual type, expected vs Stripe amounts.
+5. **Recently verified payments** lists bookings Stripe has confirmed — name, session, date, type, and paid session amount (newest first).
+
+Click **Sync Stripe now** to pull new payments immediately (the CRM also checks every 5 minutes).
+
+**Administrator setup:** In Stripe Dashboard → Developers → Webhooks, add endpoint `https://YOUR-BACKEND-URL/api/webhooks/stripe` and subscribe to: `checkout.session.completed`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.refund.updated`. Copy the signing secret into `STRIPE_WEBHOOK_SECRET` in `backend/.env`.
+
 ### Adding a Revenue Entry
 
 Every session or payment should have a revenue record. Click **New** and enter:
@@ -702,7 +716,7 @@ Every session or payment should have a revenue record. Click **New** and enter:
 
 ### Reading the Revenue Table
 
-The **Revenue attribution**, **This month**, and **All transactions** tabs are built from **Calendly session prices** (one row per booking) plus **accepted/paid offers** — not old manual entries. Each booking row shows the same amount as Calendly Bookings → All Bookings. Dates follow the linked session date.
+The **Revenue attribution**, **Payment reconciliation**, **This month**, and **All transactions** tabs are built from **Stripe-verified booking amounts** (when matched) or **Calendly session prices**, plus **accepted/paid offers**. Bookings still in **Pending verification** do not appear in revenue totals until Stripe confirms payment.
 
 The footer on **This month** and **All transactions** shows gross (full session prices) and **net** after a **70/30 split** on studio sessions (you keep 70%, studio 30%). Virtual sessions and packages show full amount as net. The net total differs from **Net Revenue MTD** on Command Center, which uses full session prices until splits are applied elsewhere.
 

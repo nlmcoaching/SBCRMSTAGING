@@ -840,13 +840,27 @@ Manages proactive studio and referral outreach — separate from the reactive St
 
 **Navigation:** Sidebar → Revenue (Core section)
 
-Revenue views are built from **live Calendly booking session prices** (`paymentAmount` on each registration) plus **accepted/paid offers**. Manual legacy revenue rows in the database are not shown here — this matches Command Center, LTV, and session booking cards.
+Revenue views are built from **Stripe-verified booking amounts** (when matched) or **Calendly session prices** (`paymentAmount`) plus **accepted/paid offers**. Bookings in `pending_verification` are excluded until Stripe confirms payment. Manual legacy revenue rows in the database are not shown here — this matches Command Center, LTV, and session booking cards.
+
+### Payment Reconciliation View
+
+**Navigation:** Sidebar → Revenue → **Payment reconciliation**
+
+| Section | Purpose |
+|---|---|
+| Unmatched Stripe payments | Stripe charges with no linked booking — manual **Match** dropdown |
+| Pending verification | Calendly bookings awaiting Stripe confirmation |
+| Amount mismatches | Calendly expected price ≠ Stripe paid — booking `paymentAmount` auto-updated to Stripe; card shows client, session, date, type (Studio/Virtual), expected, Stripe, and corrected session amount |
+| Recently verified payments | Stripe-matched bookings (`stripeVerified`, paid) — client, session, session date, studio/virtual type, session amount (newest first) |
+| Refunds | Stripe refund events affecting revenue |
+
+Use **Sync Stripe now** to pull pending webhook events immediately (also polls every 5 minutes).
 
 ### Revenue Sources
 
 | Source | How it appears |
 |---|---|
-| Calendly bookings | One row per non-canceled, non-unpaid registration — amount = event type session price |
+| Calendly bookings | One row per paid/verified registration — amount = Stripe `paidAmount` when verified, else session price |
 | Offers | One row per Accepted/Paid offer — amount = offer price |
 
 Dates use the linked **session date** (bookings) or **close/offered date** (offers).
@@ -1500,7 +1514,15 @@ Calendly → POST /api/webhooks/calendly (backend/server.js)
          → Runs retroactive studio-matching pass on all sessions
          → Processes new events → updates data state
          → POST /api/calendly/acknowledge (marks events done)
+
+Stripe   → POST /api/webhooks/stripe (backend/server.js)
+         → stripe-pending-events.json queue
+         → React CRM polls GET /api/stripe/pending every 5 min
+         → Matches payments to Calendly bookings (email + amount + 30 min window)
+         → POST /api/stripe/acknowledge (marks events done)
 ```
+
+Calendly creates bookings with **expected session price** and `paymentStatus: pending_verification`. Stripe webhooks are the **source of truth** for amount paid, payment status, refunds, and Stripe IDs once matched.
 
 The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoiding CORS entirely.
 
@@ -1512,6 +1534,9 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 | `/api/calendly/pending` | GET | Returns unprocessed events for the CRM to consume |
 | `/api/calendly/acknowledge` | POST | Marks event IDs as processed. Each `id` element validated as non-empty string ≤ 100 chars. |
 | `/api/calendly/payment-lookup` | POST | Fetches invitee payment amounts from Calendly API for up to 25 invitee URIs (used to backfill **Amount** on existing bookings) |
+| `/api/webhooks/stripe` | POST | Receives Stripe payment events; verifies HMAC-SHA256 signature if `STRIPE_WEBHOOK_SECRET` is configured |
+| `/api/stripe/pending` | GET | Returns unprocessed Stripe payment events for the CRM to consume |
+| `/api/stripe/acknowledge` | POST | Marks Stripe queue event IDs as processed |
 | `/api/calendly/events` | GET | All events (debug/admin) |
 | `/api/calendly/events` | DELETE | Clear queue (dev only) |
 | `/api/send-email` | POST | Sends an email via Resend. Requires `to`, `subject`, `body` (and optional `recipientName`). Rate-limited to 10 req/min. |
@@ -1526,6 +1551,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 - `ADMIN_SECRET` — token required for debug endpoints (`GET/DELETE /api/calendly/events`). Pass as `x-admin-token` header.
 - `QUEUE_ENCRYPTION_KEY` — 32-byte hex key for AES-256-GCM encryption of `pending-events.json` at rest. Generate with `openssl rand -hex 32`. **Required in production** (server refuses to start without it); if blank in dev, queue is stored as plaintext with a loud warning.
 - `CALENDLY_API_TOKEN` — Calendly Personal Access Token (from Calendly → Integrations → API & Webhooks). Required for event type description fetching and payment amount backfill. See `backend/.env.example`.
+- `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret (`whsec_...`) from Stripe Dashboard → Developers → Webhooks. **Recommended in production**; if blank in dev, signature verification is skipped with a loud warning.
 - `RESEND_API_KEY` — Resend API key for direct email sending. Server logs a warning at startup if missing and returns 503 on any send attempt.
 - `RESEND_FROM` — Sender address (default: `jeff@simplybreathe.ai`). Must be a verified Resend domain.
 - `RESEND_REPLY_TO` — Reply-to address for outbound emails (defaults to `RESEND_FROM`).
@@ -1559,8 +1585,8 @@ Email address (normalized to lowercase) is the primary deduplication key. On `in
 - **New email** → creates client with `source: "Calendly"`, `status: "Booked"`
 - **Existing email** → updates name, phone, next session date, status (Lead → Booked)
 
-**Lifetime value:** After each Calendly sync (and payment backfill), LTV is recalculated for every client with at least one registration record. The total is the sum of:
-- Calendly booking **session price** (`paymentAmount`) on non-canceled, non-rescheduled registrations (excludes unpaid) — used until live Calendly payment data is reliable
+**Lifetime value:** After each Calendly or Stripe sync (and payment backfill), LTV is recalculated for every client with at least one registration record. The total is the sum of:
+- **Stripe-verified** booking amounts (`paidAmount` minus refunds) when `stripeVerified` is true; otherwise Calendly **session price** (`paymentAmount`) on paid registrations (excludes `pending_verification`, unpaid, failed)
 - Client-linked **Revenue** records (`gross` minus `refunds`)
 - **Offers** with status `Paid` or `Accepted`
 
@@ -1578,8 +1604,15 @@ Each individual Calendly booking is stored as a `registration` record:
 | `eventName` | Calendly event type name |
 | `status` | `booked` · `attended` · `canceled` · `rescheduled` · `no_show` |
 | `paymentAmount` | Session list price — the Calendly **Payment required amount** for that event type. Calendly’s API does not expose this field directly; the CRM reads it from the event type **Internal Note** (e.g. `Studio` + `$55`) via the Calendly API, matching how studio cards on the website show price |
-| `paidAmount` | Actual amount Calendly recorded on the invitee (`payment.amount` — often `$0` for coupon bookings) |
-| `paymentStatus` | `paid` · `unpaid` · `unknown` — derived from Calendly `payment.successful` and amount when synced |
+| `paidAmount` | Actual amount paid — from **Stripe** once matched; Calendly invitee `payment.amount` is unreliable when Stripe checkout is external |
+| `paymentStatus` | `paid` · `pending_verification` · `unpaid` · `partial_refund` · `refunded` · `failed` · `unknown` — paid sessions start as `pending_verification` until Stripe confirms |
+| `stripeVerified` | Boolean — true when a Stripe payment has been linked to this booking |
+| `stripePaymentIntentId` | Stripe PaymentIntent ID (`pi_...`) when matched |
+| `stripeChargeId` | Stripe Charge ID (`ch_...`) when matched |
+| `paymentId` | Links to a record in the `payments` table |
+| `paidAt` | ISO timestamp from Stripe when payment succeeded |
+| `amountRefunded` | Refunded amount from Stripe refund webhooks |
+| `lastAmountMismatch` | When Stripe paid ≠ Calendly expected price: `{ expectedAmount, stripeAmount, correctedAt }` — `paymentAmount` is updated to Stripe |
 | `waiverStatus` | `pending` · `signed` |
 | `createdAt` | ISO 8601 timestamp when the booking was created (from Calendly `created_at`, webhook receipt time, or manual entry) |
 | `scheduledAt` | ISO 8601 start time |
@@ -1593,6 +1626,42 @@ Each individual Calendly booking is stored as a `registration` record:
 | `reviewedContraindications` | Custom question answer |
 | `attendanceType` | Virtual or in-person |
 | `locationAddress` | Physical address of the studio/venue from Calendly |
+
+### Payments Data Table
+
+Each Stripe payment event processed by the CRM is stored as a `payment` record:
+
+| Field | Description |
+|---|---|
+| `clientId` | Linked client (set on auto- or manual-match) |
+| `bookingId` | Linked registration ID |
+| `sessionId` | Linked session ID |
+| `provider` | `stripe` |
+| `stripePaymentIntentId` | Stripe PaymentIntent ID |
+| `stripeChargeId` | Stripe Charge ID |
+| `stripeCheckoutSessionId` | Stripe Checkout Session ID (when applicable) |
+| `stripeEventId` | Stripe webhook event ID |
+| `customerEmail` | Payer email from Stripe |
+| `amountGross` | Amount paid (USD dollars) |
+| `amountRefunded` | Cumulative refunded amount |
+| `currency` | ISO currency code (default `usd`) |
+| `status` | `paid` · `failed` · `refunded` · `partial_refund` |
+| `matchStatus` | `auto` · `manual` · `needs_review` · `unmatched` |
+| `matchScore` | Confidence score (email + amount + time window) |
+| `paidAt` | Payment timestamp from Stripe |
+| `receiptUrl` | Stripe receipt URL when available |
+
+### Stripe Webhook Matching (Option 1)
+
+On `checkout.session.completed` or `payment_intent.succeeded`, the CRM auto-matches when **all** of the following are true:
+1. Customer email matches the booking client email
+2. Stripe amount matches `paymentAmount` (expected session price)
+3. Payment occurred within **30 minutes** of booking `createdAt`
+4. Only **one** pending booking exists for that email + amount
+
+Score ≥ 80 with a single candidate → auto-match. Multiple candidates or score 50–79 → **needs review** on Revenue → Payment reconciliation. Otherwise → **unmatched**.
+
+Refund events (`charge.refunded`, `charge.refund.updated`) update linked payment and registration refund fields.
 
 ### Event Type Description Fetching
 
