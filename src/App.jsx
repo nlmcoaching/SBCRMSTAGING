@@ -1287,6 +1287,292 @@ function fmtDate(iso, withYear) {
 const money = (n) =>
   n === "" || n == null || isNaN(n) ? "—" :
     "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+const deriveRegistrationPaymentStatus = (amount, successful) => {
+  if (successful === true) return "paid";
+  if (amount === 0) return "paid";
+  if (amount != null && amount !== "" && !Number.isNaN(Number(amount)) && successful === false) return "unpaid";
+  return "unknown";
+};
+const applyRegistrationPaymentLookup = (reg, pay) => {
+  if (!pay || pay.paymentAmount == null) return reg;
+  return {
+    ...reg,
+    paymentAmount: pay.paymentAmount,
+    paidAmount: pay.paidAmount != null ? pay.paidAmount : reg.paidAmount,
+    paymentStatus: deriveRegistrationPaymentStatus(
+      pay.paidAmount != null ? pay.paidAmount : pay.paymentAmount,
+      pay.paymentSuccessful,
+    ),
+  };
+};
+const LTV_OFFER_STATUSES = new Set(["Paid", "Accepted"]);
+function registrationSessionAmount(reg) {
+  if (!reg) return null;
+  const amt = Number(reg.paymentAmount);
+  return Number.isNaN(amt) ? null : amt;
+}
+function formatRegistrationAmount(reg) {
+  const amt = registrationSessionAmount(reg);
+  if (amt == null) return null;
+  if (amt === 0) return "Free";
+  return money(amt);
+}
+function resolveSessionListPrice(registrations, sessionId) {
+  for (const r of registrations || []) {
+    if (r.sessionId !== sessionId || r.status === "canceled") continue;
+    const amt = registrationSessionAmount(r);
+    if (amt != null) return amt;
+  }
+  return null;
+}
+function formatBookingAmount(reg, fallbackAmount) {
+  const direct = formatRegistrationAmount(reg);
+  if (direct) return direct;
+  if (fallbackAmount == null || Number.isNaN(Number(fallbackAmount))) return null;
+  if (fallbackAmount === 0) return "Free";
+  return money(fallbackAmount);
+}
+async function backfillRegistrationPaymentsForRegs(regs, setData) {
+  if (!setData || !regs?.length) return;
+  const missingRegs = regs.filter(r => r.paymentAmount == null || r.paymentAmount === "");
+  if (!missingRegs.length) return;
+  const missingPaymentUris = [...new Set(missingRegs.map(r => r.calendlyInviteeUri).filter(Boolean))].slice(0, 25);
+  const missingEventNames = [...new Set(missingRegs.map(r => r.eventName).filter(Boolean))].slice(0, 25);
+  const eventTypeByUri = {};
+  missingRegs.forEach(r => {
+    if (r.calendlyInviteeUri && r.calendlyEventTypeUri) {
+      eventTypeByUri[r.calendlyInviteeUri] = r.calendlyEventTypeUri;
+    }
+  });
+  if (!missingPaymentUris.length && !missingEventNames.length) return;
+  try {
+    const res = await fetch(calendlyApiUrl("/api/calendly/payment-lookup"), {
+      method: "POST",
+      headers: apiHeaders(),
+      body: JSON.stringify({ uris: missingPaymentUris, eventNames: missingEventNames, eventTypeByUri }),
+    });
+    if (!res.ok) return;
+    const payload = await res.json();
+    if (!payload?.payments && !payload?.eventPrices) return;
+    setData(prev => {
+      const registrations = (prev.registrations || []).map(r => {
+        const pay = payload.payments?.[r.calendlyInviteeUri]
+          || (r.eventName ? payload.eventPrices?.[r.eventName] : null);
+        return pay ? applyRegistrationPaymentLookup(r, pay) : r;
+      });
+      const ltvData = { registrations, revenue: prev.revenue || [], offers: prev.offers || [] };
+      return {
+        ...prev,
+        registrations,
+        sessions: refreshCalendlySessionRevenue(prev.sessions || [], registrations),
+        clients: applyRegistrationLifetimeValues(prev.clients || [], ltvData),
+      };
+    });
+  } catch { /* backend unavailable */ }
+}
+function registrationPaymentForLtv(reg) {
+  if (!reg || reg.status === "canceled" || reg.status === "rescheduled") return 0;
+  if (reg.paymentStatus === "unpaid") return 0;
+  const amt = registrationSessionAmount(reg);
+  if (amt == null || amt <= 0) return 0;
+  return amt;
+}
+function sessionBookingRevenue(sessionId, registrations) {
+  return (registrations || [])
+    .filter(r => r.sessionId === sessionId && r.status !== "canceled" && r.status !== "rescheduled")
+    .reduce((sum, r) => sum + registrationPaymentForLtv(r), 0);
+}
+function applySessionRevenueFromRegistrations(session, registrations) {
+  if (!session?.id) return session;
+  const activeRegs = (registrations || []).filter(r => r.sessionId === session.id && r.status !== "canceled");
+  const gross = sessionBookingRevenue(session.id, registrations);
+  const isVirtual = !session.studioId && (session.locationType === "zoom" || session.locationType === "custom" || !session.locationType);
+  const paidCount = activeRegs.filter(r => registrationPaymentForLtv(r) > 0).length;
+  return {
+    ...session,
+    revenue: gross,
+    netRevenue: gross,
+    paidAttendees: isVirtual ? (gross > 0 ? 1 : (session.paidAttendees || 0)) : paidCount,
+    registered: activeRegs.length || session.registered || 0,
+  };
+}
+function refreshCalendlySessionRevenue(sessions, registrations) {
+  return sessions.map(s => (
+    s.calendlyEventUri || (registrations || []).some(r => r.sessionId === s.id && r.paymentAmount != null)
+      ? applySessionRevenueFromRegistrations(s, registrations)
+      : s
+  ));
+}
+function buildSessionMap(sessions) {
+  return Object.fromEntries((sessions || []).map(s => [s.id, s]));
+}
+function registrationRevenueForMonth(registrations, sessions, monthPrefix, { studioOnly, virtualOnly } = {}) {
+  const sessionById = buildSessionMap(sessions);
+  return (registrations || []).reduce((sum, r) => {
+    const session = sessionById[r.sessionId];
+    if (!session?.date?.startsWith(monthPrefix)) return sum;
+    const isVirtual = !session.studioId && (session.locationType === "zoom" || session.locationType === "custom" || !session.locationType);
+    if (studioOnly && isVirtual) return sum;
+    if (virtualOnly && !isVirtual) return sum;
+    return sum + registrationPaymentForLtv(r);
+  }, 0);
+}
+function registrationRevenueByMonth(registrations, sessions) {
+  const sessionById = buildSessionMap(sessions);
+  const months = {};
+  (registrations || []).forEach(r => {
+    const session = sessionById[r.sessionId];
+    if (!session?.date) return;
+    const amt = registrationPaymentForLtv(r);
+    if (amt <= 0) return;
+    const k = session.date.slice(0, 7);
+    months[k] = (months[k] || 0) + amt;
+  });
+  return months;
+}
+function buildSessionListPriceMap(registrations) {
+  const map = {};
+  (registrations || []).forEach(r => {
+    if (!r.sessionId) return;
+    const amt = registrationSessionAmount(r);
+    if (amt != null && map[r.sessionId] == null) map[r.sessionId] = amt;
+  });
+  return map;
+}
+function registrationRevenueAmount(reg, listPrices) {
+  const direct = registrationSessionAmount(reg);
+  if (direct != null) return direct;
+  if (reg.sessionId && listPrices?.[reg.sessionId] != null) return listPrices[reg.sessionId];
+  return null;
+}
+function registrationRevenueChannel(session) {
+  if (!session) return "Studio session";
+  const isVirtual = !session.studioId && (session.locationType === "zoom" || session.locationType === "custom" || !session.locationType);
+  return isVirtual ? "Virtual session" : "Studio session";
+}
+function offerRevenueChannel(offerType) {
+  if (offerType === "Private session") return "Private client";
+  if (offerType === "Single session" || offerType === "Virtual session") return "Virtual session";
+  return "Group package";
+}
+function buildRegistrationRevenueRows(data = {}) {
+  const sessions = buildSessionMap(data.sessions);
+  const clients = Object.fromEntries((data.clients || []).map(c => [c.id, c]));
+  const listPrices = buildSessionListPriceMap(data.registrations);
+  return (data.registrations || [])
+    .filter(r => r.status !== "canceled" && r.status !== "rescheduled" && r.paymentStatus !== "unpaid")
+    .map(r => {
+      const session = sessions[r.sessionId];
+      const client = clients[r.clientId];
+      const amt = registrationRevenueAmount(r, listPrices);
+      if (amt == null || amt <= 0) return null;
+      const date = session?.date || (r.scheduledAt || "").slice(0, 10) || (r.createdAt || "").slice(0, 10);
+      if (!date) return null;
+      return {
+        id: "regrev_" + r.id,
+        name: client
+          ? `${cleanName(client.name)} — ${cleanName(session?.name || r.eventName || "Session")}`
+          : cleanName(session?.name || r.eventName || "Session booking"),
+        date,
+        channel: registrationRevenueChannel(session),
+        source: client?.source || "Calendly",
+        campaign: "",
+        sessionId: r.sessionId || "",
+        clientId: r.clientId || "",
+        client: client ? cleanName(client.name) : "",
+        gross: amt,
+        stripeFee: 0,
+        studioSplit: 0,
+        facilitatorCost: 0,
+        refunds: 0,
+        net: amt,
+        costCenter: registrationRevenueChannel(session),
+        notes: "Calendly session price",
+        registrationId: r.id,
+        _derived: true,
+      };
+    })
+    .filter(Boolean);
+}
+function buildOfferRevenueRows(data = {}) {
+  return (data.offers || [])
+    .filter(o => LTV_OFFER_STATUSES.has(o.status) && Number(o.price) > 0)
+    .map(o => {
+      const date = o.closeDate || o.dateOffered || "";
+      if (!date) return null;
+      const gross = Number(o.price) || 0;
+      return {
+        id: "offerrev_" + o.id,
+        name: cleanName(o.name),
+        date,
+        channel: offerRevenueChannel(o.offerType),
+        source: o.source || "",
+        campaign: "",
+        sessionId: "",
+        clientId: o.clientId || "",
+        client: "",
+        gross,
+        stripeFee: 0,
+        studioSplit: 0,
+        facilitatorCost: 0,
+        refunds: 0,
+        net: gross,
+        costCenter: offerRevenueChannel(o.offerType),
+        notes: `${o.offerType} — ${o.status}`,
+        offerId: o.id,
+        _derived: true,
+      };
+    })
+    .filter(Boolean);
+}
+function buildRevenueViewRows(data = {}) {
+  return [...buildRegistrationRevenueRows(data), ...buildOfferRevenueRows(data)]
+    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+}
+const STUDIO_REV_SHARE_STUDIO = 0.30; // studio partner share (30%)
+const STUDIO_REV_SHARE_US = 0.70;     // Simply Breathe share (70%)
+function applyStudioSessionSplit(row) {
+  if (row.channel !== "Studio session") return row;
+  const gross = Number(row.gross) || 0;
+  const studioSplit = Math.round(gross * STUDIO_REV_SHARE_STUDIO * 100) / 100;
+  return {
+    ...row,
+    studioSplit,
+    net: Math.round(gross * STUDIO_REV_SHARE_US * 100) / 100,
+    notes: row.notes ? `${row.notes} · 70/30 split` : "Calendly session price · 70/30 split",
+  };
+}
+function openRevenueViewRow(r, data, onOpen) {
+  if (r.registrationId) {
+    const reg = (data.registrations || []).find(x => x.id === r.registrationId);
+    if (reg) { onOpen({ db: "registrations", record: reg }); return; }
+  }
+  if (r.offerId) {
+    const offer = (data.offers || []).find(x => x.id === r.offerId);
+    if (offer) { onOpen({ db: "offers", record: offer }); return; }
+  }
+  onOpen({ db: "revenue", record: r });
+}
+function computeClientLifetimeValue(clientId, data = {}) {
+  const { registrations = [], revenue = [], offers = [] } = data;
+  const regTotal = registrations
+    .filter(r => r.clientId === clientId)
+    .reduce((sum, r) => sum + registrationPaymentForLtv(r), 0);
+  const revTotal = revenue
+    .filter(r => r.clientId === clientId)
+    .reduce((sum, r) => sum + Math.max(0, (Number(r.gross) || 0) - (Number(r.refunds) || 0)), 0);
+  const offerTotal = offers
+    .filter(o => o.clientId === clientId && LTV_OFFER_STATUSES.has(o.status))
+    .reduce((sum, o) => sum + (Number(o.price) || 0), 0);
+  return Math.round((regTotal + revTotal + offerTotal) * 100) / 100;
+}
+function applyRegistrationLifetimeValues(clients, data) {
+  const regClientIds = new Set((data.registrations || []).map(r => r.clientId).filter(Boolean));
+  if (!regClientIds.size) return clients;
+  return clients.map(c => regClientIds.has(c.id)
+    ? { ...c, lifetimeValue: computeClientLifetimeValue(c.id, data) }
+    : c);
+}
 const pct = (n) => (n === "" || n == null || isNaN(n) ? "—" : Math.round(Number(n) * 100) + "%");
 const onOrBefore = (iso, t) => !!iso && iso <= t;
 const sameMonth = (iso, ref) => !!iso && iso.slice(0, 7) === ref.slice(0, 7);
@@ -1865,6 +2151,7 @@ export default function App() {
       let processed = 0;
       const ids = [];
       const sessionsNeedingDesc = [];
+      const paymentLookupUris = [];
       setData(prev => {
         let next = { ...prev };
         const clients       = [...(next.clients       || [])];
@@ -1923,7 +2210,11 @@ export default function App() {
           }
         });
 
-        if (!events.length) return { ...next, sessions, partners };
+        if (!events.length) {
+          const refreshedSessions = refreshCalendlySessionRevenue(sessions, registrations);
+          const ltvData = { registrations, revenue: next.revenue || [], offers: next.offers || [] };
+          return { ...next, clients: applyRegistrationLifetimeValues(clients, ltvData), sessions: refreshedSessions, partners };
+        }
 
         events.forEach(rawEvt => {
           // Sanitize all string fields from external webhook data before use
@@ -2082,14 +2373,26 @@ export default function App() {
 
             // 3. Upsert registration record (one per unique invitee URI)
             const existingRegIdx = registrations.findIndex(r => r.calendlyInviteeUri === evt.calendlyInviteeUri && evt.calendlyInviteeUri);
+            const prevReg = existingRegIdx >= 0 ? registrations[existingRegIdx] : null;
+            const paymentAmount = evt.paymentAmount != null ? evt.paymentAmount : (prevReg?.paymentAmount ?? null);
+            const paidAmount = evt.paidAmount != null ? evt.paidAmount : (prevReg?.paidAmount ?? null);
+            const paymentStatus = evt.paymentAmount != null || evt.paidAmount != null || evt.paymentSuccessful != null
+              ? deriveRegistrationPaymentStatus(
+                evt.paidAmount != null ? evt.paidAmount : evt.paymentAmount,
+                evt.paymentSuccessful,
+              )
+              : (prevReg?.paymentStatus || "unknown");
             const regRecord = {
               id: existingRegIdx >= 0 ? registrations[existingRegIdx].id : uid("reg"),
               clientId: client.id, sessionId,
               calendlyInviteeUri: evt.calendlyInviteeUri,
               calendlyEventUri:   evt.calendlyEventUri,
+              calendlyEventTypeUri: evt.calendlyEventTypeUri || prevReg?.calendlyEventTypeUri || "",
               eventName:          evt.eventName,
               status:             "booked",
-              paymentStatus:      "unknown",
+              paymentAmount,
+              paidAmount,
+              paymentStatus,
               waiverStatus:       "signed", // client accepts waiver during Calendly booking
               createdAt:          existingRegIdx >= 0
                 ? (registrations[existingRegIdx].createdAt || evt.createdAt || evt.receivedAt || new Date().toISOString())
@@ -2110,6 +2413,10 @@ export default function App() {
             };
             if (existingRegIdx >= 0) registrations[existingRegIdx] = regRecord;
             else registrations.push(regRecord);
+
+            if ((paymentAmount == null || paymentAmount === "") && evt.calendlyInviteeUri) {
+              paymentLookupUris.push(evt.calendlyInviteeUri);
+            }
 
             // 4. Create follow-up tasks (only for brand-new registrations)
             if (existingRegIdx < 0 && evt.startTime) {
@@ -2167,7 +2474,9 @@ export default function App() {
           }
         });
 
-        return { ...next, clients, registrations, sessions, followups, partners };
+        const refreshedSessions = refreshCalendlySessionRevenue(sessions, registrations);
+        const ltvData = { registrations, revenue: next.revenue || [], offers: next.offers || [] };
+        return { ...next, clients: applyRegistrationLifetimeValues(clients, ltvData), registrations, sessions: refreshedSessions, followups, partners };
       });
 
       // Acknowledge processed events
@@ -2200,6 +2509,47 @@ export default function App() {
             }));
           } catch { /* ignore background refresh errors */ }
         })).catch(() => {});
+      }
+
+      // Backfill missing payment amounts from Calendly invitee API (async, non-blocking)
+      const missingRegs = (data.registrations || [])
+        .filter(r => r.paymentAmount == null || r.paymentAmount === "");
+      const missingPaymentUris = [...new Set([
+        ...paymentLookupUris,
+        ...missingRegs.map(r => r.calendlyInviteeUri).filter(Boolean),
+      ])].slice(0, 25);
+      const missingEventNames = [...new Set(missingRegs.map(r => r.eventName).filter(Boolean))].slice(0, 25);
+      const eventTypeByUri = {};
+      missingRegs.forEach(r => {
+        if (r.calendlyInviteeUri && r.calendlyEventTypeUri) {
+          eventTypeByUri[r.calendlyInviteeUri] = r.calendlyEventTypeUri;
+        }
+      });
+      if (missingPaymentUris.length || missingEventNames.length) {
+        fetch(calendlyApiUrl("/api/calendly/payment-lookup"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ..._calendlyHeaders() },
+          body: JSON.stringify({ uris: missingPaymentUris, eventNames: missingEventNames, eventTypeByUri }),
+        })
+          .then(res => res.ok ? res.json() : null)
+          .then(payload => {
+            if (!payload?.payments && !payload?.eventPrices) return;
+            setData(prev => {
+              const registrations = (prev.registrations || []).map(r => {
+                const pay = payload.payments?.[r.calendlyInviteeUri]
+                  || (r.eventName ? payload.eventPrices?.[r.eventName] : null);
+                return pay ? applyRegistrationPaymentLookup(r, pay) : r;
+              });
+              const ltvData = { registrations, revenue: prev.revenue || [], offers: prev.offers || [] };
+              return {
+                ...prev,
+                registrations,
+                sessions: refreshCalendlySessionRevenue(prev.sessions || [], registrations),
+                clients: applyRegistrationLifetimeValues(prev.clients || [], ltvData),
+              };
+            });
+          })
+          .catch(() => {});
       }
     } catch {
       // Backend not running or unreachable — check silently and surface pending count only
@@ -2302,7 +2652,7 @@ export default function App() {
     const yr = today.slice(0, 4);
     const expensesMTD = (data.expenses||[]).filter(e => (e.date||"").startsWith(mo)).reduce((s,e) => s + (+e.amount||0), 0);
     const expensesYTD = (data.expenses||[]).filter(e => (e.date||"").startsWith(yr)).reduce((s,e) => s + (+e.amount||0), 0);
-    const netRevMTD   = (data.revenue||[]).filter(r => (r.date||"").startsWith(mo)).reduce((s,r) => s + calcNet(r), 0);
+    const netRevMTD   = registrationRevenueForMonth(data.registrations, data.sessions, mo);
     const opProfit    = netRevMTD - expensesMTD;
     const opMargin    = netRevMTD > 0 ? Math.round((opProfit / netRevMTD) * 100) : null;
 
@@ -2321,7 +2671,24 @@ export default function App() {
   };
   const saveRecord = (db, rec) => {
     const toSave = db === "partners" ? { ...rec, agreements: stripAgreementForStore(rec.agreements) } : rec;
-    update(db, (rows) => (rows.some((r) => r.id === toSave.id) ? rows.map((r) => (r.id === toSave.id ? toSave : r)) : [...rows, toSave]));
+    setData(d => {
+      const rows = d[db] || [];
+      const nextRows = rows.some(r => r.id === toSave.id)
+        ? rows.map(r => (r.id === toSave.id ? toSave : r))
+        : [...rows, toSave];
+      const next = { ...d, [db]: nextRows };
+      if (db === "registrations" && toSave.clientId) {
+        next.clients = applyRegistrationLifetimeValues(d.clients || [], {
+          registrations: nextRows,
+          revenue: d.revenue || [],
+          offers: d.offers || [],
+        });
+        if (toSave.sessionId) {
+          next.sessions = refreshCalendlySessionRevenue(d.sessions || [], nextRows);
+        }
+      }
+      return next;
+    });
   };
   const deleteRecord = (db, id) => { update(db, (rows) => rows.filter((r) => r.id !== id)); setOpen(null); };
 
@@ -2778,7 +3145,7 @@ function newRecord(db) {
     testimonials: { name: "", clientId: "", sessionId: "", status: "Breakthrough noted", type: "Written", content: "", bestQuote: "", beforeSummary: "", afterSummary: "", themes: [], permissionReceived: false, useOnWebsite: false, useOnSocial: false, firstNameOnly: false, videoUrl: "", dateReceived: "", datePublished: "", notes: "" },
     templates:    { name: "", category: "Post-Session", channel: "Email", subject: "", body: "", variables: "", linkedTo: "clients", usageCount: 0, notes: "" },
     expenses:     { date: "", vendor: "", description: "", amount: 0, category: "Equipment & Supplies", paymentMethod: "Credit Card", taxDeductible: true, recurring: false, recurringFreq: "One-time", linkedSession: "", linkedPartner: "", receiptUrl: "", notes: "" },
-    registrations: { clientId: "", sessionId: "", calendlyInviteeUri: "", calendlyEventUri: "", eventName: "", status: "booked", paymentStatus: "unknown", waiverStatus: "pending", createdAt: new Date().toISOString(), scheduledAt: "", timezone: "", locationType: "", locationJoinUrl: "", locationAddress: "", attendanceType: "", checkedIn: false, attended: false, noShow: false, doneBreathworkBefore: "", howHeard: "", referredBy: "", concerns: "", reviewedContraindications: "", notes: "" },
+    registrations: { clientId: "", sessionId: "", calendlyInviteeUri: "", calendlyEventUri: "", calendlyEventTypeUri: "", eventName: "", status: "booked", paymentAmount: null, paidAmount: null, paymentStatus: "unknown", waiverStatus: "pending", createdAt: new Date().toISOString(), scheduledAt: "", timezone: "", locationType: "", locationJoinUrl: "", locationAddress: "", attendanceType: "", checkedIn: false, attended: false, noShow: false, doneBreathworkBefore: "", howHeard: "", referredBy: "", concerns: "", reviewedContraindications: "", notes: "" },
   };
   return { ...base, ...m[db] };
 }
@@ -3066,18 +3433,21 @@ function buildActions(data, derived, today) {
 
 /* ── LANE SPLIT PANEL ── */
 function LaneSplitPanel({ data, today }) {
-  const offers   = data.offers   || [];
-  const sessions = data.sessions || [];
-  const clients  = data.clients  || [];
-  const partners = data.partners || [];
-  const revenue  = data.revenue  || [];
-  const referrals= data.referrals|| [];
+  const offers        = data.offers   || [];
+  const sessions      = data.sessions || [];
+  const clients       = data.clients  || [];
+  const partners      = data.partners || [];
+  const referrals     = data.referrals|| [];
+  const registrations = data.registrations || [];
+  const mo            = today.slice(0, 7);
 
   // ── B2C metrics ──
   const b2cOfferTypes = ["Single session","3-pack","6-pack","12-pack","Private session","Virtual session","Group package"];
   const b2cClosedOffers = offers.filter(o => WON_STATUSES.includes(o.status) && b2cOfferTypes.includes(o.offerType));
-  const b2cRevMTD = b2cClosedOffers.filter(o => sameMonth(o.closeDate || o.dateOffered, today))
+  const b2cOfferRevMTD = b2cClosedOffers.filter(o => sameMonth(o.closeDate || o.dateOffered, today))
     .reduce((a, o) => a + (Number(o.price) || 0), 0);
+  const b2cVirtualRevMTD = registrationRevenueForMonth(registrations, sessions, mo, { virtualOnly: true });
+  const b2cRevMTD = b2cOfferRevMTD + b2cVirtualRevMTD;
   const b2cOpenPipeline = offers.filter(o => OPEN_STATUSES.includes(o.status) && b2cOfferTypes.includes(o.offerType))
     .reduce((a, o) => a + (Number(o.price) || 0), 0);
   const activeClients = clients.filter(c => ["Member (4+)","Advocate","Engaged (2-3x)"].includes(c.status)).length;
@@ -3088,15 +3458,16 @@ function LaneSplitPanel({ data, today }) {
     : 0;
 
   // ── B2B metrics ──
-  const b2bSessionRevMTD = sessions.filter(s => sameMonth(s.date, today) && ["Completed","Follow-up pending","Closed out"].includes(s.status))
-    .reduce((a, s) => a + (Number(s.netRevenue) || 0), 0);
-  const b2bRevItems = revenue.filter(r => ["Studio session","Corporate event"].includes(r.channel) && sameMonth(r.date, today));
-  const b2bRevMTD   = b2bRevItems.reduce((a, r) => a + calcNet(r), 0) || b2bSessionRevMTD;
+  const b2bRevMTD = registrationRevenueForMonth(registrations, sessions, mo, { studioOnly: true });
   const studioPipeline = partners.filter(p => p.stage !== "Lost / not a fit")
     .reduce((a, p) => a + (Number(p.revenuePotential) || 0), 0);
   const recurringP  = partners.filter(p => p.stage === "Recurring partner").length;
   const activeP     = partners.filter(p => !["Lost / not a fit","Target identified"].includes(p.stage)).length;
   const sessionsThisMonth = sessions.filter(s => sameMonth(s.date, today)).length;
+  const sessionsWithRev = sessions.filter(s => sessionBookingRevenue(s.id, registrations) > 0);
+  const avgSessionRev = sessionsWithRev.length
+    ? Math.round(sessionsWithRev.reduce((a, s) => a + sessionBookingRevenue(s.id, registrations), 0) / sessionsWithRev.length)
+    : 0;
 
   const b2cLane = LANE.b2c;
   const b2bLane = LANE.b2b;
@@ -3136,17 +3507,15 @@ function LaneSplitPanel({ data, today }) {
       </div>
       <div style={{ display: "flex", gap: 14 }} className="sb-lane-split">
         <LaneCard lane={b2bLane} metrics={[
-          { label: "Studio rev MTD",   value: money(b2bRevMTD),       sub: "net from sessions" },
+          { label: "Studio rev MTD",   value: money(b2bRevMTD),       sub: "studio session prices" },
           { label: "Studio pipeline",  value: money(studioPipeline),  sub: `${partners.filter(p=>p.stage!=="Lost / not a fit").length} active` },
           { label: "Sessions MTD",     value: sessionsThisMonth,       sub: "this calendar month" },
           { label: "Recurring",        value: recurringP,             sub: `of ${activeP} in pipeline` },
-          { label: "Avg session rev",  value: money(sessions.filter(s=>Number(s.netRevenue)>0).length
-              ? Math.round(sessions.filter(s=>Number(s.netRevenue)>0).reduce((a,s)=>a+Number(s.netRevenue),0)/sessions.filter(s=>Number(s.netRevenue)>0).length) : 0),
-            sub: "net per session" },
+          { label: "Avg session rev",  value: money(avgSessionRev),   sub: "per session with bookings" },
           { label: "Total studios",    value: partners.length,        sub: `${recurringP} recurring` },
         ]} />
         <LaneCard lane={b2cLane} metrics={[
-          { label: "Revenue MTD",      value: money(b2cRevMTD),       sub: "packages + sessions" },
+          { label: "Revenue MTD",      value: money(b2cRevMTD),       sub: "virtual sessions + packages" },
           { label: "Open pipeline",    value: money(b2cOpenPipeline), sub: `${offers.filter(o=>OPEN_STATUSES.includes(o.status)&&b2cOfferTypes.includes(o.offerType)).length} offers` },
           { label: "Active clients",   value: activeClients,           sub: "engaged + member + advocate" },
           { label: "Avg LTV",          value: money(avgLTV),          sub: "lifetime value" },
@@ -3416,7 +3785,9 @@ function PipelineSnapshot({ data, today }) {
   const partners      = data.partners || [];
   const sessions      = data.sessions || [];
   const clients       = data.clients  || [];
-  const revenue       = data.revenue  || [];
+  const registrations = data.registrations || [];
+  const mo            = today.slice(0, 7);
+  const sessionRev    = (s) => sessionBookingRevenue(s.id, registrations);
 
   // Open offer pipeline
   const openOffers      = offers.filter(o => OPEN_STATUSES.includes(o.status));
@@ -3435,7 +3806,7 @@ function PipelineSnapshot({ data, today }) {
   // Expected this month: upcoming sessions (not completed) + weighted open offers
   const preSessions     = sessions.filter(s =>
     sameMonth(s.date, today) && ["Planned","Booking open","Promotion active","Almost full"].includes(s.status));
-  const bookedVal       = preSessions.reduce((a, s) => a + (Number(s.grossRevenue) || 0), 0);
+  const bookedVal       = preSessions.reduce((a, s) => a + sessionRev(s), 0);
   const expected30d     = bookedVal + openPipelineWt;
 
   // Booked but not delivered
@@ -3445,7 +3816,7 @@ function PipelineSnapshot({ data, today }) {
   // Delivered but unpaid — completed sessions without paymentConfirmed
   const unpaidSessions  = sessions.filter(s =>
     ["Completed","Follow-up pending","Closed out"].includes(s.status) && !s.paymentConfirmed);
-  const unpaidVal       = unpaidSessions.reduce((a, s) => a + (Number(s.netRevenue) || 0), 0);
+  const unpaidVal       = unpaidSessions.reduce((a, s) => a + sessionRev(s), 0);
 
   // Offers awaiting response (Sent / Viewed)
   const awaitingOffers  = offers.filter(o => ["Sent", "Viewed"].includes(o.status));
@@ -3456,10 +3827,10 @@ function PipelineSnapshot({ data, today }) {
   const avgClientVal    = payingClients.length > 0
     ? payingClients.reduce((a, c) => a + (Number(c.totalSpend) || 0), 0) / payingClients.length : 0;
 
-  // Average session net revenue
-  const sessionsWithRev = sessions.filter(s => Number(s.netRevenue) > 0);
+  // Average session revenue from Calendly booking prices
+  const sessionsWithRev = sessions.filter(s => sessionRev(s) > 0);
   const avgSessionRev   = sessionsWithRev.length > 0
-    ? sessionsWithRev.reduce((a, s) => a + (Number(s.netRevenue) || 0), 0) / sessionsWithRev.length : 0;
+    ? sessionsWithRev.reduce((a, s) => a + sessionRev(s), 0) / sessionsWithRev.length : 0;
 
   const totalPotential  = openPipelineVal + studioPipeVal;
 
@@ -3509,7 +3880,7 @@ function PipelineSnapshot({ data, today }) {
     {
       label: "Avg session net revenue",
       value: money(Math.round(avgSessionRev)),
-      sub: `${sessionsWithRev.length} session${sessionsWithRev.length !== 1 ? "s" : ""} with revenue`,
+      sub: `${sessionsWithRev.length} session${sessionsWithRev.length !== 1 ? "s" : ""} with booking revenue`,
       accent: C.brand, Icon: BarChart2,
     },
     {
@@ -3527,16 +3898,14 @@ function PipelineSnapshot({ data, today }) {
     {
       label: "Operating profit MTD",
       value: (() => {
-        const mo = today.slice(0,7);
         const exp = (data.expenses||[]).filter(e=>(e.date||"").startsWith(mo)).reduce((s,e)=>s+(+e.amount||0),0);
-        const net = sessions.filter(s=>(s.date||"").startsWith(mo)&&s.status==="Completed").reduce((s,r)=>s+(+r.netRevenue||0),0);
+        const net = registrationRevenueForMonth(registrations, sessions, mo);
         return money(net - exp);
       })(),
-      sub: "net revenue minus expenses",
+      sub: "session revenue minus expenses",
       accent: (() => {
-        const mo = today.slice(0,7);
         const exp = (data.expenses||[]).filter(e=>(e.date||"").startsWith(mo)).reduce((s,e)=>s+(+e.amount||0),0);
-        const net = sessions.filter(s=>(s.date||"").startsWith(mo)&&s.status==="Completed").reduce((s,r)=>s+(+r.netRevenue||0),0);
+        const net = registrationRevenueForMonth(registrations, sessions, mo);
         return (net-exp) >= 0 ? "#16A34A" : "#E05454";
       })(),
       Icon: TrendingUp,
@@ -4066,7 +4435,7 @@ function Today({ data, derived, today, onOpen, onGo, setData, currentUser, canEd
 
       {/* Stats */}
       <div className="sb-stats">
-        <Stat label="Net revenue MTD"   value={money(mtdRevenue)}  hint="completed sessions this month"      onClick={() => onGo("revenue", 1)} />
+        <Stat label="Net revenue MTD"   value={money(mtdRevenue)}  hint="virtual + studio session prices this month" onClick={() => onGo("revenue", 1)} />
         <Stat label="Referral revenue"  value={money(refRevenue)}  hint="from all referrals" accent={refRevenue > 0 ? "#4A8C6F" : C.ink3} onClick={() => onGo("referrals")} />
         <Stat label="Active clients"    value={activeMembers}      hint="total clients in system"            onClick={() => onGo("clients")} />
         <Stat label="Active sequences"  value={activeSeqs}         hint="clients in follow-up nurture"       onClick={() => onGo("engine")} />
@@ -4089,8 +4458,7 @@ function Today({ data, derived, today, onOpen, onGo, setData, currentUser, canEd
 
 /* ---------- Dashboard charts ---------- */
 function RevenueTrend({ data }) {
-  const months = {};
-  data.sessions.forEach((s) => { if (s.date) { const k = s.date.slice(0, 7); months[k] = (months[k] || 0) + (Number(s.netRevenue) || 0); } });
+  const months = registrationRevenueByMonth(data.registrations, data.sessions);
   data.offers.forEach((o) => { if (o.status === "Accepted" && o.closeDate) { const k = o.closeDate.slice(0, 7); months[k] = (months[k] || 0) + (Number(o.price) || 0); } });
   const keys = Object.keys(months).sort();
   const years = new Set(keys.map((k) => k.slice(0, 4)));
@@ -4101,7 +4469,7 @@ function RevenueTrend({ data }) {
     <div style={{ padding: "2px 4px 8px" }}>
       <div style={{ padding: "0 12px 4px" }}>
         <span style={{ fontFamily: FONT.display, fontSize: 26, fontWeight: 600 }}>{money(total)}</span>
-        <span style={{ fontSize: 12.5, color: C.ink3, marginLeft: 8 }}>net, sessions + closed offers</span>
+        <span style={{ fontSize: 12.5, color: C.ink3, marginLeft: 8 }}>session prices + closed offers</span>
       </div>
       <ResponsiveContainer width="100%" height={208}>
         <AreaChart data={rows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
@@ -4115,7 +4483,7 @@ function RevenueTrend({ data }) {
           <XAxis dataKey="label" tick={{ fontSize: 12, fill: C.ink3 }} axisLine={false} tickLine={false} />
           <YAxis tick={{ fontSize: 11, fill: C.ink3 }} axisLine={false} tickLine={false} width={46}
             tickFormatter={(v) => (v >= 1000 ? "$" + (v / 1000).toFixed(1) + "k" : "$" + v)} />
-          <Tooltip formatter={(v) => [money(v), "Net revenue"]} cursor={{ stroke: C.line }}
+          <Tooltip formatter={(v) => [money(v), "Session revenue"]} cursor={{ stroke: C.line }}
             contentStyle={{ borderRadius: 10, border: `1px solid ${C.line}`, fontSize: 13, boxShadow: "0 4px 14px rgba(0,0,0,.08)" }}
             labelStyle={{ color: C.ink2, fontWeight: 600 }} />
           <Area type="monotone" dataKey="value" stroke={C.brand} strokeWidth={1.5} fill="url(#sbRev)" dot={{ r: 3, fill: C.brand }} activeDot={{ r: 5 }} />
@@ -4173,6 +4541,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
   const cfg = VIEWS[section];
   const v = cfg.views[Math.min(view, cfg.views.length - 1)];
   let rows = data[section] || [];
+  if (section === "revenue") rows = buildRevenueViewRows(data);
 
   // search
   if (query.trim()) {
@@ -4244,7 +4613,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         : v.layout === "offer-analytics"
         ? <OfferConversionView data={data} derived={derived} today={today} onOpen={(r) => onOpen({ db: "offers", record: r })} />
         : v.layout === "revenue-analytics"
-        ? <RevenueAttributionView data={data} derived={derived} today={today} onOpen={(r) => onOpen({ db: "revenue", record: r })} />
+        ? <RevenueAttributionView data={data} derived={derived} today={today} onOpen={(r) => openRevenueViewRow(r, data, onOpen)} />
         : v.layout === "referral-tree"
         ? <ReferralTreeView data={data} derived={derived} today={today} onOpen={(r) => onOpen({ db: "referrals", record: r })} />
         : v.layout === "content-analytics"
@@ -4270,7 +4639,9 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         ? <OutreachHubView rows={processed.rows} data={data} today={today} onOpen={(r) => onOpen({ db: "outreach", record: r })} />
         : v.layout === "calendar"
         ? <CalendarView rows={processed.rows} today={today} derived={derived} data={data} onOpen={(r) => onOpen({ db: section, record: r })} />
-        : <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => onOpen({ db: section, record: r })} ctx={{ data, derived, today, setData, section }} />}
+        : <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => (
+            section === "revenue" ? openRevenueViewRow(r, data, onOpen) : onOpen({ db: section, record: r })
+          )} ctx={{ data, derived, today, setData, section }} />}
     </div>
   );
 }
@@ -4433,6 +4804,12 @@ const VIEWS = {
           col("clientId",    "Client",       (r, ctx) => { const c = (ctx.data.clients||[]).find(x => x.id === r.clientId); return c ? <strong style={{color:C.ink}}>{cleanName(c.name)}</strong> : <span style={{color:C.ink3}}>—</span>; }),
           col("scheduledAt", "Session Date/Time", r => formatRegistrationDateTime(r.scheduledAt)),
           col("eventName",   "Event",        r => r.eventName || "—"),
+          col("paymentAmount","Amount",      r => {
+            if (r.paymentAmount === 0) return <span style={{color:C.ink3}}>Free</span>;
+            return r.paymentAmount != null && r.paymentAmount !== "" && !Number.isNaN(Number(r.paymentAmount))
+              ? <strong style={{color:C.ink}}>{money(r.paymentAmount)}</strong>
+              : <span style={{color:C.ink3}}>—</span>;
+          }, { align: "right" }),
           col("status",      "Status",       r => {
             const clr = { booked: C.brand, attended: "#4A8C6F", canceled: "#C0573F", rescheduled: C.gold, no_show: "#8A96AC" }[r.status] || C.ink3;
             return <span style={{fontSize:12,padding:"2px 8px",borderRadius:8,background:hexA(clr,0.12),color:clr,fontWeight:600}}>{r.status}</span>;
@@ -4664,15 +5041,20 @@ const VIEWS = {
       { name: "Revenue attribution", layout: "revenue-analytics" },
       { name: "This month", layout: "table", columns: revCols(),
         run: (rows, c) => {
-          const r = [...rows].filter(x => sameMonth(x.date, c.today)).sort((a, b) => b.date.localeCompare(a.date));
+          const r = [...rows]
+            .filter(x => sameMonth(x.date, c.today))
+            .map(applyStudioSessionSplit)
+            .sort((a, b) => b.date.localeCompare(a.date));
           const netTotal = r.reduce((s, row) => s + calcNet(row), 0);
-          return { rows: r, footer: { gross: money(sum(r, "gross")), net: money(netTotal), label: "Gross this month" } };
+          return { rows: r, footer: { gross: money(sum(r, "gross")), net: money(netTotal), label: "This month (70/30 studio split on net)" } };
         } },
       { name: "All transactions", layout: "table", columns: revCols(),
         run: (rows) => {
-          const r = [...rows].sort((a, b) => b.date.localeCompare(a.date));
+          const r = [...rows]
+            .map(applyStudioSessionSplit)
+            .sort((a, b) => b.date.localeCompare(a.date));
           const netTotal = r.reduce((s, row) => s + calcNet(row), 0);
-          return { rows: r, footer: { gross: money(sum(r, "gross")), net: money(netTotal), label: "Total gross" } };
+          return { rows: r, footer: { gross: money(sum(r, "gross")), net: money(netTotal), label: "All transactions (70/30 studio split on net)" } };
         } },
     ],
   },
@@ -5189,10 +5571,15 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
 
   // Build client name map before filtering
   const sessionClientNames = {};
+  const sessionAmounts = {};
   (data?.registrations || []).forEach(reg => {
     if (reg.sessionId) {
       const client = (data?.clients || []).find(c => c.id === reg.clientId);
       if (client) (sessionClientNames[reg.sessionId] ||= []).push(cleanName(client.name));
+      if (reg.status !== "canceled" && sessionAmounts[reg.sessionId] == null) {
+        const amt = registrationSessionAmount(reg);
+        if (amt != null) sessionAmounts[reg.sessionId] = amt;
+      }
     }
   });
 
@@ -5247,10 +5634,13 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
     if (partner) journeyLabel = stripStudioPrefix(journeyLabel, partner);
     const spots = spotsLeft(s);
     const spotsTag = spots != null ? `${spots} spot${spots !== 1 ? "s" : ""} left` : "";
-    // Studio: Studio · Location · spots left  |  Virtual: Client · Journey
+    const amountTag = sessionAmounts[s.id] != null
+      ? (sessionAmounts[s.id] === 0 ? "Free" : money(sessionAmounts[s.id]))
+      : "";
+    // Studio: Studio · Location · spots left  |  Virtual: Client · Journey · amount
     const parts = partner
-      ? [partner, journeyLabel, spotsTag]
-      : [clientName, journeyLabel];
+      ? [partner, journeyLabel, spotsTag, amountTag]
+      : [clientName, journeyLabel, amountTag];
     return parts.filter(Boolean).join(" · ");
   };
 
@@ -5534,6 +5924,8 @@ const FIELDS = {
     f("eventName",      "Event / Session Name",        "text",     { title: true }),
     f("clientId",       "Client",                      "relation", { target: "clients" }),
     f("status",         "Booking Status",              "select",   { options: ["booked", "attended", "canceled", "rescheduled", "no_show"] }),
+    f("paymentAmount",  "Session Price ($)",           "number"),
+    f("paidAmount",     "Amount Paid ($)",             "number"),
     f("paymentStatus",  "Payment Status",              "select",   { options: ["paid", "unpaid", "unknown"] }),
     f("waiverStatus",   "Waiver Status",               "select",   { options: ["pending", "signed"] }),
     f("createdAt",      "Scheduled On",                "text"),
@@ -5955,7 +6347,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
             : (hasChecklist || hasSessionTabs) && tab === "checklist"
             ? <PartnerLaunchChecklist checklist={draft.checklist || emptyChecklist()} onChange={(cl) => set("checklist", cl)} partnerName={cleanName(draft.name)} />
             : hasSessionTabs && tab === "bookings"
-            ? <SessionBookingsTab record={draft} data={data} onOpenRelated={onOpenRelated} />
+            ? <SessionBookingsTab record={draft} data={data} onOpenRelated={onOpenRelated} setData={setData} />
             : hasSessionTabs && tab === "session-checklist"
             ? isVirtualSession
               ? <VirtualSessionChecklist
@@ -5966,6 +6358,9 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                   sessionName={cleanName(draft.name)}
                   sessionDate={draft.date}
                   status={draft.status}
+                  sessionAmount={formatRegistrationAmount(
+                    (data.registrations || []).find(r => r.sessionId === draft.id && r.status !== "canceled")
+                  )}
                 />
               : <StudioSessionChecklist
                   equipChecklist={draft.equipChecklist || emptyEquipChecklist()}
@@ -6012,6 +6407,10 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                         return reg ? (data.clients || []).find(c => c.id === reg.clientId) : null;
                       })()
                     : null;
+                  const sessionReg = isVirtual
+                    ? (data.registrations || []).find(r => r.sessionId === draft.id && r.status !== "canceled")
+                    : null;
+                  const sessionAmountLabel = formatRegistrationAmount(sessionReg);
                   const studioColor = LANE.b2b.color;
                   return (
                     <div className="sb-fields">
@@ -6021,10 +6420,16 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                           <div style={{ width: 34, height: 34, borderRadius: "50%", background: C.brand, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: "#fff", flexShrink: 0 }}>
                             {(sessionClient.name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
                           </div>
-                          <div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{cleanName(sessionClient.name)}</div>
                             {sessionClient.email && <div style={{ fontSize: 12, color: C.ink3 }}>{sessionClient.email}</div>}
                           </div>
+                          {sessionAmountLabel && (
+                            <div style={{ textAlign: "right", flexShrink: 0 }}>
+                              <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 700 }}>Session</div>
+                              <div style={{ fontSize: 16, fontWeight: 800, color: sessionAmountLabel === "Free" ? C.ink3 : "#4A8C6F" }}>{sessionAmountLabel}</div>
+                            </div>
+                          )}
                         </div>
                       )}
                       {/* Studio: Date + Time + Duration on one line */}
@@ -6419,7 +6824,7 @@ function sortCriticalFirst(items, criticalIds) {
 }
 
 /* ── VIRTUAL SESSION CHECKLIST (combined equipment + run) ── */
-function VirtualSessionChecklist({ equipChecklist, onEquipChange, checklist, onChecklistChange, sessionName, sessionDate, status }) {
+function VirtualSessionChecklist({ equipChecklist, onEquipChange, checklist, onChecklistChange, sessionName, sessionDate, status, sessionAmount }) {
   const [showCritical, setShowCritical] = useState(false);
   const toggleEquip = (id) => onEquipChange({ ...equipChecklist, [id]: !equipChecklist[id] });
   const toggleRun   = (id) => onChecklistChange({ ...checklist, [id]: !checklist[id] });
@@ -6502,7 +6907,13 @@ function VirtualSessionChecklist({ equipChecklist, onEquipChange, checklist, onC
               </button>
             )}
           </div>
-          <div style={{ fontFamily: FONT.display, fontSize: 28, fontWeight: 700, color: pct === 100 ? "#4A8C6F" : pct >= 50 ? C.brand : C.gold }}>
+          {sessionAmount && (
+            <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 12 }}>
+              <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 700 }}>Session</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: sessionAmount === "Free" ? C.ink3 : "#4A8C6F" }}>{sessionAmount}</div>
+            </div>
+          )}
+          <div style={{ fontFamily: FONT.display, fontSize: 28, fontWeight: 700, color: pct === 100 ? "#4A8C6F" : pct >= 50 ? C.brand : C.gold, marginLeft: 12 }}>
             {pct}%
           </div>
         </div>
@@ -6799,15 +7210,8 @@ function ClientSessionsTab({ record, data, onOpenRelated, today }) {
 
   const STATUS_COLOR = { Completed: "#4A8C6F", Planned: C.brand, "Booking open": C.brand, "Follow-up pending": C.gold, Canceled: "#C0573F" };
 
-  // Revenue: full net for virtual (1:1); per-head net for studio sessions
-  const sessionRevenue = ({ session }) => {
-    if (!session) return 0;
-    const net = Number(session.netRevenue) || 0;
-    if (!session.studioId) return net; // virtual — full session revenue
-    const heads = Math.max(Number(session.attendance) || 1, 1);
-    return net / heads; // studio — per-head share
-  };
-
+  // Revenue from Calendly session price on each registration (until live payment data is reliable)
+  const sessionRevenue = ({ reg }) => registrationPaymentForLtv(reg);
   const totalRevenue = sessions.reduce((sum, s) => sum + sessionRevenue(s), 0);
 
   if (!sessions.length) {
@@ -6827,6 +7231,7 @@ function ClientSessionsTab({ record, data, onOpenRelated, today }) {
         const partner = session.studioId ? (data.partners || []).find(p => p.id === session.studioId) : null;
         const statusColor = STATUS_COLOR[session.status] || C.ink3;
         const rev = sessionRevenue(item);
+        const revLabel = formatRegistrationAmount(reg);
         return (
           <button key={session.id} onClick={() => onOpenRelated({ db: "sessions", record: session })}
             style={{ display: "flex", alignItems: "flex-start", gap: 12, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", textAlign: "left", cursor: "pointer", width: "100%" }}
@@ -6844,7 +7249,10 @@ function ClientSessionsTab({ record, data, onOpenRelated, today }) {
               </div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
-              {rev > 0 && (
+              {revLabel && (
+                <span style={{ fontSize: 13, fontWeight: 700, color: revLabel === "Free" ? C.ink3 : "#4A8C6F" }}>{revLabel}</span>
+              )}
+              {!revLabel && rev > 0 && (
                 <span style={{ fontSize: 13, fontWeight: 700, color: "#4A8C6F" }}>{money(rev)}</span>
               )}
               <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 8, background: hexA(statusColor, 0.12), color: statusColor }}>
@@ -7242,9 +7650,16 @@ function PartnerSessionsTab({ record, data, onOpenRelated, today }) {
   );
 }
 
-function SessionBookingsTab({ record, data, onOpenRelated }) {
+function SessionBookingsTab({ record, data, onOpenRelated, setData }) {
   const registrations = (data.registrations || []).filter(r => r.sessionId === record.id);
+  const sessionListPrice = resolveSessionListPrice(data.registrations, record.id);
   const REG_STATUS_COLOR = { booked: C.brand, attended: "#4A8C6F", canceled: "#C0573F", rescheduled: C.gold, no_show: "#8A96AC" };
+
+  useEffect(() => {
+    if (!setData) return;
+    backfillRegistrationPaymentsForRegs(registrations, setData);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [record.id, setData]);
 
   const studio = (data.partners || []).find(p => p.id === record.studioId);
 
@@ -7263,6 +7678,7 @@ function SessionBookingsTab({ record, data, onOpenRelated }) {
       const email  = esc(client?.email || "—");
       const phone  = esc(client?.phone || "—");
       const status = esc(reg.status || "—");
+      const amount = esc(formatBookingAmount(reg, sessionListPrice) || "—");
       const waiver = reg.waiverStatus === "signed" ? "✓ Signed" : "Pending";
       const paid   = reg.paymentStatus === "paid" ? "✓ Paid" : reg.paymentStatus === "unpaid" ? "Unpaid" : "—";
       const rowBg  = i % 2 === 0 ? "#ffffff" : "#f8f9fc";
@@ -7271,6 +7687,7 @@ function SessionBookingsTab({ record, data, onOpenRelated }) {
         <td style="padding:9px 12px;border-bottom:1px solid #e8eaf0;font-weight:600">${name}</td>
         <td style="padding:9px 12px;border-bottom:1px solid #e8eaf0">${email}</td>
         <td style="padding:9px 12px;border-bottom:1px solid #e8eaf0">${phone}</td>
+        <td style="padding:9px 12px;border-bottom:1px solid #e8eaf0;font-weight:600">${amount}</td>
         <td style="padding:9px 12px;border-bottom:1px solid #e8eaf0;text-transform:capitalize">${status}</td>
         <td style="padding:9px 12px;border-bottom:1px solid #e8eaf0;color:${reg.waiverStatus === "signed" ? "#2D6A50" : "#9A5D10"}">${waiver}</td>
         <td style="padding:9px 12px;border-bottom:1px solid #e8eaf0;color:${reg.paymentStatus === "paid" ? "#2D6A50" : reg.paymentStatus === "unpaid" ? "#C0392B" : "#666"}">${paid}</td>
@@ -7305,7 +7722,7 @@ function SessionBookingsTab({ record, data, onOpenRelated }) {
       </div>
       <table>
         <thead><tr>
-          <th>#</th><th>Name</th><th>Email</th><th>Phone</th><th>Status</th><th>Waiver</th><th>Payment</th>
+          <th>#</th><th>Name</th><th>Email</th><th>Phone</th><th>Amount</th><th>Status</th><th>Waiver</th><th>Payment</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
@@ -7330,6 +7747,12 @@ function SessionBookingsTab({ record, data, onOpenRelated }) {
 
   const counts = { booked: 0, attended: 0, canceled: 0, rescheduled: 0, no_show: 0 };
   registrations.forEach(r => { if (counts[r.status] != null) counts[r.status]++; });
+  const activeRegs = registrations.filter(r => r.status !== "canceled" && r.status !== "rescheduled");
+  const bookingRevenue = activeRegs.reduce((sum, r) => {
+    const amt = registrationSessionAmount(r) ?? sessionListPrice;
+    if (r.paymentStatus === "unpaid" || amt == null || amt <= 0) return sum;
+    return sum + amt;
+  }, 0);
 
   return (
     <div style={{ padding: "0 22px 22px" }}>
@@ -7343,7 +7766,12 @@ function SessionBookingsTab({ record, data, onOpenRelated }) {
             <span style={{ fontWeight: 800 }}>{n}</span> {status}
           </div>
         ))}
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {bookingRevenue > 0 && (
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#4A8C6F" }}>
+              {money(bookingRevenue)} session revenue
+            </span>
+          )}
           {registrations.filter(r => r.waiverStatus !== "signed" && r.status !== "canceled").length > 0 && (
             <span style={{ fontSize: 12, color: C.gold, fontWeight: 600 }}>
               ⚠ {registrations.filter(r => r.waiverStatus !== "signed" && r.status !== "canceled").length} waiver{registrations.filter(r => r.waiverStatus !== "signed" && r.status !== "canceled").length !== 1 ? "s" : ""} pending
@@ -7366,6 +7794,7 @@ function SessionBookingsTab({ record, data, onOpenRelated }) {
         {registrations.map(reg => {
           const client = (data.clients || []).find(c => c.id === reg.clientId);
           const statusColor = REG_STATUS_COLOR[reg.status] || C.ink3;
+          const amountLabel = formatBookingAmount(reg, sessionListPrice);
           return (
             <div key={reg.id} style={{
               background: C.surfaceAlt, borderRadius: 12, padding: "12px 14px",
@@ -7389,6 +7818,13 @@ function SessionBookingsTab({ record, data, onOpenRelated }) {
                   {reg.waiverStatus === "signed"
                     ? <span style={{ fontSize: 11, color: "#4A8C6F", fontWeight: 600 }}>✓ Waiver</span>
                     : reg.status !== "canceled" && <span style={{ fontSize: 11, color: C.gold, fontWeight: 600 }}>⚠ Waiver pending</span>}
+                  {amountLabel && reg.status !== "canceled" && (
+                    <span style={{
+                      fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
+                      background: hexA(amountLabel === "Free" ? C.ink3 : "#4A8C6F", 0.12),
+                      color: amountLabel === "Free" ? C.ink3 : "#4A8C6F",
+                    }}>{amountLabel}</span>
+                  )}
                   {reg.paymentStatus === "paid"
                     ? <span style={{ fontSize: 11, color: "#4A8C6F", fontWeight: 600 }}>✓ Paid</span>
                     : reg.paymentStatus === "unpaid" && <span style={{ fontSize: 11, color: "#C0573F", fontWeight: 600 }}>Unpaid</span>}
@@ -7411,6 +7847,12 @@ function SessionBookingsTab({ record, data, onOpenRelated }) {
                   <div style={{ fontSize: 11, color: C.ink3, marginTop: 2 }}>Heard via: {reg.howHeard}</div>
                 )}
               </div>
+              {amountLabel && reg.status !== "canceled" && (
+                <div style={{ textAlign: "right", flexShrink: 0, alignSelf: "center", minWidth: 52 }}>
+                  <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 700 }}>Amount</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: amountLabel === "Free" ? C.ink3 : "#4A8C6F" }}>{amountLabel}</div>
+                </div>
+              )}
               {client && (
                 <button onClick={() => onOpenRelated({ db: "clients", record: client })}
                   style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, padding: 4, flexShrink: 0 }}
@@ -8436,9 +8878,9 @@ function ExpenseSummaryView({ data, today, onOpen, onImportExpenses, canEdit = t
   const maxMonth = Math.max(...monthlyData.map(m=>m.total), 1);
 
   // Revenue context for margin
-  const netRevMTD = (data.revenue||[])
-    .filter(r => (r.date||"").startsWith(mo))
-    .reduce((s,r) => s + calcNet(r), 0);
+  const netRevMTD = registrationRevenueForMonth(data.registrations, data.sessions, mo)
+    + (data.offers || []).filter(o => LTV_OFFER_STATUSES.has(o.status) && sameMonth(o.closeDate || o.dateOffered, today))
+      .reduce((s, o) => s + (Number(o.price) || 0), 0);
   const opProfit = netRevMTD - totMTD;
   const margin = netRevMTD > 0 ? Math.round((opProfit / netRevMTD) * 100) : null;
 
@@ -8513,8 +8955,8 @@ function ExpenseSummaryView({ data, today, onOpen, onImportExpenses, canEdit = t
         <div style={{background:C.surface,borderRadius:16,border:`1px solid ${C.line}`,padding:"18px 20px"}}>
           <div style={{fontWeight:700,fontSize:14,color:C.ink,marginBottom:14}}>Profitability — MTD</div>
           {[
-            { label:"Gross Revenue MTD",    value: (data.sessions||[]).filter(s=>(s.date||"").startsWith(mo)&&s.status==="Completed").reduce((s,r)=>s+(+r.grossRevenue||0),0), positive:true },
-            { label:"Studio Splits MTD",    value: -(data.sessions||[]).filter(s=>(s.date||"").startsWith(mo)&&s.status==="Completed").reduce((s,r)=>s+(+r.studioSplit||0),0), positive:false },
+            { label:"Gross Revenue MTD",    value: netRevMTD, positive:true },
+            { label:"Studio Splits MTD",    value: 0, positive:false },
             { label:"Net Revenue MTD",      value: netRevMTD, positive:true, bold:true },
             { label:"Total Expenses MTD",   value: -totMTD,   positive:false },
             { label:"Operating Profit MTD", value: opProfit,  positive:opProfit>=0, bold:true, big:true },
@@ -12167,8 +12609,10 @@ function ReferralTreeView({ data, derived, today, onOpen }) {
    ============================================================ */
 
 function RevenueAttributionView({ data, derived, today, onOpen }) {
-  const rows = data.revenue || [];
+  const rows = buildRevenueViewRows(data);
   const [highlight, setHighlight] = useState(null);
+  const mo = today.slice(0, 7);
+  const mtdRows = rows.filter(r => sameMonth(r.date, today));
 
   // ── Core totals ─────────────────────────────────────────────
   const totalGross = sum(rows, "gross");
@@ -12241,17 +12685,17 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
       {/* Key metrics */}
       <div className="sb-stats">
-        <Stat label="Net revenue"   value={money(totalNet)}   accent={C.brand} hint="after all deductions" />
-        <Stat label="Gross revenue" value={money(totalGross)} accent="#2F6FD0" hint="before fees & splits" />
-        <Stat label="Margin"        value={margin + "%"}      accent={marginColor(margin)} hint="net ÷ gross" />
-        <Stat label="Studio splits" value={money(totalSplit)} accent={C.gold} hint="paid to partner studios" />
+        <Stat label="Session revenue MTD" value={money(mtdRows.reduce((a, r) => a + calcNet(r), 0))} accent={C.brand} hint="Calendly session prices this month" />
+        <Stat label="Total session revenue" value={money(totalNet)} accent="#2F6FD0" hint="bookings + closed packages" />
+        <Stat label="Bookings" value={rows.filter(r => r.registrationId).length} accent="#4A8C6F" hint="paid Calendly registrations" />
+        <Stat label="Packages & offers" value={money(sum(rows.filter(r => r.offerId), "gross"))} accent={C.gold} hint="accepted / paid offers" />
       </div>
 
-      {/* Revenue waterfall: Gross → deductions → Net */}
+      {/* Revenue waterfall: session prices → net (fees/splits when recorded) */}
       <Panel title="Revenue waterfall">
         <div style={{ padding: "4px 0 8px" }}>
           {[
-            { label: "Gross revenue",      value: totalGross, color: "#2F6FD0", op: "base" },
+            { label: "Session booking revenue", value: totalGross, color: "#2F6FD0", op: "base" },
             { label: "Studio splits",      value: -totalSplit,  color: C.gold,    op: "minus" },
             { label: "Processing fees",    value: -totalFees,   color: "#9FB2CC", op: "minus" },
             { label: "Refunds",            value: -totalRef,    color: "#C0573F", op: "minus" },

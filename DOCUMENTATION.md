@@ -253,7 +253,7 @@ The dashboard is the daily starting point. It surfaces the most important inform
 
 | Metric | Source |
 |---|---|
-| Net Revenue MTD | Sum of net revenue from `data.revenue` records in the current calendar month (gross − fees − splits − refunds). Clicking the card navigates directly to Revenue → **This month** tab. |
+| Net Revenue MTD | Sum of Calendly **session prices** (`paymentAmount`) on non-canceled, non-unpaid registrations whose linked session falls in the current calendar month (virtual + studio). Clicking the card navigates to Revenue → **This month**. |
 | Referral Revenue | Revenue from clients whose source is "Referral" |
 | Active Clients | Total number of clients in the system |
 | Active Sequences | Follow-up sequences with pending steps |
@@ -261,8 +261,8 @@ The dashboard is the daily starting point. It surfaces the most important inform
 ### Lane Split Panel
 
 Side-by-side view of studio vs client revenue, with **Studio Revenue (B2B) on the left card** and **Client Revenue (B2C) on the right card**:
-- **B2B (left):** Revenue MTD · Open partner pipeline value · Active partners
-- **B2C (right):** Revenue MTD · Open offers value · Active clients
+- **B2B (left):** Studio session booking prices MTD · Open partner pipeline value · Active partners · Avg session rev (from booking prices)
+- **B2C (right):** Virtual session booking prices MTD + closed offer revenue · Open offers value · Active clients
 
 ### Pipeline Snapshot
 
@@ -270,11 +270,11 @@ Nine key business metrics in a 3×3 grid:
 - Open pipeline value
 - Studio pipeline value
 - Expected revenue this month (probability-weighted open offers)
-- Revenue booked but not delivered (accepted/paid offers with no completed session)
-- Revenue delivered but unpaid (completed sessions, payment pending)
+- Revenue booked but not delivered (upcoming sessions — sum of linked booking session prices)
+- Revenue delivered but unpaid (completed sessions with payment not confirmed — sum of booking session prices)
 - Offers awaiting response
 - Average client value
-- Average session revenue
+- Average session revenue (mean booking price across sessions with registrations)
 - Studio partner conversion rate
 
 ### Smart Alerts Panel
@@ -350,6 +350,7 @@ Each action row has a **× dismiss button** (right side, fades in on hover). Dis
 | Notes | Textarea |
 | Referral Source | Text (name of referrer) |
 | Referral Potential | Dropdown: High, Medium, Low |
+| Lifetime Value (LTV) | Currency — auto-calculated for clients with Calendly bookings (see Calendly Integration); also includes linked revenue records and accepted/paid offers |
 
 ### Contact Timeline
 
@@ -399,8 +400,8 @@ Followed by:
 
 Client records include a **Sessions Attended** tab (badge shows the count). It lists every session the client has been registered for, with:
 - Session name · Date · Time · Journey
-- **Revenue** column — for virtual sessions: the full net session revenue; for studio sessions: the per-head revenue (gross ÷ registered attendees)
-- A **Total Revenue** summary at the bottom showing the client's cumulative revenue contribution
+- **Amount** — the Calendly session price on that booking (`paymentAmount` from the event type Internal Note), same value shown on Calendly Bookings → All Bookings
+- A **Total Revenue** summary at the bottom showing the sum of session prices across all non-canceled bookings (excludes unpaid)
 
 ---
 
@@ -580,7 +581,7 @@ The Post-Session Actions and "vs. Your Average" comparison sections are intentio
 
 Studio session Bookings tabs include a **"Participant List"** button. Clicking it opens a print-friendly PDF containing:
 - Session name, studio name, date, time, and participant count
-- Table with: #, Name, Email, Phone, Status, Waiver status, Payment status
+- Table with: #, Name, Email, Phone, Amount, Status, Waiver status, Payment status
 - Cancelled registrations are excluded
 - Waiver and payment columns are color-coded (green = confirmed, amber/red = action needed)
 - Generation timestamp in the footer
@@ -589,7 +590,7 @@ Intended for sharing with the studio partner to show confirmed attendees. All va
 
 ### Views Available
 
-- **Calendar** — Monthly calendar showing all sessions. Pills display `Studio · Journey` for studio sessions and `Client · Journey` for virtual/Calendly sessions. Within each day cell, pills are sorted by session start time (earliest first). The calendar tab has a **dedicated search bar** that filters visible sessions by client name, studio name, or journey name. The global header search bar is hidden when the calendar tab is active to avoid redundancy.
+- **Calendar** — Monthly calendar showing all sessions. Pills display `Studio · Journey · spots left` for studio sessions and `Client · Journey · amount` for virtual/Calendly sessions (amount is the linked booking’s session price). Within each day cell, pills are sorted by session start time (earliest first). The calendar tab has a **dedicated search bar** that filters visible sessions by client name, studio name, or journey name. The global header search bar is hidden when the calendar tab is active to avoid redundancy.
 - **Performance** — Revenue and attendance analytics
 - **Revenue Leaderboard** — Sessions ranked by revenue
 - **Conversion** — Package and offer conversion rates
@@ -599,8 +600,8 @@ Intended for sharing with the studio partner to show confirmed attendees. All va
 | Tab | Contents |
 |---|---|
 | Session Details | All session fields, editable. Layout differs for virtual vs studio sessions (see below) |
-| Bookings | All registrants for this session. Badge shows `X/Y` (booked/capacity) for studio sessions. Studio sessions include a **Download Participant List** PDF button (see below) |
-| Session Checklist | Combined equipment + run checklist (replaces separate Equipment Setup and Run Checklist tabs). Critical items float to the top of each phase. Virtual and studio checklists have different item sets |
+| Bookings | All registrants for this session. Each card shows the **session price** paid for that booking. Badge shows `X/Y` (booked/capacity) for studio sessions; summary row shows total session revenue. Studio sessions include a **Download Participant List** PDF button (see below) |
+| Session Checklist | Combined equipment + run checklist (replaces separate Equipment Setup and Run Checklist tabs). Critical items float to the top of each phase. Virtual checklist header shows linked **session price**. Virtual and studio checklists have different item sets |
 | Performance | Revenue, attendance, conversion metrics |
 
 #### Session Details Tab Layout
@@ -608,7 +609,7 @@ Intended for sharing with the studio partner to show confirmed attendees. All va
 The layout of the Session Details tab adapts based on session type.
 
 **Virtual Sessions** show fields in this order:
-1. Client name + email card (pulled from registration)
+1. Client name + email card (pulled from registration) with **session price** on the right
 2. Date · Time · Duration (mins) — inline row
 3. Zoom / Join Link card (clickable link from Calendly)
 4. **Room Setup Status · Music/Headset Status** — displayed **side-by-side** on one line, directly below the Zoom link
@@ -645,6 +646,7 @@ Shows every client registration linked to this session (synced from Calendly or 
 
 Displays per registrant:
 - Name, booking status (booked / attended / canceled / no-show)
+- **Session price** (same Calendly event-type amount as Calendly Bookings → All Bookings)
 - Waiver status (pending / signed) with warning badges
 - Payment status (paid / unpaid / unknown)
 - Email, phone, attendance type (virtual / in-person)
@@ -656,7 +658,7 @@ Displays per registrant:
 #### Calendar Pill Format
 - **Studio sessions:** `Studio Name · Journey · X spots left` — rendered in **purple/indigo** (B2B lane color) with a left accent border
   - Border turns **red** when ≤ 3 spots remain
-- **Virtual / Private sessions:** `Client Name · Journey Name` — rendered in **brand blue**
+- **Virtual / Private sessions:** `Client Name · Journey Name · $amount` — rendered in **brand blue**
   - Product prefixes like `"9D Breathwork Virtual - "` are automatically stripped from the journey label
 - A **color legend** (Studio / Virtual & Private) is shown in the calendar header
 - **Studio header in drawer:** Shows `Studio Name — Session Name` above the editable title for quick identification
@@ -838,13 +840,26 @@ Manages proactive studio and referral outreach — separate from the reactive St
 
 **Navigation:** Sidebar → Revenue (Core section)
 
+Revenue views are built from **live Calendly booking session prices** (`paymentAmount` on each registration) plus **accepted/paid offers**. Manual legacy revenue rows in the database are not shown here — this matches Command Center, LTV, and session booking cards.
+
+### Revenue Sources
+
+| Source | How it appears |
+|---|---|
+| Calendly bookings | One row per non-canceled, non-unpaid registration — amount = event type session price |
+| Offers | One row per Accepted/Paid offer — amount = offer price |
+
+Dates use the linked **session date** (bookings) or **close/offered date** (offers).
+
 ### Revenue Channels Tracked
 
 Studio session · Virtual session · Private client · Group package · Corporate event · Referral partner · Paid ad · Organic Instagram · Email list · Studio partner
 
 ### Per-Record Fields
 
-Gross revenue · Stripe/processing fee · Studio split · Facilitator cost · Refunds · Net revenue · Cost center · Source · Campaign · Linked session · Linked client
+Each derived booking row shows: client + session name · date · channel (Studio session / Virtual session) · **gross = session price** · net (same until fees/splits are recorded) · client source.
+
+Manual **Revenue** records (gross, Stripe fee, studio split, etc.) remain in the data model for future reconciliation but are not listed in Revenue tab views.
 
 ### Analytics Views
 
@@ -855,11 +870,9 @@ Gross revenue · Stripe/processing fee · Studio split · Facilitator cost · Re
 
 ### Table Footer Totals
 
-Both the **This month** and **All transactions** table views display footer rows showing:
-- **Gross** — sum of all gross revenue for the filtered rows
-- **Net** — sum of all net revenue (after fees, splits, refunds) for the filtered rows
+Both the **This month** and **All transactions** table views display footer rows showing gross and net totals for the filtered rows.
 
-This allows quick verification that the Net Revenue MTD card on the dashboard matches the Revenue → This month view.
+**This month** and **All transactions** apply a **70/30 revenue split** on **Studio session** rows: gross = full Calendly session price, studio split = 30%, net = 70% (Simply Breathe). Virtual sessions and offer rows are unchanged (net = gross).
 
 ---
 
@@ -1460,7 +1473,7 @@ Expenses feed into two places:
 1. **Pipeline Snapshot** (Dashboard) — two new tiles: "Expenses MTD" and "Operating Profit MTD"
 2. **`derived` computed values** — `expensesMTD`, `expensesYTD`, `netRevMTD`, `opProfit`, `opMargin` available throughout the app
 
-`netRevMTD` is calculated from `data.revenue` records in the current calendar month using `calcNet(r)` (gross − stripeFee − studioSplit − facilitatorCost − refunds). This is the same source as the Revenue → This month table, ensuring the dashboard card and the revenue table always show consistent numbers.
+`netRevMTD` is calculated from Calendly registration **session prices** (`paymentAmount`) on non-canceled, non-unpaid bookings whose linked session date falls in the current calendar month (virtual + studio). Operating profit subtracts `expensesMTD` from that total. This matches LTV and session card amounts until live Calendly payment data is available.
 
 ### Requirements
 | Item | Detail |
@@ -1498,6 +1511,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 | `/api/webhooks/calendly` | POST | Receives Calendly events; verifies HMAC-SHA256 signature if signing key is configured |
 | `/api/calendly/pending` | GET | Returns unprocessed events for the CRM to consume |
 | `/api/calendly/acknowledge` | POST | Marks event IDs as processed. Each `id` element validated as non-empty string ≤ 100 chars. |
+| `/api/calendly/payment-lookup` | POST | Fetches invitee payment amounts from Calendly API for up to 25 invitee URIs (used to backfill **Amount** on existing bookings) |
 | `/api/calendly/events` | GET | All events (debug/admin) |
 | `/api/calendly/events` | DELETE | Clear queue (dev only) |
 | `/api/send-email` | POST | Sends an email via Resend. Requires `to`, `subject`, `body` (and optional `recipientName`). Rate-limited to 10 req/min. |
@@ -1511,7 +1525,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 - `FRONTEND_SECRET` — shared secret for `/pending` and `/acknowledge` endpoints. Generate with `openssl rand -hex 32`. The value is injected server-side by the Vite proxy and is never exposed in the browser bundle.
 - `ADMIN_SECRET` — token required for debug endpoints (`GET/DELETE /api/calendly/events`). Pass as `x-admin-token` header.
 - `QUEUE_ENCRYPTION_KEY` — 32-byte hex key for AES-256-GCM encryption of `pending-events.json` at rest. Generate with `openssl rand -hex 32`. **Required in production** (server refuses to start without it); if blank in dev, queue is stored as plaintext with a loud warning.
-- `CALENDLY_API_TOKEN` — Calendly Personal Access Token (from Calendly → Integrations → API & Webhooks). Required for event type description fetching. See `backend/.env.example`.
+- `CALENDLY_API_TOKEN` — Calendly Personal Access Token (from Calendly → Integrations → API & Webhooks). Required for event type description fetching and payment amount backfill. See `backend/.env.example`.
 - `RESEND_API_KEY` — Resend API key for direct email sending. Server logs a warning at startup if missing and returns 503 on any send attempt.
 - `RESEND_FROM` — Sender address (default: `jeff@simplybreathe.ai`). Must be a verified Resend domain.
 - `RESEND_REPLY_TO` — Reply-to address for outbound emails (defaults to `RESEND_FROM`).
@@ -1545,6 +1559,13 @@ Email address (normalized to lowercase) is the primary deduplication key. On `in
 - **New email** → creates client with `source: "Calendly"`, `status: "Booked"`
 - **Existing email** → updates name, phone, next session date, status (Lead → Booked)
 
+**Lifetime value:** After each Calendly sync (and payment backfill), LTV is recalculated for every client with at least one registration record. The total is the sum of:
+- Calendly booking **session price** (`paymentAmount`) on non-canceled, non-rescheduled registrations (excludes unpaid) — used until live Calendly payment data is reliable
+- Client-linked **Revenue** records (`gross` minus `refunds`)
+- **Offers** with status `Paid` or `Accepted`
+
+Clients without any registration records keep their manually entered LTV unchanged.
+
 ### Registrations Data Table
 Each individual Calendly booking is stored as a `registration` record:
 
@@ -1556,7 +1577,9 @@ Each individual Calendly booking is stored as a `registration` record:
 | `calendlyEventUri` | Unique Calendly event identifier (groups bookings into one session) |
 | `eventName` | Calendly event type name |
 | `status` | `booked` · `attended` · `canceled` · `rescheduled` · `no_show` |
-| `paymentStatus` | `paid` · `unpaid` · `unknown` |
+| `paymentAmount` | Session list price — the Calendly **Payment required amount** for that event type. Calendly’s API does not expose this field directly; the CRM reads it from the event type **Internal Note** (e.g. `Studio` + `$55`) via the Calendly API, matching how studio cards on the website show price |
+| `paidAmount` | Actual amount Calendly recorded on the invitee (`payment.amount` — often `$0` for coupon bookings) |
+| `paymentStatus` | `paid` · `unpaid` · `unknown` — derived from Calendly `payment.successful` and amount when synced |
 | `waiverStatus` | `pending` · `signed` |
 | `createdAt` | ISO 8601 timestamp when the booking was created (from Calendly `created_at`, webhook receipt time, or manual entry) |
 | `scheduledAt` | ISO 8601 start time |
@@ -1598,7 +1621,7 @@ The description is surfaced in the studio session drawer as **Studio Event Descr
 **Navigation:** Sidebar → Calendly Bookings
 
 Views (all sorted by session date/time, newest first; uses `scheduledAt`, falling back to linked session date/time when empty — except **All Bookings**, which sorts by `createdAt`, newest first):
-- **All Bookings** — all registrations; columns: Scheduled On, Client, Session Date/Time, Event, Status, Waiver, Attendance
+- **All Bookings** — all registrations; columns: Scheduled On, Client, Session Date/Time, Event, Amount, Status, Waiver, Attendance
 - **Pending Waivers** — active registrations where waiver is not yet signed
 - **Unpaid** — active registrations with unpaid status
 - **Cancellations** — canceled and rescheduled registrations
@@ -1875,7 +1898,7 @@ All state is managed via React `useState` and `useMemo` in the root `App` compon
 | `UserManagementView` | Multi-user CRUD and permissions |
 | `AdminView` | 8-tab admin panel: overview, schema browser, integrity check, storage, settings, email logs, journey descriptions, reset to production |
 | `JourneyDescriptionsTab` | Admin tab for managing journey names and descriptions (add / edit / remove) |
-| `SessionBookingsTab` | Bookings tab inside session drawer — lists all Calendly registrants |
+| `SessionBookingsTab` | Bookings tab inside session drawer — lists all Calendly registrants with session price per card |
 | `WorkflowsView` | Five workflow pipeline visualizations |
 | `TemplateLibraryView` | Template browsing, copy, and direct email send via Resend |
 | `EmailLogsView` | Admin Email Logs tab — system-wide sent email log with delivery status auto-check and row expansion |

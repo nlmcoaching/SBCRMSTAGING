@@ -322,6 +322,12 @@ function extractEvent(event, payload) {
     answers[key] = answer || "";
   });
 
+  const payment = payload.payment || null;
+  const rawAmount = payment?.amount;
+  const paymentAmount = rawAmount != null
+    ? (typeof rawAmount === "number" ? rawAmount : parseFloat(rawAmount))
+    : null;
+
   return {
     id:                   `evt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     receivedAt:           new Date().toISOString(),
@@ -360,11 +366,49 @@ function extractEvent(event, payload) {
     utmSource:            payload.tracking?.utm_source || "",
     utmMedium:            payload.tracking?.utm_medium || "",
     utmCampaign:          payload.tracking?.utm_campaign || "",
+    // Payment (Calendly Stripe / native checkout)
+    paymentAmount:        paymentAmount != null && !Number.isNaN(paymentAmount) ? paymentAmount : null,
+    paidAmount:           paymentAmount != null && !Number.isNaN(paymentAmount) ? paymentAmount : null,
+    paymentCurrency:      payment?.currency || "",
+    paymentSuccessful:    payment?.successful === true,
   };
 }
 
-// ── Calendly event-type description cache (in-memory, per-process) ──
+// ── Calendly event-type metadata cache (in-memory, per-process) ──
 const _eventTypeDescCache = {};
+const _eventTypeMetaCache = {};
+
+// Calendly does not expose the Payment-section dollar amount via API — this org stores it in internal_note
+// (e.g. "Studio\\n$55", "virtual|$100") to mirror the configured session price.
+function parsePriceFromInternalNote(note) {
+  if (!note) return null;
+  const text = String(note);
+  if (/\bfree\b/i.test(text)) return 0;
+  const dollarMatch = text.match(/\$\s*(\d+(?:\.\d{1,2})?)/);
+  if (dollarMatch) {
+    const amount = parseFloat(dollarMatch[1]);
+    return Number.isNaN(amount) ? null : amount;
+  }
+  const pipeMatch = text.match(/\|\s*\$?\s*(\d+(?:\.\d{1,2})?)/);
+  if (pipeMatch) {
+    const amount = parseFloat(pipeMatch[1]);
+    return Number.isNaN(amount) ? null : amount;
+  }
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (/^\$?\d+(?:\.\d{1,2})?$/.test(trimmed)) {
+      const amount = parseFloat(trimmed.replace(/^\$/, ""));
+      if (!Number.isNaN(amount)) return amount;
+    }
+  }
+  return null;
+}
+
+function parseCalendlyPaymentAmount(rawAmount) {
+  if (rawAmount == null) return null;
+  const amount = typeof rawAmount === "number" ? rawAmount : parseFloat(rawAmount);
+  return amount != null && !Number.isNaN(amount) ? amount : null;
+}
 
 const CALENDLY_API_BASE = "https://api.calendly.com/";
 
@@ -393,20 +437,19 @@ function pickEventTypeDescription(resource) {
   return plain.length >= fromHtml.length ? plain : fromHtml;
 }
 
-async function fetchEventTypeDescription(eventTypeUri) {
-  if (!eventTypeUri) return "";
+async function fetchEventTypeMeta(eventTypeUri) {
+  if (!eventTypeUri) return { description: "", price: null };
 
-  // SSRF guard: only allow requests to the official Calendly API
   if (!eventTypeUri.startsWith(CALENDLY_API_BASE)) {
     console.warn(`[WARN] Rejected suspicious event_type URI (not api.calendly.com): ${eventTypeUri}`);
-    return "";
+    return { description: "", price: null };
   }
 
-  const cached = _eventTypeDescCache[eventTypeUri];
+  const cached = _eventTypeMetaCache[eventTypeUri];
   if (cached) return cached;
 
   const token = process.env.CALENDLY_API_TOKEN;
-  if (!token) return "";
+  if (!token) return { description: "", price: null };
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CALENDLY_API_TIMEOUT_MS);
@@ -419,21 +462,100 @@ async function fetchEventTypeDescription(eventTypeUri) {
     clearTimeout(timer);
     if (!res.ok) throw new Error(`Calendly API ${res.status}`);
     const data = await res.json();
-    const desc = pickEventTypeDescription(data.resource);
-    if (desc) {
-      const cacheKeys = Object.keys(_eventTypeDescCache);
-      if (cacheKeys.length >= 500) {
-        cacheKeys.slice(0, 250).forEach(k => delete _eventTypeDescCache[k]);
-      }
-      _eventTypeDescCache[eventTypeUri] = desc;
-      console.log(`[OK] Fetched event type description for ${eventTypeUri.split("/").pop()}: "${desc.slice(0, 60)}${desc.length > 60 ? "…" : ""}"`);
+    const meta = {
+      description: pickEventTypeDescription(data.resource),
+      price: parsePriceFromInternalNote(data.resource?.internal_note),
+    };
+    const cacheKeys = Object.keys(_eventTypeMetaCache);
+    if (cacheKeys.length >= 500) {
+      cacheKeys.slice(0, 250).forEach(k => {
+        delete _eventTypeMetaCache[k];
+        delete _eventTypeDescCache[k];
+      });
     }
-    return desc;
+    _eventTypeMetaCache[eventTypeUri] = meta;
+    if (meta.description) _eventTypeDescCache[eventTypeUri] = meta.description;
+    if (meta.price != null) {
+      console.log(`[OK] Event type ${eventTypeUri.split("/").pop()} list price: $${meta.price}`);
+    }
+    return meta;
   } catch (err) {
     clearTimeout(timer);
-    console.warn(`[WARN] Could not fetch event type description: ${err.message}`);
+    console.warn(`[WARN] Could not fetch event type metadata: ${err.message}`);
+    delete _eventTypeMetaCache[eventTypeUri];
     delete _eventTypeDescCache[eventTypeUri];
-    return "";
+    return { description: "", price: null };
+  }
+}
+
+async function fetchEventTypeDescription(eventTypeUri) {
+  const meta = await fetchEventTypeMeta(eventTypeUri);
+  return meta.description || "";
+}
+
+async function fetchEventTypePrice(eventTypeUri) {
+  const meta = await fetchEventTypeMeta(eventTypeUri);
+  return meta.price;
+}
+
+async function fetchInviteePayment(inviteeUri, eventTypeUriHint = "") {
+  if (!inviteeUri?.startsWith(CALENDLY_API_BASE)) return null;
+
+  const token = process.env.CALENDLY_API_TOKEN;
+  if (!token) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CALENDLY_API_TIMEOUT_MS);
+  try {
+    const res = await fetch(inviteeUri, {
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const invitee = (await res.json()).resource ?? {};
+
+    let eventTypeUri = eventTypeUriHint || "";
+    if (!eventTypeUri && invitee.event?.startsWith(CALENDLY_API_BASE)) {
+      const evtController = new AbortController();
+      const evtTimer = setTimeout(() => evtController.abort(), CALENDLY_API_TIMEOUT_MS);
+      try {
+        const evtRes = await fetch(invitee.event, {
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          signal: evtController.signal,
+        });
+        clearTimeout(evtTimer);
+        if (evtRes.ok) {
+          eventTypeUri = (await evtRes.json()).resource?.event_type || "";
+        }
+      } catch {
+        clearTimeout(evtTimer);
+      }
+    }
+
+    const listPrice = eventTypeUri ? await fetchEventTypePrice(eventTypeUri) : null;
+    const payment = invitee.payment;
+    const paidAmount = payment != null ? parseCalendlyPaymentAmount(payment.amount) : null;
+    const paymentSuccessful = payment?.successful === true;
+
+    // Amount column = configured session price from event type (mirrors Calendly Payment section via internal_note).
+    // paidAmount = what Calendly recorded on the invitee (often $0 for coupons).
+    const sessionPrice = listPrice ?? paidAmount;
+
+    if (sessionPrice == null && paidAmount == null) {
+      return { paymentAmount: null, paidAmount: null, paymentSuccessful: false };
+    }
+
+    return {
+      paymentAmount: sessionPrice,
+      paidAmount,
+      paymentSuccessful,
+      priceSource: listPrice != null ? "event_type" : "calendly_payment",
+    };
+  } catch (err) {
+    clearTimeout(timer);
+    console.warn(`[WARN] Could not fetch invitee payment: ${err.message}`);
+    return null;
   }
 }
 
@@ -499,6 +621,16 @@ async function fetchEventTypeDescriptionByName(eventName, token) {
   return "";
 }
 
+async function fetchEventTypePriceByName(eventName, token) {
+  const needle = String(eventName || "").trim().toLowerCase();
+  if (!needle) return null;
+  const index = await getEventTypesByNameIndex(token);
+  if (index[needle]) return fetchEventTypePrice(index[needle]);
+  const matchKey = Object.keys(index).find(k => needle === k || needle.includes(k) || k.includes(needle));
+  if (matchKey) return fetchEventTypePrice(index[matchKey]);
+  return null;
+}
+
 // ────────────────────────────────────────────────────────────────
 // POST /api/webhooks/calendly
 // Receives all Calendly webhook events, verifies signature, queues
@@ -538,6 +670,27 @@ app.post("/api/webhooks/calendly", async (req, res) => {
   const eventTypeUri = payload.scheduled_event?.event_type;
   if (eventTypeUri) {
     extracted.description = await fetchEventTypeDescription(eventTypeUri) || extracted.description;
+  }
+
+  // Resolve session list price + actual paid amount (Calendly Payment section amount lives in event type internal_note)
+  if (extracted.calendlyInviteeUri) {
+    const pay = await fetchInviteePayment(
+      extracted.calendlyInviteeUri,
+      eventTypeUri || extracted.calendlyEventTypeUri || "",
+    );
+    if (pay) {
+      if (pay.paymentAmount != null) extracted.paymentAmount = pay.paymentAmount;
+      if (pay.paidAmount != null || pay.paymentSuccessful != null) extracted.paidAmount = pay.paidAmount;
+      if (pay.paymentSuccessful != null) extracted.paymentSuccessful = pay.paymentSuccessful === true;
+      extracted.paymentPriceSource = pay.priceSource || "";
+    }
+  } else if (extracted.paymentAmount == null && eventTypeUri) {
+    const price = await fetchEventTypePrice(eventTypeUri);
+    if (price != null) {
+      extracted.paymentAmount = price;
+      extracted.paymentSuccessful = false;
+      extracted.paymentPriceSource = "event_type";
+    }
   }
 
   try {
@@ -603,6 +756,55 @@ app.post("/api/calendly/acknowledge", requireFrontendSecret, async (req, res) =>
 
   console.log(`[OK] Acknowledged ${ids.length} event(s)`);
   res.json({ acknowledged: ids.length });
+});
+
+// ────────────────────────────────────────────────────────────────
+// POST /api/calendly/payment-lookup
+// Backfill session prices for registrations (max 25 URIs / 25 event names)
+// Body: {
+//   uris: ["https://api.calendly.com/scheduled_events/.../invitees/..."],
+//   eventTypeByUri: { [inviteeUri]: "https://api.calendly.com/event_types/..." },
+//   eventNames: ["Align Yoga - Pleasant Hill, CA"]
+// }
+// ────────────────────────────────────────────────────────────────
+app.post("/api/calendly/payment-lookup", requireFrontendSecret, async (req, res) => {
+  const { uris = [], eventTypeByUri = {}, eventNames = [] } = req.body;
+  if (!Array.isArray(uris)) return res.status(400).json({ error: "uris must be an array" });
+  if (!Array.isArray(eventNames)) return res.status(400).json({ error: "eventNames must be an array" });
+  if (uris.length > 25) return res.status(400).json({ error: "Too many uris — max 25 per request" });
+  if (eventNames.length > 25) return res.status(400).json({ error: "Too many eventNames — max 25 per request" });
+  if (!uris.every(u => typeof u === "string" && u.startsWith(CALENDLY_API_BASE) && u.length <= 300)) {
+    return res.status(400).json({ error: "All uris must be valid Calendly invitee URIs" });
+  }
+  if (eventTypeByUri != null && typeof eventTypeByUri !== "object") {
+    return res.status(400).json({ error: "eventTypeByUri must be an object" });
+  }
+
+  const token = process.env.CALENDLY_API_TOKEN;
+  if (!token) return res.status(503).json({ error: "CALENDLY_API_TOKEN not configured" });
+
+  res.set("Cache-Control", "no-store");
+  const payments = {};
+  for (const uri of uris) {
+    const hint = typeof eventTypeByUri?.[uri] === "string" ? eventTypeByUri[uri] : "";
+    const pay = await fetchInviteePayment(uri, hint);
+    if (pay) payments[uri] = pay;
+  }
+  const eventPrices = {};
+  for (const rawName of eventNames) {
+    const name = typeof rawName === "string" ? rawName.trim().slice(0, 200) : "";
+    if (!name || eventPrices[name] != null) continue;
+    const price = await fetchEventTypePriceByName(name, token);
+    if (price != null) {
+      eventPrices[name] = {
+        paymentAmount: price,
+        paidAmount: null,
+        paymentSuccessful: false,
+        priceSource: "event_type",
+      };
+    }
+  }
+  res.json({ payments, eventPrices });
 });
 
 // ────────────────────────────────────────────────────────────────

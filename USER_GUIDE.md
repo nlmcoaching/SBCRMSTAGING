@@ -145,14 +145,14 @@ Start every working day here. The Today dashboard is designed to answer one ques
 ### Stats Row
 
 Four numbers at the top give you an instant health check:
-- **Net Revenue MTD** — How much you've earned net this month (after studio splits, fees, and refunds). Click this card to jump directly to Revenue → **This month** tab.
+- **Net Revenue MTD** — Sum of Calendly session prices (virtual + studio) for sessions this month. Click to open Revenue → **This month**.
 - **Referral Revenue** — Revenue that came from referrals
 - **Active Clients** — Total number of clients in the system
 - **Active Sequences** — Clients currently in a follow-up sequence
 
 ### B2C vs B2B Split
 
-A side-by-side panel shows your two business lanes at a glance — revenue, pipeline value, and active relationships for both personal clients and studio partners.
+A side-by-side panel shows your two business lanes at a glance — **studio session booking prices** (B2B) vs **virtual session prices + packages** (B2C), plus pipeline value and active relationships.
 
 ### Pipeline Snapshot
 
@@ -160,11 +160,11 @@ Nine business metrics in one view:
 - Open pipeline value
 - Studio pipeline value
 - Expected revenue this month
-- Revenue booked but not yet delivered
-- Revenue delivered but not yet paid
+- Revenue booked but not yet delivered (upcoming session booking prices)
+- Revenue delivered but not yet paid (completed sessions — booking prices pending confirmation)
 - Offers waiting for a response
 - Average client value
-- Average session revenue
+- Average session revenue (from Calendly booking prices)
 - Studio partner conversion rate
 
 ### Smart Alerts
@@ -199,7 +199,9 @@ For **virtual sessions today or tomorrow**, the action clears when the **Virtual
 
 ### Client List — Default Sort
 
-The **All Clients** view is sorted **A–Z by client name** automatically when you open it. The table shows client name, email, phone, status, segment, referral potential, and lifetime value.
+The **All Clients** view is sorted **A–Z by client name** automatically when you open it. The table shows client name, email, phone, status, segment, referral potential, and lifetime value (LTV).
+
+**LTV updates automatically** when Calendly bookings sync in — it adds up each booking’s **session price** (from the event type amount in Calendly), plus any revenue or accepted offers linked to that client. Click the refresh icon on Calendly Bookings if amounts or LTV look stale.
 
 ### Adding a New Client
 
@@ -228,9 +230,9 @@ Click any client row to open the record. The main tab is called **Details** — 
 
 Each client record has a **Sessions Attended** tab — a complete list of every session the client has registered for. For each session you'll see:
 - Session name, date, time, and journey used
-- **Revenue** — how much that session contributed (virtual: full net; studio: per-head share)
+- **Amount** — the session price from their Calendly booking (same as Calendly Bookings → All Bookings)
 
-A **Total Revenue** figure at the bottom shows the client's cumulative revenue contribution across all sessions they've attended. This makes it easy to identify your highest-value clients at a glance.
+A **Total Revenue** figure at the top shows the sum of session prices across all their bookings (excluding canceled and unpaid).
 
 ### The Client Timeline
 
@@ -404,7 +406,7 @@ Hover over any pill to see the full session name, studio, client name, and exact
 When you open a session record, the first tab is **Session Details**. The layout adapts based on session type:
 
 **Virtual sessions** show in this order:
-- Client name and email (from registration)
+- Client name and email (from registration), with **session price** on the right
 - Date, time, and duration on one row
 - The Zoom / Join Link as a clickable card
 - **Room Setup Status** and **Music/Headset Status** side-by-side on the same line (below the Zoom link)
@@ -436,7 +438,7 @@ On virtual session cards in the sessions list, a small **ⓘ button** appears in
 
 The **Bookings** tab on a studio session shows all registered attendees. At the top-right of the tab you'll find a **"Participant List"** button. Click it to generate a PDF showing:
 - Session name, studio name, date, and time
-- Full list of non-canceled registrants including name, email, phone, booking status, waiver status, and payment status
+- Full list of non-canceled registrants including name, email, phone, **amount**, booking status, waiver status, and payment status
 - Color-coded waiver and payment columns so you can spot missing items at a glance
 
 This is useful for handing to the studio ahead of the event or printing as a sign-in sheet. Cancelled bookings are automatically excluded.
@@ -448,6 +450,7 @@ This is useful for handing to the studio ahead of the event or printing as a sig
 Both virtual and studio session cards have a single **Session Checklist** tab that combines equipment setup and the run checklist into one view. **Critical items appear at the top of each section** so the most important tasks are always visible first.
 
 **Virtual session checklist** covers:
+- **Session price** in the checklist header (from the linked Calendly booking)
 - Pre-Session: camera, phone on DND, playlist, internet connection, zoom tested, headset, safety items, water nearby
 - During Session: facilitation and safety items
 - Post-Session: testimonials, follow-up, rebook offer, referrals, notes
@@ -476,7 +479,8 @@ This is designed to share with your studio partners as a post-event revenue summ
 When you open a session record and click the **Bookings** tab, you'll see everyone who has registered for that session via Calendly:
 - **Studio sessions** show a badge like `2/15` (booked / capacity) — a quick view of how full the session is
 - **Virtual sessions** show the booked count only
-
+- **Amount on each card** — the session price for that booking (e.g. $55), matching Calendly Bookings. Amounts load automatically when you open the tab (from Calendly event type pricing).
+- **Total session revenue** — summary at the top when bookings have amounts
 
 - **Status badges** — booked, attended, canceled, rescheduled, no-show
 - **Waiver warnings** — yellow warning if a waiver hasn't been signed yet
@@ -522,7 +526,7 @@ All bookings that come through Calendly are automatically marked as **waiver sig
 
 | View | What it shows |
 |---|---|
-| All Bookings | Every registration (scheduled on, client, session date, event, status, waiver, attendance), newest booking first |
+| All Bookings | Every registration (scheduled on, client, session date, event, amount paid, status, waiver, attendance), newest booking first |
 | Pending Waivers | Manually-created registrations without a signed waiver, newest session first |
 | Unpaid | Clients who haven't paid, newest session first |
 | Cancellations | Canceled and rescheduled bookings, newest session first |
@@ -531,12 +535,15 @@ All bookings that come through Calendly are automatically marked as **waiver sig
 
 When a booking arrives, the system automatically fetches the event type description from Calendly and stores it on the session record. This description powers the **ⓘ popup** on virtual session cards.
 
+Payment amounts are captured from the Calendly webhook when Calendly collects payment directly. For all studio/virtual sessions, the **Amount** column shows the event type’s configured session price (the same **Payment required amount** you set in Calendly). Calendly’s API does not expose that dollar field — keep it mirrored in each event type’s **Internal Note** (e.g. `Studio` on one line, `$55` on the next, or `virtual|$100`). Click the refresh icon on Calendly Bookings to backfill existing rows — requires `CALENDLY_API_TOKEN` on the backend.
+
 > **Setup required:** This feature needs a Calendly Personal Access Token. If you're not seeing descriptions, ask your system administrator to add `CALENDLY_API_TOKEN` to the backend configuration (from Calendly → Integrations → API & Webhooks).
 
 ### Booking Record Fields
 
 Each booking record captures everything from the Calendly confirmation:
 - When the booking was created (**Scheduled On**) and session date/time
+- **Amount paid** (from Calendly checkout; shows — if not yet synced or no payment on the booking)
 - Status (booked, attended, canceled, rescheduled, no-show)
 - Waiver status (auto-signed for Calendly bookings) and payment status
 - Location type and Zoom link (for virtual sessions)
@@ -695,9 +702,11 @@ Every session or payment should have a revenue record. Click **New** and enter:
 
 ### Reading the Revenue Table
 
-The **This month** and **All transactions** tabs show a table with individual Gross and Net values per entry. The footer row at the bottom shows totals for both **Gross** and **Net** for all displayed rows. The Net total in the footer matches the **Net Revenue MTD** figure on your Today dashboard.
+The **Revenue attribution**, **This month**, and **All transactions** tabs are built from **Calendly session prices** (one row per booking) plus **accepted/paid offers** — not old manual entries. Each booking row shows the same amount as Calendly Bookings → All Bookings. Dates follow the linked session date.
 
-> **Gross vs Net:** Gross is what was charged. Net is what you keep after deducting studio splits, Stripe fees, facilitator costs, and refunds. Always focus on Net when evaluating true earnings.
+The footer on **This month** and **All transactions** shows gross (full session prices) and **net** after a **70/30 split** on studio sessions (you keep 70%, studio 30%). Virtual sessions and packages show full amount as net. The net total differs from **Net Revenue MTD** on Command Center, which uses full session prices until splits are applied elsewhere.
+
+> **Session price vs net:** Right now each booking row shows the **session price** from Calendly (gross = net until you record studio splits and processing fees separately). Focus on these figures for actual booking revenue; fee/split columns show "—" until entered manually.
 
 ### Why This Matters
 
@@ -1185,7 +1194,7 @@ Registered Attendees is automatically synced from the actual bookings when you o
 Your browser may be blocking pop-ups. Look for a pop-up blocked notification in the browser address bar, click it, and allow pop-ups from this site. Then try the Download PDF button again.
 
 **The Sessions Attended tab shows a revenue figure — how is it calculated?**
-For virtual (one-on-one) sessions, the figure is the full net revenue from that session. For studio sessions, it's the per-head revenue — gross revenue divided by the number of registered attendees for that session.
+Each row shows the **session price** from that client’s Calendly booking. The total is the sum of those prices across all non-canceled bookings (unpaid bookings are excluded). This matches how **LTV** is calculated until live payment data comes through from Calendly.
 
 **I clicked Send Email on a template but nothing was sent. What happened?**
 Check the Admin → Email Logs tab. If the row shows a red "Failed" status, the email service may have rejected the send — this usually means the recipient email address is invalid or the email service configuration needs attention. Contact your system administrator if the issue persists.
