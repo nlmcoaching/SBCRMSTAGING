@@ -340,6 +340,7 @@ function extractEvent(event, payload) {
     description:          scheduled.description || "",
     startTime:            scheduled.start_time || "",
     endTime:              scheduled.end_time  || "",
+    createdAt:            payload.created_at || "",
     locationType:         location.type || "",               // zoom, physical, custom, etc.
     locationJoinUrl:      location.join_url || "",
     locationAddress:      location.location || "",

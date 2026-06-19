@@ -502,6 +502,8 @@ When a client books through your Calendly link, the CRM automatically:
 
 At the bottom of the sidebar you'll see a **Calendly sync status indicator**. The CRM syncs automatically every **5 minutes** in the background — no action needed.
 
+On the **Calendly Bookings** page, click the **refresh icon** (↻) in the top bar to pull in new bookings right away instead of waiting for the next automatic sync.
+
 The indicator shows:
 - **Spinning icon + "Syncing Calendly…"** — sync is running
 - **"3 records synced · Last sync 9:45 AM"** — new bookings were just imported
@@ -520,7 +522,7 @@ All bookings that come through Calendly are automatically marked as **waiver sig
 
 | View | What it shows |
 |---|---|
-| All Bookings | Every registration (session date, client, email, event, status, waiver, attendance), newest session first |
+| All Bookings | Every registration (scheduled on, client, session date, event, status, waiver, attendance), newest booking first |
 | Pending Waivers | Manually-created registrations without a signed waiver, newest session first |
 | Unpaid | Clients who haven't paid, newest session first |
 | Cancellations | Canceled and rescheduled bookings, newest session first |
@@ -534,7 +536,7 @@ When a booking arrives, the system automatically fetches the event type descript
 ### Booking Record Fields
 
 Each booking record captures everything from the Calendly confirmation:
-- Session date and event name
+- When the booking was created (**Scheduled On**) and session date/time
 - Status (booked, attended, canceled, rescheduled, no-show)
 - Waiver status (auto-signed for Calendly bookings) and payment status
 - Location type and Zoom link (for virtual sessions)

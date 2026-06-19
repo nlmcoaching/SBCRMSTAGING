@@ -1558,6 +1558,7 @@ Each individual Calendly booking is stored as a `registration` record:
 | `status` | `booked` · `attended` · `canceled` · `rescheduled` · `no_show` |
 | `paymentStatus` | `paid` · `unpaid` · `unknown` |
 | `waiverStatus` | `pending` · `signed` |
+| `createdAt` | ISO 8601 timestamp when the booking was created (from Calendly `created_at`, webhook receipt time, or manual entry) |
 | `scheduledAt` | ISO 8601 start time |
 | `timezone` | Invitee's timezone |
 | `locationType` | `zoom` · `physical` · `custom` · `phone` |
@@ -1596,8 +1597,8 @@ The description is surfaced in the studio session drawer as **Studio Event Descr
 ### Calendly Bookings Sidebar Section
 **Navigation:** Sidebar → Calendly Bookings
 
-Views (all sorted by session date/time, newest first; uses `scheduledAt`, falling back to linked session date/time when empty):
-- **All Bookings** — all registrations; columns: Session Date/Time, Client, Email, Event, Status, Waiver, Attendance
+Views (all sorted by session date/time, newest first; uses `scheduledAt`, falling back to linked session date/time when empty — except **All Bookings**, which sorts by `createdAt`, newest first):
+- **All Bookings** — all registrations; columns: Scheduled On, Client, Session Date/Time, Event, Status, Waiver, Attendance
 - **Pending Waivers** — active registrations where waiver is not yet signed
 - **Unpaid** — active registrations with unpaid status
 - **Cancellations** — canceled and rescheduled registrations
@@ -1610,6 +1611,8 @@ On each new `invitee.created` event, 3 follow-up tasks are created for the clien
 
 ### Sync Status Indicator
 A read-only status line at the bottom of the sidebar auto-syncs every **5 minutes**. Hovering it shows a tooltip with the exact record count and time of the last sync.
+
+On the **Calendly Bookings** page header, a **refresh icon** (↻) manually pulls pending bookings from Calendly immediately. The icon spins while a sync is in progress and is disabled until the sync completes.
 
 | State | Display | Hover tooltip |
 |---|---|---|

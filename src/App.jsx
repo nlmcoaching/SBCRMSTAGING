@@ -2091,6 +2091,9 @@ export default function App() {
               status:             "booked",
               paymentStatus:      "unknown",
               waiverStatus:       "signed", // client accepts waiver during Calendly booking
+              createdAt:          existingRegIdx >= 0
+                ? (registrations[existingRegIdx].createdAt || evt.createdAt || evt.receivedAt || new Date().toISOString())
+                : (evt.createdAt || evt.receivedAt || new Date().toISOString()),
               scheduledAt:        evt.startTime,
               timezone:           evt.timezone,
               locationType:       evt.locationType,
@@ -2569,6 +2572,19 @@ export default function App() {
                     <input placeholder="Search…" value={query} onChange={(e) => setQuery(e.target.value)} />
                   </div>
                 )}
+                {section === "registrations" && (
+                  <button
+                    type="button"
+                    className="sb-ghost"
+                    onClick={syncCalendly}
+                    disabled={calendlyStatus?.syncing}
+                    title={calendlyStatus?.syncing ? "Syncing from Calendly…" : "Refresh list from Calendly"}
+                    aria-label="Refresh list from Calendly"
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 10px", minWidth: 40 }}
+                  >
+                    <RefreshCw size={16} strokeWidth={2} style={{ animation: calendlyStatus?.syncing ? "spin 1s linear infinite" : "none" }} />
+                  </button>
+                )}
                 {can.edit && !["users","admin","workflows"].includes(section) && !(section === "expenses" && view === 0) && (
                   <button className="sb-primary" onClick={() => setOpen({ db: section, record: newRecord(section) })}>
                     <Plus size={16} /> New
@@ -2762,7 +2778,7 @@ function newRecord(db) {
     testimonials: { name: "", clientId: "", sessionId: "", status: "Breakthrough noted", type: "Written", content: "", bestQuote: "", beforeSummary: "", afterSummary: "", themes: [], permissionReceived: false, useOnWebsite: false, useOnSocial: false, firstNameOnly: false, videoUrl: "", dateReceived: "", datePublished: "", notes: "" },
     templates:    { name: "", category: "Post-Session", channel: "Email", subject: "", body: "", variables: "", linkedTo: "clients", usageCount: 0, notes: "" },
     expenses:     { date: "", vendor: "", description: "", amount: 0, category: "Equipment & Supplies", paymentMethod: "Credit Card", taxDeductible: true, recurring: false, recurringFreq: "One-time", linkedSession: "", linkedPartner: "", receiptUrl: "", notes: "" },
-    registrations: { clientId: "", sessionId: "", calendlyInviteeUri: "", calendlyEventUri: "", eventName: "", status: "booked", paymentStatus: "unknown", waiverStatus: "pending", scheduledAt: "", timezone: "", locationType: "", locationJoinUrl: "", locationAddress: "", attendanceType: "", checkedIn: false, attended: false, noShow: false, doneBreathworkBefore: "", howHeard: "", referredBy: "", concerns: "", reviewedContraindications: "", notes: "" },
+    registrations: { clientId: "", sessionId: "", calendlyInviteeUri: "", calendlyEventUri: "", eventName: "", status: "booked", paymentStatus: "unknown", waiverStatus: "pending", createdAt: new Date().toISOString(), scheduledAt: "", timezone: "", locationType: "", locationJoinUrl: "", locationAddress: "", attendanceType: "", checkedIn: false, attended: false, noShow: false, doneBreathworkBefore: "", howHeard: "", referredBy: "", concerns: "", reviewedContraindications: "", notes: "" },
   };
   return { ...base, ...m[db] };
 }
@@ -4302,8 +4318,27 @@ function registrationSessionTimestamp(reg, data) {
   return 0;
 }
 
+function registrationCreatedTimestamp(reg) {
+  if (reg.createdAt) {
+    const t = Date.parse(reg.createdAt);
+    if (!Number.isNaN(t)) return t;
+  }
+  return 0;
+}
+
+function formatRegistrationDateTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
 function sortRegistrationsBySessionTime(rows, data) {
   return [...rows].sort((a, b) => registrationSessionTimestamp(b, data) - registrationSessionTimestamp(a, data));
+}
+
+function sortRegistrationsByCreatedAt(rows) {
+  return [...rows].sort((a, b) => registrationCreatedTimestamp(b) - registrationCreatedTimestamp(a));
 }
 
 const VIEWS = {
@@ -4394,9 +4429,9 @@ const VIEWS = {
       {
         name: "All Bookings", layout: "table",
         columns: [
-          col("scheduledAt", "Session Date/Time", r => r.scheduledAt ? new Date(r.scheduledAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"),
+          col("createdAt",   "Scheduled On",     r => formatRegistrationDateTime(r.createdAt)),
           col("clientId",    "Client",       (r, ctx) => { const c = (ctx.data.clients||[]).find(x => x.id === r.clientId); return c ? <strong style={{color:C.ink}}>{cleanName(c.name)}</strong> : <span style={{color:C.ink3}}>—</span>; }),
-          col("email",       "Email",        (r, ctx) => { const c = (ctx.data.clients||[]).find(x => x.id === r.clientId); return c?.email ? <a href={`mailto:${c.email}`} style={{ color: C.brand }} onClick={e => e.stopPropagation()}>{c.email}</a> : "—"; }),
+          col("scheduledAt", "Session Date/Time", r => formatRegistrationDateTime(r.scheduledAt)),
           col("eventName",   "Event",        r => r.eventName || "—"),
           col("status",      "Status",       r => {
             const clr = { booked: C.brand, attended: "#4A8C6F", canceled: "#C0573F", rescheduled: C.gold, no_show: "#8A96AC" }[r.status] || C.ink3;
@@ -4407,7 +4442,7 @@ const VIEWS = {
             : <span style={{color:C.ink3}}>Pending</span>),
           col("attendanceType","Attendance", r => r.attendanceType || "—"),
         ],
-        run: (rows, ctx) => ({ rows: sortRegistrationsBySessionTime(rows, ctx.data) }),
+        run: (rows) => ({ rows: sortRegistrationsByCreatedAt(rows) }),
       },
       {
         name: "Pending Waivers", layout: "table",
@@ -5501,6 +5536,7 @@ const FIELDS = {
     f("status",         "Booking Status",              "select",   { options: ["booked", "attended", "canceled", "rescheduled", "no_show"] }),
     f("paymentStatus",  "Payment Status",              "select",   { options: ["paid", "unpaid", "unknown"] }),
     f("waiverStatus",   "Waiver Status",               "select",   { options: ["pending", "signed"] }),
+    f("createdAt",      "Scheduled On",                "text"),
     f("scheduledAt",    "Session Date/Time",           "text"),
     f("timezone",       "Timezone",                    "text"),
     f("locationType",   "Location Type",               "select",   { options: ["zoom", "physical", "custom", "phone", "other"] }),
