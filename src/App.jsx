@@ -1412,12 +1412,12 @@ function findStripeBookingMatch(registrations, clients, stripeEvt, data = {}) {
     return expected != null && amountsMatch(expected, stripeEvt.amountGross);
   });
 
-  // Single pending booking for this email — link using Stripe amount as session price
-  if (amountMatches.length === 0 && pendingForEmail.length === 1 && stripeEvt.amountGross > 0) {
+  // Email match only (amount differs or unknown) — manual review, never auto-link
+  if (amountMatches.length === 0 && pendingForEmail.length === 1) {
     const reg = pendingForEmail[0];
     const client = clients.find(c => c.id === reg.clientId);
     const score = scoreStripeBookingMatch(reg, client, stripeEvt, data);
-    return { reg, score: Math.max(score, 80), auto: true, ambiguous: false, fillAmount: stripeEvt.amountGross };
+    return { reg, score: Math.max(score, 50), auto: false, ambiguous: false };
   }
 
   // Single email + amount match → auto-link even if timestamps are messy
@@ -1488,7 +1488,7 @@ function applyStripeMatchToRecords(payments, registrations, payIdx, match, strip
   const regIdx = registrations.findIndex(r => r.id === match.reg.id);
   if (regIdx >= 0) {
     let reg = registrations[regIdx];
-    if ((registrationSessionAmount(reg) == null || match.fillAmount) && stripeEvt.amountGross != null) {
+    if (registrationSessionAmount(reg) == null && stripeEvt.amountGross != null) {
       reg = { ...reg, paymentAmount: stripeEvt.amountGross };
     }
     registrations[regIdx] = applyStripePaymentToRegistration(reg, stripeEvt, p.id);
@@ -1507,7 +1507,7 @@ function reconcileUnmatchedStripePayments(prevData) {
     const stripeEvt = stripePaymentFromRecord(p);
     if (!stripeEvt.customerEmail) continue;
     const match = findStripeBookingMatch(registrations, clients, stripeEvt, prevData);
-    if (!match?.auto && !(match && match.score >= 80 && !match.ambiguous)) continue;
+    if (!match?.auto) continue;
     applyStripeMatchToRecords(payments, registrations, i, match, stripeEvt);
   }
 

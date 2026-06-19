@@ -127,8 +127,14 @@ On startup, the Express backend validates that required environment variables ar
 |---|---|
 | `CALENDLY_WEBHOOK_SIGNING_KEY` | **Production:** server exits with code 1. **Dev:** loud console warning, server continues. |
 | `QUEUE_ENCRYPTION_KEY` | **Production:** server exits with code 1. **Dev:** loud console warning, server continues. |
+| `STRIPE_WEBHOOK_SECRET` | **Production:** server exits with code 1. **Dev:** loud console warning; unsigned Stripe webhooks accepted only in dev. |
+| `FRONTEND_SECRET` | **Production:** server exits with code 1. **Dev:** loud console warning; `/pending` and `/acknowledge` unauthenticated. |
 
 This prevents accidentally running an unprotected production instance.
+
+### Reverse Proxy — `TRUST_PROXY`
+
+Set `TRUST_PROXY=1` in `backend/.env` only when the Express app sits behind ngrok, nginx, or Caddy. This enables correct client IP detection for rate limiting. Do **not** set it when port 3001 is directly exposed to the internet — spoofed `X-Forwarded-For` headers could bypass rate limits.
 
 ### Calendly Webhook Field Sanitization
 
@@ -1547,11 +1553,12 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 - `PORT` — server port (default 3001)
 - `CALENDLY_WEBHOOK_SIGNING_KEY` — HMAC signing key from Calendly webhook subscription; **required in production** (server refuses to start without it); if blank in dev, signature verification is skipped with a loud warning
 - `ALLOWED_ORIGINS` — comma-separated CORS origins (default `http://localhost:5173`)
-- `FRONTEND_SECRET` — shared secret for `/pending` and `/acknowledge` endpoints. Generate with `openssl rand -hex 32`. The value is injected server-side by the Vite proxy and is never exposed in the browser bundle.
+- `FRONTEND_SECRET` — shared secret for `/pending` and `/acknowledge` endpoints. **Required in production** (server exits if missing). Generate with `openssl rand -hex 32`. Injected server-side by the Vite proxy (dev) or reverse proxy (production).
 - `ADMIN_SECRET` — token required for debug endpoints (`GET/DELETE /api/calendly/events`). Pass as `x-admin-token` header.
 - `QUEUE_ENCRYPTION_KEY` — 32-byte hex key for AES-256-GCM encryption of `pending-events.json` at rest. Generate with `openssl rand -hex 32`. **Required in production** (server refuses to start without it); if blank in dev, queue is stored as plaintext with a loud warning.
 - `CALENDLY_API_TOKEN` — Calendly Personal Access Token (from Calendly → Integrations → API & Webhooks). Required for event type description fetching and payment amount backfill. See `backend/.env.example`.
-- `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret (`whsec_...`) from Stripe Dashboard → Developers → Webhooks. **Recommended in production**; if blank in dev, signature verification is skipped with a loud warning.
+- `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret (`whsec_...`) from Stripe Dashboard → Developers → Webhooks. **Required in production** (server exits if missing).
+- `TRUST_PROXY` — Set to `1` when behind ngrok/nginx/Caddy so rate limiting uses the real client IP. Omit when binding directly to port 3001 on a public interface.
 - `RESEND_API_KEY` — Resend API key for direct email sending. Server logs a warning at startup if missing and returns 503 on any send attempt.
 - `RESEND_FROM` — Sender address (default: `jeff@simplybreathe.ai`). Must be a verified Resend domain.
 - `RESEND_REPLY_TO` — Reply-to address for outbound emails (defaults to `RESEND_FROM`).
@@ -1569,7 +1576,8 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 - Webhook string fields sanitized via `Sec.sanitize()` before storage (strips HTML and formula injection)
 - SSRF guard: `fetchEventTypeDescription` rejects any `event_type` URI that does not begin with `https://api.calendly.com/`
 - Queue capped at **1,000 events**; processed events older than **7 days** are automatically purged on each write
-- Startup validation: server exits with code 1 in production if `CALENDLY_WEBHOOK_SIGNING_KEY` or `QUEUE_ENCRYPTION_KEY` are missing
+- Startup validation: server exits with code 1 in production if `CALENDLY_WEBHOOK_SIGNING_KEY`, `QUEUE_ENCRYPTION_KEY`, `STRIPE_WEBHOOK_SECRET`, or `FRONTEND_SECRET` are missing
+- Stripe payment auto-match requires **email + amount** agreement; email-only matches go to manual review
 
 ### Supported Calendly Events
 

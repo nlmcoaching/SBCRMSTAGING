@@ -112,6 +112,9 @@ function extractStripePayment(event) {
 
 function verifyStripeSignature(rawBody, signatureHeader, webhookSecret) {
   if (!webhookSecret) {
+    if (process.env.NODE_ENV === "production") {
+      return { ok: false, error: "STRIPE_WEBHOOK_SECRET not configured" };
+    }
     console.warn("[WARN] STRIPE_WEBHOOK_SECRET not set — skipping Stripe signature check");
     return { ok: true, devMode: true };
   }

@@ -39,7 +39,7 @@ const path       = require("path");
     {
       key: "FRONTEND_SECRET",
       desc: "Shared secret for /pending and /acknowledge endpoints — without this they are open to any caller",
-      critical: false,
+      critical: true,
     },
     {
       key: "ADMIN_SECRET",
@@ -59,7 +59,7 @@ const path       = require("path");
     {
       key: "STRIPE_WEBHOOK_SECRET",
       desc: "Stripe webhook signing secret (whsec_...) — without this ALL incoming Stripe webhooks are accepted without verification",
-      critical: false,
+      critical: true,
     },
     {
       key: "ALLOWED_ORIGINS",
@@ -79,7 +79,7 @@ const path       = require("path");
   const criticalMissing = missing.filter(c => c.critical);
   if (isProd && criticalMissing.length) {
     console.error("\n[FATAL] Cannot start in production with missing critical secrets.");
-    console.error("        Set CALENDLY_WEBHOOK_SIGNING_KEY and QUEUE_ENCRYPTION_KEY in your .env file.");
+    console.error(`        Set: ${criticalMissing.map(c => c.key).join(", ")}`);
     process.exit(1);
   }
 
@@ -95,8 +95,10 @@ const isProd = process.env.NODE_ENV === "production";
 const app  = express();
 const PORT = process.env.PORT || 3001;
 
-// ngrok / reverse proxies set X-Forwarded-For — required for rate-limit + webhooks
-app.set("trust proxy", 1);
+// Only trust X-Forwarded-For when explicitly behind ngrok/nginx (see TRUST_PROXY in .env.example)
+if (process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true") {
+  app.set("trust proxy", 1);
+}
 
 // ── Security headers ──
 app.use(helmet({
@@ -767,6 +769,10 @@ app.post("/api/webhooks/stripe", async (req, res) => {
     console.warn("[WARN] Invalid Stripe signature — rejected:", verify.error);
     return res.status(401).json({ error: "Invalid signature" });
   }
+  if (verify.devMode && isProd) {
+    console.error("[FATAL] Stripe webhook received in production without STRIPE_WEBHOOK_SECRET");
+    return res.status(503).json({ error: "Stripe webhook verification not configured" });
+  }
 
   let event;
   try {
@@ -820,7 +826,9 @@ app.post("/api/webhooks/stripe", async (req, res) => {
 function requireFrontendSecret(req, res, next) {
   const secret = process.env.FRONTEND_SECRET;
   if (!secret) {
-    // If not configured, allow in dev mode but warn loudly
+    if (isProd) {
+      return res.status(503).json({ error: "Server misconfigured — FRONTEND_SECRET required" });
+    }
     console.warn("[WARN] FRONTEND_SECRET not set — /pending and /acknowledge are unauthenticated");
     return next();
   }

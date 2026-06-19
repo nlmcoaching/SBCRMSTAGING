@@ -701,7 +701,7 @@ Calendly tells the CRM **who booked** and **expected session price**. **Stripe**
 
 Click **Sync Stripe now** to pull new payments immediately (the CRM also checks every 5 minutes).
 
-**Administrator setup:** In Stripe Dashboard → Developers → Webhooks, add endpoint `https://YOUR-BACKEND-URL/api/webhooks/stripe` and subscribe to: `checkout.session.completed`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.refund.updated`. Copy the signing secret into `STRIPE_WEBHOOK_SECRET` in `backend/.env`.
+**Administrator setup:** In Stripe Dashboard → Developers → Webhooks, add endpoint `https://YOUR-BACKEND-URL/api/webhooks/stripe` and subscribe to: `checkout.session.completed`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.refund.updated`. Copy the signing secret into `STRIPE_WEBHOOK_SECRET` in `backend/.env`. For production, also set `FRONTEND_SECRET` and `TRUST_PROXY=1` when the backend sits behind ngrok or your reverse proxy.
 
 ### Adding a Revenue Entry
 
