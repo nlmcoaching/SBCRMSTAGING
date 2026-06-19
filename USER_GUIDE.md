@@ -1085,9 +1085,11 @@ This is a one-time action used to wipe all test and sample data before going liv
 
 > **Warning:** This permanently deletes data. Export a backup from the Storage & Backup tab first.
 
-**What gets wiped:** All clients, studio partners, sessions, bookings, offers, referrals, expenses, revenue, content, testimonials, and follow-up sequences.
+**What gets wiped:** All clients, studio partners, sessions, Calendly bookings, Stripe payments, offers, referrals, follow-ups, follow-up sequences, expenses, revenue, outreach targets, content calendar posts, testimonials, and email log entries. Stored partner agreement files are removed too.
 
-**What is kept:** All your message templates, CRM settings, journey descriptions, and user accounts.
+**What is kept:** Message templates, follow-up template customisations, CRM settings, journey descriptions, and user accounts.
+
+**Integrations are not disconnected:** Your Calendly and Stripe webhook URLs, API keys, and Resend email setup stay as they are. The reset also clears pending webhook queues on the backend so old test bookings and payments do not come back on the next sync.
 
 **The process has three confirmation steps to prevent accidents:**
 
@@ -1220,7 +1222,7 @@ Go to Admin → Email Logs. Find the email in the list — the **Delivery Status
 Yes — completed items stay visible in the Due Today list with a green "✓ Email sent" badge rather than disappearing. This lets you see at a glance what has been handled vs what still needs attention. Items marked complete won't re-trigger reminders.
 
 **I want to start using the CRM with real clients and clear out the test data. How?**
-First, download a backup from Admin → Storage & Backup → Download Backup. Then go to Admin → Reset to Production and follow the three-step confirmation process (review, type RESET, enter your PIN). This wipes all test records while preserving your templates, settings, and user accounts.
+First, download a backup from Admin → Storage & Backup → Download Backup. Then go to Admin → Reset to Production and follow the three-step confirmation process (review, type RESET, enter your PIN). This wipes all test CRM records while preserving templates, settings, and user accounts, and clears Calendly/Stripe webhook queues so test data does not re-import.
 
 **My email shows in the Email Logs but the delivery status is still "unknown". What does that mean?**
 It means the system hasn't received a delivery confirmation from the email service yet. This can happen if the check ran too soon after sending. Open Admin → Email Logs and click **Refresh all statuses** to pull the latest delivery information.

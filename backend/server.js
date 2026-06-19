@@ -1046,6 +1046,24 @@ app.delete("/api/calendly/events", requireAdminToken, (_req, res) => {
   res.json({ status: "cleared" });
 });
 
+// ────────────────────────────────────────────────────────────────
+// DELETE /api/stripe/events  (clear Stripe queue — dev/admin only)
+// ────────────────────────────────────────────────────────────────
+app.delete("/api/stripe/events", requireAdminToken, (_req, res) => {
+  writeNamedQueue(STRIPE_QUEUE_FILE, []);
+  res.json({ status: "cleared" });
+});
+
+// ────────────────────────────────────────────────────────────────
+// POST /api/integration/clear-queues
+// Clears Calendly + Stripe pending queues (used by Reset to Production).
+// ────────────────────────────────────────────────────────────────
+app.post("/api/integration/clear-queues", requireFrontendSecret, (_req, res) => {
+  writeQueue([]);
+  writeNamedQueue(STRIPE_QUEUE_FILE, []);
+  res.json({ status: "cleared", calendly: 0, stripe: 0 });
+});
+
 // ── Send Email via Resend ─────────────────────────────────────────────────
 const { Resend } = require("resend");
 const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;

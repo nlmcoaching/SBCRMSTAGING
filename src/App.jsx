@@ -9899,30 +9899,70 @@ function EmailLogsView({ data, setData }) {
 }
 
 /* ── RESET TO PRODUCTION ── */
+// Operational CRM data — wiped on reset. Includes integration-linked records (Calendly bookings,
+// Stripe payments, follow-ups) so test data cannot re-link or pollute production sync.
+const RESET_WIPE_TABLES = [
+  { key: "clients",        label: "Clients" },
+  { key: "partners",       label: "Studio partners" },
+  { key: "sessions",       label: "Sessions" },
+  { key: "registrations",  label: "Calendly bookings" },
+  { key: "payments",       label: "Stripe payments" },
+  { key: "offers",         label: "Offers" },
+  { key: "referrals",      label: "Referrals" },
+  { key: "followups",      label: "Follow-ups" },
+  { key: "sequences",      label: "Follow-up sequences" },
+  { key: "expenses",       label: "Expenses" },
+  { key: "revenue",        label: "Revenue" },
+  { key: "outreach",       label: "Outreach hub" },
+  { key: "content",        label: "Content calendar" },
+  { key: "testimonials",   label: "Testimonials" },
+  { key: "emailLog",       label: "Email log" },
+];
+const RESET_KEEP_ITEMS = [
+  "Message templates",
+  "Follow-up template overrides",
+  "CRM settings & dropdown lists",
+  "Journey descriptions",
+  "User accounts & PINs",
+];
+
 function ResetToProductionView({ data, setData, currentUser }) {
   const [confirm, setConfirm]   = useState("");
-  const [done, setDone]         = useState(false);
+  const [done, setDone]         = useState(null); // { queueCleared: boolean }
   const [step, setStep]         = useState(1); // 1 = info, 2 = confirm text, 3 = PIN challenge
   const [pinValue, setPinValue] = useState("");
   const [pinErr, setPinErr]     = useState("");
   const [verifying, setVerifying] = useState(false);
 
-  const TABLES_TO_WIPE   = ["clients","partners","sessions","registrations","offers","referrals","expenses","revenue","testimonials"];
-  const TABLES_TO_KEEP   = ["templates","_settings","sequences","content"];
-
-  const counts = TABLES_TO_WIPE.reduce((acc, t) => {
-    acc[t] = (data[t] || []).length;
+  const counts = RESET_WIPE_TABLES.reduce((acc, { key }) => {
+    acc[key] = (data[key] || []).length;
     return acc;
   }, {});
   const total = Object.values(counts).reduce((s, n) => s + n, 0);
 
-  const executeReset = () => {
+  const executeReset = async () => {
+    let queueCleared = false;
+    try {
+      const res = await fetch(calendlyApiUrl("/api/integration/clear-queues"), {
+        method: "POST",
+        headers: apiHeaders(),
+      });
+      queueCleared = res.ok;
+    } catch { /* backend offline — CRM wipe still proceeds */ }
+
+    for (const p of data.partners || []) {
+      for (const a of p.agreements || []) {
+        await deleteAgreementBlob(a.id);
+      }
+    }
+
+    const wipeKeys = RESET_WIPE_TABLES.map(t => t.key);
     setData(prev => {
       const clean = { ...prev };
-      TABLES_TO_WIPE.forEach(t => { clean[t] = []; });
+      wipeKeys.forEach(t => { clean[t] = []; });
       return clean;
     });
-    setDone(true);
+    setDone({ queueCleared });
   };
 
   const handleVerifyPin = async () => {
@@ -9931,8 +9971,7 @@ function ResetToProductionView({ data, setData, currentUser }) {
     try {
       const storedIter = currentUser?.pbkdf2Iterations ?? 100_000;
       await Sec.unwrapKeyForUser(currentUser.wrappedMasterKey, pinValue, currentUser.pinSalt, storedIter);
-      // PIN verified — execute the wipe
-      executeReset();
+      await executeReset();
     } catch {
       setPinErr("Incorrect PIN. Try again.");
     } finally { setVerifying(false); }
@@ -9942,13 +9981,19 @@ function ResetToProductionView({ data, setData, currentUser }) {
     <div style={{ padding: "40px 24px", textAlign: "center" }}>
       <CheckCircle size={48} color="#4A8C6F" style={{ marginBottom: 16 }} />
       <div style={{ fontSize: 22, fontWeight: 800, color: "#2D6A50", marginBottom: 8 }}>Production reset complete</div>
-      <div style={{ fontSize: 14, color: C.ink2, maxWidth: 460, margin: "0 auto", lineHeight: 1.6 }}>
-        All test data has been wiped. Your templates, settings, journey descriptions, and user accounts are intact.
-        The app is ready for real data.
+      <div style={{ fontSize: 14, color: C.ink2, maxWidth: 520, margin: "0 auto", lineHeight: 1.6 }}>
+        All test CRM data has been wiped. Your templates, settings, journey descriptions, and user accounts are intact.
+        Calendly and Stripe webhook subscriptions, API keys, and Resend email configuration were not changed.
       </div>
-      <div style={{ marginTop: 20, padding: "12px 18px", background: hexA("#D9892B", 0.1), border: `1px solid ${hexA("#D9892B", 0.3)}`, borderRadius: 10, display: "inline-block", fontSize: 13, color: "#9A5D10", fontWeight: 600 }}>
-        ⚠ Also clear the Calendly queue: run <code style={{ background: "#fff", padding: "1px 6px", borderRadius: 4, fontFamily: "monospace" }}>DELETE /api/calendly/events</code> with your admin token, or restart the backend to start fresh.
-      </div>
+      {done.queueCleared ? (
+        <div style={{ marginTop: 20, padding: "12px 18px", background: hexA("#4A8C6F", 0.1), border: `1px solid ${hexA("#4A8C6F", 0.3)}`, borderRadius: 10, display: "inline-block", fontSize: 13, color: "#2D6A50", fontWeight: 600 }}>
+          Calendly and Stripe webhook queues were cleared — old test events will not re-import on the next sync.
+        </div>
+      ) : (
+        <div style={{ marginTop: 20, padding: "12px 18px", background: hexA("#D9892B", 0.1), border: `1px solid ${hexA("#D9892B", 0.3)}`, borderRadius: 10, display: "inline-block", fontSize: 13, color: "#9A5D10", fontWeight: 600 }}>
+          Backend was unreachable — clear webhook queues manually: <code style={{ background: "#fff", padding: "1px 6px", borderRadius: 4, fontFamily: "monospace" }}>POST /api/integration/clear-queues</code> (or restart the backend with empty queue files) before syncing Calendly or Stripe.
+        </div>
+      )}
     </div>
   );
 
@@ -9974,13 +10019,17 @@ function ResetToProductionView({ data, setData, currentUser }) {
               What will be wiped ({total} total records)
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0 }}>
-              {TABLES_TO_WIPE.map((t, i) => (
-                <div key={t} style={{ padding: "9px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: i < TABLES_TO_WIPE.length - 2 ? `1px solid ${C.lineSoft || C.line}` : "none", borderRight: i % 2 === 0 ? `1px solid ${C.lineSoft || C.line}` : "none" }}>
-                  <span style={{ fontSize: 13, color: C.ink, textTransform: "capitalize" }}>{t}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: counts[t] > 0 ? "#C0392B" : C.ink3 }}>{counts[t]} record{counts[t] !== 1 ? "s" : ""}</span>
+              {RESET_WIPE_TABLES.map(({ key, label }, i) => (
+                <div key={key} style={{ padding: "9px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: i < RESET_WIPE_TABLES.length - 2 ? `1px solid ${C.lineSoft || C.line}` : "none", borderRight: i % 2 === 0 ? `1px solid ${C.lineSoft || C.line}` : "none" }}>
+                  <span style={{ fontSize: 13, color: C.ink }}>{label}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: counts[key] > 0 ? "#C0392B" : C.ink3 }}>{counts[key]} record{counts[key] !== 1 ? "s" : ""}</span>
                 </div>
               ))}
             </div>
+          </div>
+
+          <div style={{ fontSize: 12.5, color: C.ink3, lineHeight: 1.55, padding: "0 2px" }}>
+            On confirm, pending Calendly and Stripe webhook queues on the backend are also cleared so test bookings and payments cannot re-import. Server-side integration setup (webhook URLs, API keys, Resend) is unchanged.
           </div>
 
           {/* What gets kept */}
@@ -9989,7 +10038,7 @@ function ResetToProductionView({ data, setData, currentUser }) {
               ✓ What will be preserved
             </div>
             <div style={{ padding: "12px 16px", display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {["14 message templates", "CRM settings & lists", "Journey descriptions", "User accounts & PINs", "Admin configuration", "Workflows & sequences", "Content calendar"].map(item => (
+              {RESET_KEEP_ITEMS.map(item => (
                 <span key={item} style={{ fontSize: 12.5, fontWeight: 600, padding: "4px 12px", borderRadius: 20, background: hexA("#4A8C6F", 0.1), color: "#2D6A50" }}>{item}</span>
               ))}
             </div>
@@ -10010,7 +10059,7 @@ function ResetToProductionView({ data, setData, currentUser }) {
         <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, padding: "20px 20px" }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: C.ink, marginBottom: 6 }}>Type RESET to confirm</div>
           <div style={{ fontSize: 12.5, color: C.ink3, marginBottom: 14, lineHeight: 1.55 }}>
-            This will permanently delete <strong>{total} records</strong> across {TABLES_TO_WIPE.length} tables.
+            This will permanently delete <strong>{total} records</strong> across {RESET_WIPE_TABLES.length} tables and clear Calendly/Stripe webhook queues.
             Your templates, settings, and user accounts will not be affected.
           </div>
           <input

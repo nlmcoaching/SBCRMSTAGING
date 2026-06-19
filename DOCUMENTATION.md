@@ -162,9 +162,11 @@ The proxy injects the header without needing `VITE_FRONTEND_SECRET`. `VITE_FRONT
 
 The **Reset to Production** admin feature uses a 3-step confirmation flow to prevent accidental data wipes from an unattended session:
 
-1. **Review** — displays record counts across all 11 tables and what will be preserved.
+1. **Review** — displays record counts across all wipe tables and what will be preserved.
 2. **Confirm** — user must type `RESET` exactly.
 3. **PIN challenge** — user must re-enter their admin PIN (verified via PBKDF2 `unwrapKeyForUser`, same cryptographic path as login). Only on successful PIN verification is the wipe executed.
+
+On success, the CRM also calls `POST /api/integration/clear-queues` to empty Calendly and Stripe webhook pending queues so test events cannot re-import. Server-side integration configuration (webhook URLs, API keys, Resend) is not modified.
 
 ### Helmet — Explicit CSP
 
@@ -1378,17 +1380,19 @@ Saving here immediately updates all "Journey Used" dropdowns across session reco
 
 Permanently wipes all test/seed data to prepare the app for real production use.
 
-**What gets wiped:** `clients`, `partners`, `sessions`, `registrations`, `offers`, `referrals`, `expenses`, `revenue`, `content`, `testimonials`, `sequences`.
+**What gets wiped:** `clients`, `partners`, `sessions`, `registrations`, `payments`, `offers`, `referrals`, `followups`, `sequences`, `expenses`, `revenue`, `outreach`, `content`, `testimonials`, `emailLog`. Partner agreement file blobs in IndexedDB are also removed.
 
-**What is preserved:** `templates`, `_settings` (journey descriptions, CRM configuration, user accounts, PINs).
+**What is preserved:** `templates`, `_settings` (journey descriptions, CRM configuration), `fuTemplates` (follow-up template overrides), and user accounts/PINs (`secUsers`).
+
+**Integration safety:** Calendly and Stripe webhook subscriptions, backend `.env` secrets, and Resend configuration are unchanged. Pending Calendly and Stripe webhook queues are cleared via `POST /api/integration/clear-queues` so old test events do not re-import on the next sync.
 
 **3-Step confirmation flow:**
 
 1. **Review** — Displays a table showing the current record count in each table to be wiped and a list of what will be preserved.
 2. **Type RESET** — User must type the word `RESET` exactly in the confirmation field before proceeding.
-3. **PIN challenge** — User must re-enter their admin PIN, verified cryptographically via PBKDF2 `unwrapKeyForUser`. Only on success is the wipe executed.
+3. **Enter PIN** — User must re-enter their admin PIN, verified cryptographically via PBKDF2 `unwrapKeyForUser`. Only on success is the wipe executed.
 
-After reset: a reminder is displayed to also clear the Calendly event queue (`DELETE /api/calendly/events` with `x-admin-token`).
+If the backend is offline during reset, CRM data is still wiped but queue clearing must be done manually (`POST /api/integration/clear-queues` with `x-frontend-secret`, or `DELETE /api/calendly/events` and `DELETE /api/stripe/events` with `x-admin-token`).
 
 ---
 
@@ -1543,8 +1547,10 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 | `/api/webhooks/stripe` | POST | Receives Stripe payment events; verifies HMAC-SHA256 signature if `STRIPE_WEBHOOK_SECRET` is configured |
 | `/api/stripe/pending` | GET | Returns unprocessed Stripe payment events for the CRM to consume |
 | `/api/stripe/acknowledge` | POST | Marks Stripe queue event IDs as processed |
+| `/api/integration/clear-queues` | POST | Clears Calendly and Stripe pending webhook queues (Reset to Production; requires `x-frontend-secret`) |
 | `/api/calendly/events` | GET | All events (debug/admin) |
-| `/api/calendly/events` | DELETE | Clear queue (dev only) |
+| `/api/calendly/events` | DELETE | Clear Calendly queue (admin) |
+| `/api/stripe/events` | DELETE | Clear Stripe queue (admin) |
 | `/api/send-email` | POST | Sends an email via Resend. Requires `to`, `subject`, `body` (and optional `recipientName`). Rate-limited to 10 req/min. |
 | `/api/email-status/:id` | GET | Fetches delivery status for a Resend message ID. `id` validated against `/^[a-zA-Z0-9_-]{1,100}$/`. |
 | `/health` | GET | Returns `{ status: "ok" }` — does not expose server uptime |
@@ -1554,7 +1560,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 - `CALENDLY_WEBHOOK_SIGNING_KEY` — HMAC signing key from Calendly webhook subscription; **required in production** (server refuses to start without it); if blank in dev, signature verification is skipped with a loud warning
 - `ALLOWED_ORIGINS` — comma-separated CORS origins (default `http://localhost:5173`)
 - `FRONTEND_SECRET` — shared secret for `/pending` and `/acknowledge` endpoints. **Required in production** (server exits if missing). Generate with `openssl rand -hex 32`. Injected server-side by the Vite proxy (dev) or reverse proxy (production).
-- `ADMIN_SECRET` — token required for debug endpoints (`GET/DELETE /api/calendly/events`). Pass as `x-admin-token` header.
+- `ADMIN_SECRET` — token required for debug endpoints (`GET/DELETE /api/calendly/events`, `GET/DELETE /api/stripe/events`). Pass as `x-admin-token` header.
 - `QUEUE_ENCRYPTION_KEY` — 32-byte hex key for AES-256-GCM encryption of `pending-events.json` at rest. Generate with `openssl rand -hex 32`. **Required in production** (server refuses to start without it); if blank in dev, queue is stored as plaintext with a loud warning.
 - `CALENDLY_API_TOKEN` — Calendly Personal Access Token (from Calendly → Integrations → API & Webhooks). Required for event type description fetching and payment amount backfill. See `backend/.env.example`.
 - `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret (`whsec_...`) from Stripe Dashboard → Developers → Webhooks. **Required in production** (server exits if missing).
