@@ -13666,7 +13666,7 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
   });
   const clientRows = Object.entries(byClient)
     .map(([id, d]) => ({ id, name: cleanName(derived.clientName[id] || id), ...d }))
-    .sort((a, b) => b.net - a.net).slice(0, 8);
+    .sort((a, b) => b.net - a.net);
 
   // ── Recent transactions ──────────────────────────────────────
   const recent = [...rows].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 6);
@@ -13794,7 +13794,7 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
         {/* By client */}
         <Panel title="Top clients by net revenue">
           {!clientRows.length ? <Empty>No client-linked transactions yet</Empty> : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ maxHeight: 230, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
               {clientRows.map((r, i) => (
                 <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, background: i === 0 ? hexA(C.brand, 0.06) : "transparent" }}>
                   <span style={{ width: 20, fontSize: 12, fontWeight: 700, color: C.ink3, textAlign: "right" }}>{i + 1}</span>
