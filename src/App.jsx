@@ -1118,6 +1118,17 @@ const apiHeaders = (json = true) => {
 const CALENDLY_BACKEND = import.meta.env.VITE_CALENDLY_BACKEND || "";
 const calendlyApiUrl = (path) => `${CALENDLY_BACKEND}${path}`;
 
+// fetch with an abort timeout so a slow/hung backend can't stall a sync forever.
+async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function isTruncatedPreview(text) {
   const t = String(text || "").trim();
   return t.endsWith("...") || t.endsWith("…");
@@ -2373,14 +2384,24 @@ export default function App() {
     if (locked) return;
     setCalendlyStatus({ syncing: true });
     try {
-      // Pull from Calendly API first — catches bookings when webhooks were missed (ngrok down, etc.)
-      await fetch(calendlyApiUrl("/api/calendly/pull-recent"), {
+      // Pull from Calendly API first — catches bookings when webhooks were missed (ngrok down, etc.).
+      // Bounded by a timeout: the API scan can take ~30s; if it's slow we proceed with already-queued
+      // events rather than hanging the whole sync (newly pulled events appear on the next sync).
+      await fetchWithTimeout(calendlyApiUrl("/api/calendly/pull-recent"), {
         method: "POST",
         headers: { "Content-Type": "application/json", ..._calendlyHeaders() },
         body: JSON.stringify({ daysBack: 30 }),
-      }).catch(() => {});
+      }, 12000).catch(() => {});
 
-      const res = await fetch(calendlyApiUrl("/api/calendly/pending"), { headers: _calendlyHeaders() });
+      // Read the queue. Retry once on a transient network error (e.g. backend mid-restart) before
+      // reporting the backend as unreachable.
+      let res;
+      try {
+        res = await fetchWithTimeout(calendlyApiUrl("/api/calendly/pending"), { headers: _calendlyHeaders() }, 15000);
+      } catch {
+        await new Promise(r => setTimeout(r, 1000));
+        res = await fetchWithTimeout(calendlyApiUrl("/api/calendly/pending"), { headers: _calendlyHeaders() }, 15000);
+      }
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
         throw new Error(errBody.error || `Backend returned ${res.status}`);
