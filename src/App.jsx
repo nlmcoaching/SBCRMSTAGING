@@ -3232,6 +3232,7 @@ export default function App() {
     { id: "expenses", label: "Expenses",           Icon: BarChart2,   lane: "core" },
     { id: "workflows", label: "Workflows",        Icon: Milestone,   lane: "core" },
     { id: "registrations", label: "Calendly Bookings", Icon: CalendarCheck, lane: "core" },
+    { id: "stripe",    label: "Stripe",            Icon: Receipt,     lane: "core", parent: "registrations" },
     { id: "content",   label: "Content Calendar",  Icon: Megaphone,   lane: "core" },
     { id: "templates", label: "Templates",          Icon: Copy,        lane: "core" },
     { id: "admin",     label: "Admin",              Icon: Shield,      lane: "core" },
@@ -3334,8 +3335,7 @@ export default function App() {
                 const active = section === s.id;
                 const count = (data[s.id] || []).length;
                 const children = sections.filter(c => c.parent === s.id);
-                const anyChildActive = children.some(c => c.id === section);
-                const expanded = active || anyChildActive;
+                const expanded = children.length > 0;
                 return (
                   <div key={s.id}>
                     <button onClick={() => go(s.id)} className="sb-navbtn"
@@ -3454,7 +3454,7 @@ export default function App() {
                     <RefreshCw size={16} strokeWidth={2} style={{ animation: calendlyStatus?.syncing ? "spin 1s linear infinite" : "none" }} />
                   </button>
                 )}
-                {can.edit && !["users","admin","workflows"].includes(section) && !(section === "expenses" && view === 0) && (
+                {can.edit && !["users","admin","workflows","stripe"].includes(section) && !(section === "expenses" && view === 0) && (
                   <button className="sb-primary" onClick={() => setOpen({ db: section, record: newRecord(section) })}>
                     <Plus size={16} /> New
                   </button>
@@ -5539,10 +5539,14 @@ const VIEWS = {
       { name: "All offers", layout: "table", columns: offerCols(), run: (rows) => ({ rows }) },
     ],
   },
+  stripe: {
+    views: [
+      { name: "Stripe reconciliation", layout: "payment-reconciliation" },
+    ],
+  },
   revenue: {
     views: [
       { name: "Revenue attribution", layout: "revenue-analytics" },
-      { name: "Payment reconciliation", layout: "payment-reconciliation" },
       { name: "This month", layout: "table", columns: revCols(),
         run: (rows, c) => {
           const r = [...rows]

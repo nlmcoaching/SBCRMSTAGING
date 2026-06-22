@@ -850,9 +850,9 @@ Manages proactive studio and referral outreach — separate from the reactive St
 
 Revenue views are built from **Stripe-verified booking amounts** (when matched) or **Calendly session prices** (`paymentAmount`) plus **accepted/paid offers**. Bookings in `pending_verification` are excluded until Stripe confirms payment. Manual legacy revenue rows in the database are not shown here — this matches Command Center, LTV, and session booking cards.
 
-### Payment Reconciliation View
+### Stripe (Payment Reconciliation) View
 
-**Navigation:** Sidebar → Revenue → **Payment reconciliation**
+**Navigation:** Sidebar → Calendly Bookings → **Stripe** (a sub-item beneath Calendly Bookings; renders the `payment-reconciliation` layout from the `stripe` section)
 
 | Section | Purpose |
 |---|---|
