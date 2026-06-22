@@ -1843,6 +1843,7 @@ function buildRegistrationRevenueRows(data = {}) {
         costCenter: registrationRevenueChannel(session),
         notes: "Calendly session price",
         registrationId: r.id,
+        bookedAt: r.createdAt || r.scheduledAt || "",
         _derived: true,
       };
     })
@@ -13624,9 +13625,9 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
   const totalNet   = mtdRows.reduce((a, r) => a + calcNet(r), 0);
   const margin     = totalGross > 0 ? Math.round((totalNet / totalGross) * 100) : 0;
 
-  // ── By channel ──────────────────────────────────────────────
+  // ── By channel (MTD) ────────────────────────────────────────
   const byChannel = {};
-  rows.forEach(r => {
+  mtdRows.forEach(r => {
     const ch = r.channel || "Unknown";
     if (!byChannel[ch]) byChannel[ch] = { gross: 0, fees: 0, split: 0, facilitator: 0, refunds: 0, net: 0, count: 0 };
     byChannel[ch].gross       += Number(r.gross || 0);
@@ -13641,9 +13642,9 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
     .map(([ch, d]) => ({ ch, ...d, margin: d.gross > 0 ? Math.round((d.net / d.gross) * 100) : 0 }))
     .sort((a, b) => b.net - a.net);
 
-  // ── By source ────────────────────────────────────────────────
+  // ── By source (MTD) ─────────────────────────────────────────
   const bySrc = {};
-  rows.forEach(r => {
+  mtdRows.forEach(r => {
     const s = r.source || "Unknown";
     if (!bySrc[s]) bySrc[s] = { gross: 0, net: 0, count: 0 };
     bySrc[s].gross += Number(r.gross || 0);
@@ -13717,7 +13718,7 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
       </Panel>
 
       {/* Channel P&L table */}
-      <Panel title="P&L by channel — what's actually profitable">
+      <Panel title="P&L by channel — MTD">
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
@@ -13813,6 +13814,7 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
+              <th style={thS}>Booked Date & Time</th>
               <th style={thS}>Description</th>
               <th style={thS}>Date</th>
               <th style={thS}>Channel</th>
@@ -13824,6 +13826,7 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
           <tbody>
             {recent.map(r => (
               <tr key={r.id} onClick={() => onOpen(r)} style={{ cursor: "pointer" }} className="sb-trow">
+                <td style={tdS}>{r.bookedAt ? formatRegistrationDateTime(r.bookedAt) : "—"}</td>
                 <td style={{ ...tdS, fontWeight: 600, maxWidth: 200 }}>{cleanName(r.name)}</td>
                 <td style={tdS}>{fmtDate(r.date)}</td>
                 <td style={tdS}><Tag color={REV_CHANNEL_COLOR[r.channel] || C.ink3} soft>{r.channel}</Tag></td>
