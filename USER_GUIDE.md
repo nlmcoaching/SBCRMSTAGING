@@ -147,7 +147,7 @@ Start every working day here. The Today dashboard is designed to answer one ques
 ### Stats Row
 
 Four numbers at the top give you an instant health check:
-- **Net Revenue MTD** — Sum of verified booking revenue (virtual + studio) for sessions this month. Click to open Revenue → **This month**.
+- **Net Revenue MTD** — Net revenue for the current month after deducting studio partner splits (studio sessions are 70/30). Click to open Revenue → **This month**.
 - **Referral Revenue** — Revenue that came from referrals
 - **Active Clients** — Total number of clients in the system
 - **Active Sequences** — Clients currently in a follow-up sequence
@@ -158,16 +158,19 @@ A side-by-side panel shows your two business lanes at a glance — **studio sess
 
 ### Pipeline Snapshot
 
-Nine business metrics in one view:
-- Open pipeline value
-- Studio pipeline value
-- Expected revenue this month
-- Revenue booked but not yet delivered (upcoming session booking prices)
-- Revenue delivered but not yet paid (completed sessions — booking prices pending confirmation)
-- Offers waiting for a response
-- Average client value
-- Average session revenue (from Calendly booking prices)
-- Studio partner conversion rate
+Key business metrics (tiles appear in this order):
+1. Operating profit MTD — net revenue minus expenses for the month
+2. Expected 30-day revenue — open offers probability-weighted
+3. Booked, not delivered — upcoming session value
+4. Avg client value — average lifetime value of active clients
+5. Avg session net revenue — average net per session
+6. Partner conversion rate
+7. Open offer pipeline
+8. Studio partner pipeline
+9. Offers awaiting response
+10. Expenses MTD
+
+> **Removed:** “Delivered, unpaid” is no longer shown.
 
 ### Smart Alerts
 
@@ -394,14 +397,21 @@ Check items off before you leave for the venue. This ensures you never forget so
 
 The Sessions calendar shows one month at a time. Each session appears as a colored pill. On days with multiple sessions, pills are listed **earliest start time first**. The color tells you the session type at a glance — a **legend in the top-right corner** of the calendar explains it:
 
-- **Purple pill — Studio session:** `Studio Name · Journey · X spots left`
-  - The left edge of the pill turns **red** when only 3 or fewer spots remain — a quick visual alert that the session is nearly full
-- **Blue pill — Virtual or Private session:** `Client Name · Journey Name`
+- **Purple pill — Studio session:** hover shows `Studio Name — Journey Name — x of x spots remaining`
+  - The left edge of the pill turns **red** when only 3 or fewer spots remain
+- **Blue pill — Virtual or Private session:** hover shows `Client Name — Journey Name`
   - Booking platform prefixes (e.g. "9D Breathwork Virtual - ") are automatically stripped
 
-Hover over any pill to see the full session name, studio, client name, and exact spots remaining. Click any pill to open that session's record drawer.
+Click any pill to open that session's record drawer.
 
 > **Note:** Studio sessions booked through Calendly are automatically linked to the correct studio partner by matching the studio name in the event name. If no matching partner exists, one is created automatically. The calendar also recognizes a studio booking by the studio name in the session name or address, so it shows the purple studio styling even if the studio link hasn't been saved yet. Any previously synced sessions without a studio link are corrected on the next sync.
+
+### All Sessions Tab
+
+The **All Sessions** tab shows every session as a flat list sorted by **when it was booked** (most recent bookings at the top). This lets you quickly see what's been scheduled recently. Columns:
+- **Booked Date & Time** — when the first registration for that session was created
+- **Session Date** — the actual date of the session
+- Journey, Studio, Status, Registered, Capacity
 
 ### Session Details Tab
 
@@ -530,7 +540,7 @@ All bookings that come through Calendly are automatically marked as **waiver sig
 
 | View | What it shows |
 |---|---|
-| All Bookings | Every registration (scheduled on, client, session date, event, Calendly amount, status, attendance), newest booking first. **Calendly Amount** shows the expected price from the Calendly booking; it stays blank if Calendly never supplied a price |
+| All Bookings | Scrollable list of every registration (newest booking first). Columns: Calendly Amount, Client, Session, Session Date/Time, Status, Payment Status. **Click any row to expand** it to see full booking details: client email, session info, journey, location, intake answers, payment status, and booking date. The Waiver and Booked Amount columns have been removed. |
 | Pending Waivers | Manually-created registrations without a signed waiver, newest session first |
 | Unpaid | Clients who haven't paid, newest session first |
 | Cancellations | Canceled and rescheduled bookings, newest session first |
@@ -733,7 +743,18 @@ Every session or payment should have a revenue record. Click **New** and enter:
 
 The **Revenue attribution**, **Payment reconciliation**, **This month**, and **All transactions** tabs are built from **Stripe-verified booking amounts** (when matched) or **Calendly session prices**, plus **accepted/paid offers**. Bookings still in **Pending verification** do not appear in revenue totals until Stripe confirms payment.
 
-The footer on **This month** and **All transactions** shows gross (full session prices) and **net** after a **70/30 split** on studio sessions (you keep 70%, studio 30%). Virtual sessions and packages show full amount as net. The net total differs from **Net Revenue MTD** on Command Center, which uses full session prices until splits are applied elsewhere.
+The footer on **This month** and **All transactions** shows gross (full session prices) and **net** after a **70/30 split** on studio sessions (you keep 70%, studio 30%). Virtual sessions and packages show full amount as net.
+
+**Revenue Attribution tab (first tab)** gives you a full MTD breakdown:
+- **Gross revenue MTD** — total gross session revenue for the month
+- **Net revenue MTD** — gross minus studio splits for the month
+- **Total Session Revenue** — all-time gross
+- **Total Net Session Revenue** — all-time net after splits
+- **Revenue waterfall — month to date**: shows how gross revenue flows down through fees, studio splits, and refunds to arrive at net.
+- **P&L by channel — MTD**: gross, fees, splits, and net broken down by session type for the current month.
+- **Recently Charged Sessions**: shows all Stripe charges processed, sorted newest first — this mirrors the Stripe page.
+
+Both **This month** and **All transactions** now include a **Booked Date & Time** column (when the booking was made) as the first column, and **All transactions** is sorted by that date (newest first). The Facilitator and Source columns have been removed from these views.
 
 > **Session price vs net:** Right now each booking row shows the **session price** from Calendly (gross = net until you record studio splits and processing fees separately). Focus on these figures for actual booking revenue; fee/split columns show "—" until entered manually.
 

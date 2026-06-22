@@ -261,29 +261,37 @@ The dashboard is the daily starting point. It surfaces the most important inform
 
 | Metric | Source |
 |---|---|
-| Net Revenue MTD | Sum of Calendly **session prices** (`paymentAmount`) on non-canceled, non-unpaid registrations whose linked session falls in the current calendar month (virtual + studio). Clicking the card navigates to Revenue → **This month**. |
+| Net Revenue MTD | Net revenue for the current calendar month: gross session prices minus studio splits (30% on studio sessions), calculated using `buildRevenueViewRows` → `applyStudioSessionSplit` → `calcNet`. Includes registrations with `pending_verification`, `unmatched`, and `unknown` payment statuses (at Calendly list price); excludes `unpaid`, `failed`, `refunded`. Clicking the card navigates to Revenue → **This month**. |
 | Referral Revenue | Revenue from clients whose source is "Referral" |
 | Active Clients | Total number of clients in the system |
 | Active Sequences | Follow-up sequences with pending steps |
 
 ### Lane Split Panel
 
-Side-by-side view of studio vs client revenue, with **Studio Revenue (B2B) on the left card** and **Client Revenue (B2C) on the right card**:
-- **B2B (left):** Studio session booking prices MTD · Open partner pipeline value · Active partners · Avg session rev (from booking prices)
+Side-by-side view of studio vs client revenue, with **Studio Revenue (B2B) on the left card** and **Client Revenue (B2C) on the right card**. The **Lane Split Panel appears above the Pipeline Snapshot** on the dashboard.
+- **B2B (left):** Studio session booking prices MTD (includes `pending_verification` and `unmatched` bookings at list price) · Open partner pipeline value · Active partners · Avg session rev
 - **B2C (right):** Virtual session booking prices MTD + closed offer revenue · Open offers value · Active clients
+
+### Clients by Source Chart
+
+Pie/bar chart breaking down clients by their `source` field. Tracked sources include: Referral, Instagram, Studio, Website, Direct, Event, Corporate, **Calendly**, Other. Clients auto-created from Calendly bookings are tagged with `source: "Calendly"` and appear in this chart.
 
 ### Pipeline Snapshot
 
-Nine key business metrics in a 3×3 grid:
-- Open pipeline value
-- Studio pipeline value
-- Expected revenue this month (probability-weighted open offers)
-- Revenue booked but not delivered (upcoming sessions — sum of linked booking session prices)
-- Revenue delivered but unpaid (completed sessions with payment not confirmed — sum of booking session prices)
-- Offers awaiting response
-- Average client value
-- Average session revenue (mean booking price across sessions with registrations)
-- Studio partner conversion rate
+Appears **below the Lane Split Panel**. Key business metrics displayed in order:
+
+1. Operating Profit MTD — net revenue MTD minus expenses MTD
+2. Expected 30-day revenue — probability-weighted open offer pipeline
+3. Booked, not delivered — upcoming sessions with confirmed bookings
+4. Avg client value — mean `lifetimeValue` across active clients with at least one session
+5. Avg session net revenue — mean net booking price across sessions with registrations
+6. Partner conversion rate — studio demo-to-pilot conversion rate
+7. Open offer pipeline — total value of open offers
+8. Studio partner pipeline — total open studio partner deal value
+9. Offers awaiting response — count of sent/viewed offers
+10. Expenses MTD — total operating costs for the current month
+
+> **Removed:** "Delivered, unpaid" card has been removed from this section.
 
 ### Smart Alerts Panel
 
@@ -598,7 +606,13 @@ Intended for sharing with the studio partner to show confirmed attendees. All va
 
 ### Views Available
 
-- **Calendar** — Monthly calendar showing all sessions. Pills display `Studio · Journey · spots left` for studio sessions (light-purple B2B styling) and `Client · Journey · amount` for virtual/Calendly sessions (amount is the linked booking’s session price). Studio detection (`resolveStudioName`) prefers the session's `studioId`, but falls back to matching a partner by name in the session name / `locationAddress` when `studioId` is missing or points to a deleted/re-created partner — so studio bookings stay styled correctly even before the `studioId` backfill runs (virtual sessions, identified by zoom/custom location type or "virtual"/"zoom"/"online" in the name, are excluded from the fallback). Within each day cell, pills are sorted by session start time (earliest first). The calendar tab has a **dedicated search bar** that filters visible sessions by client name, studio name, or journey name. The global header search bar is hidden when the calendar tab is active to avoid redundancy.
+- **Calendar** — Monthly calendar showing all sessions. **Pill hover text:**
+  - *Studio sessions:* `Studio Name — Journey Name — x of x spots remaining`
+  - *Virtual sessions:* `Client Name — Journey Name`
+
+  Pills use light-purple B2B styling for studio sessions. Studio detection (`resolveStudioName`) prefers the session's `studioId`, falling back to name-matching in the session name / `locationAddress`. Within each day cell, pills are sorted by session start time (earliest first). The calendar tab has a **dedicated search bar** filtering by client name, studio name, or journey name. The global header search bar is hidden when the calendar tab is active.
+
+- **All Sessions** — Flat list of all sessions sorted by **Booked Date & Time** (newest first, derived from the earliest registration's `createdAt`). Columns: **Booked Date & Time**, **Session Date**, Journey, Studio, Status, Registered, Capacity.
 - **Performance** — Revenue and attendance analytics
 - **Revenue Leaderboard** — Sessions ranked by revenue
 - **Conversion** — Package and offer conversion rates
@@ -857,7 +871,7 @@ Revenue views are built from **Stripe-verified booking amounts** (when matched) 
 | Section | Purpose |
 |---|---|
 | Unmatched Stripe transactions | Shown **above Stripe charges** only when present. Stripe charges (`status: "paid"`) that no Calendly booking matched (no booking within the match window for that participant). Columns: **Name, Paid, Description, Stripe amount**; rows expand to the same `ChargeDetails` panel. Common causes: test charges, duplicate payments, or a different email between Stripe and Calendly. |
-| Stripe charges | One row per **matched** Stripe charge (`status: "paid"`), tied to the Calendly session it paid for. Columns: **Name, Session, Booked, Expected, Stripe, Session amount** (sorted by booked date, most recent first). **Free sessions** — bookings created in the last 24h with no Stripe charge tied to them — appear here as synthetic **$0.00** rows with a **Free** badge (display-only; they self-correct to a real charge row if a payment arrives later). **Click a row to expand** a details panel (`ChargeDetails`) showing session date & time, status, paid-at, amount/currency, refunded amount, payment method, tied session, match status, Stripe charge / payment-intent / checkout-session / event IDs, a link to the Stripe receipt, and any notes. |
+| Stripe charges | One row per **matched** Stripe charge (`status: "paid"`), tied to the Calendly session it paid for. Columns: **Booked**, **Name**, Session, Expected, Stripe, Session amount (sorted by booked date, most recent first). **Free sessions** — bookings created in the last 24h with no Stripe charge tied to them — appear here as synthetic **$0.00** rows with a **Free** badge (display-only; they self-correct to a real charge row if a payment arrives later). **Click a row to expand** a details panel (`ChargeDetails`) showing session date & time, status, paid-at, amount/currency, refunded amount, payment method, tied session, match status, Stripe charge / payment-intent / checkout-session / event IDs, a link to the Stripe receipt, and any notes. |
 | Bookings awaiting a Stripe charge | Calendly bookings still in `pending_verification` (booked but no charge tied yet). |
 | Refunds | Stripe refund events affecting revenue. |
 
@@ -886,7 +900,7 @@ Studio session · Virtual session · Private client · Group package · Corporat
 
 ### Per-Record Fields
 
-Each derived booking row shows: client + session name · date · channel (Studio session / Virtual session) · **gross = session price** · net (same until fees/splits are recorded) · client source.
+Each derived booking row shows: Booked Date & Time · client + session name · session date · channel (Studio session / Virtual session) · gross = session price · net (after studio split for studio sessions). Facilitator and Source columns are not shown in this view.
 
 Manual **Revenue** records (gross, Stripe fee, studio split, etc.) remain in the data model for future reconciliation but are not listed in Revenue tab views.
 
@@ -896,6 +910,18 @@ Manual **Revenue** records (gross, Stripe fee, studio split, etc.) remain in the
 - Gross vs net comparison
 - Month-over-month trend (area chart)
 - Top revenue sources ranked
+
+### Views
+
+- **Revenue Attribution** (tab 0) — stat cards and analytics:
+  - Stat cards: **Gross revenue MTD**, **Net revenue MTD**, **Total Session Revenue** (all-time gross), **Total Net Session Revenue** (all-time net after splits)
+  - **Revenue waterfall — month to date**: Gross → Processing fees → Studio splits → Refunds → Net. All figures limited to the current calendar month.
+  - **P&L by channel — MTD**: Gross, fees, splits, net by session type/source. Data is limited to the current month.
+  - **Recently Charged Sessions**: Mirrors the Stripe page — all Stripe charges sorted by `paidAt` (newest first). Columns: Booked Date & Time, Description, Stripe amount, Status.
+
+- **This month** (tab 1) — revenue rows for the current calendar month. Columns: **Booked Date & Time**, Description, Date, Channel, Gross, Fees, Studio Split, Net. Facilitator and Source columns removed.
+
+- **All transactions** (tab 2) — complete revenue history sorted by **Booked Date & Time** (newest first). Columns: **Booked Date & Time**, Description, Date, Channel, Gross, Fees, Studio Split, Net.
 
 ### Table Footer Totals
 
@@ -1504,7 +1530,7 @@ Expenses feed into two places:
 1. **Pipeline Snapshot** (Dashboard) — two new tiles: "Expenses MTD" and "Operating Profit MTD"
 2. **`derived` computed values** — `expensesMTD`, `expensesYTD`, `netRevMTD`, `opProfit`, `opMargin` available throughout the app
 
-`netRevMTD` is calculated from Calendly registration **session prices** (`paymentAmount`) on non-canceled, non-unpaid bookings whose linked session date falls in the current calendar month (virtual + studio). Operating profit subtracts `expensesMTD` from that total. This matches LTV and session card amounts until live Calendly payment data is available.
+`netRevMTD` is calculated using `buildRevenueViewRows` → `applyStudioSessionSplit` → `calcNet` for the current calendar month. This deducts the 30% studio split on studio sessions before computing net. The **Profitability Panel** on the Expenses Summary tab uses this same pipeline: Gross Revenue (session prices MTD) − Studio Splits − Total Expenses = Operating Profit. Operating Profit MTD will be negative when expenses exceed net revenue.
 
 ### Requirements
 | Item | Detail |
@@ -1714,7 +1740,7 @@ The description is surfaced in the studio session drawer as **Studio Event Descr
 **Navigation:** Sidebar → Calendly Bookings
 
 Views (all sorted by session date/time, newest first; uses `scheduledAt`, falling back to linked session date/time when empty — except **All Bookings**, which sorts by `createdAt`, newest first):
-- **All Bookings** — all registrations; columns: Scheduled On, Client, Session Date/Time, Event, Calendly Amount, Status, Attendance. **Calendly Amount** (`calendlyBookingAmount`) shows the expected price from Calendly — `lastAmountMismatch.expectedAmount` when Stripe later corrected `paymentAmount`, otherwise `paymentAmount`. It is blank when Calendly never supplied a price.
+- **All Bookings** — Scrollable list of all registrations (most recent first). Columns: **Calendly Amount**, Client, Session, Session Date/Time, Status, Payment Status. **Click any row to expand** a detail panel showing: client email, session type, journey, location, booking source, intake answers, payment status, Calendly amount, raw payment notes, event URI, invitee URI, and created date. The Waiver and Booked Amount columns have been removed from this view.
 - **Pending Waivers** — active registrations where waiver is not yet signed
 - **Unpaid** — active registrations with unpaid status
 - **Cancellations** — canceled and rescheduled registrations
