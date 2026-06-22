@@ -148,19 +148,24 @@ function verifyStripeSignature(rawBody, signatureHeader, webhookSecret) {
   }
   if (!signatureHeader || !rawBody) return { ok: false, error: "Missing signature or body" };
 
-  const parts = {};
+  // Parse header — collect all v1= entries into an array to support secret rotation
+  // (Stripe sends multiple v1= values during the overlap window of a key rotation).
+  let timestamp = null;
+  const v1Signatures = [];
   for (const segment of String(signatureHeader).split(",")) {
     const eqIdx = segment.indexOf("=");
     if (eqIdx === -1) continue;
     const key = segment.slice(0, eqIdx).trim();
     const val = segment.slice(eqIdx + 1).trim();
-    if (parts[key] !== undefined) return { ok: false, error: "Duplicate signature field" };
-    parts[key] = val;
+    if (key === "t") {
+      if (timestamp !== null) return { ok: false, error: "Duplicate timestamp field" };
+      timestamp = val;
+    } else if (key === "v1") {
+      v1Signatures.push(val);
+    }
   }
 
-  const timestamp = parts.t;
-  const v1 = parts.v1;
-  if (!timestamp || !v1) return { ok: false, error: "Invalid Stripe-Signature header" };
+  if (!timestamp || !v1Signatures.length) return { ok: false, error: "Invalid Stripe-Signature header" };
 
   const MAX_AGE_SEC = 5 * 60;
   if (Math.abs(Math.floor(Date.now() / 1000) - parseInt(timestamp, 10)) > MAX_AGE_SEC) {
@@ -173,13 +178,17 @@ function verifyStripeSignature(rawBody, signatureHeader, webhookSecret) {
     .createHmac("sha256", webhookSecret)
     .update(signedPayload, "utf8")
     .digest("hex");
+  const expectedBuf = Buffer.from(expected, "hex");
 
-  try {
-    const ok = crypto.timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(v1, "hex"));
-    return ok ? { ok: true } : { ok: false, error: "Signature mismatch" };
-  } catch {
-    return { ok: false, error: "Signature mismatch" };
-  }
+  // Accept if any of the provided v1 signatures matches (handles key rotation overlap)
+  const matched = v1Signatures.some(sig => {
+    try {
+      return crypto.timingSafeEqual(expectedBuf, Buffer.from(sig, "hex"));
+    } catch {
+      return false;
+    }
+  });
+  return matched ? { ok: true } : { ok: false, error: "Signature mismatch" };
 }
 
 module.exports = {
