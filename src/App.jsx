@@ -5107,11 +5107,13 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
 
   return (
     <div>
-      <div className="sb-tabs">
-        {cfg.views.map((vv, i) => (
-          <button key={vv.name} className={"sb-tab" + (i === view ? " sb-tab-on" : "")} onClick={() => setView(i)}>{vv.name}</button>
-        ))}
-      </div>
+      {cfg.views.length > 1 && (
+        <div className="sb-tabs">
+          {cfg.views.map((vv, i) => (
+            <button key={vv.name} className={"sb-tab" + (i === view ? " sb-tab-on" : "")} onClick={() => setView(i)}>{vv.name}</button>
+          ))}
+        </div>
+      )}
       {v.layout === "board"
         ? <BoardView groups={processed.groups} onOpen={(r) => onOpen({ db: section, record: r })} cardKeys={v.card} ctx={{ data, derived, today }} section={section} />
         : v.layout === "partner-pipeline"
