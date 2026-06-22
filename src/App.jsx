@@ -4339,10 +4339,10 @@ function PipelineSnapshot({ data, today }) {
   const awaitingOffers  = offers.filter(o => ["Sent", "Viewed"].includes(o.status));
   const awaitingVal     = awaitingOffers.reduce((a, o) => a + (Number(o.price) || 0), 0);
 
-  // Average client value — use clients with any recorded totalSpend
-  const payingClients   = clients.filter(c => Number(c.totalSpend) > 0);
+  // Average client value — use lifetimeValue (totalSpend doesn't exist on client schema)
+  const payingClients   = clients.filter(c => Number(c.lifetimeValue) > 0);
   const avgClientVal    = payingClients.length > 0
-    ? payingClients.reduce((a, c) => a + (Number(c.totalSpend) || 0), 0) / payingClients.length : 0;
+    ? payingClients.reduce((a, c) => a + (Number(c.lifetimeValue) || 0), 0) / payingClients.length : 0;
 
   // Average session revenue from Calendly booking prices
   const sessionsWithRev = sessions.filter(s => sessionRev(s) > 0);
@@ -4416,13 +4416,13 @@ function PipelineSnapshot({ data, today }) {
       label: "Operating profit MTD",
       value: (() => {
         const exp = (data.expenses||[]).filter(e=>(e.date||"").startsWith(mo)).reduce((s,e)=>s+(+e.amount||0),0);
-        const net = registrationRevenueForMonth(registrations, sessions, mo);
+        const net = buildRevenueViewRows(data).filter(r=>(r.date||"").startsWith(mo)).map(applyStudioSessionSplit).reduce((s,r)=>s+calcNet(r),0);
         return money(net - exp);
       })(),
-      sub: "session revenue minus expenses",
+      sub: "net session revenue minus expenses",
       accent: (() => {
         const exp = (data.expenses||[]).filter(e=>(e.date||"").startsWith(mo)).reduce((s,e)=>s+(+e.amount||0),0);
-        const net = registrationRevenueForMonth(registrations, sessions, mo);
+        const net = buildRevenueViewRows(data).filter(r=>(r.date||"").startsWith(mo)).map(applyStudioSessionSplit).reduce((s,r)=>s+calcNet(r),0);
         return (net-exp) >= 0 ? "#16A34A" : "#E05454";
       })(),
       Icon: TrendingUp,
