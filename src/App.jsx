@@ -5847,13 +5847,11 @@ function revCols() {
     col("gross", "Gross", (r) => money(r.gross), { align: "right", sum: "gross" }),
     col("studioSplit", "Studio split", (r) => r.studioSplit ? money(r.studioSplit) : "—", { align: "right" }),
     col("stripeFee", "Processing", (r) => r.stripeFee ? money(r.stripeFee) : "—", { align: "right" }),
-    col("facilitatorCost", "Facilitator", (r) => r.facilitatorCost ? money(r.facilitatorCost) : "—", { align: "right" }),
     col("refunds", "Refunds", (r) => r.refunds ? <span style={{ color: "#C0573F" }}>-{money(r.refunds)}</span> : "—", { align: "right" }),
     col("net", "Net", (r) => {
       const n = calcNet(r);
       return <strong style={{ color: n > 0 ? "#4A8C6F" : n < 0 ? "#C0573F" : C.ink3 }}>{money(n)}</strong>;
     }, { align: "right", sum: "net" }),
-    col("source", "Source", (r) => r.source ? <Tag color={SOURCE_COLOR[r.source] || C.ink3} soft>{r.source}</Tag> : "—"),
   ];
 }
 function contentCols() {
@@ -13514,9 +13512,9 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
             <thead>
               <tr>
                 <th style={{ ...thS, width: 28 }}></th>
+                <th style={thS}>Booked</th>
                 <th style={thS}>Name</th>
                 <th style={thS}>Session</th>
-                <th style={thS}>Booked</th>
                 <th style={{ ...thS, textAlign: "right" }}>Expected</th>
                 <th style={{ ...thS, textAlign: "right" }}>Stripe</th>
                 <th style={{ ...thS, textAlign: "right" }}>Session amount</th>
@@ -13531,6 +13529,7 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
                       <td style={{ ...tdS, textAlign: "center", color: C.ink3 }}>
                         <ChevronRight size={14} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
                       </td>
+                      <td style={tdS}>{row.bookedDisplay}</td>
                       <td style={tdS}>
                         <strong>{row.name}</strong>
                         {row.email && <div style={{ fontSize: 11, color: C.ink3 }}>{row.email}</div>}
@@ -13541,7 +13540,6 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
                           <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 20, background: hexA(C.gold, 0.15), color: C.gold, textTransform: "uppercase", letterSpacing: ".04em" }}>Free</span>
                         )}
                       </td>
-                      <td style={tdS}>{row.bookedDisplay}</td>
                       <td style={{ ...tdS, textAlign: "right", color: C.ink3 }}>{row.expected != null ? money(row.expected) : "—"}</td>
                       <td style={{ ...tdS, textAlign: "right", fontWeight: 600, color: row.free ? C.ink3 : "#2D6A50" }}>{money(row.stripeAmount)}</td>
                       <td style={{ ...tdS, textAlign: "right", fontWeight: 700 }}>{money(row.sessionAmount)}</td>
