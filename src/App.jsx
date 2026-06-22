@@ -214,8 +214,8 @@ function loadCrmSettings() {
 let _crmSettings = loadCrmSettings();
 const getS = () => _crmSettings;
 
-const SOURCE = ["Post-session", "Referral", "Studio partner", "Instagram", "TikTok", "Email", "LinkedIn", "Direct outreach", "Walk-in", "Other"];
-const SOURCE_COLOR = { "Post-session": C.brand, "Referral": "#4A8C6F", "Studio partner": "#2F6FD0", "Instagram": "#E1306C", "TikTok": "#010101", "Email": "#D9892B", "LinkedIn": "#0077B5", "Direct outreach": "#7B68EE", "Walk-in": "#9FB2CC", "Other": C.ink3 };
+const SOURCE = ["Post-session", "Referral", "Studio partner", "Calendly", "Instagram", "TikTok", "Email", "LinkedIn", "Direct outreach", "Walk-in", "Other"];
+const SOURCE_COLOR = { "Post-session": C.brand, "Referral": "#4A8C6F", "Studio partner": "#2F6FD0", "Calendly": "#00A2FF", "Instagram": "#E1306C", "TikTok": "#010101", "Email": "#D9892B", "LinkedIn": "#0077B5", "Direct outreach": "#7B68EE", "Walk-in": "#9FB2CC", "Other": C.ink3 };
 const PACKAGE = ["None", "Drop-in", "3-pack", "5-pack", "Membership"];
 const REFERRAL = ["Low", "Medium", "High"];
 const REFERRAL_COLOR = { Low: "#9FB2CC", Medium: "#3F87DC", High: "#D9892B" };
@@ -3155,7 +3155,11 @@ export default function App() {
     const yr = today.slice(0, 4);
     const expensesMTD = (data.expenses||[]).filter(e => (e.date||"").startsWith(mo)).reduce((s,e) => s + (+e.amount||0), 0);
     const expensesYTD = (data.expenses||[]).filter(e => (e.date||"").startsWith(yr)).reduce((s,e) => s + (+e.amount||0), 0);
-    const netRevMTD   = registrationRevenueForMonth(data.registrations, data.sessions, mo);
+    // Net revenue MTD: use the same pipeline as Revenue → This month so studio splits (70/30) are deducted.
+    const netRevMTD = buildRevenueViewRows(data)
+      .filter(r => (r.date || "").startsWith(mo))
+      .map(applyStudioSessionSplit)
+      .reduce((s, r) => s + calcNet(r), 0);
     const opProfit    = netRevMTD - expensesMTD;
     const opMargin    = netRevMTD > 0 ? Math.round((opProfit / netRevMTD) * 100) : null;
 
@@ -4947,17 +4951,17 @@ function Today({ data, derived, today, onOpen, onGo, setData, currentUser, canEd
 
       {/* Stats */}
       <div className="sb-stats">
-        <Stat label="Net revenue MTD"   value={money(mtdRevenue)}  hint="virtual + studio session prices this month" onClick={() => onGo("revenue", 2)} />
+        <Stat label="Net revenue MTD"   value={money(mtdRevenue)}  hint="virtual + studio session prices this month" onClick={() => onGo("revenue", 1)} />
         <Stat label="Referral revenue"  value={money(refRevenue)}  hint="from all referrals" accent={refRevenue > 0 ? "#4A8C6F" : C.ink3} onClick={() => onGo("referrals")} />
         <Stat label="Active clients"    value={activeMembers}      hint="total clients in system"            onClick={() => onGo("clients")} />
         <Stat label="Active sequences"  value={activeSeqs}         hint="clients in follow-up nurture"       onClick={() => onGo("engine")} />
       </div>
 
-      {/* Pipeline snapshot */}
-      <PipelineSnapshot data={data} today={today} />
-
       {/* B2C vs B2B lane split */}
       <LaneSplitPanel data={data} today={today} />
+
+      {/* Pipeline snapshot */}
+      <PipelineSnapshot data={data} today={today} />
 
       {/* Charts */}
       <div className="sb-grid2">
@@ -5520,6 +5524,17 @@ const VIEWS = {
           col("conversion", "Conversion", (r) => <Tag color={r.conversion >= 0.3 ? "#2F6FD0" : r.conversion >= 0.2 ? "#3F87DC" : "#9FB2CC"} soft>{pct(r.conversion)}</Tag>, { align: "right" }),
         ],
         run: (rows) => ({ rows: [...rows].sort((a, b) => Number(b.conversion) - Number(a.conversion)) }) },
+      { name: "All Sessions", layout: "table",
+        columns: [
+          col("date",       "Date",       (r) => fmtDate(r.date)),
+          col("name",       "Session",    (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
+          col("studioId",   "Studio",     (r, c) => clientShort(c.derived.partnerName[r.studioId] || "—")),
+          col("status",     "Status",     (r) => <Tag color={SESSION_STATUS_COLOR[r.status]} soft>{r.status}</Tag>),
+          col("attendance", "Attendance", (r) => `${r.attendance || 0}/${r.capacity || "?"}`, { align: "right" }),
+          col("netRevenue", "Net Rev",    (r) => money(r.netRevenue), { align: "right" }),
+          col("notes",      "Notes",      (r) => <span style={{ fontSize: 12, color: C.ink2 }}>{r.notes}</span>),
+        ],
+        run: (rows) => ({ rows: [...rows].sort((a, b) => (b.date || "").localeCompare(a.date || "")) }) },
     ],
   },
   offers: {
@@ -13596,17 +13611,17 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
    ============================================================ */
 
 function RevenueAttributionView({ data, derived, today, onOpen }) {
-  const rows = buildRevenueViewRows(data);
+  const rows = buildRevenueViewRows(data).map(applyStudioSessionSplit);
   const [highlight, setHighlight] = useState(null);
   const mo = today.slice(0, 7);
   const mtdRows = rows.filter(r => sameMonth(r.date, today));
 
-  // ── Core totals ─────────────────────────────────────────────
-  const totalGross = sum(rows, "gross");
-  const totalFees  = sum(rows, "stripeFee") + sum(rows, "facilitatorCost");
-  const totalSplit = sum(rows, "studioSplit");
-  const totalRef   = sum(rows, "refunds");
-  const totalNet   = rows.reduce((a, r) => a + calcNet(r), 0);
+  // ── Core totals (MTD only) ───────────────────────────────────
+  const totalGross = sum(mtdRows, "gross");
+  const totalFees  = sum(mtdRows, "stripeFee") + sum(mtdRows, "facilitatorCost");
+  const totalSplit = sum(mtdRows, "studioSplit");
+  const totalRef   = sum(mtdRows, "refunds");
+  const totalNet   = mtdRows.reduce((a, r) => a + calcNet(r), 0);
   const margin     = totalGross > 0 ? Math.round((totalNet / totalGross) * 100) : 0;
 
   // ── By channel ──────────────────────────────────────────────
@@ -13672,14 +13687,14 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
       {/* Key metrics */}
       <div className="sb-stats">
-        <Stat label="Session revenue MTD" value={money(mtdRows.reduce((a, r) => a + calcNet(r), 0))} accent={C.brand} hint="Calendly session prices this month" />
-        <Stat label="Total session revenue" value={money(totalNet)} accent="#2F6FD0" hint="bookings + closed packages" />
-        <Stat label="Bookings" value={rows.filter(r => r.registrationId).length} accent="#4A8C6F" hint="paid Calendly registrations" />
-        <Stat label="Packages & offers" value={money(sum(rows.filter(r => r.offerId), "gross"))} accent={C.gold} hint="accepted / paid offers" />
+        <Stat label="Gross revenue MTD" value={money(sum(mtdRows, "gross"))} accent={C.brand} hint="gross session booking revenue this month" />
+        <Stat label="Net revenue MTD" value={money(totalNet)} accent="#2F6FD0" hint="after studio splits, fees & refunds" />
+        <Stat label="Total Session Revenue" value={money(sum(rows, "gross"))} accent="#4A8C6F" hint="all-time gross session booking revenue" />
+        <Stat label="Total Net Session Revenue" value={money(rows.reduce((a, r) => a + calcNet(r), 0))} accent={C.gold} hint="all-time net after splits, fees & refunds" />
       </div>
 
-      {/* Revenue waterfall: session prices → net (fees/splits when recorded) */}
-      <Panel title="Revenue waterfall">
+      {/* Revenue waterfall: session prices → net (fees/splits when recorded), MTD only */}
+      <Panel title="Revenue waterfall — month to date">
         <div style={{ padding: "4px 0 8px" }}>
           {[
             { label: "Session booking revenue", value: totalGross, color: "#2F6FD0", op: "base" },
