@@ -856,14 +856,15 @@ Revenue views are built from **Stripe-verified booking amounts** (when matched) 
 
 | Section | Purpose |
 |---|---|
-| Unlinked Stripe payments | Stripe charges not yet linked to a Calendly booking — link manually if needed |
-| Pending verification | Paid Calendly bookings with an **unlinked Stripe payment** for the same email — awaiting FIFO match. Bookings with no Stripe charge are treated as free sessions (`paid`, $0) and do not appear here. |
-| Amount reconciliation log | Unified transaction log of resolved bookings — Stripe-matched sessions, amount adjustments (Calendly expected → Stripe paid), and **free sessions** (Expected → $0 Stripe). Columns: Client, Session, Booked, Type (Studio/Virtual + Free/Adjusted badges), Expected, Stripe, Session amount (sorted by booked date, most recent first). |
-| Refunds | Stripe refund events affecting revenue |
+| Stripe charges | One row per Stripe charge (`status: "paid"`), tied to the Calendly session it paid for. Columns: **Name, Session, Booked, Expected, Stripe, Session amount** (sorted by booked date, most recent first). A charge with no booking within the match window shows "No matching booking". |
+| Bookings awaiting a Stripe charge | Calendly bookings still in `pending_verification` (booked but no charge tied yet). |
+| Refunds | Stripe refund events affecting revenue. |
 
-Use **Sync Stripe now** to load Stripe payments from the backend ledger and run reconciliation (also polls every 5 minutes).
+Use **Sync Stripe now** to load charges from the backend ledger and run reconciliation (also polls every 5 minutes).
 
-**Matching rule (simple):** For each email, pair the oldest unverified Calendly booking with the oldest unlinked Stripe payment. No date-window gates. Calendly list price is kept as *expected*; Stripe `paidAmount` is recorded. Resolved bookings (matched, adjusted, or free) appear in the **Amount reconciliation log**; session amount is the revenue figure (Stripe when matched, $0 when free).
+**Matching rule (time-based):** A Stripe charge is created the moment a participant books, so the charge time equals the booking time. For each participant (matched by **email**), each unlinked charge is tied to the booking whose time (`createdAt`) is **closest** to the charge time, within a window of `STRIPE_MATCH_WINDOW_MS` (2 days, to absorb webhook/sync lag). The Stripe `amountGross` becomes that booking's `paidAmount` and session amount. List price is kept as *expected*. There is **no manual override** — matching is automatic.
+
+**Self-healing:** Each reconciliation run (on Sync Stripe and on opening the panel) first clears automatic links, then re-matches with the rule above, so a mis-tied charge corrects itself. Any link with `matchStatus: "manual"` (legacy) is preserved.
 
 Each Stripe sync calls `GET /api/stripe/ledger` to reload processed webhook events so payments are not lost after a browser refresh.
 

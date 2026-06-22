@@ -695,19 +695,19 @@ When a target converts to an active partner, link them to a Studio Partner recor
 
 ### Stripe payment reconciliation
 
-**Simple workflow:**
+**How it works:**
 
-1. Calendly booking arrives (may show a list price from Calendly).
-2. Click **Sync Stripe now** → CRM checks Stripe for a charge with the **same email**.
-3. **Stripe charge found** → booking stays in **Pending verification** until matched (oldest booking ↔ oldest payment).
-4. **No Stripe charge for that email** → treated as a **free session** ($0 revenue) and logged in **Amount reconciliation log** (Expected Calendly price → $0 Stripe).
-5. **Matched or adjusted** → also logged there with Expected, Stripe, and Session amount columns.
+1. A participant books a Calendly session and pays. Stripe creates the charge at that moment.
+2. Click **Sync Stripe now** → the CRM pulls the charge and ties it to the session booked at the same time (same participant, closest booking time). The Stripe amount becomes that session's amount.
+3. The **Stripe charges** list shows every charge with: **Name, Session, Booked, Expected, Stripe, Session amount.**
 
-1. Open **Revenue → Payment reconciliation**.
-2. Click **Sync Stripe now** after new bookings or test checkouts.
-3. **Pending verification** — only bookings where Stripe has a charge for the same email waiting to match.
-4. **Unlinked Stripe payments** — orphan Stripe charges (use **Match** to link manually).
-5. **Amount reconciliation log** — all resolved bookings: Stripe matches, amount adjustments, and free sessions (Expected / Stripe / Session amount).
+This is fully automatic — there is no manual matching to do.
+
+**The Payment reconciliation page has:**
+
+1. **Stripe charges** — every Stripe payment, tied to its Calendly session, with the amounts above.
+2. **Bookings awaiting a Stripe charge** — sessions booked but with no charge pulled yet (they appear here until the next sync ties a charge to them).
+3. **Refunded payments** — any refunds.
 
 **Important:** Calendly email and Stripe checkout email must match. A booking under `jeff@simplybreathe.ai` will not match a Stripe payment for `jeffreywmason@yahoo.com`.
 

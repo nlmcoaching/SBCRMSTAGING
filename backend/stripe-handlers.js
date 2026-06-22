@@ -26,6 +26,14 @@ function pickEmail(...candidates) {
   return "";
 }
 
+function pickText(...candidates) {
+  for (const c of candidates) {
+    const t = String(c || "").trim();
+    if (t) return t;
+  }
+  return "";
+}
+
 function extractStripePayment(event) {
   const obj = event?.data?.object || {};
   const type = event?.type || "unknown";
@@ -53,6 +61,13 @@ function extractStripePayment(event) {
       paidAt: obj.created ? new Date(obj.created * 1000).toISOString() : base.receivedAt,
       receiptUrl: "",
       paymentMethodType: obj.payment_method_types?.[0] || "",
+      description: pickText(
+        obj.description,
+        obj.metadata?.event_type_name,
+        obj.metadata?.event_name,
+        obj.metadata?.description,
+        obj.custom_text?.submit?.message,
+      ),
     };
   }
 
@@ -78,6 +93,13 @@ function extractStripePayment(event) {
       receiptUrl: charge.receipt_url || "",
       paymentMethodType: charge.payment_method_details?.type || "",
       stripeFee: charge.balance_transaction ? null : null,
+      description: pickText(
+        obj.description,
+        charge.description,
+        obj.metadata?.event_type_name,
+        obj.metadata?.event_name,
+        charge.metadata?.event_type_name,
+      ),
     };
   }
 

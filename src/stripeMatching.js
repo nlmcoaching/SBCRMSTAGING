@@ -95,8 +95,9 @@ export function linkStripePaymentToRegistration(payments, registrations, payIdx,
   };
   const ri = registrations.findIndex(r => r.id === reg.id);
   if (ri < 0) return;
+  const prev = registrations[ri];
   registrations[ri] = {
-    ...registrations[ri],
+    ...prev,
     paidAmount: gross,
     paymentStatus: "paid",
     stripeVerified: true,
@@ -105,6 +106,8 @@ export function linkStripePaymentToRegistration(payments, registrations, payIdx,
     paidAt: p.paidAt || "",
     paymentId: p.id,
     amountRefunded: 0,
+    // Drop the placeholder "free session" mismatch — a real Stripe amount now applies.
+    lastAmountMismatch: prev.lastAmountMismatch?.reason === "free" ? undefined : prev.lastAmountMismatch,
   };
 }
 
@@ -156,7 +159,8 @@ export function finalizeRegistrationPaymentStatuses(registrations, payments, cli
   }
 
   for (const [email, list] of pendingByEmail) {
-    list.sort((a, b) => registrationBookingTimestamp(a, data) - registrationBookingTimestamp(b, data));
+    // Most recently booked first — the newest booking is the one a fresh charge verifies.
+    list.sort((a, b) => registrationBookingTimestamp(b, data) - registrationBookingTimestamp(a, data));
     const slots = unlinkedPaidCountForEmail(email, payments);
     list.forEach((reg, i) => {
       const idx = regs.findIndex(x => x.id === reg.id);
@@ -172,45 +176,57 @@ export function finalizeRegistrationPaymentStatuses(registrations, payments, cli
   return regs;
 }
 
+// A Stripe charge is created at the moment a participant books, so the charge time
+// is effectively the same as the booking time. Match within this window (handles
+// webhook/sync lag and timezone skew) and pick the closest booking.
+export const STRIPE_MATCH_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
+
 /**
- * Pair unverified Calendly bookings (oldest first) with unlinked Stripe payments (oldest first) per email.
- * Only attempts match when a Stripe payment exists for that email.
+ * Tie each Stripe charge to the Calendly booking it paid for, by matching the charge
+ * time to the booking time for the same participant. Closest booking within the window
+ * wins; the Stripe amount becomes that booking's session amount.
  */
 export function reconcileStripePayments(paymentsIn, registrationsIn, clients, data = {}) {
   const payments = (paymentsIn || []).map(p => ({ ...p }));
   const registrations = (registrationsIn || []).map(r => ({ ...r }));
 
-  const pendingByEmail = new Map();
+  // Unverified bookings per participant.
+  const bookingsByEmail = new Map();
   for (const reg of registrations) {
     if (reg.status === "canceled" || reg.status === "rescheduled" || reg.stripeVerified) continue;
-    const listPrice = registrationSessionAmount(reg);
-    if (listPrice == null || listPrice <= 0) continue;
     const email = normalizeEmail(clients.find(c => c.id === reg.clientId)?.email);
-    if (!email || !hasStripePaymentForEmail(email, payments)) continue;
-    if (!pendingByEmail.has(email)) pendingByEmail.set(email, []);
-    pendingByEmail.get(email).push(reg);
-  }
-  for (const list of pendingByEmail.values()) {
-    list.sort((a, b) => registrationBookingTimestamp(a, data) - registrationBookingTimestamp(b, data));
+    if (!email) continue;
+    if (!bookingsByEmail.has(email)) bookingsByEmail.set(email, []);
+    bookingsByEmail.get(email).push(reg);
   }
 
+  // Unlinked paid charges per participant, processed oldest first for stable assignment.
   const payByEmail = new Map();
   payments.forEach((p, i) => {
     if (p.status !== "paid" || p.bookingId || p.matchStatus === "manual") return;
     const email = normalizeEmail(p.customerEmail);
     if (!email) return;
     if (!payByEmail.has(email)) payByEmail.set(email, []);
-    payByEmail.get(email).push({ i, ts: paymentSortTimestamp(p) });
+    payByEmail.get(email).push(i);
   });
-  for (const list of payByEmail.values()) {
-    list.sort((a, b) => a.ts - b.ts);
-  }
 
-  for (const [email, pendingList] of pendingByEmail) {
-    const payList = payByEmail.get(email) || [];
-    const n = Math.min(pendingList.length, payList.length);
-    for (let k = 0; k < n; k++) {
-      linkStripePaymentToRegistration(payments, registrations, payList[k].i, pendingList[k]);
+  for (const [email, payIdxList] of payByEmail) {
+    const bookingList = bookingsByEmail.get(email) || [];
+    const used = new Set();
+    payIdxList.sort((a, b) => paymentSortTimestamp(payments[a]) - paymentSortTimestamp(payments[b]));
+    for (const payIdx of payIdxList) {
+      const payTs = paymentSortTimestamp(payments[payIdx]);
+      let best = -1;
+      let bestDiff = Infinity;
+      for (let k = 0; k < bookingList.length; k++) {
+        if (used.has(k)) continue;
+        const diff = Math.abs(registrationBookingTimestamp(bookingList[k], data) - payTs);
+        if (diff < bestDiff) { bestDiff = diff; best = k; }
+      }
+      if (best >= 0 && bestDiff <= STRIPE_MATCH_WINDOW_MS) {
+        used.add(best);
+        linkStripePaymentToRegistration(payments, registrations, payIdx, bookingList[best]);
+      }
     }
   }
 
@@ -272,12 +288,12 @@ export function explainPendingVerificationReason(reg, payments, registrations, c
   );
 
   const regTs = registrationBookingTimestamp(reg, data);
-  const pendingBefore = pendingSameEmail.filter(r =>
-    registrationBookingTimestamp(r, data) < regTs,
+  const moreRecent = pendingSameEmail.filter(r =>
+    registrationBookingTimestamp(r, data) > regTs,
   );
 
-  if (pendingBefore.length >= unlinked.length) {
-    return "Earlier bookings for this email will match first — click Sync Stripe now";
+  if (moreRecent.length >= unlinked.length) {
+    return "More recent bookings for this participant match first — click Sync Stripe now";
   }
 
   return "Click Sync Stripe now to match";
