@@ -1702,17 +1702,21 @@ async function backfillRegistrationPaymentsForRegs(regs, setData) {
 }
 function registrationPaymentForLtv(reg) {
   if (!reg || reg.status === "canceled" || reg.status === "rescheduled") return 0;
-  if (["unpaid", "pending_verification", "unmatched", "failed"].includes(reg.paymentStatus)) return 0;
+  // Hard excludes — booking is definitively unpaid or failed
+  if (["unpaid", "failed"].includes(reg.paymentStatus)) return 0;
+  if (reg.paymentStatus === "refunded") return 0;
+  // Stripe-verified: use the actual charged amount (net refunds)
   if (reg.stripeVerified && reg.paidAmount != null) {
     const paid = Number(reg.paidAmount);
     const refunded = Number(reg.amountRefunded) || 0;
     if (!Number.isNaN(paid)) return Math.max(0, Math.round((paid - refunded) * 100) / 100);
   }
+  // Not yet Stripe-verified but explicitly paid (paidAmount recorded)
   if (reg.paymentStatus === "paid" && !reg.stripeVerified) {
     const paid = Number(reg.paidAmount);
-    if (paid === 0 || Number.isNaN(paid)) return 0;
+    if (!Number.isNaN(paid) && paid > 0) return paid;
   }
-  if (reg.paymentStatus === "refunded") return 0;
+  // pending_verification / unmatched / unknown — use the Calendly list price as the expected amount
   const amt = registrationSessionAmount(reg);
   if (amt == null || amt <= 0) return 0;
   return amt;
