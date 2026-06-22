@@ -5623,7 +5623,7 @@ const VIEWS = {
         run: (rows) => {
           const r = [...rows]
             .map(applyStudioSessionSplit)
-            .sort((a, b) => b.date.localeCompare(a.date));
+            .sort((a, b) => (b.bookedAt || b.date || "").localeCompare(a.bookedAt || a.date || ""));
           const netTotal = r.reduce((s, row) => s + calcNet(row), 0);
           return { rows: r, footer: { gross: money(sum(r, "gross")), net: money(netTotal), label: "All transactions (70/30 studio split on net)" } };
         } },
@@ -5881,6 +5881,7 @@ function refActionCols() {
 }
 function revCols() {
   return [
+    col("bookedAt", "Booked Date & Time", (r) => r.bookedAt ? formatRegistrationDateTime(r.bookedAt) : "—"),
     col("name", "Description", (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
     col("date", "Date", (r) => fmtDate(r.date)),
     col("channel", "Channel", (r) => <Tag color={REV_CHANNEL_COLOR[r.channel] || C.ink3} soft>{r.channel}</Tag>),
