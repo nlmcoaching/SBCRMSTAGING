@@ -705,9 +705,10 @@ This is fully automatic — there is no manual matching to do.
 
 **The Payment reconciliation page has:**
 
-1. **Stripe charges** — every Stripe payment, tied to its Calendly session, with the amounts above. **Click any row** to expand it and see the full charge details (session date & time, status, paid date, payment method, refund amount, Stripe IDs, a link to the Stripe receipt, and notes).
-2. **Bookings awaiting a Stripe charge** — sessions booked but with no charge pulled yet (they appear here until the next sync ties a charge to them).
-3. **Refunded payments** — any refunds.
+1. **Unmatched Stripe transactions** (only appears when there are any) — Stripe charges that could not be tied to a Calendly booking (no booking within 2 days for that participant). These are usually test charges, duplicate payments, or a charge made under a different email than the Calendly booking.
+2. **Stripe charges** — every matched Stripe payment, tied to its Calendly session, with the amounts above. **Free sessions** (a booking made in the last 24 hours with no Stripe charge) show here automatically as a **$0.00** row with a **Free** badge, so every recent booking is accounted for. If a payment later comes in for that session, the row turns into a normal charge on the next sync. **Click any row** to expand it and see the full charge details (session date & time, status, paid date, payment method, refund amount, Stripe IDs, a link to the Stripe receipt, and notes).
+3. **Bookings awaiting a Stripe charge** — sessions booked but with no charge pulled yet (they appear here until the next sync ties a charge to them).
+4. **Refunded payments** — any refunds.
 
 **Important:** Calendly email and Stripe checkout email must match. A booking under `jeff@simplybreathe.ai` will not match a Stripe payment for `jeffreywmason@yahoo.com`.
 

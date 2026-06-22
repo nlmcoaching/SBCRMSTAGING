@@ -13175,10 +13175,13 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
     && r.paymentStatus === "pending_verification"
     && !r.stripeVerified,
   );
-  // One row per Stripe charge, tied to the Calendly session it paid for.
+  // One row per Stripe charge, tied to the Calendly session it paid for. Recent bookings
+  // (last 24h) with no Stripe charge are surfaced as $0.00 "Free session" rows for
+  // reconciliation. These are display-only and self-correct: if a charge arrives later,
+  // the booking matches and the row becomes a normal charge automatically.
   const stripeCharges = useMemo(() => {
     const ts = (s) => { const t = Date.parse(s || ""); return Number.isNaN(t) ? 0 : t; };
-    return payments
+    const chargeRows = payments
       .filter(p => p.status === "paid")
       .map(p => {
         const booking = registrations.find(r => r.id === p.bookingId);
@@ -13196,6 +13199,8 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
           sessionName: meta?.sessionName || (booking ? cleanName(booking.eventName || "Session") : null),
           channel: meta?.channel || null,
           matched: !!booking,
+          description: p.description || "",
+          paidDisplay: formatRegistrationDateTime(p.paidAt || p.createdAt),
           bookedDisplay: formatRegistrationDateTime(booking ? booking.createdAt : (p.paidAt || p.createdAt)),
           sortTs: booking ? registrationCreatedTimestamp(booking) : ts(p.paidAt || p.createdAt),
           expected,
@@ -13217,9 +13222,59 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
             notes: p.notes || "",
           },
         };
+      });
+
+    // Free sessions: bookings created in the last 24h with no Stripe charge tied to them.
+    const FREE_WINDOW_MS = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const freeRows = registrations
+      .filter(r => r.status !== "canceled" && r.status !== "rescheduled" && !r.stripeVerified)
+      .filter(r => {
+        const created = registrationCreatedTimestamp(r);
+        return created > 0 && (now - created) <= FREE_WINDOW_MS;
       })
-      .sort((a, b) => b.sortTs - a.sortTs);
+      .filter(r => !payments.some(p => p.bookingId === r.id && p.status === "paid"))
+      .map(r => {
+        const client = clients.find(c => c.id === r.clientId);
+        const meta = registrationSessionMeta(r, data);
+        const expected = r.lastAmountMismatch?.expectedAmount ?? r.paymentAmount ?? registrationSessionAmount(r);
+        return {
+          id: `free-${r.id}`,
+          name: cleanName(client?.name || "—"),
+          email: client?.email || "",
+          sessionName: meta?.sessionName || cleanName(r.eventName || "Session"),
+          channel: meta?.channel || null,
+          matched: true,
+          free: true,
+          description: "Free session — no Stripe charge",
+          paidDisplay: "—",
+          bookedDisplay: formatRegistrationDateTime(r.createdAt),
+          sortTs: registrationCreatedTimestamp(r),
+          expected,
+          stripeAmount: 0,
+          sessionAmount: 0,
+          details: {
+            sessionDateTime: formatRegistrationDateTime(r.scheduledAt) || "—",
+            status: "free session",
+            currency: "USD",
+            paidAt: "—",
+            paymentMethodType: "",
+            amountRefunded: 0,
+            stripeChargeId: "",
+            stripePaymentIntentId: "",
+            stripeCheckoutSessionId: "",
+            stripeEventId: "",
+            receiptUrl: "",
+            matchStatus: "free",
+            notes: "No Stripe transaction found within 24h of this booking — recorded as a free ($0.00) session.",
+          },
+        };
+      });
+
+    return [...chargeRows, ...freeRows].sort((a, b) => b.sortTs - a.sortTs);
   }, [payments, registrations, clients, data, stripeStatus?.reconciledAt, stripeStatus?.at]);
+  const matchedCharges = stripeCharges.filter(c => c.matched);
+  const unmatchedCharges = stripeCharges.filter(c => !c.matched);
   const refundedPayments = payments.filter(p => p.status === "refunded" || p.status === "partial_refund");
 
   const thS = { fontSize: 11.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 600, padding: "10px 12px", borderBottom: `1px solid ${C.line}`, textAlign: "left" };
@@ -13253,15 +13308,63 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
         </div>
       )}
 
-      <Panel title={`Stripe charges (${stripeCharges.length})`}>
+      {unmatchedCharges.length > 0 && (
+        <Panel title={`Unmatched Stripe transactions (${unmatchedCharges.length})`}>
+          <div style={{ fontSize: 12, color: C.ink3, marginBottom: 12, lineHeight: 1.5 }}>
+            Stripe shows these charges but no Calendly booking matched them (no booking within 2 days of the charge for that participant). Common causes: test charges, duplicate payments, or a different email between Stripe and Calendly.
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={{ ...thS, width: 28 }}></th>
+                <th style={thS}>Name</th>
+                <th style={thS}>Paid</th>
+                <th style={thS}>Description</th>
+                <th style={{ ...thS, textAlign: "right" }}>Stripe amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {unmatchedCharges.map(row => {
+                const open = !!expandedCharges[row.id];
+                return (
+                  <Fragment key={row.id}>
+                    <tr onClick={() => toggleCharge(row.id)} style={{ cursor: "pointer", background: open ? C.surfaceAlt : "transparent" }}>
+                      <td style={{ ...tdS, textAlign: "center", color: C.ink3 }}>
+                        <ChevronRight size={14} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
+                      </td>
+                      <td style={tdS}>
+                        <strong>{row.name}</strong>
+                        {row.email && <div style={{ fontSize: 11, color: C.ink3 }}>{row.email}</div>}
+                      </td>
+                      <td style={tdS}>{row.paidDisplay}</td>
+                      <td style={{ ...tdS, color: C.ink2 }}>{row.description || "—"}</td>
+                      <td style={{ ...tdS, textAlign: "right", fontWeight: 600, color: "#C0573F" }}>{money(row.stripeAmount)}</td>
+                    </tr>
+                    {open && (
+                      <tr>
+                        <td></td>
+                        <td colSpan={4} style={{ padding: "4px 12px 16px", borderBottom: `1px solid ${C.lineSoft}`, background: C.surfaceAlt }}>
+                          <ChargeDetails row={row} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </Panel>
+      )}
+
+      <Panel title={`Stripe charges (${matchedCharges.length})`}>
         {stripeStatus?.at && (
           <div style={{ fontSize: 11.5, color: C.ink3, marginBottom: 10, lineHeight: 1.45 }}>
             Updated {stripeStatus.at}
             {stripeStatus.synced > 0 ? ` · ${stripeStatus.synced} new Stripe event${stripeStatus.synced !== 1 ? "s" : ""} processed` : " · up to date"}
           </div>
         )}
-        {!stripeCharges.length ? (
-          <Empty pad>No Stripe charges yet — click Sync Stripe now to pull them from Stripe.</Empty>
+        {!matchedCharges.length ? (
+          <Empty pad>No matched Stripe charges yet — click Sync Stripe now to pull them from Stripe.</Empty>
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
@@ -13276,7 +13379,7 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
               </tr>
             </thead>
             <tbody>
-              {stripeCharges.map(row => {
+              {matchedCharges.map(row => {
                 const open = !!expandedCharges[row.id];
                 return (
                   <Fragment key={row.id}>
@@ -13289,13 +13392,14 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
                         {row.email && <div style={{ fontSize: 11, color: C.ink3 }}>{row.email}</div>}
                       </td>
                       <td style={tdS}>
-                        {row.matched
-                          ? row.sessionName
-                          : <span style={{ color: "#C0573F", fontWeight: 600 }}>No matching booking</span>}
+                        {row.sessionName}
+                        {row.free && (
+                          <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 20, background: hexA(C.gold, 0.15), color: C.gold, textTransform: "uppercase", letterSpacing: ".04em" }}>Free</span>
+                        )}
                       </td>
                       <td style={tdS}>{row.bookedDisplay}</td>
                       <td style={{ ...tdS, textAlign: "right", color: C.ink3 }}>{row.expected != null ? money(row.expected) : "—"}</td>
-                      <td style={{ ...tdS, textAlign: "right", fontWeight: 600, color: "#2D6A50" }}>{money(row.stripeAmount)}</td>
+                      <td style={{ ...tdS, textAlign: "right", fontWeight: 600, color: row.free ? C.ink3 : "#2D6A50" }}>{money(row.stripeAmount)}</td>
                       <td style={{ ...tdS, textAlign: "right", fontWeight: 700 }}>{money(row.sessionAmount)}</td>
                     </tr>
                     {open && (
