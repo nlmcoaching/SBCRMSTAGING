@@ -9507,12 +9507,15 @@ function ExpenseSummaryView({ data, today, onOpen, onImportExpenses, canEdit = t
   }));
   const maxMonth = Math.max(...monthlyData.map(m=>m.total), 1);
 
-  // Revenue context for margin
-  const netRevMTD = registrationRevenueForMonth(data.registrations, data.sessions, mo)
-    + (data.offers || []).filter(o => LTV_OFFER_STATUSES.has(o.status) && sameMonth(o.closeDate || o.dateOffered, today))
-      .reduce((s, o) => s + (Number(o.price) || 0), 0);
+  // Revenue context for margin — use same pipeline as Revenue Attribution so studio splits are deducted
+  const revRowsMTD = buildRevenueViewRows(data)
+    .filter(r => (r.date || "").startsWith(mo))
+    .map(applyStudioSessionSplit);
+  const grossRevMTD = sum(revRowsMTD, "gross");
+  const studioSplitsMTD = sum(revRowsMTD, "studioSplit");
+  const netRevMTD = revRowsMTD.reduce((s, r) => s + calcNet(r), 0);
   const opProfit = netRevMTD - totMTD;
-  const margin = netRevMTD > 0 ? Math.round((opProfit / netRevMTD) * 100) : null;
+  const margin = grossRevMTD > 0 ? Math.round((opProfit / grossRevMTD) * 100) : null;
 
   // CSV import instructions
   const csvCols = "date,vendor,description,amount,category,paymentMethod,taxDeductible,recurring,recurringFreq,notes";
@@ -9526,7 +9529,7 @@ function ExpenseSummaryView({ data, today, onOpen, onImportExpenses, canEdit = t
           { label:"Expenses YTD",      value: money(totYTD),           sub: "this year",  color: C.ink2 },
           { label:"Tax Deductible YTD",value: money(taxDed),           sub: `${totYTD>0?Math.round(taxDed/totYTD*100):0}% of total`, color:"#16A34A" },
           { label:"Recurring / mo",    value: money(recurring),        sub: "committed monthly", color: "#8E44AD" },
-          { label:"Operating Margin",  value: margin !== null ? margin+"%" : "—", sub: `Profit: ${money(opProfit)} MTD`, color: opProfit >= 0 ? "#16A34A" : "#EF4444" },
+          { label:"Operating Margin",  value: margin !== null ? margin+"%" : "—", sub: `Net: ${money(netRevMTD)} · Profit: ${money(opProfit)}`, color: opProfit >= 0 ? "#16A34A" : "#EF4444" },
         ].map(s => (
           <div key={s.label} style={{background:C.surface,borderRadius:14,padding:"16px 18px",border:`1px solid ${C.line}`}}>
             <div style={{fontSize:11,color:C.ink3,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.08em"}}>{s.label}</div>
@@ -9585,11 +9588,11 @@ function ExpenseSummaryView({ data, today, onOpen, onImportExpenses, canEdit = t
         <div style={{background:C.surface,borderRadius:16,border:`1px solid ${C.line}`,padding:"18px 20px"}}>
           <div style={{fontWeight:700,fontSize:14,color:C.ink,marginBottom:14}}>Profitability — MTD</div>
           {[
-            { label:"Gross Revenue MTD",    value: netRevMTD, positive:true },
-            { label:"Studio Splits MTD",    value: 0, positive:false },
-            { label:"Net Revenue MTD",      value: netRevMTD, positive:true, bold:true },
-            { label:"Total Expenses MTD",   value: -totMTD,   positive:false },
-            { label:"Operating Profit MTD", value: opProfit,  positive:opProfit>=0, bold:true, big:true },
+            { label:"Gross Revenue MTD",    value: grossRevMTD,              positive:true },
+            { label:"Studio Splits MTD",    value: -studioSplitsMTD,         positive:false },
+            { label:"Net Revenue MTD",      value: netRevMTD,                positive:true, bold:true },
+            { label:"Total Expenses MTD",   value: -totMTD,                  positive:false },
+            { label:"Operating Profit MTD", value: opProfit,                 positive:opProfit>=0, bold:true, big:true },
           ].map(r => (
             <div key={r.label} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.line}`,fontSize:r.big?15:13}}>
               <span style={{color:r.bold?C.ink:C.ink3,fontWeight:r.bold?700:400}}>{r.label}</span>
