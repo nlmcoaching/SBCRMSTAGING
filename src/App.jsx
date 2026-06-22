@@ -5162,7 +5162,9 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         ? <CalendarView rows={processed.rows} today={today} derived={derived} data={data} onOpen={(r) => onOpen({ db: section, record: r })} />
         : <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => (
             section === "revenue" ? openRevenueViewRow(r, data, onOpen) : onOpen({ db: section, record: r })
-          )} ctx={{ data, derived, today, setData, section }} maxHeight={section === "registrations" ? "calc(100vh - 240px)" : undefined} />}
+          )} ctx={{ data, derived, today, setData, section }}
+          maxHeight={section === "registrations" ? "calc(100vh - 240px)" : undefined}
+          expandRow={v.expandRow ? (r, ctx) => v.expandRow(r, ctx) : undefined} />}
     </div>
   );
 }
@@ -5335,6 +5337,50 @@ const VIEWS = {
           col("attendanceType","Attendance", r => r.attendanceType || "—"),
         ],
         run: (rows) => ({ rows: sortRegistrationsByCreatedAt(rows) }),
+        expandRow: (r, ctx) => {
+          const client = (ctx.data.clients||[]).find(x => x.id === r.clientId);
+          const session = (ctx.data.sessions||[]).find(x => x.id === r.sessionId);
+          const rowS = { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 4 };
+          const label = (l, v) => v ? (
+            <div style={{ minWidth: 180, flex: "1 1 180px" }}>
+              <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 600, marginBottom: 2 }}>{l}</div>
+              <div style={{ fontSize: 13, color: C.ink }}>{v}</div>
+            </div>
+          ) : null;
+          return (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, padding: "8px 4px" }}>
+              {label("Client", client ? cleanName(client.name) : null)}
+              {label("Email", client?.email)}
+              {label("Phone", client?.phone)}
+              {label("Session", session ? cleanName(session.name) : (r.eventName || null))}
+              {label("Session date/time", formatRegistrationDateTime(r.scheduledAt))}
+              {label("Timezone", r.timezone)}
+              {label("Location type", r.locationType)}
+              {label("Location address", r.locationAddress)}
+              {label("Join URL", r.locationJoinUrl ? <a href={r.locationJoinUrl} target="_blank" rel="noreferrer" style={{ color: C.brand }}>{r.locationJoinUrl}</a> : null)}
+              {label("Attendance type", r.attendanceType)}
+              {label("Payment status", r.paymentStatus)}
+              {label("Calendly amount", calendlyBookingAmount(r) != null ? money(calendlyBookingAmount(r)) : null)}
+              {label("Paid amount", r.paidAmount != null ? money(r.paidAmount) : null)}
+              {label("Paid at", r.paidAt ? formatRegistrationDateTime(r.paidAt) : null)}
+              {label("Stripe verified", r.stripeVerified ? "✓ Yes" : "No")}
+              {label("Stripe charge ID", r.stripeChargeId)}
+              {label("Stripe payment intent", r.stripePaymentIntentId)}
+              {label("Amount refunded", r.amountRefunded > 0 ? money(r.amountRefunded) : null)}
+              {label("Waiver", r.waiverStatus)}
+              {label("Checked in", r.checkedIn ? "✓ Yes" : null)}
+              {label("Attended", r.attended ? "✓ Yes" : null)}
+              {label("No-show", r.noShow ? "✓ Yes" : null)}
+              {label("Done breathwork before", r.doneBreathworkBefore)}
+              {label("How heard", r.howHeard)}
+              {label("Referred by", r.referredBy)}
+              {label("Concerns", r.concerns)}
+              {label("Reviewed contraindications", r.reviewedContraindications)}
+              {label("Calendly invitee URI", r.calendlyInviteeUri ? <span style={{ fontSize: 11, color: C.ink3, wordBreak: "break-all" }}>{r.calendlyInviteeUri}</span> : null)}
+              {label("Notes", r.notes)}
+            </div>
+          );
+        },
       },
       {
         name: "Pending Waivers", layout: "table",
@@ -5877,25 +5923,47 @@ const sum = (rows, k) => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
 /* ============================================================
    TABLE
    ============================================================ */
-function TableView({ columns, rows, footer, onOpen, ctx, maxHeight }) {
+function TableView({ columns, rows, footer, onOpen, ctx, maxHeight, expandRow }) {
+  const [expanded, setExpanded] = useState({});
+  const toggle = (id) => setExpanded(p => ({ ...p, [id]: !p[id] }));
   if (!rows.length) return <Empty pad>Nothing here yet. Add a record, or adjust the view.</Empty>;
   const thStyle = maxHeight
     ? { position: "sticky", top: 0, zIndex: 1, background: C.surface }
     : null;
+  const colSpan = columns.length + (expandRow ? 1 : 0);
   return (
     <div className="sb-card" style={{ overflow: "hidden" }}>
       <div style={{ overflowX: "auto", ...(maxHeight ? { maxHeight, overflowY: "auto" } : {}) }}>
         <table className="sb-table">
-          <thead><tr>{columns.map((c) => <th key={c.key} style={{ textAlign: c.align || "left", ...thStyle }}>{c.label}</th>)}</tr></thead>
+          <thead><tr>
+            {expandRow && <th style={{ width: 28, ...thStyle }} />}
+            {columns.map((c) => <th key={c.key} style={{ textAlign: c.align || "left", ...thStyle }}>{c.label}</th>)}
+          </tr></thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.id} onClick={() => onOpen(r)} className="sb-trow">
-                {columns.map((c) => <td key={c.key} style={{ textAlign: c.align || "left" }}>{c.render(r, ctx)}</td>)}
-              </tr>
+              <Fragment key={r.id}>
+                <tr className="sb-trow" onClick={() => expandRow ? toggle(r.id) : onOpen(r)} style={{ cursor: "pointer" }}>
+                  {expandRow && (
+                    <td style={{ textAlign: "center", color: C.ink3, padding: "0 6px" }}>
+                      <ChevronRight size={14} style={{ transform: expanded[r.id] ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
+                    </td>
+                  )}
+                  {columns.map((c) => <td key={c.key} style={{ textAlign: c.align || "left" }}>{c.render(r, ctx)}</td>)}
+                </tr>
+                {expandRow && expanded[r.id] && (
+                  <tr>
+                    <td />
+                    <td colSpan={colSpan - 1} style={{ padding: "4px 12px 16px", borderBottom: `1px solid ${C.lineSoft}`, background: C.surfaceAlt }}>
+                      {expandRow(r, ctx)}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
           {footer && (
             <tfoot><tr>
+              {expandRow && <td />}
               {columns.map((c, i) => (
                 <td key={c.key} style={{ textAlign: c.align || "left" }}>
                   {i === 0 ? <span style={{ color: C.ink3, fontSize: 12 }}>{footer.label} · {rows.length}</span> : (footer[c.sum] != null ? <strong>{footer[c.sum]}</strong> : "")}
