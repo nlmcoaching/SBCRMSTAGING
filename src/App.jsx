@@ -1789,6 +1789,8 @@ function registrationRevenueAmount(reg, listPrices) {
     const refunded = Number(reg.amountRefunded) || 0;
     if (!Number.isNaN(paid)) return Math.max(0, Math.round((paid - refunded) * 100) / 100);
   }
+  // Explicit $0 paidAmount (e.g. coupon/discount code) — don't fall through to list price.
+  if (reg.paidAmount != null && Number(reg.paidAmount) === 0) return 0;
   if (reg.paymentStatus === "paid" || reg.paymentStatus === "partial_refund") {
     const paid = Number(reg.paidAmount);
     if (!Number.isNaN(paid) && paid > 0) return paid;
@@ -1819,7 +1821,7 @@ function buildRegistrationRevenueRows(data = {}) {
       const session = sessions[r.sessionId];
       const client = clients[r.clientId];
       const amt = registrationRevenueAmount(r, listPrices);
-      if (amt == null || amt <= 0) return null;
+      if (amt == null) return null;
       const date = session?.date || (r.scheduledAt || "").slice(0, 10) || (r.createdAt || "").slice(0, 10);
       if (!date) return null;
       return {
@@ -1843,7 +1845,7 @@ function buildRegistrationRevenueRows(data = {}) {
         costCenter: registrationRevenueChannel(session),
         notes: "Calendly session price",
         registrationId: r.id,
-        bookedAt: r.createdAt || r.scheduledAt || "",
+        bookedAt: r.paidAt || r.createdAt || "",
         _derived: true,
       };
     })
@@ -1874,6 +1876,7 @@ function buildOfferRevenueRows(data = {}) {
         net: gross,
         costCenter: offerRevenueChannel(o.offerType),
         notes: `${o.offerType} — ${o.status}`,
+        bookedAt: o.closeDate || o.dateOffered || "",
         offerId: o.id,
         _derived: true,
       };
@@ -5633,7 +5636,14 @@ const VIEWS = {
         run: (rows) => {
           const r = [...rows]
             .map(applyStudioSessionSplit)
-            .sort((a, b) => (b.bookedAt || b.date || "").localeCompare(a.bookedAt || a.date || ""));
+            .sort((a, b) => {
+              const ta = a.bookedAt || "";
+              const tb = b.bookedAt || "";
+              if (!ta && !tb) return 0;
+              if (!ta) return 1;   // no date → bottom
+              if (!tb) return -1;  // no date → bottom
+              return tb.localeCompare(ta);  // newest first
+            });
           const netTotal = r.reduce((s, row) => s + calcNet(row), 0);
           return { rows: r, footer: { gross: money(sum(r, "gross")), net: money(netTotal), label: "All transactions (70/30 studio split on net)" } };
         } },
