@@ -13811,7 +13811,7 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
       </div>
 
       {/* Recent transactions */}
-      <Panel title="Recent transactions">
+      <Panel title="Recently Charged Sessions">
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
