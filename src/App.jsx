@@ -5334,44 +5334,53 @@ const VIEWS = {
         expandRow: (r, ctx) => {
           const client = (ctx.data.clients||[]).find(x => x.id === r.clientId);
           const session = (ctx.data.sessions||[]).find(x => x.id === r.sessionId);
-          const rowS = { display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 4 };
-          const label = (l, v) => v ? (
-            <div style={{ minWidth: 180, flex: "1 1 180px" }}>
-              <div style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 600, marginBottom: 2 }}>{l}</div>
-              <div style={{ fontSize: 13, color: C.ink }}>{v}</div>
+          const dl = { fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 600, marginBottom: 2 };
+          const dv = { fontSize: 13, color: C.ink, wordBreak: "break-word" };
+          const mono = { ...dv, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11.5 };
+          const field = (l, v, style) => v ? (
+            <div key={l}>
+              <div style={dl}>{l}</div>
+              <div style={style || dv}>{v}</div>
             </div>
           ) : null;
           return (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, padding: "8px 4px" }}>
-              {label("Client", client ? cleanName(client.name) : null)}
-              {label("Email", client?.email)}
-              {label("Phone", client?.phone)}
-              {label("Session", session ? cleanName(session.name) : (r.eventName || null))}
-              {label("Session date/time", formatRegistrationDateTime(r.scheduledAt))}
-              {label("Timezone", r.timezone)}
-              {label("Location type", r.locationType)}
-              {label("Location address", r.locationAddress)}
-              {label("Join URL", r.locationJoinUrl ? <a href={r.locationJoinUrl} target="_blank" rel="noreferrer" style={{ color: C.brand }}>{r.locationJoinUrl}</a> : null)}
-              {label("Attendance type", r.attendanceType)}
-              {label("Payment status", r.paymentStatus)}
-              {label("Calendly amount", calendlyBookingAmount(r) != null ? money(calendlyBookingAmount(r)) : null)}
-              {label("Paid amount", r.paidAmount != null ? money(r.paidAmount) : null)}
-              {label("Paid at", r.paidAt ? formatRegistrationDateTime(r.paidAt) : null)}
-              {label("Stripe verified", r.stripeVerified ? "✓ Yes" : "No")}
-              {label("Stripe charge ID", r.stripeChargeId)}
-              {label("Stripe payment intent", r.stripePaymentIntentId)}
-              {label("Amount refunded", r.amountRefunded > 0 ? money(r.amountRefunded) : null)}
-              {label("Waiver", r.waiverStatus)}
-              {label("Checked in", r.checkedIn ? "✓ Yes" : null)}
-              {label("Attended", r.attended ? "✓ Yes" : null)}
-              {label("No-show", r.noShow ? "✓ Yes" : null)}
-              {label("Done breathwork before", r.doneBreathworkBefore)}
-              {label("How heard", r.howHeard)}
-              {label("Referred by", r.referredBy)}
-              {label("Concerns", r.concerns)}
-              {label("Reviewed contraindications", r.reviewedContraindications)}
-              {label("Calendly invitee URI", r.calendlyInviteeUri ? <span style={{ fontSize: 11, color: C.ink3, wordBreak: "break-all" }}>{r.calendlyInviteeUri}</span> : null)}
-              {label("Notes", r.notes)}
+            <div style={{ padding: "10px 4px 6px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "12px 24px" }}>
+                {field("Client", client ? cleanName(client.name) : null)}
+                {field("Email", client?.email)}
+                {field("Phone", client?.phone)}
+                {field("Session", session ? cleanName(session.name) : (r.eventName || null))}
+                {field("Session date/time", formatRegistrationDateTime(r.scheduledAt))}
+                {field("Timezone", r.timezone)}
+                {field("Location type", r.locationType)}
+                {field("Location address", r.locationAddress)}
+                {field("Join URL", r.locationJoinUrl ? <a href={r.locationJoinUrl} target="_blank" rel="noreferrer" style={{ color: C.brand, wordBreak: "break-all", fontSize: 12 }}>{r.locationJoinUrl}</a> : null)}
+                {field("Attendance type", r.attendanceType)}
+                {field("Payment status", r.paymentStatus)}
+                {field("Calendly amount", calendlyBookingAmount(r) != null ? money(calendlyBookingAmount(r)) : null)}
+                {field("Paid amount", r.paidAmount != null ? money(r.paidAmount) : null)}
+                {field("Paid at", r.paidAt ? formatRegistrationDateTime(r.paidAt) : null)}
+                {field("Stripe verified", r.stripeVerified ? "✓ Yes" : null)}
+                {field("Stripe charge ID", r.stripeChargeId, mono)}
+                {field("Stripe payment intent", r.stripePaymentIntentId, mono)}
+                {field("Amount refunded", r.amountRefunded > 0 ? money(r.amountRefunded) : null)}
+                {field("Waiver", r.waiverStatus)}
+                {field("Checked in", r.checkedIn ? "✓ Yes" : null)}
+                {field("Attended", r.attended ? "✓ Yes" : null)}
+                {field("No-show", r.noShow ? "✓ Yes" : null)}
+                {field("Done breathwork before", r.doneBreathworkBefore)}
+                {field("How heard", r.howHeard)}
+                {field("Referred by", r.referredBy)}
+                {field("Concerns", r.concerns)}
+                {field("Reviewed contraindications", r.reviewedContraindications)}
+                {field("Notes", r.notes)}
+              </div>
+              {r.calendlyInviteeUri && (
+                <div style={{ marginTop: 10, fontSize: 11, color: C.ink3, wordBreak: "break-all" }}>
+                  <span style={dl}>Calendly invitee URI</span>
+                  <div>{r.calendlyInviteeUri}</div>
+                </div>
+              )}
             </div>
           );
         },
