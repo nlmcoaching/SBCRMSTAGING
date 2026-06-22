@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback, Fragment } from "react";
 import Papa from "papaparse";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell } from "recharts";
 import {
@@ -13078,11 +13078,55 @@ function registrationSessionMeta(reg, data) {
     sessionName: cleanName(session?.name || reg.eventName || "Session"),
   };
 }
+function ChargeDetails({ row }) {
+  const d = row.details || {};
+  const dl = { fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", color: C.ink3, fontWeight: 600, marginBottom: 2 };
+  const dv = { fontSize: 12.5, color: C.ink, wordBreak: "break-all" };
+  const mono = { ...dv, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" };
+  const items = [
+    { label: "Description", value: d.description || "—", style: dv },
+    { label: "Status", value: d.status || "—", style: dv },
+    { label: "Paid at", value: d.paidAt || "—", style: dv },
+    { label: "Amount", value: `${money(row.stripeAmount)} ${d.currency || ""}`.trim(), style: dv },
+    { label: "Refunded", value: d.amountRefunded ? money(d.amountRefunded) : "—", style: dv },
+    { label: "Payment method", value: d.paymentMethodType || "—", style: dv },
+    { label: "Session", value: row.matched ? `${row.sessionName}${row.channel ? ` · ${row.channel}` : ""}` : "No matching booking", style: dv },
+    { label: "Match", value: d.matchStatus || "—", style: dv },
+    { label: "Charge ID", value: d.stripeChargeId || "—", style: mono },
+    { label: "Payment intent", value: d.stripePaymentIntentId || "—", style: mono },
+    { label: "Checkout session", value: d.stripeCheckoutSessionId || "—", style: mono },
+    { label: "Event ID", value: d.stripeEventId || "—", style: mono },
+  ];
+  return (
+    <div style={{ paddingTop: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "12px 24px" }}>
+        {items.map(it => (
+          <div key={it.label}>
+            <div style={dl}>{it.label}</div>
+            <div style={it.style}>{it.value}</div>
+          </div>
+        ))}
+      </div>
+      {(d.receiptUrl || d.notes) && (
+        <div style={{ marginTop: 12, display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center" }}>
+          {d.receiptUrl && (
+            <a href={d.receiptUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, color: "#2F6FD0", display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <ArrowUpRight size={13} /> View Stripe receipt
+            </a>
+          )}
+          {d.notes && <div style={{ fontSize: 12, color: C.ink3 }}>{d.notes}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
 function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe, stripeStatus, canEdit }) {
   const payments = data.payments || [];
   const registrations = data.registrations || [];
   const clients = data.clients || [];
   const repaired = useRef(false);
+  const [expandedCharges, setExpandedCharges] = useState({});
+  const toggleCharge = (id) => setExpandedCharges(prev => ({ ...prev, [id]: !prev[id] }));
 
   // One-time repair: undo stale "unmatched" booking labels and re-run FIFO matching.
   useEffect(() => {
@@ -13129,12 +13173,28 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
           name: cleanName(client?.name || p.customerEmail || "—"),
           email: client?.email || p.customerEmail || "",
           sessionName: meta?.sessionName || (booking ? cleanName(booking.eventName || "Session") : null),
+          channel: meta?.channel || null,
           matched: !!booking,
           bookedDisplay: formatRegistrationDateTime(booking ? booking.createdAt : (p.paidAt || p.createdAt)),
           sortTs: booking ? registrationCreatedTimestamp(booking) : ts(p.paidAt || p.createdAt),
           expected,
           stripeAmount: amt,
           sessionAmount: amt,
+          details: {
+            description: p.description || "",
+            status: p.status || "",
+            currency: (p.currency || "usd").toUpperCase(),
+            paidAt: formatRegistrationDateTime(p.paidAt) || "—",
+            paymentMethodType: p.paymentMethodType || "",
+            amountRefunded: Number(p.amountRefunded) || 0,
+            stripeChargeId: p.stripeChargeId || "",
+            stripePaymentIntentId: p.stripePaymentIntentId || "",
+            stripeCheckoutSessionId: p.stripeCheckoutSessionId || "",
+            stripeEventId: p.stripeEventId || "",
+            receiptUrl: p.receiptUrl || "",
+            matchStatus: p.matchStatus || "",
+            notes: p.notes || "",
+          },
         };
       })
       .sort((a, b) => b.sortTs - a.sortTs);
@@ -13185,6 +13245,7 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
+                <th style={{ ...thS, width: 28 }}></th>
                 <th style={thS}>Name</th>
                 <th style={thS}>Session</th>
                 <th style={thS}>Booked</th>
@@ -13194,23 +13255,39 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
               </tr>
             </thead>
             <tbody>
-              {stripeCharges.map(row => (
-                <tr key={row.id}>
-                  <td style={tdS}>
-                    <strong>{row.name}</strong>
-                    {row.email && <div style={{ fontSize: 11, color: C.ink3 }}>{row.email}</div>}
-                  </td>
-                  <td style={tdS}>
-                    {row.matched
-                      ? row.sessionName
-                      : <span style={{ color: "#C0573F", fontWeight: 600 }}>No matching booking</span>}
-                  </td>
-                  <td style={tdS}>{row.bookedDisplay}</td>
-                  <td style={{ ...tdS, textAlign: "right", color: C.ink3 }}>{row.expected != null ? money(row.expected) : "—"}</td>
-                  <td style={{ ...tdS, textAlign: "right", fontWeight: 600, color: "#2D6A50" }}>{money(row.stripeAmount)}</td>
-                  <td style={{ ...tdS, textAlign: "right", fontWeight: 700 }}>{money(row.sessionAmount)}</td>
-                </tr>
-              ))}
+              {stripeCharges.map(row => {
+                const open = !!expandedCharges[row.id];
+                return (
+                  <Fragment key={row.id}>
+                    <tr onClick={() => toggleCharge(row.id)} style={{ cursor: "pointer", background: open ? C.surfaceAlt : "transparent" }}>
+                      <td style={{ ...tdS, textAlign: "center", color: C.ink3 }}>
+                        <ChevronRight size={14} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
+                      </td>
+                      <td style={tdS}>
+                        <strong>{row.name}</strong>
+                        {row.email && <div style={{ fontSize: 11, color: C.ink3 }}>{row.email}</div>}
+                      </td>
+                      <td style={tdS}>
+                        {row.matched
+                          ? row.sessionName
+                          : <span style={{ color: "#C0573F", fontWeight: 600 }}>No matching booking</span>}
+                      </td>
+                      <td style={tdS}>{row.bookedDisplay}</td>
+                      <td style={{ ...tdS, textAlign: "right", color: C.ink3 }}>{row.expected != null ? money(row.expected) : "—"}</td>
+                      <td style={{ ...tdS, textAlign: "right", fontWeight: 600, color: "#2D6A50" }}>{money(row.stripeAmount)}</td>
+                      <td style={{ ...tdS, textAlign: "right", fontWeight: 700 }}>{money(row.sessionAmount)}</td>
+                    </tr>
+                    {open && (
+                      <tr>
+                        <td></td>
+                        <td colSpan={6} style={{ padding: "4px 12px 16px", borderBottom: `1px solid ${C.lineSoft}`, background: C.surfaceAlt }}>
+                          <ChargeDetails row={row} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         )}

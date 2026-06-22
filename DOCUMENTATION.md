@@ -856,7 +856,7 @@ Revenue views are built from **Stripe-verified booking amounts** (when matched) 
 
 | Section | Purpose |
 |---|---|
-| Stripe charges | One row per Stripe charge (`status: "paid"`), tied to the Calendly session it paid for. Columns: **Name, Session, Booked, Expected, Stripe, Session amount** (sorted by booked date, most recent first). A charge with no booking within the match window shows "No matching booking". |
+| Stripe charges | One row per Stripe charge (`status: "paid"`), tied to the Calendly session it paid for. Columns: **Name, Session, Booked, Expected, Stripe, Session amount** (sorted by booked date, most recent first). A charge with no booking within the match window shows "No matching booking". **Click a row to expand** a details panel (`ChargeDetails`) showing description, status, paid-at, amount/currency, refunded amount, payment method, tied session, match status, Stripe charge / payment-intent / checkout-session / event IDs, a link to the Stripe receipt, and any notes. |
 | Bookings awaiting a Stripe charge | Calendly bookings still in `pending_verification` (booked but no charge tied yet). |
 | Refunds | Stripe refund events affecting revenue. |
 
