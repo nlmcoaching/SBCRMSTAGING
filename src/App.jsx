@@ -4353,16 +4353,19 @@ function PipelineSnapshot({ data, today }) {
 
   const tiles = [
     {
-      label: "Open offer pipeline",
-      value: money(openPipelineVal),
-      sub: `${openOffers.length} offers · ${money(Math.round(openPipelineWt))} weighted`,
-      accent: C.brand, Icon: TrendingUp,
-    },
-    {
-      label: "Studio partner pipeline",
-      value: money(studioPipeVal),
-      sub: `${studioPartners.length} studios active`,
-      accent: "#6B5CE7", Icon: Building2,
+      label: "Operating profit MTD",
+      value: (() => {
+        const exp = (data.expenses||[]).filter(e=>(e.date||"").startsWith(mo)).reduce((s,e)=>s+(+e.amount||0),0);
+        const net = buildRevenueViewRows(data).filter(r=>(r.date||"").startsWith(mo)).map(applyStudioSessionSplit).reduce((s,r)=>s+calcNet(r),0);
+        return money(net - exp);
+      })(),
+      sub: "net session revenue minus expenses",
+      accent: (() => {
+        const exp = (data.expenses||[]).filter(e=>(e.date||"").startsWith(mo)).reduce((s,e)=>s+(+e.amount||0),0);
+        const net = buildRevenueViewRows(data).filter(r=>(r.date||"").startsWith(mo)).map(applyStudioSessionSplit).reduce((s,r)=>s+calcNet(r),0);
+        return (net-exp) >= 0 ? "#16A34A" : "#E05454";
+      })(),
+      Icon: TrendingUp,
     },
     {
       label: "Expected 30-day revenue",
@@ -4375,18 +4378,6 @@ function PipelineSnapshot({ data, today }) {
       value: money(bookedNotDelVal),
       sub: `${bookedNotDel} upcoming session${bookedNotDel !== 1 ? "s" : ""}`,
       accent: C.ink2, Icon: Clock,
-    },
-    {
-      label: "Delivered, unpaid",
-      value: money(unpaidVal),
-      sub: `${unpaidSessions.length} session${unpaidSessions.length !== 1 ? "s" : ""} pending payment`,
-      accent: unpaidVal > 0 ? "#E05454" : C.ink3, Icon: AlertCircle,
-    },
-    {
-      label: "Offers awaiting response",
-      value: money(awaitingVal),
-      sub: `${awaitingOffers.length} offer${awaitingOffers.length !== 1 ? "s" : ""} sent or viewed`,
-      accent: C.gold, Icon: Send,
     },
     {
       label: "Avg client value",
@@ -4407,25 +4398,28 @@ function PipelineSnapshot({ data, today }) {
       accent: "#4A8C6F", Icon: Check,
     },
     {
+      label: "Open offer pipeline",
+      value: money(openPipelineVal),
+      sub: `${openOffers.length} offers · ${money(Math.round(openPipelineWt))} weighted`,
+      accent: C.brand, Icon: TrendingUp,
+    },
+    {
+      label: "Studio partner pipeline",
+      value: money(studioPipeVal),
+      sub: `${studioPartners.length} studios active`,
+      accent: "#6B5CE7", Icon: Building2,
+    },
+    {
+      label: "Offers awaiting response",
+      value: money(awaitingVal),
+      sub: `${awaitingOffers.length} offer${awaitingOffers.length !== 1 ? "s" : ""} sent or viewed`,
+      accent: C.gold, Icon: Send,
+    },
+    {
       label: "Expenses MTD",
       value: money((data.expenses||[]).filter(e=>(e.date||"").startsWith(today.slice(0,7))).reduce((s,e)=>s+(+e.amount||0),0)),
       sub: "operating costs this month",
       accent: "#EF4444", Icon: Receipt,
-    },
-    {
-      label: "Operating profit MTD",
-      value: (() => {
-        const exp = (data.expenses||[]).filter(e=>(e.date||"").startsWith(mo)).reduce((s,e)=>s+(+e.amount||0),0);
-        const net = buildRevenueViewRows(data).filter(r=>(r.date||"").startsWith(mo)).map(applyStudioSessionSplit).reduce((s,r)=>s+calcNet(r),0);
-        return money(net - exp);
-      })(),
-      sub: "net session revenue minus expenses",
-      accent: (() => {
-        const exp = (data.expenses||[]).filter(e=>(e.date||"").startsWith(mo)).reduce((s,e)=>s+(+e.amount||0),0);
-        const net = buildRevenueViewRows(data).filter(r=>(r.date||"").startsWith(mo)).map(applyStudioSessionSplit).reduce((s,r)=>s+calcNet(r),0);
-        return (net-exp) >= 0 ? "#16A34A" : "#E05454";
-      })(),
-      Icon: TrendingUp,
     },
   ];
 
