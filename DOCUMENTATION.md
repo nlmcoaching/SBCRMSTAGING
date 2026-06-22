@@ -261,7 +261,7 @@ The dashboard is the daily starting point. It surfaces the most important inform
 
 | Metric | Source |
 |---|---|
-| Net Revenue MTD | Net revenue for the current calendar month: gross session prices minus studio splits (30% on studio sessions), calculated using `buildRevenueViewRows` → `applyStudioSessionSplit` → `calcNet`. Includes registrations with `pending_verification`, `unmatched`, and `unknown` payment statuses (at Calendly list price); excludes `unpaid`, `failed`, `refunded`. Clicking the card navigates to Revenue → **This month**. |
+| Gross Revenue MTD | Total gross session prices for the current calendar month (virtual + studio, before any splits). Calculated using `buildRevenueViewRows` → sum of `gross`. Includes registrations with `pending_verification`, `unmatched`, and `unknown` payment statuses (at Calendly list price); excludes `unpaid`, `failed`, `refunded`. Clicking the card navigates to Revenue → **This month**. |
 | Referral Revenue | Revenue from clients whose source is "Referral" |
 | Active Clients | Total number of clients in the system |
 | Active Sequences | Follow-up sequences with pending steps |

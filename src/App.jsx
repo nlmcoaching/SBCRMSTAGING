@@ -3156,15 +3156,16 @@ export default function App() {
     const yr = today.slice(0, 4);
     const expensesMTD = (data.expenses||[]).filter(e => (e.date||"").startsWith(mo)).reduce((s,e) => s + (+e.amount||0), 0);
     const expensesYTD = (data.expenses||[]).filter(e => (e.date||"").startsWith(yr)).reduce((s,e) => s + (+e.amount||0), 0);
-    // Net revenue MTD: use the same pipeline as Revenue → This month so studio splits (70/30) are deducted.
-    const netRevMTD = buildRevenueViewRows(data)
+    // Revenue MTD: gross = full session prices; net = after studio splits deducted.
+    const mtdRows = buildRevenueViewRows(data)
       .filter(r => (r.date || "").startsWith(mo))
-      .map(applyStudioSessionSplit)
-      .reduce((s, r) => s + calcNet(r), 0);
+      .map(applyStudioSessionSplit);
+    const grossRevMTD = mtdRows.reduce((s, r) => s + (r.gross || 0), 0);
+    const netRevMTD   = mtdRows.reduce((s, r) => s + calcNet(r), 0);
     const opProfit    = netRevMTD - expensesMTD;
     const opMargin    = netRevMTD > 0 ? Math.round((opProfit / netRevMTD) * 100) : null;
 
-    return { partnerName, clientName, acceptedByClient, sessionsByStudio, expensesMTD, expensesYTD, netRevMTD, opProfit, opMargin };
+    return { partnerName, clientName, acceptedByClient, sessionsByStudio, expensesMTD, expensesYTD, grossRevMTD, netRevMTD, opProfit, opMargin };
   }, [data, today]);
 
   if (needsSetup) return <FirstRunSetup onSetup={handleSetupOwner} error={pinError} />;
@@ -4785,7 +4786,7 @@ function Today({ data, derived, today, onOpen, onGo, setData, currentUser, canEd
     operational:  actions.filter(a => a.category === "operational"),
   };
 
-  const mtdRevenue = derived.netRevMTD;
+  const mtdRevenue = derived.grossRevMTD;
   const activeSeqs   = (data.sequences || []).filter(s => s.status === "active").length;
   const refRevenue   = (data.referrals || []).reduce((a, r) => a + (Number(r.revenue) || 0), 0);
   const activeMembers = (data.clients || []).length;
@@ -4946,7 +4947,7 @@ function Today({ data, derived, today, onOpen, onGo, setData, currentUser, canEd
 
       {/* Stats */}
       <div className="sb-stats">
-        <Stat label="Net revenue MTD"   value={money(mtdRevenue)}  hint="virtual + studio session prices this month" onClick={() => onGo("revenue", 1)} />
+        <Stat label="Gross revenue MTD"  value={money(mtdRevenue)}  hint="virtual + studio session prices this month" onClick={() => onGo("revenue", 1)} />
         <Stat label="Referral revenue"  value={money(refRevenue)}  hint="from all referrals" accent={refRevenue > 0 ? "#4A8C6F" : C.ink3} onClick={() => onGo("referrals")} />
         <Stat label="Active clients"    value={activeMembers}      hint="total clients in system"            onClick={() => onGo("clients")} />
         <Stat label="Active sequences"  value={activeSeqs}         hint="clients in follow-up nurture"       onClick={() => onGo("engine")} />

@@ -147,7 +147,7 @@ Start every working day here. The Today dashboard is designed to answer one ques
 ### Stats Row
 
 Four numbers at the top give you an instant health check:
-- **Net Revenue MTD** — Net revenue for the current month after deducting studio partner splits (studio sessions are 70/30). Click to open Revenue → **This month**.
+- **Gross Revenue MTD** — Total gross session prices for the current month (virtual + studio, before any splits are deducted). Click to open Revenue → **This month**.
 - **Referral Revenue** — Revenue that came from referrals
 - **Active Clients** — Total number of clients in the system
 - **Active Sequences** — Clients currently in a follow-up sequence
