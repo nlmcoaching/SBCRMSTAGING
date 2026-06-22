@@ -3232,7 +3232,7 @@ export default function App() {
     { id: "expenses", label: "Expenses",           Icon: BarChart2,   lane: "core" },
     { id: "workflows", label: "Workflows",        Icon: Milestone,   lane: "core" },
     { id: "registrations", label: "Calendly Bookings", Icon: CalendarCheck, lane: "core" },
-    { id: "stripe",    label: "Stripe",            Icon: Receipt,     lane: "core", parent: "registrations" },
+    { id: "stripe",    label: "Stripe",            Icon: Receipt,     lane: "core" },
     { id: "content",   label: "Content Calendar",  Icon: Megaphone,   lane: "core" },
     { id: "templates", label: "Templates",          Icon: Copy,        lane: "core" },
     { id: "admin",     label: "Admin",              Icon: Shield,      lane: "core" },
@@ -3335,7 +3335,8 @@ export default function App() {
                 const active = section === s.id;
                 const count = (data[s.id] || []).length;
                 const children = sections.filter(c => c.parent === s.id);
-                const expanded = children.length > 0;
+                const anyChildActive = children.some(c => c.id === section);
+                const expanded = active || anyChildActive;
                 return (
                   <div key={s.id}>
                     <button onClick={() => go(s.id)} className="sb-navbtn"

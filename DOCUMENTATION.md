@@ -852,7 +852,7 @@ Revenue views are built from **Stripe-verified booking amounts** (when matched) 
 
 ### Stripe (Payment Reconciliation) View
 
-**Navigation:** Sidebar → Calendly Bookings → **Stripe** (a sub-item beneath Calendly Bookings; renders the `payment-reconciliation` layout from the `stripe` section)
+**Navigation:** Sidebar → **Stripe** (a top-level sidebar item; renders the `payment-reconciliation` layout from the `stripe` section)
 
 | Section | Purpose |
 |---|---|

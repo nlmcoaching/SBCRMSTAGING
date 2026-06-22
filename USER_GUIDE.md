@@ -539,7 +539,7 @@ All bookings that come through Calendly are automatically marked as **waiver sig
 
 When a booking arrives, the system automatically fetches the event type description from Calendly and stores it on the session record. This description powers the **ⓘ popup** on virtual session cards.
 
-Payment amounts show the event type’s configured **session price** (Internal Note in Calendly). When someone books a paid session, **payment status** starts as **Pending verification** until Stripe confirms the charge (see Stripe under Calendly Bookings).
+Payment amounts show the event type’s configured **session price** (Internal Note in Calendly). When someone books a paid session, **payment status** starts as **Pending verification** until Stripe confirms the charge (see the Stripe sidebar item).
 
 > **Setup required:** Descriptions and session prices need a Calendly Personal Access Token. Stripe payment matching needs a Stripe webhook — ask your administrator to configure both (see Tracking Revenue).
 
@@ -695,7 +695,7 @@ When a target converts to an active partner, link them to a Studio Partner recor
 
 ### Stripe payment reconciliation
 
-**Navigate to:** Sidebar → Calendly Bookings → **Stripe**
+**Navigate to:** Sidebar → **Stripe**
 
 **How it works:**
 
