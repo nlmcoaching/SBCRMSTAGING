@@ -1301,6 +1301,87 @@ function normalizeCrmData(d) {
   return out;
 }
 
+/**
+ * Self-healing for studio partners. Recreates a partner record when a session references a
+ * studio (by a "Studio - Location" name or a dangling studioId) but the partner is missing —
+ * restoring links lost to a data wipe/delete. Virtual 1:1 sessions are never turned into
+ * studio partners. Returns { sessions, partners, changed }.
+ */
+function healStudioPartners(sessionsIn, partnersIn) {
+  const sessions = (sessionsIn || []).map(s => ({ ...s }));
+  const partners = [...(partnersIn || [])];
+  const byId = new Map(partners.map(p => [p.id, p]));
+  const byName = new Map(partners.filter(p => p.name).map(p => [cleanName(p.name).toLowerCase(), p]));
+  let changed = false;
+
+  const looksVirtual = (s) =>
+    s.locationType === "zoom" || s.locationType === "custom" || /\b(virtual|zoom|online)\b/i.test(s.name || "");
+  // Studio sessions are stored as "Studio Name - Location"; pull the studio name + location.
+  const parseStudio = (s) => {
+    const name = cleanName(s.name || "");
+    const parts = name.split(/\s[–-]\s/);
+    if (parts.length >= 2 && parts[0].trim().length > 2) {
+      return { name: parts[0].trim(), location: parts.slice(1).join(" - ").trim() || s.locationAddress || "" };
+    }
+    return null;
+  };
+  const makePartner = (id, name, location) => ({
+    id, name, location: location || "", studioType: "Yoga",
+    contact: "", role: "", email: "", phone: "",
+    stage: "Recurring partner",
+    estimatedCommunitySize: 0, bestFitJourney: "", revenuePotential: 0,
+    closeProbability: "Closed Won", revShare: "",
+    contractStatus: "None", outreachDate: "", lastTouch: "",
+    nextAction: "", avgAttendance: 0, sessionsPerMonth: 0,
+    insuranceReqs: "", promotionCommitments: "",
+    notes: "Re-created automatically from existing session data (studio partner record was missing).",
+    checklist: emptyChecklist(),
+  });
+
+  for (const s of sessions) {
+    // Case A: studioId set but the partner is gone — recreate it with the SAME id so every
+    // session sharing that studioId re-links at once.
+    if (s.studioId && !byId.has(s.studioId)) {
+      const parsed = parseStudio(s);
+      if (parsed?.name) {
+        const existing = byName.get(parsed.name.toLowerCase());
+        if (existing) {
+          if (s.studioId !== existing.id) { s.studioId = existing.id; changed = true; }
+        } else {
+          const np = makePartner(s.studioId, parsed.name, parsed.location);
+          partners.push(np); byId.set(np.id, np); byName.set(parsed.name.toLowerCase(), np);
+          changed = true;
+        }
+      }
+      continue;
+    }
+    // Case B: no studioId, but the session is clearly an in-person studio booking
+    // (physical location + a "Studio - Location" name). Never matches virtual 1:1s.
+    if (!s.studioId && !looksVirtual(s)) {
+      const physical = s.locationType === "physical"
+        || (!!s.locationAddress && s.locationType !== "zoom" && s.locationType !== "custom");
+      const parsed = parseStudio(s);
+      if (parsed?.name && physical) {
+        const existing = byName.get(parsed.name.toLowerCase());
+        if (existing) { s.studioId = existing.id; changed = true; }
+        else {
+          const np = makePartner(uid("sp"), parsed.name, parsed.location);
+          partners.push(np); byId.set(np.id, np); byName.set(parsed.name.toLowerCase(), np);
+          s.studioId = np.id; changed = true;
+        }
+      }
+    }
+  }
+  return { sessions: changed ? sessions : sessionsIn, partners: changed ? partners : partnersIn, changed };
+}
+
+/** Apply studio-partner self-healing to a full CRM data object (no-op if nothing changed). */
+function healStudioPartnersData(d) {
+  if (!d || typeof d !== "object") return d;
+  const { sessions, partners, changed } = healStudioPartners(d.sessions, d.partners);
+  return changed ? { ...d, sessions, partners } : d;
+}
+
 /* ── USER MANAGEMENT ── */
 const USER_ROLES = ["Owner", "Admin", "Editor", "Viewer"];
 const USER_ROLE_COLOR = { Owner: "#4A8C6F", Admin: "#2E6FB0", Editor: C.brand, Viewer: C.ink3 };
@@ -2257,7 +2338,7 @@ export default function App() {
         try {
           const dec = normalizeCrmData(await Sec.decrypt(encRaw.value, masterKey));
           if (Sec.validate(dec)) {
-            setData(dec);
+            setData(healStudioPartnersData(dec));
             // Restore CRM settings from encrypted store — preferred over unencrypted localStorage cache
             if (dec._settings && typeof dec._settings === "object") {
               const s = parseCrmSettings(dec._settings);
@@ -2491,6 +2572,14 @@ export default function App() {
             sessionsNeedingDesc.push({ ...updated });
           }
         });
+
+        // Recreate any studio partners that are referenced by a session but missing from the
+        // partners table (restores links lost to a wipe/delete), then re-link those sessions.
+        const healed = healStudioPartners(sessions, partners);
+        if (healed.changed) {
+          sessions.splice(0, sessions.length, ...healed.sessions);
+          partners.splice(0, partners.length, ...healed.partners);
+        }
 
         if (!events.length) {
           const refreshedSessions = refreshCalendlySessionRevenue(sessions, registrations);
@@ -6016,7 +6105,25 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
   const sessionClientName = {};
   Object.entries(sessionClientNames).forEach(([sid, names]) => { sessionClientName[sid] = names[0]; });
 
-  const isStudio = (s) => !!(s.studioId && derived.partnerName[s.studioId]);
+  // Resolve the studio partner for a session. Prefer studioId, but fall back to matching a
+  // partner by name in the session name / location address when studioId is missing or points
+  // to a deleted/re-created partner. Keeps studio bookings styled correctly even when the
+  // studioId backfill hasn't run yet. Virtual (zoom/custom or "virtual" in the name) is excluded.
+  const partnersList = data?.partners || [];
+  const looksVirtual = (s) =>
+    s.locationType === "zoom" || s.locationType === "custom" || /\b(virtual|zoom|online)\b/i.test(s.name || "");
+  const resolveStudioName = (s) => {
+    if (s.studioId && derived.partnerName[s.studioId]) return cleanName(derived.partnerName[s.studioId]);
+    if (looksVirtual(s)) return "";
+    const hay = `${s.name || ""} ${s.locationAddress || ""}`.toLowerCase();
+    const match = partnersList.find(p => {
+      if (!p.name) return false;
+      const pName = p.name.replace(/^sample\s*-\s*/i, "").toLowerCase();
+      return pName.length > 2 && hay.includes(pName);
+    });
+    return match ? cleanName(match.name) : "";
+  };
+  const isStudio = (s) => !!resolveStudioName(s);
 
   const spotsLeft = (s) => {
     const cap = Number(s.capacity) || 0;
@@ -6033,7 +6140,7 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
   };
 
   const pillLabel = (s) => {
-    const partner = derived.partnerName[s.studioId] ? cleanName(derived.partnerName[s.studioId]) : "";
+    const partner = resolveStudioName(s);
     const clientName = sessionClientName[s.id] || "";
     const rawName = cleanName(s.name);
     let journeyLabel = partner
@@ -6054,7 +6161,8 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
   };
 
   const pillTitle = (s) => {
-    const partner = derived.partnerName[s.studioId] ? `@ ${cleanName(derived.partnerName[s.studioId])}` : "";
+    const studioName = resolveStudioName(s);
+    const partner = studioName ? `@ ${studioName}` : "";
     const clientName = sessionClientName[s.id] || "";
     const spots = spotsLeft(s);
     const spotsInfo = spots != null ? `${spots} of ${s.capacity} spots remaining` : "";

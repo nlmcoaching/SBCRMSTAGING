@@ -401,7 +401,7 @@ The Sessions calendar shows one month at a time. Each session appears as a color
 
 Hover over any pill to see the full session name, studio, client name, and exact spots remaining. Click any pill to open that session's record drawer.
 
-> **Note:** Studio sessions booked through Calendly are automatically linked to the correct studio partner by matching the studio name in the event name. If no matching partner exists, one is created automatically. Any previously synced sessions without a studio link are corrected on the next sync.
+> **Note:** Studio sessions booked through Calendly are automatically linked to the correct studio partner by matching the studio name in the event name. If no matching partner exists, one is created automatically. The calendar also recognizes a studio booking by the studio name in the session name or address, so it shows the purple studio styling even if the studio link hasn't been saved yet. Any previously synced sessions without a studio link are corrected on the next sync.
 
 ### Session Details Tab
 
