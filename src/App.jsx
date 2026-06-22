@@ -13084,7 +13084,7 @@ function ChargeDetails({ row }) {
   const dv = { fontSize: 12.5, color: C.ink, wordBreak: "break-all" };
   const mono = { ...dv, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" };
   const items = [
-    { label: "Description", value: d.description || "—", style: dv },
+    { label: "Session date & time", value: d.sessionDateTime || "—", style: dv },
     { label: "Status", value: d.status || "—", style: dv },
     { label: "Paid at", value: d.paidAt || "—", style: dv },
     { label: "Amount", value: `${money(row.stripeAmount)} ${d.currency || ""}`.trim(), style: dv },
@@ -13181,7 +13181,7 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
           stripeAmount: amt,
           sessionAmount: amt,
           details: {
-            description: p.description || "",
+            sessionDateTime: booking ? (formatRegistrationDateTime(booking.scheduledAt) || "—") : "—",
             status: p.status || "",
             currency: (p.currency || "usd").toUpperCase(),
             paidAt: formatRegistrationDateTime(p.paidAt) || "—",

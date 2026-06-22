@@ -705,7 +705,7 @@ This is fully automatic — there is no manual matching to do.
 
 **The Payment reconciliation page has:**
 
-1. **Stripe charges** — every Stripe payment, tied to its Calendly session, with the amounts above. **Click any row** to expand it and see the full charge details (description, status, paid date, payment method, refund amount, Stripe IDs, a link to the Stripe receipt, and notes).
+1. **Stripe charges** — every Stripe payment, tied to its Calendly session, with the amounts above. **Click any row** to expand it and see the full charge details (session date & time, status, paid date, payment method, refund amount, Stripe IDs, a link to the Stripe receipt, and notes).
 2. **Bookings awaiting a Stripe charge** — sessions booked but with no charge pulled yet (they appear here until the next sync ties a charge to them).
 3. **Refunded payments** — any refunds.
 
