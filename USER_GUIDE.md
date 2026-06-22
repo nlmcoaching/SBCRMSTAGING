@@ -59,6 +59,8 @@ Type your PIN in the box and press Enter (or tap the arrow button).
 
 If your PIN is correct, you'll go straight to the **Today — Command Center** dashboard. This happens every time you log in, so your daily action list is always the first thing you see. If you forget your PIN, an Owner or Admin can reset it for you in User Management.
 
+If you see **"Data integrity check failed"**, hard-refresh the page and try again — the app can usually repair missing table structure automatically. If it still fails, restore from a JSON backup (Admin → Storage & Backup → Download Backup).
+
 > **Note:** Your PIN protects your data. Don't share it with others.
 
 > **Auto-lock:** The app locks itself after 15 minutes with no activity. Simply re-enter your PIN to continue.
@@ -506,6 +508,8 @@ When a client books through your Calendly link, the CRM automatically:
 
 At the bottom of the sidebar you'll see a **Calendly sync status indicator**. The CRM syncs automatically every **5 minutes** in the background — no action needed.
 
+Each sync also **pulls recent bookings directly from Calendly** (not just webhooks), so new bookings appear even if a webhook was missed while ngrok or the backend was offline.
+
 On the **Calendly Bookings** page, click the **refresh icon** (↻) in the top bar to pull in new bookings right away instead of waiting for the next automatic sync.
 
 The indicator shows:
@@ -691,15 +695,23 @@ When a target converts to an active partner, link them to a Studio Partner recor
 
 ### Stripe payment reconciliation
 
-Calendly tells the CRM **who booked** and **expected session price**. **Stripe** is the source of truth for what was actually paid.
+**Simple workflow:**
+
+1. Calendly booking arrives (may show a list price from Calendly).
+2. Click **Sync Stripe now** → CRM checks Stripe for a charge with the **same email**.
+3. **Stripe charge found** → booking stays in **Pending verification** until matched (oldest booking ↔ oldest payment).
+4. **No Stripe charge for that email** → treated as a **free session** ($0 revenue) and logged in **Amount reconciliation log** (Expected Calendly price → $0 Stripe).
+5. **Matched or adjusted** → also logged there with Expected, Stripe, and Session amount columns.
 
 1. Open **Revenue → Payment reconciliation**.
-2. Review **Unmatched Stripe payments** — use the dropdown to link a payment to the correct booking if auto-match did not run.
-3. Check **Pending verification** — bookings waiting for a Stripe charge (usually clears within minutes of checkout).
-4. Watch **Amount mismatches** — if Calendly expected price and Stripe differ, the CRM updates the session amount to Stripe and shows client name, session, date, studio/virtual type, expected vs Stripe amounts.
-5. **Recently verified payments** lists bookings Stripe has confirmed — name, session, date, type, and paid session amount (newest first).
+2. Click **Sync Stripe now** after new bookings or test checkouts.
+3. **Pending verification** — only bookings where Stripe has a charge for the same email waiting to match.
+4. **Unlinked Stripe payments** — orphan Stripe charges (use **Match** to link manually).
+5. **Amount reconciliation log** — all resolved bookings: Stripe matches, amount adjustments, and free sessions (Expected / Stripe / Session amount).
 
-Click **Sync Stripe now** to pull new payments immediately (the CRM also checks every 5 minutes).
+**Important:** Calendly email and Stripe checkout email must match. A booking under `jeff@simplybreathe.ai` will not match a Stripe payment for `jeffreywmason@yahoo.com`.
+
+Click **Sync Stripe now** to pull new payments immediately (the CRM also checks every 5 minutes). Sync reloads the full Stripe ledger from the backend so payments are not lost after a refresh.
 
 **Administrator setup:** In Stripe Dashboard → Developers → Webhooks, add endpoint `https://YOUR-BACKEND-URL/api/webhooks/stripe` and subscribe to: `checkout.session.completed`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.refund.updated`. Copy the signing secret into `STRIPE_WEBHOOK_SECRET` in `backend/.env`. For production, also set `FRONTEND_SECRET` and `TRUST_PROXY=1` when the backend sits behind ngrok or your reverse proxy.
 

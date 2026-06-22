@@ -822,6 +822,154 @@ app.post("/api/webhooks/stripe", async (req, res) => {
   res.status(200).json({ status: "queued", id: extracted.id });
 });
 
+/** Build a queue event from Calendly REST API objects (same shape as webhook extractEvent). */
+function buildInviteeCreatedFromApi(invitee, scheduled) {
+  const location = scheduled.location || {};
+  const answers = {};
+  (invitee.questions_and_answers || []).forEach(({ question, answer }) => {
+    const key = String(question || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+    answers[key] = answer || "";
+  });
+
+  const payment = invitee.payment || null;
+  const rawAmount = payment?.amount;
+  const paymentAmount = rawAmount != null
+    ? (typeof rawAmount === "number" ? rawAmount : parseFloat(rawAmount))
+    : null;
+
+  return {
+    id:                 `evt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    receivedAt:         new Date().toISOString(),
+    processed:          false,
+    eventType:          "invitee.created",
+    source:             "calendly_api_pull",
+    name:               invitee.name || "",
+    email:              (invitee.email || "").toLowerCase(),
+    phone:              answers.phone_number || answers.phone || invitee.text_reminder_number || "",
+    timezone:           invitee.timezone || "",
+    calendlyInviteeUri: invitee.uri || "",
+    calendlyEventUri:   scheduled.uri || "",
+    calendlyEventTypeUri: scheduled.event_type || "",
+    eventName:          scheduled.name || "",
+    description:        scheduled.description || "",
+    startTime:          scheduled.start_time || "",
+    endTime:            scheduled.end_time || "",
+    createdAt:          invitee.created_at || "",
+    locationType:       location.type || "",
+    locationJoinUrl:    location.join_url || "",
+    locationAddress:    location.location || "",
+    rescheduled:        invitee.rescheduled || false,
+    doneBreathworkBefore: answers.have_you_done_breathwork_before || answers.breathwork_before || "",
+    howHeard:           answers.how_did_you_hear_about_us || answers.how_did_you_find_us || "",
+    referredBy:         answers.who_referred_you || answers.referred_by || "",
+    concerns:           answers.any_physical_or_emotional_concerns || answers.concerns || "",
+    attendanceType:     answers.attending_virtually_or_in_person || answers.attendance_type || "",
+    reviewedContraindications: answers.have_you_reviewed_contraindications || answers.contraindications || "",
+    customAnswers:      answers,
+    utmSource:          invitee.tracking?.utm_source || "",
+    utmMedium:          invitee.tracking?.utm_medium || "",
+    utmCampaign:        invitee.tracking?.utm_campaign || "",
+    paymentAmount:      paymentAmount != null && !Number.isNaN(paymentAmount) ? paymentAmount : null,
+    paidAmount:         paymentAmount != null && !Number.isNaN(paymentAmount) ? paymentAmount : null,
+    paymentCurrency:    payment?.currency || "",
+    paymentSuccessful:  payment?.successful === true,
+  };
+}
+
+async function enrichCalendlyQueueEvent(extracted) {
+  const eventTypeUri = extracted.calendlyEventTypeUri || "";
+  if (eventTypeUri) {
+    extracted.description = await fetchEventTypeDescription(eventTypeUri) || extracted.description;
+  }
+  if (extracted.calendlyInviteeUri) {
+    const pay = await fetchInviteePayment(extracted.calendlyInviteeUri, eventTypeUri);
+    if (pay) {
+      if (pay.paymentAmount != null) extracted.paymentAmount = pay.paymentAmount;
+      if (pay.paidAmount != null || pay.paymentSuccessful != null) extracted.paidAmount = pay.paidAmount;
+      if (pay.paymentSuccessful != null) extracted.paymentSuccessful = pay.paymentSuccessful === true;
+      extracted.paymentPriceSource = pay.priceSource || "";
+    }
+  } else if (extracted.paymentAmount == null && eventTypeUri) {
+    const price = await fetchEventTypePrice(eventTypeUri);
+    if (price != null) {
+      extracted.paymentAmount = price;
+      extracted.paymentSuccessful = false;
+      extracted.paymentPriceSource = "event_type";
+    }
+  }
+  return extracted;
+}
+
+/** Fetch recent Calendly bookings via API and queue any missing invitees (webhook fallback). */
+async function pullRecentCalendlyBookings(daysBack = 30) {
+  const token = process.env.CALENDLY_API_TOKEN;
+  if (!token) {
+    return { added: 0, skipped: 0, scanned: 0, error: "CALENDLY_API_TOKEN not configured" };
+  }
+
+  const userUri = await getCalendlyUserUri(token);
+  if (!userUri) {
+    return { added: 0, skipped: 0, scanned: 0, error: "Could not resolve Calendly user" };
+  }
+
+  const minStart = new Date(Date.now() - Math.min(Math.max(daysBack, 1), 90) * 86400000).toISOString();
+  const scheduledEvents = [];
+  let pageToken = null;
+  do {
+    const qs = new URLSearchParams({ user: userUri, min_start_time: minStart, count: "100", status: "active" });
+    if (pageToken) qs.set("page_token", pageToken);
+    const data = await calendlyApiGet(`scheduled_events?${qs}`, token);
+    scheduledEvents.push(...(data.collection || []));
+    pageToken = data.pagination?.next_page_token || null;
+  } while (pageToken);
+
+  const candidates = [];
+  let scanned = 0;
+
+  for (const scheduled of scheduledEvents) {
+    const uuid = scheduled.uri?.split("/").pop();
+    if (!uuid) continue;
+    let invPage = null;
+    do {
+      const qs = new URLSearchParams({ count: "100" });
+      if (invPage) qs.set("page_token", invPage);
+      const invData = await calendlyApiGet(`scheduled_events/${uuid}/invitees?${qs}`, token);
+      for (const invitee of invData.collection || []) {
+        scanned++;
+        if (invitee.status === "canceled") continue;
+        if (!invitee.uri || !invitee.email) continue;
+        const extracted = buildInviteeCreatedFromApi(invitee, scheduled);
+        await enrichCalendlyQueueEvent(extracted);
+        candidates.push(extracted);
+      }
+      invPage = invData.pagination?.next_page_token || null;
+    } while (invPage);
+  }
+
+  let added = 0;
+  let skipped = 0;
+  await withQueueLock(() => {
+    const queue = readQueue();
+    const knownUris = new Set(queue.map(e => e.calendlyInviteeUri).filter(Boolean));
+    for (const evt of candidates) {
+      if (knownUris.has(evt.calendlyInviteeUri)) {
+        skipped++;
+        continue;
+      }
+      queue.push(evt);
+      knownUris.add(evt.calendlyInviteeUri);
+      added++;
+    }
+    writeQueue(queue);
+  });
+
+  if (added > 0) {
+    console.log(`[OK] Calendly API pull queued ${added} new booking(s) (${skipped} already known, ${scanned} invitees scanned)`);
+  }
+
+  return { added, skipped, scanned };
+}
+
 // ── Frontend secret guard (for CRM-facing endpoints) ──
 function requireFrontendSecret(req, res, next) {
   const secret = process.env.FRONTEND_SECRET;
@@ -837,6 +985,24 @@ function requireFrontendSecret(req, res, next) {
   }
   next();
 }
+
+// ────────────────────────────────────────────────────────────────
+// POST /api/calendly/pull-recent
+// Fetches recent bookings from Calendly API and queues any missing invitees
+// Body: { daysBack?: number }  (default 30, max 90)
+// ────────────────────────────────────────────────────────────────
+app.post("/api/calendly/pull-recent", requireFrontendSecret, async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const daysBack = Number(req.body?.daysBack) || 30;
+  try {
+    const result = await pullRecentCalendlyBookings(daysBack);
+    if (result.error) return res.status(result.added ? 200 : 503).json(result);
+    res.json(result);
+  } catch (err) {
+    console.error("[ERROR] Calendly pull-recent failed:", err.message);
+    res.status(500).json({ error: err.message || "Calendly API pull failed" });
+  }
+});
 
 // ────────────────────────────────────────────────────────────────
 // GET /api/calendly/pending
@@ -921,6 +1087,25 @@ app.post("/api/calendly/payment-lookup", requireFrontendSecret, async (req, res)
     }
   }
   res.json({ payments, eventPrices });
+});
+
+// ────────────────────────────────────────────────────────────────
+// GET /api/stripe/ledger
+// Returns all Stripe payment events in the queue (including already-processed).
+// CRM uses this to hydrate local payments[] when webhooks were acked before bookings existed.
+// Query: ?daysBack=90 (default 90, max 365)
+// ────────────────────────────────────────────────────────────────
+app.get("/api/stripe/ledger", requireFrontendSecret, (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const daysBack = Math.min(Math.max(Number(req.query.daysBack) || 90, 1), 365);
+  const cutoff = Date.now() - daysBack * 86400000;
+  const queue = readNamedQueue(STRIPE_QUEUE_FILE);
+  const events = queue.filter(e => {
+    const t = Date.parse(e.paidAt || e.receivedAt || "");
+    if (Number.isNaN(t) || t < cutoff) return false;
+    return ["paid", "failed", "refunded", "partial_refund"].includes(e.status);
+  });
+  res.json({ events, total: events.length });
 });
 
 // ────────────────────────────────────────────────────────────────
@@ -1174,6 +1359,8 @@ app.listen(PORT, () => {
   console.log(`\n✅ Simply Breathe webhook backend running on http://localhost:${PORT}`);
   console.log(`   Calendly webhook: POST http://localhost:${PORT}/api/webhooks/calendly`);
   console.log(`   Stripe webhook:   POST http://localhost:${PORT}/api/webhooks/stripe`);
+  console.log(`   Pull from API:    POST http://localhost:${PORT}/api/calendly/pull-recent`);
   console.log(`   Pending events:   GET  http://localhost:${PORT}/api/calendly/pending`);
+  console.log(`   Stripe ledger:    GET  http://localhost:${PORT}/api/stripe/ledger`);
   console.log(`   Stripe pending:   GET  http://localhost:${PORT}/api/stripe/pending\n`);
 });

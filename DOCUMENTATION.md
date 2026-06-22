@@ -92,7 +92,7 @@ Vite dev server sets the following headers:
 
 ### Storage Schema Validation
 
-On load, the decrypted data is validated against the expected schema (all required top-level arrays present) before being applied to state. Invalid data falls back to seed data.
+On load, the decrypted data is validated against the expected schema (all required top-level arrays present) before being applied to state. Missing CRM tables are auto-repaired as empty arrays when possible; if validation still fails, login is blocked with a message to restore from a JSON backup. After a successful repair, the corrected structure is saved on the next auto-save.
 
 ### PIN Lockout
 
@@ -856,13 +856,18 @@ Revenue views are built from **Stripe-verified booking amounts** (when matched) 
 
 | Section | Purpose |
 |---|---|
-| Unmatched Stripe payments | Stripe charges with no linked booking — manual **Match** dropdown |
-| Pending verification | Calendly bookings awaiting Stripe confirmation |
-| Amount mismatches | Calendly expected price ≠ Stripe paid — booking `paymentAmount` auto-updated to Stripe; card shows client, session, date, type (Studio/Virtual), expected, Stripe, and corrected session amount |
-| Recently verified payments | Stripe-matched bookings (`stripeVerified`, paid) — client, session, session date, studio/virtual type, session amount (newest first) |
+| Unlinked Stripe payments | Stripe charges not yet linked to a Calendly booking — link manually if needed |
+| Pending verification | Paid Calendly bookings with an **unlinked Stripe payment** for the same email — awaiting FIFO match. Bookings with no Stripe charge are treated as free sessions (`paid`, $0) and do not appear here. |
+| Amount reconciliation log | Unified transaction log of resolved bookings — Stripe-matched sessions, amount adjustments (Calendly expected → Stripe paid), and **free sessions** (Expected → $0 Stripe). Columns: Client, Session, Booked, Type (Studio/Virtual + Free/Adjusted badges), Expected, Stripe, Session amount (sorted by booked date, most recent first). |
 | Refunds | Stripe refund events affecting revenue |
 
-Use **Sync Stripe now** to pull pending webhook events immediately (also polls every 5 minutes).
+Use **Sync Stripe now** to load Stripe payments from the backend ledger and run reconciliation (also polls every 5 minutes).
+
+**Matching rule (simple):** For each email, pair the oldest unverified Calendly booking with the oldest unlinked Stripe payment. No date-window gates. Calendly list price is kept as *expected*; Stripe `paidAmount` is recorded. Resolved bookings (matched, adjusted, or free) appear in the **Amount reconciliation log**; session amount is the revenue figure (Stripe when matched, $0 when free).
+
+Each Stripe sync calls `GET /api/stripe/ledger` to reload processed webhook events so payments are not lost after a browser refresh.
+
+**Calendly API backfill:** Each Calendly sync calls `POST /api/calendly/pull-recent` (requires `CALENDLY_API_TOKEN`) to fetch recent scheduled events from the Calendly API and queue any invitees missing from the webhook queue — e.g. when ngrok was down or a webhook was never delivered.
 
 ### Revenue Sources
 
@@ -1583,7 +1588,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 - SSRF guard: `fetchEventTypeDescription` rejects any `event_type` URI that does not begin with `https://api.calendly.com/`
 - Queue capped at **1,000 events**; processed events older than **7 days** are automatically purged on each write
 - Startup validation: server exits with code 1 in production if `CALENDLY_WEBHOOK_SIGNING_KEY`, `QUEUE_ENCRYPTION_KEY`, `STRIPE_WEBHOOK_SECRET`, or `FRONTEND_SECRET` are missing
-- Stripe payment auto-match requires **email + amount** agreement; email-only matches go to manual review
+- Stripe payment auto-match uses **email + booking time** (not amount); Stripe gross always becomes session price on match. Run `npm run test:stripe-match` to verify.
 
 ### Supported Calendly Events
 
@@ -1619,7 +1624,7 @@ Each individual Calendly booking is stored as a `registration` record:
 | `status` | `booked` · `attended` · `canceled` · `rescheduled` · `no_show` |
 | `paymentAmount` | Session list price — the Calendly **Payment required amount** for that event type. Calendly’s API does not expose this field directly; the CRM reads it from the event type **Internal Note** (e.g. `Studio` + `$55`) via the Calendly API, matching how studio cards on the website show price |
 | `paidAmount` | Actual amount paid — from **Stripe** once matched; Calendly invitee `payment.amount` is unreliable when Stripe checkout is external |
-| `paymentStatus` | `paid` · `pending_verification` · `unpaid` · `partial_refund` · `refunded` · `failed` · `unknown` — paid sessions start as `pending_verification` until Stripe confirms |
+| `paymentStatus` | `paid` · `pending_verification` · `unmatched` · `unpaid` · `partial_refund` · `refunded` · `failed` · `unknown` — paid sessions start as `pending_verification` until Stripe confirms; `unmatched` when no Stripe charge exists for the client email |
 | `stripeVerified` | Boolean — true when a Stripe payment has been linked to this booking |
 | `stripePaymentIntentId` | Stripe PaymentIntent ID (`pi_...`) when matched |
 | `stripeChargeId` | Stripe Charge ID (`ch_...`) when matched |
@@ -1661,19 +1666,22 @@ Each Stripe payment event processed by the CRM is stored as a `payment` record:
 | `currency` | ISO currency code (default `usd`) |
 | `status` | `paid` · `failed` · `refunded` · `partial_refund` |
 | `matchStatus` | `auto` · `manual` · `needs_review` · `unmatched` |
-| `matchScore` | Confidence score (email + amount + time window) |
+| `matchScore` | Confidence score (email + booking time window) |
 | `paidAt` | Payment timestamp from Stripe |
 | `receiptUrl` | Stripe receipt URL when available |
 
 ### Stripe Webhook Matching (Option 1)
 
-On `checkout.session.completed` or `payment_intent.succeeded`, the CRM auto-matches when **all** of the following are true:
-1. Customer email matches the booking client email
-2. Stripe amount matches `paymentAmount` (expected session price)
-3. Payment occurred within **30 minutes** of booking `createdAt`
-4. Only **one** pending booking exists for that email + amount
+On `checkout.session.completed` or `payment_intent.succeeded`, the CRM auto-matches using `src/stripeMatching.js`:
 
-Score ≥ 80 with a single candidate → auto-match. Multiple candidates or score 50–79 → **needs review** on Revenue → Payment reconciliation. Otherwise → **unmatched**.
+1. **Email** must match the booking client email (also read from Stripe `metadata` when charge email is absent).
+2. **Amount is not used for matching** — Calendly `paymentAmount` is the list price; after match, **Stripe `amountGross` replaces it** as the tracked session price and revenue.
+3. **Time** — when multiple pending bookings share an email, payment must fall within **24 hours** of booking `scheduledAt` / `createdAt` (up to **7 days** fallback for closest match).
+4. **Single** pending booking for an email auto-links regardless of amount (e.g. $1 test payment vs $55 Calendly list price).
+
+Multiple candidates with equal score → **needs review**. Otherwise → **unmatched**.
+
+Unit tests: `npm run test:stripe-match`
 
 Refund events (`charge.refunded`, `charge.refund.updated`) update linked payment and registration refund fields.
 

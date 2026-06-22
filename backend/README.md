@@ -8,7 +8,8 @@ A lightweight Node.js/Express server that receives Calendly webhook events and q
 
 ```
 Calendly → POST /api/webhooks/calendly → backend queues event
-React CRM → GET /api/calendly/pending  → fetches + processes events
+React CRM → POST /api/calendly/pull-recent → fetches missing bookings from Calendly API
+         → GET /api/calendly/pending  → fetches + processes events
 React CRM → POST /api/calendly/acknowledge → marks events done
 ```
 
@@ -62,6 +63,7 @@ Deploy `backend/` to any Node.js host (Railway, Render, Fly.io, VPS). Update Cal
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/api/webhooks/calendly` | Receives Calendly events (signature-verified) |
+| `POST` | `/api/calendly/pull-recent` | Fetches recent Calendly bookings via API; queues invitees missing from webhook queue |
 | `GET` | `/api/calendly/pending` | Returns unprocessed events |
 | `POST` | `/api/calendly/acknowledge` | Marks events as processed |
 | `GET` | `/api/calendly/events` | All events (debug/admin) |

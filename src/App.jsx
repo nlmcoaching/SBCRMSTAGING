@@ -8,6 +8,16 @@ import {
   Zap, Copy, Clock, TrendingUp, BarChart2, AlertCircle, Activity, Send, Info, BellRing, Milestone,
   LogOut, UserCircle, Shield, KeyRound, Receipt, ClipboardList, FileSignature, CalendarCheck, CheckCircle, Save,
 } from "lucide-react";
+import {
+  amountsMatch,
+  normalizeEmail,
+  registrationSessionAmount,
+  registrationCreatedTimestamp,
+  registrationBookingTimestamp,
+  reconcileStripePayments,
+  clearRegistrationStripeVerification,
+  explainPendingVerificationReason,
+} from "./stripeMatching.js";
 
 /* ============================================================
    Simply Breathe OS — CRM
@@ -1263,6 +1273,23 @@ const Sec = {
   },
 };
 
+const CRM_REQUIRED_ARRAY_KEYS = ["clients", "partners", "sessions", "offers"];
+const CRM_ARRAY_KEYS = [
+  ...CRM_REQUIRED_ARRAY_KEYS,
+  "registrations", "payments", "revenue", "content", "followups", "referrals",
+  "sequences", "outreach", "testimonials", "templates", "expenses", "emailLog", "fuTemplates",
+];
+
+/** Ensure CRM tables exist as arrays (repairs partial saves). */
+function normalizeCrmData(d) {
+  if (!d || typeof d !== "object") return null;
+  const out = { ...d };
+  for (const k of CRM_ARRAY_KEYS) {
+    if (!Array.isArray(out[k])) out[k] = [];
+  }
+  return out;
+}
+
 /* ── USER MANAGEMENT ── */
 const USER_ROLES = ["Owner", "Admin", "Editor", "Viewer"];
 const USER_ROLE_COLOR = { Owner: "#4A8C6F", Admin: "#2E6FB0", Editor: C.brand, Viewer: C.ink3 };
@@ -1294,14 +1321,6 @@ const deriveRegistrationPaymentStatus = (amount, successful) => {
   if (amount != null && amount !== "" && !Number.isNaN(Number(amount)) && successful === false) return "unpaid";
   return "unknown";
 };
-const STRIPE_MATCH_WINDOW_MS = 24 * 60 * 60 * 1000; // 24h — Calendly + Stripe timestamps can diverge
-const normalizeEmail = (e) => String(e || "").trim().toLowerCase();
-const amountsMatch = (a, b, tolerance = 0.01) => {
-  const na = Number(a);
-  const nb = Number(b);
-  if (Number.isNaN(na) || Number.isNaN(nb)) return false;
-  return Math.abs(na - nb) <= tolerance;
-};
 const applyRegistrationPaymentLookup = (reg, pay) => {
   if (!pay || pay.paymentAmount == null) return reg;
   const paymentAmount = pay.paymentAmount;
@@ -1312,7 +1331,7 @@ const applyRegistrationPaymentLookup = (reg, pay) => {
   } else if (paymentAmount === 0) {
     paymentStatus = "paid";
   } else if (paymentAmount > 0) {
-    paymentStatus = "pending_verification";
+    paymentStatus = reg.paymentStatus === "pending_verification" ? reg.paymentStatus : "unknown";
   } else {
     paymentStatus = deriveRegistrationPaymentStatus(
       paidAmount != null ? paidAmount : paymentAmount,
@@ -1377,88 +1396,6 @@ function applyStripePaymentToRegistration(reg, stripeEvt, paymentId) {
     amountRefunded: stripeEvt.amountRefunded ?? reg.amountRefunded ?? 0,
   };
 }
-function registrationBookingTimestamp(reg, data) {
-  const created = registrationCreatedTimestamp(reg);
-  if (created) return created;
-  if (reg.scheduledAt) {
-    const t = Date.parse(reg.scheduledAt);
-    if (!Number.isNaN(t)) return t;
-  }
-  if (reg.sessionId && data?.sessions) {
-    const s = data.sessions.find(x => x.id === reg.sessionId);
-    if (s?.date) {
-      const t = Date.parse(`${s.date}T${(s.time || "12:00").slice(0, 5)}`);
-      if (!Number.isNaN(t)) return t;
-    }
-  }
-  return 0;
-}
-function findStripeBookingMatch(registrations, clients, stripeEvt, data = {}) {
-  const email = normalizeEmail(stripeEvt.customerEmail);
-  if (!email || stripeEvt.amountGross == null) return null;
-  const payTs = Date.parse(stripeEvt.paidAt || stripeEvt.receivedAt || "");
-  if (Number.isNaN(payTs)) return null;
-
-  const pendingForEmail = registrations.filter(r => {
-    if (r.status === "canceled" || r.status === "rescheduled") return false;
-    if (r.paymentId && r.stripeVerified) return false;
-    const client = clients.find(c => c.id === r.clientId);
-    if (normalizeEmail(client?.email) !== email) return false;
-    return r.paymentStatus === "pending_verification" || !r.stripeVerified;
-  });
-
-  const amountMatches = pendingForEmail.filter(r => {
-    const expected = registrationSessionAmount(r);
-    return expected != null && amountsMatch(expected, stripeEvt.amountGross);
-  });
-
-  // Email match only (amount differs or unknown) — manual review, never auto-link
-  if (amountMatches.length === 0 && pendingForEmail.length === 1) {
-    const reg = pendingForEmail[0];
-    const client = clients.find(c => c.id === reg.clientId);
-    const score = scoreStripeBookingMatch(reg, client, stripeEvt, data);
-    return { reg, score: Math.max(score, 50), auto: false, ambiguous: false };
-  }
-
-  // Single email + amount match → auto-link even if timestamps are messy
-  if (amountMatches.length === 1) {
-    const reg = amountMatches[0];
-    const client = clients.find(c => c.id === reg.clientId);
-    const score = scoreStripeBookingMatch(reg, client, stripeEvt, data);
-    return { reg, score: Math.max(score, 85), auto: true, ambiguous: false };
-  }
-
-  const candidates = amountMatches.filter(r => {
-    const bookingTs = registrationBookingTimestamp(r, data);
-    if (!bookingTs) return true; // no timestamp — still consider if amount unique above failed
-    return Math.abs(payTs - bookingTs) <= STRIPE_MATCH_WINDOW_MS;
-  });
-
-  if (!candidates.length) return null;
-  const scored = candidates.map(r => ({
-    reg: r,
-    score: scoreStripeBookingMatch(r, clients.find(c => c.id === r.clientId), stripeEvt, data),
-  })).sort((a, b) => b.score - a.score);
-  const best = scored[0];
-  return {
-    ...best,
-    auto: candidates.length === 1 && best.score >= 80,
-    ambiguous: candidates.length > 1,
-  };
-}
-function scoreStripeBookingMatch(reg, client, stripeEvt, data = {}) {
-  let score = 0;
-  const email = normalizeEmail(stripeEvt.customerEmail);
-  const regEmail = normalizeEmail(client?.email);
-  if (email && regEmail && email === regEmail) score += 50;
-  const expected = registrationSessionAmount(reg);
-  if (expected != null && amountsMatch(expected, stripeEvt.amountGross)) score += 25;
-  const bookingTs = registrationBookingTimestamp(reg, data);
-  const payTs = Date.parse(stripeEvt.paidAt || stripeEvt.receivedAt || "");
-  if (bookingTs && !Number.isNaN(payTs) && Math.abs(payTs - bookingTs) <= STRIPE_MATCH_WINDOW_MS) score += 15;
-  if (reg.paymentStatus === "pending_verification") score += 10;
-  return score;
-}
 function stripePaymentFromRecord(p) {
   return {
     customerEmail: p.customerEmail,
@@ -1471,53 +1408,22 @@ function stripePaymentFromRecord(p) {
     status: p.status,
   };
 }
-function applyStripeMatchToRecords(payments, registrations, payIdx, match, stripeEvt) {
-  const p = payments[payIdx];
-  payments[payIdx] = {
-    ...p,
-    clientId: match.reg.clientId,
-    bookingId: match.reg.id,
-    sessionId: match.reg.sessionId,
-    matchScore: match.score,
-    matchStatus: match.ambiguous ? "needs_review" : "auto",
-    customerEmail: p.customerEmail || stripeEvt.customerEmail || "",
-    stripeChargeId: p.stripeChargeId || stripeEvt.stripeChargeId || "",
-    notes: match.ambiguous ? "Multiple bookings matched — needs manual link" : (p.notes || "Matched to Calendly booking"),
-  };
-  if (match.ambiguous) return payments;
-  const regIdx = registrations.findIndex(r => r.id === match.reg.id);
-  if (regIdx >= 0) {
-    let reg = registrations[regIdx];
-    if (registrationSessionAmount(reg) == null && stripeEvt.amountGross != null) {
-      reg = { ...reg, paymentAmount: stripeEvt.amountGross };
-    }
-    registrations[regIdx] = applyStripePaymentToRegistration(reg, stripeEvt, p.id);
-  }
-  return payments;
-}
-function reconcileUnmatchedStripePayments(prevData) {
-  let payments = [...(prevData.payments || [])];
-  let registrations = [...(prevData.registrations || [])];
-  const clients = prevData.clients || [];
-
-  for (let i = 0; i < payments.length; i++) {
-    const p = payments[i];
-    if (p.bookingId || p.status !== "paid") continue;
-    if (p.matchStatus === "manual") continue;
-    const stripeEvt = stripePaymentFromRecord(p);
-    if (!stripeEvt.customerEmail) continue;
-    const match = findStripeBookingMatch(registrations, clients, stripeEvt, prevData);
-    if (!match?.auto) continue;
-    applyStripeMatchToRecords(payments, registrations, i, match, stripeEvt);
-  }
-
-  const sessions = refreshCalendlySessionRevenue(prevData.sessions || [], registrations);
-  const ltvData = { registrations, revenue: prevData.revenue || [], offers: prevData.offers || [] };
+function applyPaymentReconciliation(prevData) {
+  const { payments, registrations } = reconcileStripePayments(
+    prevData.payments || [],
+    prevData.registrations || [],
+    prevData.clients || [],
+    prevData,
+  );
+  const afterAmounts = reconcileAmountMismatches({ ...prevData, payments, registrations });
+  const sessions = refreshCalendlySessionRevenue(prevData.sessions || [], afterAmounts.registrations);
+  const ltvData = { registrations: afterAmounts.registrations, revenue: prevData.revenue || [], offers: prevData.offers || [] };
   return {
+    ...prevData,
     payments,
-    registrations,
+    registrations: afterAmounts.registrations,
     sessions,
-    clients: applyRegistrationLifetimeValues(clients, ltvData),
+    clients: applyRegistrationLifetimeValues(prevData.clients || [], ltvData),
   };
 }
 function reconcileAmountMismatches(prevData) {
@@ -1560,10 +1466,6 @@ function reconcileAmountMismatches(prevData) {
     clients: applyRegistrationLifetimeValues(prevData.clients || [], ltvData),
   };
 }
-function applyPaymentReconciliation(prevData) {
-  const afterMatch = reconcileUnmatchedStripePayments(prevData);
-  return reconcileAmountMismatches({ ...prevData, ...afterMatch });
-}
 function processStripeWebhookEvents(prevData, events) {
   const ackIds = [];
   let payments = [...(prevData.payments || [])];
@@ -1581,18 +1483,13 @@ function processStripeWebhookEvents(prevData, events) {
       ? payments.findIndex(p => p.stripePaymentIntentId === stripeEvt.stripePaymentIntentId && p.status === stripeEvt.status && ["paid", "failed"].includes(stripeEvt.status))
       : -1;
     if (piIdx >= 0) {
-      // Same payment intent fired twice (checkout.session + payment_intent) — enrich and retry match
       payments[piIdx] = {
         ...payments[piIdx],
         customerEmail: payments[piIdx].customerEmail || stripeEvt.customerEmail || "",
+        amountGross: stripeEvt.amountGross ?? payments[piIdx].amountGross,
         stripeChargeId: payments[piIdx].stripeChargeId || stripeEvt.stripeChargeId || "",
         receiptUrl: payments[piIdx].receiptUrl || stripeEvt.receiptUrl || "",
       };
-      if (!payments[piIdx].bookingId) {
-        const enriched = { ...stripePaymentFromRecord(payments[piIdx]), ...stripeEvt, customerEmail: payments[piIdx].customerEmail || stripeEvt.customerEmail };
-        const match = findStripeBookingMatch(registrations, clients, enriched, prevData);
-        if (match?.auto) applyStripeMatchToRecords(payments, registrations, piIdx, match, enriched);
-      }
       continue;
     }
 
@@ -1625,45 +1522,15 @@ function processStripeWebhookEvents(prevData, events) {
       continue;
     }
 
-    const match = findStripeBookingMatch(registrations, clients, stripeEvt, prevData);
-    if (match?.auto) {
-      const payRec = buildStripePaymentRecord(stripeEvt, {
-        clientId: match.reg.clientId,
-        bookingId: match.reg.id,
-        sessionId: match.reg.sessionId,
-        matchScore: match.score,
-        matchStatus: "auto",
-        status: "paid",
-      });
-      payments.push(payRec);
-      const regIdx = registrations.findIndex(r => r.id === match.reg.id);
-      if (regIdx >= 0) {
-        let reg = registrations[regIdx];
-        if (registrationSessionAmount(reg) == null && stripeEvt.amountGross != null) {
-          reg = { ...reg, paymentAmount: stripeEvt.amountGross };
-        }
-        registrations[regIdx] = applyStripePaymentToRegistration(reg, stripeEvt, payRec.id);
-      }
-    } else if (match && match.score >= 50) {
-      payments.push(buildStripePaymentRecord(stripeEvt, {
-        clientId: match.reg.clientId,
-        sessionId: match.reg.sessionId,
-        matchScore: match.score,
-        matchStatus: "needs_review",
-        status: "paid",
-        notes: match.ambiguous ? "Multiple bookings matched — needs manual link" : "Possible match — review before linking",
-      }));
-    } else {
-      payments.push(buildStripePaymentRecord(stripeEvt, { matchStatus: "unmatched", status: "paid" }));
-    }
+    payments.push(buildStripePaymentRecord(stripeEvt, { matchStatus: "unmatched", status: "paid" }));
   }
 
   const reconciled = applyPaymentReconciliation({ ...prevData, payments, registrations, clients });
   return {
     payments: reconciled.payments ?? payments,
-    registrations: reconciled.registrations,
-    sessions: reconciled.sessions,
-    clients: reconciled.clients,
+    registrations: reconciled.registrations ?? registrations,
+    sessions: reconciled.sessions ?? prevData.sessions,
+    clients: reconciled.clients ?? clients,
     ackIds,
   };
 }
@@ -1706,11 +1573,6 @@ function manualLinkStripePayment(setData, paymentId, registrationId) {
   });
 }
 const LTV_OFFER_STATUSES = new Set(["Paid", "Accepted"]);
-function registrationSessionAmount(reg) {
-  if (!reg) return null;
-  const amt = Number(reg.paymentAmount);
-  return Number.isNaN(amt) ? null : amt;
-}
 function formatRegistrationAmount(reg) {
   const amt = registrationSessionAmount(reg);
   if (amt == null) return null;
@@ -1772,11 +1634,15 @@ async function backfillRegistrationPaymentsForRegs(regs, setData) {
 }
 function registrationPaymentForLtv(reg) {
   if (!reg || reg.status === "canceled" || reg.status === "rescheduled") return 0;
-  if (["unpaid", "pending_verification", "failed"].includes(reg.paymentStatus)) return 0;
+  if (["unpaid", "pending_verification", "unmatched", "failed"].includes(reg.paymentStatus)) return 0;
   if (reg.stripeVerified && reg.paidAmount != null) {
     const paid = Number(reg.paidAmount);
     const refunded = Number(reg.amountRefunded) || 0;
     if (!Number.isNaN(paid)) return Math.max(0, Math.round((paid - refunded) * 100) / 100);
+  }
+  if (reg.paymentStatus === "paid" && !reg.stripeVerified) {
+    const paid = Number(reg.paidAmount);
+    if (paid === 0 || Number.isNaN(paid)) return 0;
   }
   if (reg.paymentStatus === "refunded") return 0;
   const amt = registrationSessionAmount(reg);
@@ -1876,7 +1742,7 @@ function buildRegistrationRevenueRows(data = {}) {
   const listPrices = buildSessionListPriceMap(data.registrations);
   return (data.registrations || [])
     .filter(r => r.status !== "canceled" && r.status !== "rescheduled"
-      && !["unpaid", "pending_verification", "failed"].includes(r.paymentStatus))
+      && !["unpaid", "pending_verification", "unmatched", "failed"].includes(r.paymentStatus))
     .map(r => {
       const session = sessions[r.sessionId];
       const client = clients[r.clientId];
@@ -2364,10 +2230,10 @@ export default function App() {
         if (encRaw?.value) {
           const oldKey = await Sec.deriveKey(pin, sec.salt);
           try {
-            const dec = await Sec.decrypt(encRaw.value, oldKey);
-            const reenc = await Sec.encrypt(dec, masterKey);
-            await store.set(STORE_KEY_ENC, reenc);
+            const dec = normalizeCrmData(await Sec.decrypt(encRaw.value, oldKey));
             if (Sec.validate(dec)) {
+              const reenc = await Sec.encrypt(dec, masterKey);
+              await store.set(STORE_KEY_ENC, reenc);
               setData(dec);
               if (dec._settings && typeof dec._settings === "object") {
                 const s = parseCrmSettings(dec._settings);
@@ -2410,7 +2276,7 @@ export default function App() {
       const encRaw = await store.get(STORE_KEY_ENC);
       if (encRaw?.value) {
         try {
-          const dec = await Sec.decrypt(encRaw.value, masterKey);
+          const dec = normalizeCrmData(await Sec.decrypt(encRaw.value, masterKey));
           if (Sec.validate(dec)) {
             setData(dec);
             // Restore CRM settings from encrypted store — preferred over unencrypted localStorage cache
@@ -2539,8 +2405,18 @@ export default function App() {
     if (locked) return;
     setCalendlyStatus({ syncing: true });
     try {
+      // Pull from Calendly API first — catches bookings when webhooks were missed (ngrok down, etc.)
+      await fetch(calendlyApiUrl("/api/calendly/pull-recent"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ..._calendlyHeaders() },
+        body: JSON.stringify({ daysBack: 30 }),
+      }).catch(() => {});
+
       const res = await fetch(calendlyApiUrl("/api/calendly/pending"), { headers: _calendlyHeaders() });
-      if (!res.ok) throw new Error("Backend unavailable");
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || `Backend returned ${res.status}`);
+      }
       const { events } = await res.json();
 
       // Match a studio partner by name only (strips "" prefix).
@@ -2797,7 +2673,7 @@ export default function App() {
             if (prevReg?.stripeVerified && prevReg?.paymentId) {
               paymentStatus = prevReg.paymentStatus;
             } else if (paymentAmount != null && Number(paymentAmount) > 0) {
-              paymentStatus = "pending_verification";
+              paymentStatus = prevReg?.paymentStatus || "unknown";
             } else if (paymentAmount === 0) {
               paymentStatus = "paid";
             } else if (evt.paidAmount != null || evt.paymentSuccessful != null) {
@@ -2827,6 +2703,7 @@ export default function App() {
               createdAt:          existingRegIdx >= 0
                 ? (registrations[existingRegIdx].createdAt || evt.createdAt || evt.receivedAt || new Date().toISOString())
                 : (evt.createdAt || evt.receivedAt || new Date().toISOString()),
+              calendlyReceivedAt: evt.receivedAt || prevReg?.calendlyReceivedAt || "",
               scheduledAt:        evt.startTime,
               timezone:           evt.timezone,
               locationType:       evt.locationType,
@@ -2922,6 +2799,20 @@ export default function App() {
       setCalendlyStatus({ synced: processed, count: processed, at: now.toLocaleTimeString(), atFull: now.toLocaleString() });
       if (processed > 0) setLastCalendlyReceived({ count: processed, atFull: now.toLocaleString() });
 
+      // New Calendly bookings may arrive after Stripe webhooks — retry payment matching.
+      setData(prev => {
+        const reconciled = applyPaymentReconciliation(prev);
+        const next = {
+          ...prev,
+          payments: reconciled.payments ?? prev.payments,
+          registrations: reconciled.registrations ?? prev.registrations,
+          sessions: reconciled.sessions ?? prev.sessions,
+          clients: reconciled.clients ?? prev.clients,
+        };
+        const amountFix = reconcileAmountMismatches(next);
+        return { ...next, registrations: amountFix.registrations, sessions: amountFix.sessions, clients: amountFix.clients };
+      });
+
       // Backfill truncated session descriptions from Calendly event types (async, non-blocking)
       // Requires Edit — same gate as the studio event description panel (Viewers may fetch/read only).
       if (sessionsNeedingDesc.length && currentUser?.permissions?.edit) {
@@ -2981,14 +2872,19 @@ export default function App() {
           })
           .catch(() => {});
       }
-    } catch {
-      // Backend not running or unreachable — check silently and surface pending count only
+    } catch (err) {
+      console.error("syncCalendly:", err);
       try {
         const res = await fetch(calendlyApiUrl("/api/calendly/pending"), { headers: _calendlyHeaders() });
         const { total } = await res.json();
-        if (total > 0) setCalendlyStatus({ pending: total });
-        else setCalendlyStatus(null);
-      } catch { setCalendlyStatus(null); }
+        if (total > 0) {
+          setCalendlyStatus({ pending: total, error: "Sync failed — is the backend running on port 3001?" });
+        } else {
+          setCalendlyStatus({ error: "Cannot reach backend on port 3001 — run start.ps1" });
+        }
+      } catch {
+        setCalendlyStatus({ error: "Cannot reach backend on port 3001 — run start.ps1" });
+      }
     }
   };
 
@@ -2996,24 +2892,53 @@ export default function App() {
     if (locked) return;
     setStripeStatus({ syncing: true });
     try {
-      const res = await fetch(calendlyApiUrl("/api/stripe/pending"), { headers: _calendlyHeaders() });
-      if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-      const { events, total } = await res.json();
+      const [pendingRes, ledgerRes] = await Promise.all([
+        fetch(calendlyApiUrl("/api/stripe/pending"), { headers: _calendlyHeaders() }),
+        fetch(calendlyApiUrl("/api/stripe/ledger?daysBack=90"), { headers: _calendlyHeaders() }),
+      ]);
+      if (!pendingRes.ok) throw new Error(`Backend returned ${pendingRes.status}`);
+      const { events: pendingEvents, total } = await pendingRes.json();
+      const ledgerJson = ledgerRes.ok ? await ledgerRes.json() : { events: [] };
+      const seen = new Set();
+      const events = [...(pendingEvents || []), ...(ledgerJson.events || [])].filter(e => {
+        const key = e.stripeEventId || e.id;
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
       let processed = 0;
       let ackIds = [];
       setData(prev => {
         let next = prev;
         if (events?.length) {
           const result = processStripeWebhookEvents(prev, events);
-          processed = events.length;
-          ackIds = result.ackIds;
-          next = { ...prev, payments: result.payments, registrations: result.registrations, sessions: result.sessions, clients: result.clients };
-        } else {
-          const reconciled = applyPaymentReconciliation(prev);
-          next = { ...prev, payments: reconciled.payments ?? prev.payments, registrations: reconciled.registrations, sessions: reconciled.sessions, clients: reconciled.clients };
+          processed = pendingEvents?.length || 0;
+          ackIds = result.ackIds.filter(id => (pendingEvents || []).some(e => e.id === id));
+          next = {
+            ...prev,
+            payments: result.payments,
+            registrations: result.registrations,
+            sessions: result.sessions,
+            clients: result.clients,
+          };
         }
+        // Always re-run reconciliation so unmatched/needs_review payments retry matching
+        // and recently verified / pending panels reflect the latest Stripe state.
+        const reconciled = applyPaymentReconciliation(next);
+        next = {
+          ...next,
+          payments: reconciled.payments ?? next.payments,
+          registrations: reconciled.registrations ?? next.registrations,
+          sessions: reconciled.sessions ?? next.sessions,
+          clients: reconciled.clients ?? next.clients,
+        };
         const amountFix = reconcileAmountMismatches(next);
-        return { ...next, registrations: amountFix.registrations, sessions: amountFix.sessions, clients: amountFix.clients };
+        return {
+          ...next,
+          registrations: amountFix.registrations,
+          sessions: amountFix.sessions,
+          clients: amountFix.clients,
+        };
       });
       if (ackIds.length) {
         await fetch(calendlyApiUrl("/api/stripe/acknowledge"), {
@@ -3025,10 +2950,13 @@ export default function App() {
       const now = new Date();
       const pendingBackend = total ?? 0;
       setStripeStatus({
+        syncing: false,
         synced: processed,
         count: processed,
         at: now.toLocaleTimeString(),
-        pending: pendingBackend > processed ? pendingBackend - processed : 0,
+        reconciledAt: now.toISOString(),
+        ledgerCount: ledgerJson.total ?? events.length,
+        pending: total ?? 0,
       });
     } catch (err) {
       console.error("syncStripe:", err);
@@ -3088,7 +3016,12 @@ export default function App() {
     (async () => {
       try {
         await persistAllAgreementBlobs(data, cryptoKey);
-        const enc = await Sec.encrypt(dataForEncryptedStore(data), cryptoKey);
+        const payload = normalizeCrmData(dataForEncryptedStore(data));
+        if (!Sec.validate(payload)) {
+          console.error("CRM persist skipped: invalid data shape");
+          return;
+        }
+        const enc = await Sec.encrypt(payload, cryptoKey);
         if (alive) await store.set(STORE_KEY_ENC, enc);
         if (alive) { setSaved("saved"); setTimeout(() => alive && setSaved("idle"), 1400); }
       } catch (e) {
@@ -3375,6 +3308,9 @@ export default function App() {
                   )}
                   {calendlyStatus?.pending > 0 && !calendlyStatus?.syncing && (
                     <span style={{ color: C.brand, fontWeight: 600 }}>{calendlyStatus.pending} booking{calendlyStatus.pending !== 1 ? "s" : ""} pending…</span>
+                  )}
+                  {calendlyStatus?.error && !calendlyStatus?.syncing && (
+                    <span style={{ color: C.red, fontWeight: 600, display: "block" }}>{calendlyStatus.error}</span>
                   )}
                   {!calendlyStatus && "Calendly sync active"}
                 </span>
@@ -3744,13 +3680,18 @@ function buildActions(data, derived, today) {
   const daysBetween = (a, b) => (!a || !b) ? 0 : Math.round((new Date(b) - new Date(a)) / 86400000);
   const tomorrowISO = (() => { const d = new Date(today); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
   const actions = [];
+  const followups = data.followups || [];
+  const clients = data.clients || [];
+  const offers = data.offers || [];
+  const partners = data.partners || [];
+  const sessions = data.sessions || [];
 
   // ── REVENUE ──────────────────────────────────────────────────────────
   // Overdue follow-ups (24h / 72h)
-  data.followups
+  followups
     .filter((f) => !f.outcome && f.nextAction && f.nextAction <= today && (f.futype === "24h" || f.futype === "72h"))
     .forEach((f) => {
-      const client = data.clients.find((c) => c.id === f.clientId);
+      const client = clients.find((c) => c.id === f.clientId);
       const d = daysBetween(f.nextAction, today);
       const label = f.futype === "24h" ? "24-hour" : "72-hour";
       actions.push({ id: "fu_" + f.id, priority: d >= 2 ? 1 : 2, urgency: d >= 2 ? "high" : "medium", category: "revenue",
@@ -3759,7 +3700,7 @@ function buildActions(data, derived, today) {
     });
 
   // Open offers
-  data.offers
+  offers
     .filter((o) => o.status === "Offered")
     .forEach((o) => {
       const client = data.clients.find((c) => c.id === o.clientId);
@@ -3770,7 +3711,7 @@ function buildActions(data, derived, today) {
     });
 
   // Attended 1x — no rebook
-  data.clients
+  clients
     .filter((c) => c.status === "Attended 1x" && !c.nextSession)
     .forEach((c) => {
       actions.push({ id: "reb_" + c.id, priority: 3, urgency: "medium", category: "revenue",
@@ -3779,8 +3720,8 @@ function buildActions(data, derived, today) {
     });
 
   // Leads with no follow-up at all
-  data.clients
-    .filter((c) => c.status === "Lead" && !data.followups.some((f) => f.clientId === c.id))
+  clients
+    .filter((c) => c.status === "Lead" && !followups.some((f) => f.clientId === c.id))
     .forEach((c) => {
       actions.push({ id: "ld_" + c.id, priority: 4, urgency: "medium", category: "revenue",
         text: `Convert lead ${cleanName(c.name)} — no follow-up scheduled yet`,
@@ -3788,7 +3729,7 @@ function buildActions(data, derived, today) {
     });
 
   // Studio partners needing next step
-  data.partners
+  partners
     .filter((p) => ["Demo completed", "Pilot proposed", "Agreement sent", "Discovery call booked", "Demo session offered"].includes(p.stage))
     .filter((p) => !(derived.sessionsByStudio[p.id] || []).some((s) => s.date >= today))
     .forEach((p) => {
@@ -3798,7 +3739,7 @@ function buildActions(data, derived, today) {
     });
 
   // Engaged clients (2-3x) — no package yet
-  data.clients
+  clients
     .filter((c) => c.status === "Engaged (2-3x)" && (!c.packageType || c.packageType === "None" || c.packageType === "Drop-in"))
     .forEach((c) => {
       actions.push({ id: "pkg_" + c.id, priority: 4, urgency: "medium", category: "revenue",
@@ -3808,19 +3749,19 @@ function buildActions(data, derived, today) {
 
   // ── RELATIONSHIP ──────────────────────────────────────────────────────
   // Referral follow-ups overdue
-  data.followups
+  followups
     .filter((f) => f.futype === "Referral" && !f.outcome && f.nextAction && f.nextAction <= today)
     .forEach((f) => {
-      const client = data.clients.find((c) => c.id === f.clientId);
+      const client = clients.find((c) => c.id === f.clientId);
       actions.push({ id: "ref_" + f.id, priority: 4, urgency: "medium", category: "relationship",
         text: `Thank ${cleanName(client?.name || f.name)} for the referral — follow-up due ${daysBetween(f.nextAction, today) > 0 ? "& overdue" : "today"}`,
         sub: `Referral follow-up · due ${fmtDate(f.nextAction)}`, db: "followups", record: f });
     });
 
   // Advocates + High-referral — request testimonial
-  data.clients
+  clients
     .filter((c) => c.status === "Advocate" || (c.referral === "High" && Number(c.sessionsAttended) >= 3))
-    .filter((c) => !data.followups.some((f) => f.clientId === c.id && f.futype === "Referral" && f.lastContact >= (today.slice(0, 7) + "-01")))
+    .filter((c) => !followups.some((f) => f.clientId === c.id && f.futype === "Referral" && f.lastContact >= (today.slice(0, 7) + "-01")))
     .slice(0, 3)
     .forEach((c) => {
       actions.push({ id: "tst_" + c.id, priority: 5, urgency: "low", category: "relationship",
@@ -3829,7 +3770,7 @@ function buildActions(data, derived, today) {
     });
 
   // Active partners — no session in 14+ days
-  data.partners
+  partners
     .filter((p) => p.stage === "Recurring partner" || p.stage === "Pilot completed" || p.stage === "First session scheduled")
     .filter((p) => {
       const dates = (derived.sessionsByStudio[p.id] || []).map((s) => s.date).sort();
@@ -3845,7 +3786,7 @@ function buildActions(data, derived, today) {
     });
 
   // Warm contacts to invite — engaged, no upcoming session
-  data.clients
+  clients
     .filter((c) => c.status === "Engaged (2-3x)" && !c.nextSession)
     .forEach((c) => {
       actions.push({ id: "inv_" + c.id, priority: 6, urgency: "low", category: "relationship",
@@ -3855,7 +3796,7 @@ function buildActions(data, derived, today) {
 
   // ── DELIVERY ──────────────────────────────────────────────────────────
   // Sessions today — hide once pre-session checklist is complete
-  data.sessions
+  sessions
     .filter((s) => s.date === today && !sessionPreSessionComplete(s, data))
     .forEach((s) => {
       const virtual = sessionIsVirtual(s);
@@ -3865,7 +3806,7 @@ function buildActions(data, derived, today) {
     });
 
   // Sessions tomorrow — hide once pre-session checklist is complete
-  data.sessions
+  sessions
     .filter((s) => s.date === tomorrowISO && !sessionPreSessionComplete(s, data))
     .forEach((s) => {
       const virtual = sessionIsVirtual(s);
@@ -3875,11 +3816,11 @@ function buildActions(data, derived, today) {
     });
 
   // Attended clients with no follow-up within 4 days
-  data.clients
+  clients
     .filter((c) => c.sessionsAttended > 0 && c.lastSession)
     .filter((c) => {
       const d = daysBetween(c.lastSession, today);
-      return d >= 1 && d <= 4 && !data.followups.some((f) => f.clientId === c.id && f.lastContact >= c.lastSession);
+      return d >= 1 && d <= 4 && !followups.some((f) => f.clientId === c.id && f.lastContact >= c.lastSession);
     })
     .forEach((c) => {
       actions.push({ id: "nfu_" + c.id, priority: 2, urgency: "medium", category: "operational",
@@ -3892,7 +3833,7 @@ function buildActions(data, derived, today) {
   (data.referrals || [])
     .filter(r => !r.thankYouSent && r.referrerId)
     .forEach(r => {
-      const referrer = data.clients.find(c => c.id === r.referrerId);
+      const referrer = clients.find(c => c.id === r.referrerId);
       actions.push({ id: "rty_" + r.id, priority: 4, urgency: "medium", category: "relationship",
         text: `Send thank-you to ${cleanName(referrer?.name || "referrer")} — referred ${cleanName(r.referredName)}`,
         sub: `Referral · ${fmtDate(r.date)} · Status: ${r.status}`, db: "referrals", record: r });
@@ -3902,7 +3843,7 @@ function buildActions(data, derived, today) {
   (data.referrals || [])
     .filter(r => r.status === "Referred" && daysBetween(r.date, today) >= 3)
     .forEach(r => {
-      const referrer = data.clients.find(c => c.id === r.referrerId);
+      const referrer = clients.find(c => c.id === r.referrerId);
       actions.push({ id: "rnc_" + r.id, priority: 5, urgency: "medium", category: "relationship",
         text: `Follow up with ${cleanName(r.referredName)} — referred by ${cleanName(referrer?.name || "?")} ${daysBetween(r.date, today)}d ago`,
         sub: `Not yet contacted · referred ${fmtDate(r.date)}`, db: "referrals", record: r });
@@ -4939,7 +4880,7 @@ function Today({ data, derived, today, onOpen, onGo, setData, currentUser, canEd
 /* ---------- Dashboard charts ---------- */
 function RevenueTrend({ data }) {
   const months = registrationRevenueByMonth(data.registrations, data.sessions);
-  data.offers.forEach((o) => { if (o.status === "Accepted" && o.closeDate) { const k = o.closeDate.slice(0, 7); months[k] = (months[k] || 0) + (Number(o.price) || 0); } });
+  (data.offers || []).forEach((o) => { if (o.status === "Accepted" && o.closeDate) { const k = o.closeDate.slice(0, 7); months[k] = (months[k] || 0) + (Number(o.price) || 0); } });
   const keys = Object.keys(months).sort();
   const years = new Set(keys.map((k) => k.slice(0, 4)));
   const rows = keys.map((k) => ({ label: MONTHS[Number(k.slice(5, 7)) - 1] + (years.size > 1 ? " '" + k.slice(2, 4) : ""), value: Math.round(months[k]) }));
@@ -4975,7 +4916,7 @@ function RevenueTrend({ data }) {
 
 function SourceBreakdown({ data }) {
   const rows = SOURCE.map((s) => {
-    const items = data.clients.filter((c) => c.source === s);
+    const items = (data.clients || []).filter((c) => c.source === s);
     return { name: s, value: items.length, ltv: items.reduce((a, c) => a + (Number(c.lifetimeValue) || 0), 0), color: SOURCE_COLOR[s] };
   }).filter((r) => r.value > 0);
   const total = rows.reduce((a, r) => a + r.value, 0);
@@ -5171,19 +5112,15 @@ function registrationSessionTimestamp(reg, data) {
   return 0;
 }
 
-function registrationCreatedTimestamp(reg) {
-  if (reg.createdAt) {
-    const t = Date.parse(reg.createdAt);
-    if (!Number.isNaN(t)) return t;
-  }
-  return 0;
-}
-
 function formatRegistrationDateTime(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function registrationBookedDisplay(reg) {
+  return formatRegistrationDateTime(reg.createdAt || reg.scheduledAt || reg.calendlyReceivedAt);
 }
 
 function sortRegistrationsBySessionTime(rows, data) {
@@ -6408,7 +6345,7 @@ const FIELDS = {
     f("clientId",       "Client",                      "relation", { target: "clients" }),
     f("status",         "Booking Status",              "select",   { options: ["booked", "attended", "canceled", "rescheduled", "no_show"] }),
     f("paymentAmount",  "Session Price ($)",           "number"),
-    f("paymentStatus",  "Payment Status",              "select",   { options: ["paid", "pending_verification", "unpaid", "partial_refund", "refunded", "failed", "unknown"] }),
+    f("paymentStatus",  "Payment Status",              "select",   { options: ["paid", "pending_verification", "unmatched", "unpaid", "partial_refund", "refunded", "failed", "unknown"] }),
     f("paidAmount",     "Stripe Amount Paid ($)",      "number"),
     f("paidAt",         "Stripe Paid At",              "text"),
     f("stripeVerified", "Stripe Verified?",            "checkbox"),
@@ -13150,6 +13087,7 @@ function paymentStatusLabel(status) {
   const map = {
     paid: { text: "Paid", color: "#2D6A50" },
     pending_verification: { text: "Pending verification", color: "#D9892B" },
+    unmatched: { text: "Unmatched", color: "#C0573F" },
     unpaid: { text: "Unpaid", color: "#C0573F" },
     partial_refund: { text: "Partial refund", color: "#9B59B6" },
     refunded: { text: "Refunded", color: "#C0573F" },
@@ -13172,13 +13110,6 @@ function registrationSessionMeta(reg, data) {
     sessionName: cleanName(session?.name || reg.eventName || "Session"),
   };
 }
-function registrationVerifiedTimestamp(reg) {
-  if (reg.paidAt) {
-    const t = Date.parse(reg.paidAt);
-    if (!Number.isNaN(t)) return t;
-  }
-  return registrationCreatedTimestamp(reg);
-}
 function registrationVerifiedAmount(reg) {
   if (reg.paidAmount != null && !Number.isNaN(Number(reg.paidAmount))) return Number(reg.paidAmount);
   return registrationSessionAmount(reg);
@@ -13189,6 +13120,14 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
   const registrations = data.registrations || [];
   const clients = data.clients || [];
   const [linkTargets, setLinkTargets] = useState({});
+  const repaired = useRef(false);
+
+  // One-time repair: undo stale "unmatched" booking labels and re-run FIFO matching.
+  useEffect(() => {
+    if (!setData || repaired.current) return;
+    repaired.current = true;
+    setData(prev => applyPaymentReconciliation(prev));
+  }, [setData]);
 
   useEffect(() => {
     const needsFix = registrations.some(r =>
@@ -13207,24 +13146,20 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
     !p.bookingId && (p.matchStatus === "unmatched" || p.matchStatus === "needs_review") && p.status !== "failed",
   );
   const pendingBookings = registrations.filter(r =>
-    r.status !== "canceled" && r.status !== "rescheduled" && r.paymentStatus === "pending_verification",
+    r.status !== "canceled"
+    && r.status !== "rescheduled"
+    && r.paymentStatus === "pending_verification"
+    && !r.stripeVerified,
   );
-  const amountMismatchCards = registrations
-    .filter(r => r.lastAmountMismatch)
-    .sort((a, b) => (b.lastAmountMismatch?.correctedAt || "").localeCompare(a.lastAmountMismatch?.correctedAt || ""));
-  const activeAmountMismatches = registrations.filter(r => {
-    if (!r.stripeVerified || r.paidAmount == null) return false;
-    return !amountsMatch(r.paymentAmount ?? registrationSessionAmount(r), r.paidAmount);
-  });
-  const amountMismatchCount = amountMismatchCards.length || activeAmountMismatches.length;
-  const recentlyVerifiedPayments = registrations
-    .filter(r =>
-      r.stripeVerified
-      && r.paymentStatus === "paid"
-      && r.status !== "canceled"
-      && r.status !== "rescheduled",
-    )
-    .sort((a, b) => registrationVerifiedTimestamp(b) - registrationVerifiedTimestamp(a));
+  const reconciliationLog = useMemo(() => {
+    const rows = registrations.filter(r => {
+      if (r.status === "canceled" || r.status === "rescheduled") return false;
+      const isVerified = r.stripeVerified && r.paymentStatus === "paid";
+      const hasMismatch = !!r.lastAmountMismatch;
+      return isVerified || hasMismatch;
+    });
+    return sortRegistrationsByCreatedAt(rows);
+  }, [registrations, stripeStatus?.reconciledAt, stripeStatus?.at]);
   const refundedPayments = payments.filter(p => p.status === "refunded" || p.status === "partial_refund");
   const failedPayments = payments.filter(p => p.status === "failed");
   const pendingOptions = pendingBookings.map(r => {
@@ -13242,13 +13177,15 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div style={{ fontSize: 13, color: C.ink2, lineHeight: 1.5, maxWidth: 640 }}>
-          Stripe is the source of truth for payment amount and status. Calendly bookings with a session price start as <strong>Pending verification</strong> until a Stripe payment is matched (email + amount).
+          <strong>Simple flow:</strong> Calendly booking arrives → Stripe sync runs → if a Stripe charge exists for the same email, the booking stays in <strong>Pending verification</strong> until matched. Matched, adjusted, and free sessions are recorded in the <strong>Amount reconciliation log</strong> (Expected vs Stripe vs session amount). Click <strong>Sync Stripe now</strong> to match by email (oldest first).
         </div>
-        <button type="button" className="sb-ghost" onClick={syncStripe} disabled={stripeStatus?.syncing}
-          style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          <RefreshCw size={15} style={{ animation: stripeStatus?.syncing ? "spin 1s linear infinite" : "none" }} />
-          {stripeStatus?.syncing ? "Syncing Stripe…" : "Sync Stripe now"}
-        </button>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0, flexWrap: "wrap" }}>
+          <button type="button" className="sb-ghost" onClick={syncStripe} disabled={stripeStatus?.syncing}
+            style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <RefreshCw size={15} style={{ animation: stripeStatus?.syncing ? "spin 1s linear infinite" : "none" }} />
+            {stripeStatus?.syncing ? "Syncing Stripe…" : "Sync Stripe now"}
+          </button>
+        </div>
       </div>
 
       {stripeStatus?.error && (
@@ -13259,34 +13196,35 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
 
       {pendingBookings.length > 0 && unmatchedPayments.length === 0 && (data.payments || []).length === 0 && (
         <div style={{ background: hexA("#D9892B", 0.09), border: `1px solid ${hexA("#D9892B", 0.3)}`, borderRadius: 10, padding: "12px 16px", fontSize: 13, color: "#7A4D0F", lineHeight: 1.55 }}>
-          <strong>No Stripe payments in the CRM yet.</strong> Your Calendly booking synced, but the backend has not received a Stripe webhook.
-          In Stripe Dashboard → Webhooks, point your endpoint at your public backend URL (e.g. ngrok) → <code>/api/webhooks/stripe</code>, then click Sync Stripe now.
+          <strong>No Stripe payments in the CRM yet.</strong> Click <strong>Sync Stripe now</strong> to load payments from the backend ledger and match them to bookings.
+          If this persists, confirm Stripe webhooks reach your backend URL → <code>/api/webhooks/stripe</code> (check ngrok at http://127.0.0.1:4040).
         </div>
       )}
 
       <div className="sb-stats">
-        <Stat label="Unmatched Stripe payments" value={unmatchedPayments.length} accent="#C0573F" hint="no booking linked yet" />
-        <Stat label="Pending verification" value={pendingBookings.length} accent="#D9892B" hint="booked, awaiting Stripe" />
-        <Stat label="Amount mismatches" value={amountMismatchCount} accent="#9B59B6" hint="Calendly price ≠ Stripe — corrected to Stripe" />
-        <Stat label="Refunds" value={refundedPayments.length} accent={C.brand} hint="Stripe refund events" />
+        <Stat label="Unlinked Stripe" value={unmatchedPayments.length} accent="#C0573F" hint="orphan charges — link manually" />
+        <Stat label="Pending verification" value={pendingBookings.length} accent="#D9892B" hint="Calendly bookings awaiting Stripe match" />
+        <Stat label="Reconciliation log" value={reconciliationLog.length} accent="#4A8C6F" hint="matched, adjusted & free sessions" />
       </div>
 
-      <Panel title={`Unmatched Stripe payments (${unmatchedPayments.length})`}>
-        {!unmatchedPayments.length ? <Empty pad>All recent Stripe payments are linked to bookings.</Empty> : (
+      <Panel title={`Unlinked Stripe payments (${unmatchedPayments.length})`}>
+        {!unmatchedPayments.length ? <Empty pad>No orphan Stripe charges — all payments are linked to bookings.</Empty> : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
+                <th style={thS}>Type</th>
                 <th style={thS}>Date</th>
                 <th style={thS}>Email</th>
                 <th style={thS}>Amount</th>
                 <th style={thS}>Status</th>
-                <th style={thS}>Match</th>
-                {canEdit && <th style={thS}>Link to booking</th>}
+                <th style={thS}>Details</th>
+                {canEdit && <th style={thS}>Action</th>}
               </tr>
             </thead>
             <tbody>
               {unmatchedPayments.map(p => (
                 <tr key={p.id}>
+                  <td style={tdS}>Stripe payment</td>
                   <td style={tdS}>{formatRegistrationDateTime(p.paidAt || p.createdAt)}</td>
                   <td style={tdS}>{p.customerEmail || "—"}</td>
                   <td style={tdS}>{money(p.amountGross)}</td>
@@ -13294,7 +13232,7 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
                   <td style={tdS}>
                     {p.matchStatus === "needs_review"
                       ? <span style={{ color: "#D9892B", fontWeight: 600 }}>Review ({p.matchScore})</span>
-                      : <span style={{ color: "#C0573F", fontWeight: 600 }}>Unmatched</span>}
+                      : <span style={{ color: "#C0573F", fontWeight: 600 }}>No booking linked</span>}
                     {p.notes && <div style={{ fontSize: 11, color: C.ink3, marginTop: 2 }}>{p.notes}</div>}
                   </td>
                   {canEdit && (
@@ -13324,7 +13262,7 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
         )}
       </Panel>
 
-      <Panel title={`Bookings pending payment verification (${pendingBookings.length})`}>
+      <Panel title={`Pending verification (${pendingBookings.length})`}>
         {!pendingBookings.length ? <Empty pad>No bookings waiting on Stripe.</Empty> : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
@@ -13333,6 +13271,7 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
                 <th style={thS}>Session</th>
                 <th style={thS}>Expected</th>
                 <th style={thS}>Booked</th>
+                <th style={thS}>Why pending</th>
                 <th style={thS}></th>
               </tr>
             </thead>
@@ -13340,12 +13279,14 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
               {sortRegistrationsByCreatedAt(pendingBookings).map(r => {
                 const client = clients.find(c => c.id === r.clientId);
                 const ps = paymentStatusLabel(r.paymentStatus);
+                const whyPending = explainPendingVerificationReason(r, payments, registrations, clients, data);
                 return (
                   <tr key={r.id}>
                     <td style={tdS}><strong>{cleanName(client?.name || "—")}</strong><div style={{ fontSize: 11, color: C.ink3 }}>{client?.email}</div></td>
                     <td style={tdS}>{cleanName(r.eventName || "—")}</td>
                     <td style={tdS}>{formatRegistrationAmount(r) || money(r.paymentAmount)}</td>
-                    <td style={tdS}>{formatRegistrationDateTime(r.createdAt)}</td>
+                    <td style={tdS}>{registrationBookedDisplay(r)}</td>
+                    <td style={{ ...tdS, fontSize: 12, color: C.ink2, maxWidth: 220, lineHeight: 1.45 }}>{whyPending}</td>
                     <td style={tdS}>
                       <span style={{ fontSize: 11, color: ps.color, fontWeight: 600 }}>{ps.text}</span>
                       <button type="button" onClick={() => onOpen({ db: "registrations", record: r })} style={{ marginLeft: 10, padding: "4px 10px", fontSize: 11, background: C.surfaceAlt, border: `1px solid ${C.line}`, borderRadius: 7, cursor: "pointer" }}>Open</button>
@@ -13358,17 +13299,25 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
         )}
       </Panel>
 
-      {amountMismatchCount > 0 && (
-        <Panel title={`Amount mismatches (${amountMismatchCount})`}>
-          <div style={{ fontSize: 12, color: C.ink3, marginBottom: 12, lineHeight: 1.5 }}>
-            When Calendly expected price differs from Stripe, the booking session amount is updated to the Stripe amount (source of truth).
+      <Panel title={`Amount reconciliation log (${reconciliationLog.length})`}>
+        {stripeStatus?.at && (
+          <div style={{ fontSize: 11.5, color: C.ink3, marginBottom: 10, lineHeight: 1.45 }}>
+            Updated {stripeStatus.at}
+            {stripeStatus.synced > 0 ? ` · ${stripeStatus.synced} new Stripe event${stripeStatus.synced !== 1 ? "s" : ""} processed` : " · reconciliation complete"}
           </div>
+        )}
+        <div style={{ fontSize: 12, color: C.ink3, marginBottom: 12, lineHeight: 1.5 }}>
+          Transaction log of resolved bookings: Stripe-matched sessions, amount adjustments (Calendly → Stripe), and free sessions (Expected → $0 Stripe). Session amount is the revenue figure used in the CRM.
+        </div>
+        {!reconciliationLog.length ? (
+          <Empty pad>No reconciled bookings yet — matched and free sessions will appear here.</Empty>
+        ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
                 <th style={thS}>Client</th>
                 <th style={thS}>Session</th>
-                <th style={thS}>Session date</th>
+                <th style={thS}>Booked</th>
                 <th style={thS}>Type</th>
                 <th style={{ ...thS, textAlign: "right" }}>Expected</th>
                 <th style={{ ...thS, textAlign: "right" }}>Stripe</th>
@@ -13376,13 +13325,16 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
               </tr>
             </thead>
             <tbody>
-              {(amountMismatchCards.length ? amountMismatchCards : activeAmountMismatches).map(r => {
+              {reconciliationLog.map(r => {
                 const client = clients.find(c => c.id === r.clientId);
                 const meta = registrationSessionMeta(r, data);
                 const mm = r.lastAmountMismatch;
                 const expected = mm?.expectedAmount ?? r.paymentAmount ?? registrationSessionAmount(r);
-                const stripeAmt = mm?.stripeAmount ?? r.paidAmount;
-                const sessionAmt = mm ? mm.stripeAmount : r.paidAmount;
+                const stripeAmt = mm?.stripeAmount ?? (r.stripeVerified ? r.paidAmount : 0);
+                const sessionAmt = mm
+                  ? mm.stripeAmount
+                  : (r.stripeVerified ? registrationVerifiedAmount(r) : 0);
+                const showExpectedStrike = mm && !amountsMatch(expected, stripeAmt);
                 return (
                   <tr key={r.id}>
                     <td style={tdS}>
@@ -13390,7 +13342,7 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
                       {client?.email && <div style={{ fontSize: 11, color: C.ink3 }}>{client.email}</div>}
                     </td>
                     <td style={tdS}>{meta.sessionName}</td>
-                    <td style={tdS}>{meta.sessionDate}</td>
+                    <td style={tdS}>{formatRegistrationDateTime(r.createdAt)}</td>
                     <td style={tdS}>
                       <span style={{
                         fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20,
@@ -13399,55 +13351,16 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
                       }}>
                         {meta.channel === "Virtual session" ? "Virtual" : "Studio"}
                       </span>
+                      {mm?.reason === "free" && (
+                        <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 600, color: C.ink3 }}>Free</span>
+                      )}
+                      {r.stripeVerified && mm && mm.reason !== "free" && (
+                        <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 600, color: "#9B59B6" }}>Adjusted</span>
+                      )}
                     </td>
-                    <td style={{ ...tdS, textAlign: "right", color: "#C0573F", textDecoration: mm ? "line-through" : "none" }}>{money(expected)}</td>
+                    <td style={{ ...tdS, textAlign: "right", color: "#C0573F", textDecoration: showExpectedStrike ? "line-through" : "none" }}>{money(expected)}</td>
                     <td style={{ ...tdS, textAlign: "right", fontWeight: 600, color: "#2D6A50" }}>{money(stripeAmt)}</td>
                     <td style={{ ...tdS, textAlign: "right", fontWeight: 700 }}>{money(sessionAmt)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </Panel>
-      )}
-
-      <Panel title={`Recently verified payments (${recentlyVerifiedPayments.length})`}>
-        {!recentlyVerifiedPayments.length ? (
-          <Empty pad>No Stripe-verified bookings yet — matched payments will appear here.</Empty>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={thS}>Client</th>
-                <th style={thS}>Session</th>
-                <th style={thS}>Session date</th>
-                <th style={thS}>Type</th>
-                <th style={{ ...thS, textAlign: "right" }}>Session amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentlyVerifiedPayments.map(r => {
-                const client = clients.find(c => c.id === r.clientId);
-                const meta = registrationSessionMeta(r, data);
-                const amt = registrationVerifiedAmount(r);
-                return (
-                  <tr key={r.id}>
-                    <td style={tdS}>
-                      <strong>{cleanName(client?.name || "Client")}</strong>
-                      {client?.email && <div style={{ fontSize: 11, color: C.ink3 }}>{client.email}</div>}
-                    </td>
-                    <td style={tdS}>{meta.sessionName}</td>
-                    <td style={tdS}>{meta.sessionDate}</td>
-                    <td style={tdS}>
-                      <span style={{
-                        fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20,
-                        background: meta.channel === "Virtual session" ? hexA("#2F6FD0", 0.12) : hexA(C.gold, 0.15),
-                        color: meta.channel === "Virtual session" ? "#2F6FD0" : C.gold,
-                      }}>
-                        {meta.channel === "Virtual session" ? "Virtual" : "Studio"}
-                      </span>
-                    </td>
-                    <td style={{ ...tdS, textAlign: "right", fontWeight: 700, color: "#2D6A50" }}>{amt != null ? money(amt) : "—"}</td>
                   </tr>
                 );
               })}

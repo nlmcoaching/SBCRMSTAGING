@@ -62,7 +62,13 @@ function extractStripePayment(event) {
     return {
       ...base,
       status: "paid",
-      customerEmail: pickEmail(obj.receipt_email, charge.billing_details?.email),
+      customerEmail: pickEmail(
+        obj.receipt_email,
+        charge.billing_details?.email,
+        obj.metadata?.email,
+        obj.metadata?.customer_email,
+        obj.metadata?.invitee_email,
+      ),
       amountGross: gross,
       amountRefunded: 0,
       stripePaymentIntentId: obj.id || "",
