@@ -6264,11 +6264,16 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
 
   const pillTitle = (s) => {
     const studioName = resolveStudioName(s);
-    const partner = studioName ? `@ ${studioName}` : "";
-    const clientName = sessionClientName[s.id] || "";
+    const isVirtual = !studioName;
+    if (isVirtual) {
+      const clientName = sessionClientName[s.id] || "";
+      const journey = s.journey || cleanName(s.name);
+      return [clientName, journey].filter(Boolean).join(" - ");
+    }
+    const journey = s.journey || cleanName(s.name);
     const spots = spotsLeft(s);
     const spotsInfo = spots != null ? `${spots} of ${s.capacity} spots remaining` : "";
-    return [cleanName(s.name), partner, clientName, spotsInfo].filter(Boolean).join(" · ");
+    return [studioName, journey, spotsInfo].filter(Boolean).join(" - ");
   };
 
   return (
