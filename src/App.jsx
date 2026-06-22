@@ -1654,6 +1654,14 @@ function formatBookingAmount(reg, fallbackAmount) {
   if (fallbackAmount === 0) return "Free";
   return money(fallbackAmount);
 }
+// The expected price for the booking, as reported by Calendly. When Stripe later corrected
+// paymentAmount on a mismatch, the original Calendly value is preserved in lastAmountMismatch.expectedAmount.
+function calendlyBookingAmount(reg) {
+  if (!reg) return null;
+  if (reg.lastAmountMismatch?.expectedAmount != null) return Number(reg.lastAmountMismatch.expectedAmount);
+  const cal = registrationSessionAmount(reg);
+  return cal != null ? cal : null;
+}
 async function backfillRegistrationPaymentsForRegs(regs, setData) {
   if (!setData || !regs?.length) return;
   const missingRegs = regs.filter(r => r.paymentAmount == null || r.paymentAmount === "");
@@ -5142,7 +5150,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         ? <CalendarView rows={processed.rows} today={today} derived={derived} data={data} onOpen={(r) => onOpen({ db: section, record: r })} />
         : <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => (
             section === "revenue" ? openRevenueViewRow(r, data, onOpen) : onOpen({ db: section, record: r })
-          )} ctx={{ data, derived, today, setData, section }} />}
+          )} ctx={{ data, derived, today, setData, section }} maxHeight={section === "registrations" ? "calc(100vh - 240px)" : undefined} />}
     </div>
   );
 }
@@ -5301,19 +5309,17 @@ const VIEWS = {
           col("clientId",    "Client",       (r, ctx) => { const c = (ctx.data.clients||[]).find(x => x.id === r.clientId); return c ? <strong style={{color:C.ink}}>{cleanName(c.name)}</strong> : <span style={{color:C.ink3}}>—</span>; }),
           col("scheduledAt", "Session Date/Time", r => formatRegistrationDateTime(r.scheduledAt)),
           col("eventName",   "Event",        r => r.eventName || "—"),
-          col("paymentAmount","Amount",      r => {
-            if (r.paymentAmount === 0) return <span style={{color:C.ink3}}>Free</span>;
-            return r.paymentAmount != null && r.paymentAmount !== "" && !Number.isNaN(Number(r.paymentAmount))
-              ? <strong style={{color:C.ink}}>{money(r.paymentAmount)}</strong>
+          col("calendlyAmount","Calendly Amount", r => {
+            const cal = calendlyBookingAmount(r);
+            if (cal === 0) return <span style={{color:C.ink3}}>Free</span>;
+            return cal != null
+              ? <span style={{color:C.ink2}}>{money(cal)}</span>
               : <span style={{color:C.ink3}}>—</span>;
           }, { align: "right" }),
           col("status",      "Status",       r => {
             const clr = { booked: C.brand, attended: "#4A8C6F", canceled: "#C0573F", rescheduled: C.gold, no_show: "#8A96AC" }[r.status] || C.ink3;
             return <span style={{fontSize:12,padding:"2px 8px",borderRadius:8,background:hexA(clr,0.12),color:clr,fontWeight:600}}>{r.status}</span>;
           }),
-          col("waiverStatus", "Waiver",      r => r.waiverStatus === "signed"
-            ? <span style={{color:"#4A8C6F",fontWeight:700}}>✓ Signed</span>
-            : <span style={{color:C.ink3}}>Pending</span>),
           col("attendanceType","Attendance", r => r.attendanceType || "—"),
         ],
         run: (rows) => ({ rows: sortRegistrationsByCreatedAt(rows) }),
@@ -5846,13 +5852,16 @@ const sum = (rows, k) => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
 /* ============================================================
    TABLE
    ============================================================ */
-function TableView({ columns, rows, footer, onOpen, ctx }) {
+function TableView({ columns, rows, footer, onOpen, ctx, maxHeight }) {
   if (!rows.length) return <Empty pad>Nothing here yet. Add a record, or adjust the view.</Empty>;
+  const thStyle = maxHeight
+    ? { position: "sticky", top: 0, zIndex: 1, background: C.surface }
+    : null;
   return (
     <div className="sb-card" style={{ overflow: "hidden" }}>
-      <div style={{ overflowX: "auto" }}>
+      <div style={{ overflowX: "auto", ...(maxHeight ? { maxHeight, overflowY: "auto" } : {}) }}>
         <table className="sb-table">
-          <thead><tr>{columns.map((c) => <th key={c.key} style={{ textAlign: c.align || "left" }}>{c.label}</th>)}</tr></thead>
+          <thead><tr>{columns.map((c) => <th key={c.key} style={{ textAlign: c.align || "left", ...thStyle }}>{c.label}</th>)}</tr></thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.id} onClick={() => onOpen(r)} className="sb-trow">

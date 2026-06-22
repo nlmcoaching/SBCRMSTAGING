@@ -1714,7 +1714,7 @@ The description is surfaced in the studio session drawer as **Studio Event Descr
 **Navigation:** Sidebar → Calendly Bookings
 
 Views (all sorted by session date/time, newest first; uses `scheduledAt`, falling back to linked session date/time when empty — except **All Bookings**, which sorts by `createdAt`, newest first):
-- **All Bookings** — all registrations; columns: Scheduled On, Client, Session Date/Time, Event, Amount, Status, Waiver, Attendance
+- **All Bookings** — all registrations; columns: Scheduled On, Client, Session Date/Time, Event, Calendly Amount, Status, Attendance. **Calendly Amount** (`calendlyBookingAmount`) shows the expected price from Calendly — `lastAmountMismatch.expectedAmount` when Stripe later corrected `paymentAmount`, otherwise `paymentAmount`. It is blank when Calendly never supplied a price.
 - **Pending Waivers** — active registrations where waiver is not yet signed
 - **Unpaid** — active registrations with unpaid status
 - **Cancellations** — canceled and rescheduled registrations

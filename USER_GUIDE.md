@@ -530,7 +530,7 @@ All bookings that come through Calendly are automatically marked as **waiver sig
 
 | View | What it shows |
 |---|---|
-| All Bookings | Every registration (scheduled on, client, session date, event, amount paid, status, waiver, attendance), newest booking first |
+| All Bookings | Every registration (scheduled on, client, session date, event, Calendly amount, status, attendance), newest booking first. **Calendly Amount** shows the expected price from the Calendly booking; it stays blank if Calendly never supplied a price |
 | Pending Waivers | Manually-created registrations without a signed waiver, newest session first |
 | Unpaid | Clients who haven't paid, newest session first |
 | Cancellations | Canceled and rescheduled bookings, newest session first |
