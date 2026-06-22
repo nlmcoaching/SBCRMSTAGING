@@ -13656,6 +13656,7 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
     .sort((a, b) => b.net - a.net);
 
   // ── By client ────────────────────────────────────────────────
+  // Top clients by net revenue — all-time (not MTD) so long-term value is visible
   const byClient = {};
   rows.filter(r => r.clientId).forEach(r => {
     if (!byClient[r.clientId]) byClient[r.clientId] = { gross: 0, net: 0, count: 0 };
@@ -13664,7 +13665,7 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
     byClient[r.clientId].count++;
   });
   const clientRows = Object.entries(byClient)
-    .map(([id, d]) => ({ id, name: derived.clientName[id] || id, ...d }))
+    .map(([id, d]) => ({ id, name: cleanName(derived.clientName[id] || id), ...d }))
     .sort((a, b) => b.net - a.net).slice(0, 8);
 
   // ── Recent transactions ──────────────────────────────────────
