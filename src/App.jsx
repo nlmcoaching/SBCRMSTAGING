@@ -13668,8 +13668,27 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
     .map(([id, d]) => ({ id, name: cleanName(derived.clientName[id] || id), ...d }))
     .sort((a, b) => b.net - a.net);
 
-  // ── Recent transactions ──────────────────────────────────────
-  const recent = [...rows].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 6);
+  // ── Recently charged sessions — mirrors Stripe page, sorted by paidAt newest first ──
+  const tsOf = (s) => { const t = Date.parse(s || ""); return Number.isNaN(t) ? 0 : t; };
+  const recent = (data.payments || [])
+    .filter(p => p.status === "paid")
+    .map(p => {
+      const booking = (data.registrations || []).find(r => r.id === p.bookingId);
+      const client = (booking && (data.clients || []).find(c => c.id === booking.clientId))
+        || (data.clients || []).find(c => normalizeEmail(c.email) === normalizeEmail(p.customerEmail));
+      const meta = booking ? registrationSessionMeta(booking, data) : null;
+      return {
+        id: p.id,
+        name: cleanName(client?.name || p.customerEmail || "—"),
+        sessionName: meta?.sessionName || (booking ? cleanName(booking.eventName || "Session") : p.description || "—"),
+        channel: meta?.channel || "—",
+        paidAt: p.paidAt || p.createdAt || "",
+        bookedAt: booking ? (booking.createdAt || "") : (p.paidAt || ""),
+        gross: Number(p.amountGross) || 0,
+        source: client?.source || "—",
+      };
+    })
+    .sort((a, b) => tsOf(b.paidAt) - tsOf(a.paidAt));
 
   const marginColor = (m) => m >= 70 ? "#4A8C6F" : m >= 45 ? C.gold : "#C0573F";
   const thS = { fontSize: 11.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 600, padding: "10px 12px", borderBottom: `1px solid ${C.line}`, textAlign: "left", whiteSpace: "nowrap" };
@@ -13810,34 +13829,35 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
         </Panel>
       </div>
 
-      {/* Recent transactions */}
+      {/* Recently charged sessions — mirrors Stripe page */}
       <Panel title="Recently Charged Sessions">
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              <th style={thS}>Booked Date & Time</th>
-              <th style={thS}>Description</th>
-              <th style={thS}>Date</th>
-              <th style={thS}>Channel</th>
-              <th style={{ ...thS, textAlign: "right" }}>Gross</th>
-              <th style={{ ...thS, textAlign: "right" }}>Net</th>
-              <th style={thS}>Source</th>
-            </tr>
-          </thead>
-          <tbody>
-            {recent.map(r => (
-              <tr key={r.id} onClick={() => onOpen(r)} style={{ cursor: "pointer" }} className="sb-trow">
-                <td style={tdS}>{r.bookedAt ? formatRegistrationDateTime(r.bookedAt) : "—"}</td>
-                <td style={{ ...tdS, fontWeight: 600, maxWidth: 200 }}>{cleanName(r.name)}</td>
-                <td style={tdS}>{fmtDate(r.date)}</td>
-                <td style={tdS}><Tag color={REV_CHANNEL_COLOR[r.channel] || C.ink3} soft>{r.channel}</Tag></td>
-                <td style={tdR}>{money(r.gross)}</td>
-                <td style={{ ...tdR, fontWeight: 700, color: marginColor(calcNet(r) > 0 ? Math.round(calcNet(r) / Math.max(r.gross, 1) * 100) : 0) }}>{money(calcNet(r))}</td>
-                <td style={tdS}>{r.source ? <Tag color={SOURCE_COLOR[r.source] || C.ink3} soft>{r.source}</Tag> : "—"}</td>
+        {!recent.length
+          ? <Empty pad>No Stripe charges found — click Sync Stripe on the Stripe page to load charges.</Empty>
+          : <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={thS}>Charged</th>
+                <th style={thS}>Booked</th>
+                <th style={thS}>Client</th>
+                <th style={thS}>Session</th>
+                <th style={thS}>Channel</th>
+                <th style={{ ...thS, textAlign: "right" }}>Amount</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {recent.map(r => (
+                <tr key={r.id} style={{ cursor: "default" }} className="sb-trow">
+                  <td style={tdS}>{r.paidAt ? formatRegistrationDateTime(r.paidAt) : "—"}</td>
+                  <td style={tdS}>{r.bookedAt ? formatRegistrationDateTime(r.bookedAt) : "—"}</td>
+                  <td style={{ ...tdS, fontWeight: 600 }}>{r.name}</td>
+                  <td style={{ ...tdS, maxWidth: 200 }}>{r.sessionName}</td>
+                  <td style={tdS}>{r.channel !== "—" ? <Tag color={REV_CHANNEL_COLOR[r.channel] || C.ink3} soft>{r.channel}</Tag> : "—"}</td>
+                  <td style={{ ...tdR, fontWeight: 700, color: "#4A8C6F" }}>{money(r.gross)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        }
       </Panel>
     </div>
   );
