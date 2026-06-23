@@ -2264,12 +2264,30 @@ export default function App() {
                 const restoredUser = activeUsers.find(u => u.id === session.userId);
                 if (restoredUser && session.masterKeyRaw) {
                   const masterKey = await Sec.importMasterKey(session.masterKeyRaw);
-                  setMasterKeyRaw(session.masterKeyRaw);
-                  setCryptoKey(masterKey);
-                  setCurrentUser(restoredUser);
-                  loaded.current = true;
-                  setLocked(false);
-                  setSection("today"); setView(0);
+                  // Decrypt and load data (same as normal unlock)
+                  const encRaw = await store.get(STORE_KEY_ENC);
+                  if (encRaw?.value) {
+                    const dec = normalizeCrmData(await Sec.decrypt(encRaw.value, masterKey));
+                    if (Sec.validate(dec)) {
+                      if (alive) setData(healStudioPartnersData(dec));
+                      if (dec._settings && typeof dec._settings === "object") {
+                        const s = parseCrmSettings(dec._settings);
+                        _crmSettings = s;
+                        if (alive) setCrmSettings(s);
+                        try { localStorage.setItem(CRM_SETTINGS_KEY, JSON.stringify(s)); } catch {}
+                      }
+                    } else {
+                      throw new Error("integrity");
+                    }
+                  }
+                  if (alive) {
+                    setMasterKeyRaw(session.masterKeyRaw);
+                    setCryptoKey(masterKey);
+                    setCurrentUser(restoredUser);
+                    loaded.current = true;
+                    setLocked(false);
+                    setSection("today"); setView(0);
+                  }
                 } else {
                   sessionStorage.removeItem("sb:session:v1");
                 }
@@ -2466,7 +2484,7 @@ export default function App() {
       setPinAttempts(p => { const n = { ...p }; delete n[userId]; return n; }); // reset on success
       // Clean up legacy unencrypted storage
       try { localStorage.removeItem(STORE_KEY); } catch (_) {}
-        try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, masterKeyRaw: masterKeyB64 })); } catch (_) {}
+      try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, masterKeyRaw: mkB64 })); } catch (_) {}
       loaded.current = true;
       setLocked(false);
       setSection("today"); setView(0);
