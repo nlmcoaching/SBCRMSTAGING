@@ -2194,14 +2194,6 @@ export default function App() {
   const [data, setData] = useState(SEED);
   const [section, setSection] = useState("today");
   const [view, setView] = useState(0);
-
-  // Persist navigation state so refresh returns to the same page
-  // Only write when logged in — the initial render fires with section="today" and
-  // would otherwise overwrite the saved value before session restore can read it.
-  useEffect(() => {
-    if (locked) return;
-    try { sessionStorage.setItem("sb:nav:v1", JSON.stringify({ section, view })); } catch {}
-  }, [section, view, locked]);
   const [open, setOpen] = useState(null);   // record drawer { db, record }
   const [importing, setImporting] = useState(false);
   const [query, setQuery] = useState("");
@@ -2227,6 +2219,15 @@ export default function App() {
 
   /* ── Auth state ── */
   const [locked,       setLocked]      = useState(true);
+
+  // Persist navigation state so refresh returns to the same page.
+  // Guarded by !locked so the initial render (section="today") doesn't overwrite
+  // the saved value before the session restore has a chance to read it.
+  useEffect(() => {
+    if (locked) return;
+    try { sessionStorage.setItem("sb:nav:v1", JSON.stringify({ section, view })); } catch {}
+  }, [section, view, locked]);
+
   const [needsSetup,   setNeedsSetup]  = useState(false); // true on first-ever launch
   const [cryptoKey,    setCryptoKey]   = useState(null);
   const [masterKeyRaw, setMasterKeyRaw] = useState(null); // raw b64 for user mgmt
