@@ -7220,9 +7220,10 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                   sessionName={cleanName(draft.name)}
                   sessionDate={draft.date}
                   status={draft.status}
-                  sessionAmount={formatRegistrationAmount(
-                    (data.registrations || []).find(r => r.sessionId === draft.id && r.status !== "canceled")
-                  )}
+                  sessionAmount={(() => {
+                    const reg = (data.registrations || []).find(r => r.sessionId === draft.id && r.status !== "canceled");
+                    return formatActualBookingAmount(reg, null) ?? formatRegistrationAmount(reg);
+                  })()}
                 />
               : <StudioSessionChecklist
                   equipChecklist={draft.equipChecklist || emptyEquipChecklist()}
