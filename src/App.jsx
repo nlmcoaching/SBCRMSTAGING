@@ -10505,6 +10505,7 @@ function AdminView({ tab, data, setData, secUsers, currentUser, today, crmSettin
   const [schemaTable,  setSchemaTable]          = useState(DB_SCHEMA[0].table);
   const [exportMsg,    setExportMsg]            = useState("");
   const [expandedField, setExpandedField]       = useState(null);
+  const [exportConfirm, setExportConfirm]       = useState(false);
 
   // ── record counts + sizes ──
   const tables = DB_SCHEMA.map(t => {
@@ -10592,12 +10593,7 @@ function AdminView({ tab, data, setData, secUsers, currentUser, today, crmSettin
   };
   const exportAll = () => {
     if (currentUser?.role !== "Owner") return;
-    setConfirm({
-      message: "This backup file contains ALL your CRM data in plain text — client names, emails, phone numbers, and financial records. Store it in a secure location and do not share it.",
-      okLabel: "Download backup",
-      danger: false,
-      onOk: doExportAll,
-    });
+    setExportConfirm(true);
   };
 
   const SEV_COLOR = { high: "#EF4444", medium: "#F59E0B", low: C.ink3 };
@@ -10908,6 +10904,14 @@ function AdminView({ tab, data, setData, secUsers, currentUser, today, crmSettin
       )}
       {tab === "reset" && (
         <ResetToProductionView data={data} setData={setData} currentUser={currentUser} />
+      )}
+      {exportConfirm && (
+        <ConfirmModal
+          message="This backup file contains ALL your CRM data in plain text — client names, emails, phone numbers, and financial records. Store it in a secure location and do not share it."
+          okLabel="Download backup"
+          onOk={() => { doExportAll(); setExportConfirm(false); }}
+          onCancel={() => setExportConfirm(false)}
+        />
       )}
     </div>
   );
