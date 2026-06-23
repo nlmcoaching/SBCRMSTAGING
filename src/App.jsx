@@ -1846,6 +1846,7 @@ function buildRegistrationRevenueRows(data = {}) {
         notes: "Calendly session price",
         registrationId: r.id,
         bookedAt: r.paidAt || r.createdAt || "",
+        isFree: amt === 0,
         _derived: true,
       };
     })
@@ -5626,9 +5627,16 @@ const VIEWS = {
       { name: "This month", layout: "table", columns: revCols(),
         run: (rows, c) => {
           const r = [...rows]
-            .filter(x => sameMonth(x.date, c.today))
+            .filter(x => sameMonth(x.bookedAt || x.date, c.today))
             .map(applyStudioSessionSplit)
-            .sort((a, b) => b.date.localeCompare(a.date));
+            .sort((a, b) => {
+              const ta = a.bookedAt || "";
+              const tb = b.bookedAt || "";
+              if (!ta && !tb) return 0;
+              if (!ta) return 1;   // no date → bottom
+              if (!tb) return -1;  // no date → bottom
+              return tb.localeCompare(ta);  // newest first
+            });
           const netTotal = r.reduce((s, row) => s + calcNet(row), 0);
           return { rows: r, footer: { gross: money(sum(r, "gross")), net: money(netTotal), label: "This month (70/30 studio split on net)" } };
         } },
@@ -5902,10 +5910,15 @@ function refActionCols() {
 function revCols() {
   return [
     col("bookedAt", "Booked Date & Time", (r) => r.bookedAt ? formatRegistrationDateTime(r.bookedAt) : "—"),
-    col("name", "Description", (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
+    col("name", "Description", (r) => (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>
+        {r.isFree && <span style={{ fontSize: 10.5, fontWeight: 700, background: "#F0F4FF", color: "#5B6ECC", border: "1px solid #C7D0F5", borderRadius: 5, padding: "1px 6px", letterSpacing: ".04em" }}>FREE</span>}
+      </span>
+    )),
     col("date", "Date", (r) => fmtDate(r.date)),
     col("channel", "Channel", (r) => <Tag color={REV_CHANNEL_COLOR[r.channel] || C.ink3} soft>{r.channel}</Tag>),
-    col("gross", "Gross", (r) => money(r.gross), { align: "right", sum: "gross" }),
+    col("gross", "Gross", (r) => <span style={{ color: r.isFree ? C.ink3 : "inherit" }}>{money(r.gross)}</span>, { align: "right", sum: "gross" }),
     col("studioSplit", "Studio split", (r) => r.studioSplit ? money(r.studioSplit) : "—", { align: "right" }),
     col("stripeFee", "Processing", (r) => r.stripeFee ? money(r.stripeFee) : "—", { align: "right" }),
     col("refunds", "Refunds", (r) => r.refunds ? <span style={{ color: "#C0573F" }}>-{money(r.refunds)}</span> : "—", { align: "right" }),
