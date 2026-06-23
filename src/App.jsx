@@ -8036,8 +8036,8 @@ function ClientSessionsTab({ record, data, onOpenRelated, today }) {
 
   const STATUS_COLOR = { Completed: "#4A8C6F", Planned: C.brand, "Booking open": C.brand, "Follow-up pending": C.gold, Canceled: "#C0573F" };
 
-  // Revenue from Calendly session price on each registration (until live payment data is reliable)
-  const sessionRevenue = ({ reg }) => registrationPaymentForLtv(reg);
+  // Use actual Stripe paid amount when available, fall back to Calendly list price
+  const sessionRevenue = ({ reg }) => resolveActualBookingAmount(reg, null) ?? registrationPaymentForLtv(reg) ?? 0;
   const totalRevenue = sessions.reduce((sum, s) => sum + sessionRevenue(s), 0);
 
   if (!sessions.length) {
@@ -8057,7 +8057,7 @@ function ClientSessionsTab({ record, data, onOpenRelated, today }) {
         const partner = session.studioId ? (data.partners || []).find(p => p.id === session.studioId) : null;
         const statusColor = STATUS_COLOR[session.status] || C.ink3;
         const rev = sessionRevenue(item);
-        const revLabel = formatRegistrationAmount(reg);
+        const revLabel = formatActualBookingAmount(reg, null) ?? formatRegistrationAmount(reg);
         return (
           <button key={session.id} onClick={() => onOpenRelated({ db: "sessions", record: session })}
             style={{ display: "flex", alignItems: "flex-start", gap: 12, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", textAlign: "left", cursor: "pointer", width: "100%" }}
