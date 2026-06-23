@@ -5326,6 +5326,24 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
           ))}
         </div>
       )}
+      {v.layout === "board" && section === "content" && (data.content || []).length === 0 && (
+        <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 12, padding: "20px 24px", marginBottom: 20, display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: "#166534", marginBottom: 4 }}>No content yet</div>
+            <div style={{ fontSize: 13, color: "#166534", lineHeight: 1.5 }}>
+              Load 12 sample posts across Instagram, TikTok, and Email — covering transformations, education, testimonials, FAQs, and more. Use them as a starting point or replace with your own.
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              const items = STARTER_CONTENT.map(c => ({ ...c, id: uid("ct"), sessionId: "", partnerId: "" }));
+              setData(d => ({ ...d, content: [...(d.content || []), ...items] }));
+            }}
+            style={{ background: "#16A34A", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 13, padding: "10px 20px", cursor: "pointer", flexShrink: 0 }}>
+            Load sample content
+          </button>
+        </div>
+      )}
       {v.layout === "board"
         ? <BoardView groups={processed.groups} onOpen={(r) => onOpen({ db: section, record: r })} cardKeys={v.card} ctx={{ data, derived, today }} section={section} />
         : v.layout === "partner-pipeline"
@@ -12817,6 +12835,22 @@ Warmly,
 {{yourName}}`,
     notes: "For clients who haven't booked in 60+ days. Personalise as needed.",
   },
+];
+
+/* ── STARTER CONTENT ── */
+const STARTER_CONTENT = [
+  { name: "Maya's burnout-to-calm transformation", category: "Client transformation", status: "Published", platform: "Instagram", scheduledDate: "2026-06-02", datePosted: "2026-06-02", body: "3 months ago Maya could barely slow down. Last night she stayed in savasana for 10 minutes. That's the work. ✨ #breathwork #transformation", cta: "DM me", reused: false, reach: 1840, likes: 312, comments: 28, shares: 18, saves: 41, leads: 3, booked: 1, revenue: 35, notes: "Best organic reach in June" },
+  { name: "What is box breathing? (60s explainer)", category: "Breathwork education", status: "Published", platform: "TikTok", scheduledDate: "2026-06-05", datePosted: "2026-06-05", body: "4 seconds in. Hold 4. Out 4. Hold 4. Your nervous system NEEDS this. Try it right now. #breathwork #nervous system", cta: "Save this", reused: false, reach: 8400, likes: 920, comments: 62, shares: 310, saves: 205, leads: 5, booked: 2, revenue: 70, notes: "Went semi-viral. Repurpose to IG Reel" },
+  { name: "Client testimonial — Sam Rivera", category: "Testimonials", status: "Published", platform: "Instagram", scheduledDate: "2026-06-09", datePosted: "2026-06-09", body: "\"I didn't know I was holding so much until it started to move.\" — Sam after her first session 🙏 Spots available — link in bio.", cta: "Book a session", reused: false, reach: 1620, likes: 242, comments: 36, shares: 24, saves: 58, leads: 2, booked: 1, revenue: 35, notes: "High save rate — strong social proof" },
+  { name: "Why I started Simply Breathe (founder story)", category: "Founder story", status: "Published", platform: "Instagram", scheduledDate: "2026-06-11", datePosted: "2026-06-11", body: "The moment I realized I hadn't taken a full breath in 3 years was the moment everything changed. Here's why I do this work...", cta: "Comment below", reused: false, reach: 2100, likes: 418, comments: 52, shares: 30, saves: 22, leads: 6, booked: 2, revenue: 70, notes: "Highest engagement this month" },
+  { name: "3 signs your nervous system needs a reset", category: "Nervous system regulation", status: "Published", platform: "TikTok", scheduledDate: "2026-06-12", datePosted: "2026-06-12", body: "1. You wake up already exhausted. 2. You hold your breath when stressed. 3. You can't turn your mind off at night. Sound familiar? Here's what to do.", cta: "Save this", reused: false, reach: 5200, likes: 610, comments: 48, shares: 190, saves: 310, leads: 4, booked: 1, revenue: 35, notes: "Repurpose to IG carousel" },
+  { name: "Monthly newsletter: breath + sleep connection", category: "Breathwork education", status: "Published", platform: "Email", scheduledDate: "2026-06-10", datePosted: "2026-06-10", body: "How breathwork activates the parasympathetic nervous system and why that changes sleep quality. This month's deep dive...", cta: "Book a session", reused: false, reach: 340, likes: 0, comments: 0, shares: 0, saves: 0, leads: 1, booked: 1, revenue: 35, notes: "Open rate 42%. Strong CTA click" },
+  { name: "Behind the scenes: how I set up a breathwork room", category: "Behind the scenes", status: "Draft", platform: "Instagram", scheduledDate: "2026-06-25", datePosted: "", body: "The mats, the diffuser, the lighting — here's everything I bring to make the space feel safe and sacred for every session.", cta: "Comment below", reused: false, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0, leads: 0, booked: 0, revenue: 0, notes: "Film before next studio session" },
+  { name: "Is breathwork safe during pregnancy? (FAQ)", category: "FAQs", status: "Scheduled", platform: "Instagram", scheduledDate: "2026-06-27", datePosted: "", body: "Short answer: a modified practice is generally fine. Here's what to know before booking and what I adapt for expectant mamas.", cta: "DM me", reused: false, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0, leads: 0, booked: 0, revenue: 0, notes: "Evergreen content — schedule quarterly" },
+  { name: "What to expect at your first session", category: "Breathwork education", status: "Scheduled", platform: "Instagram", scheduledDate: "2026-06-30", datePosted: "", body: "Nervous about your first breathwork session? Here's exactly what happens — from the opening circle to savasana. No experience needed.", cta: "Book a session", reused: false, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0, leads: 0, booked: 0, revenue: 0, notes: "Pin this post — great for link in bio" },
+  { name: "Upcoming Sunday virtual session invite", category: "Upcoming sessions", status: "Idea", platform: "Instagram", scheduledDate: "", datePosted: "", body: "", cta: "Link in bio", reused: false, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0, leads: 0, booked: 0, revenue: 0, notes: "Draft copy once session date is confirmed" },
+  { name: "What happens to your body during breathwork", category: "Nervous system regulation", status: "Idea", platform: "TikTok", scheduledDate: "", datePosted: "", body: "", cta: "Save this", reused: false, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0, leads: 0, booked: 0, revenue: 0, notes: "Hook idea: 'Your body already knows how to heal — it just needs permission to breathe'" },
+  { name: "Client win — anxiety to clarity in 45 min", category: "Client transformation", status: "Idea", platform: "Instagram", scheduledDate: "", datePosted: "", body: "", cta: "Book a session", reused: false, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0, leads: 0, booked: 0, revenue: 0, notes: "Follow up with client for permission before drafting" },
 ];
 
 /* ── TEMPLATE LIBRARY ── */
