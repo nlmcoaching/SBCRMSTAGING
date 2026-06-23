@@ -10102,6 +10102,7 @@ function EmailLogsView({ data, setData }) {
   const logs = [...(data.emailLog || [])].reverse();
   const [checking, setChecking] = useState({});
   const [expanded, setExpanded] = useState(null);
+  const [clearConfirm, setClearConfirm] = useState(false);
 
   const checkStatus = async (entry) => {
     if (!entry.resendId || checking[entry.id]) return;
@@ -10133,11 +10134,7 @@ function EmailLogsView({ data, setData }) {
     for (const entry of pending) await checkStatus(entry);
   };
 
-  const clearLog = () => {
-    if (window.confirm("Clear the entire email log? This cannot be undone.")) {
-      setData(d => ({ ...d, emailLog: [] }));
-    }
-  };
+  const clearLog = () => setClearConfirm(true);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -10259,6 +10256,15 @@ function EmailLogsView({ data, setData }) {
             );
           })}
         </div>
+      )}
+      {clearConfirm && (
+        <ConfirmModal
+          message="Clear the entire email log? This cannot be undone."
+          okLabel="Clear log"
+          danger
+          onOk={() => { setData(d => ({ ...d, emailLog: [] })); setClearConfirm(false); }}
+          onCancel={() => setClearConfirm(false)}
+        />
       )}
     </div>
   );
@@ -10573,25 +10579,25 @@ function AdminView({ tab, data, setData, secUsers, currentUser, today, crmSettin
   };
 
   // ── export all data (Owner only) ──
-  const exportAll = () => {
-    if (currentUser?.role !== "Owner") return;
-    const ok = window.confirm(
-      "⚠️ Security reminder\n\n" +
-      "This backup file contains ALL your CRM data in plain text — client names, emails, phone numbers, and financial records.\n\n" +
-      "• Store it in a secure location (encrypted drive or password manager).\n" +
-      "• Do not share it or leave it in Downloads.\n\n" +
-      "Download anyway?"
-    );
-    if (!ok) return;
+  const doExportAll = () => {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a"); a.href = url;
     a.download = `sbcrm-backup-${today}.json`; a.click();
     URL.revokeObjectURL(url);
     try { localStorage.setItem(LAST_BACKUP_KEY, new Date().toISOString()); } catch {}
-    setBackupBannerDismissed(true); // hide reminder for this session after download
+    setBackupBannerDismissed(true);
     setExportMsg("✓ Backup downloaded — store it securely");
     setTimeout(() => setExportMsg(""), 5000);
+  };
+  const exportAll = () => {
+    if (currentUser?.role !== "Owner") return;
+    setConfirm({
+      message: "This backup file contains ALL your CRM data in plain text — client names, emails, phone numbers, and financial records. Store it in a secure location and do not share it.",
+      okLabel: "Download backup",
+      danger: false,
+      onOk: doExportAll,
+    });
   };
 
   const SEV_COLOR = { high: "#EF4444", medium: "#F59E0B", low: C.ink3 };
@@ -12195,15 +12201,16 @@ function WorkflowsView({ data, derived, today }) {
 
 /* ── USER MANAGEMENT VIEW ── */
 function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdated, onConfirm }) {
-  const [showAdd, setShowAdd]     = useState(false);
-  const [editUser, setEditUser]   = useState(null);   // user being edited
-  const [newName, setNewName]     = useState("");
-  const [newRole, setNewRole]     = useState("Editor");
-  const [newPin, setNewPin]       = useState("");
-  const [newPerm, setNewPerm]     = useState({ ...ROLE_PERMISSIONS.Editor });
-  const [showPin, setShowPin]     = useState(false);
-  const [saving, setSaving]       = useState(false);
-  const [msg, setMsg]             = useState("");
+  const [showAdd, setShowAdd]           = useState(false);
+  const [editUser, setEditUser]         = useState(null);
+  const [newName, setNewName]           = useState("");
+  const [newRole, setNewRole]           = useState("Editor");
+  const [newPin, setNewPin]             = useState("");
+  const [newPerm, setNewPerm]           = useState({ ...ROLE_PERMISSIONS.Editor });
+  const [showPin, setShowPin]           = useState(false);
+  const [saving, setSaving]             = useState(false);
+  const [msg, setMsg]                   = useState("");
+  const [deactivateConfirm, setDeactivateConfirm] = useState(null);
 
   const canManage = currentUser?.role === "Owner" || currentUser?.permissions?.manage;
   const initials  = (name) => name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
@@ -12282,12 +12289,9 @@ function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdate
 
   const handleDeactivate = async (userId) => {
     if (userId === currentUser?.id) return;
-    if (onConfirm) {
-      onConfirm({ message: "Deactivate this user? They will no longer be able to log in.", okLabel: "Deactivate", danger: true, onOk: () => doDeactivate(userId) });
-      return;
-    }
-    if (!window.confirm("Deactivate this user? They will no longer be able to log in.")) return;
-    doDeactivate(userId);
+    const confirmPayload = { message: "Deactivate this user? They will no longer be able to log in.", okLabel: "Deactivate", danger: true, onOk: () => doDeactivate(userId) };
+    if (onConfirm) { onConfirm(confirmPayload); return; }
+    setDeactivateConfirm(confirmPayload);
   };
 
   const doDeactivate = async (userId) => {
@@ -12461,6 +12465,15 @@ function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdate
           );
         })}
       </div>
+      {deactivateConfirm && (
+        <ConfirmModal
+          message={deactivateConfirm.message}
+          okLabel={deactivateConfirm.okLabel}
+          danger={deactivateConfirm.danger}
+          onOk={() => { deactivateConfirm.onOk(); setDeactivateConfirm(null); }}
+          onCancel={() => setDeactivateConfirm(null)}
+        />
+      )}
     </div>
   );
 }
