@@ -1657,6 +1657,7 @@ function formatBookingAmount(reg, fallbackAmount) {
 // Returns the actual amount paid for a booking — Stripe paidAmount when verified,
 // explicit $0 for coupons, otherwise falls back to the Calendly list price.
 function resolveActualBookingAmount(reg, fallbackListPrice) {
+  if (!reg) return fallbackListPrice ?? null;
   if (reg.stripeVerified && reg.paidAmount != null) {
     const paid = Number(reg.paidAmount);
     const refunded = Number(reg.amountRefunded) || 0;
