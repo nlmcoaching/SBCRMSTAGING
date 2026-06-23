@@ -2224,6 +2224,7 @@ export default function App() {
   const [masterKeyRaw, setMasterKeyRaw] = useState(null); // raw b64 for user mgmt
   const [currentUser,  setCurrentUser]  = useState(null); // logged-in user object
   const [pinError,     setPinError]    = useState("");
+  const SESSION_KEY = "sb:session:v1"; // sessionStorage — cleared when tab/window closes
   const PIN_LOCKOUT_KEY = "sb:pin-lockout:v1";
   const [pinAttempts,  setPinAttempts]  = useState(() => {
     // localStorage: persists across tabs and page refreshes (cross-tab lockout enforcement).
@@ -2252,7 +2253,30 @@ export default function App() {
           const parsed = JSON.parse(sec.value);
           // v2 multi-user format
           if (parsed.version === 2 && Array.isArray(parsed.users)) {
-            if (alive) setSecUsers(parsed.users.filter(u => u.active !== false));
+            const activeUsers = parsed.users.filter(u => u.active !== false);
+            if (alive) setSecUsers(activeUsers);
+
+            // ── Session restore: if a valid sessionStorage session exists, skip PIN ──
+            try {
+              const sessionRaw = sessionStorage.getItem("sb:session:v1");
+              if (sessionRaw && alive) {
+                const session = JSON.parse(sessionRaw);
+                const restoredUser = activeUsers.find(u => u.id === session.userId);
+                if (restoredUser && session.masterKeyRaw) {
+                  const masterKey = await Sec.importMasterKey(session.masterKeyRaw);
+                  setMasterKeyRaw(session.masterKeyRaw);
+                  setCryptoKey(masterKey);
+                  setCurrentUser(restoredUser);
+                  loaded.current = true;
+                  setLocked(false);
+                  setSection("today"); setView(0);
+                } else {
+                  sessionStorage.removeItem("sb:session:v1");
+                }
+              }
+            } catch (_) {
+              sessionStorage.removeItem("sb:session:v1");
+            }
           } else {
             // v1 single-user format — show a placeholder tile so the screen is interactive
             // handleUnlock will auto-migrate to v2 on successful PIN entry
@@ -2349,6 +2373,7 @@ export default function App() {
         setMasterKeyRaw(masterKeyB64);
         setCryptoKey(masterKey);
         setCurrentUser(owner);
+        try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, masterKeyRaw: masterKeyB64 })); } catch (_) {}
         loaded.current = true;
         setLocked(false);
         setSection("today"); setView(0);
@@ -2441,6 +2466,7 @@ export default function App() {
       setPinAttempts(p => { const n = { ...p }; delete n[userId]; return n; }); // reset on success
       // Clean up legacy unencrypted storage
       try { localStorage.removeItem(STORE_KEY); } catch (_) {}
+        try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, masterKeyRaw: masterKeyB64 })); } catch (_) {}
       loaded.current = true;
       setLocked(false);
       setSection("today"); setView(0);
@@ -2476,6 +2502,7 @@ export default function App() {
       setCryptoKey(masterKey);
       setCurrentUser(owner);
       setData(SEED);
+      try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId: owner.id, masterKeyRaw: masterKeyB64 })); } catch (_) {}
       loaded.current = true;
       setNeedsSetup(false);
       setLocked(false);
@@ -2492,6 +2519,8 @@ export default function App() {
     setMasterKeyRaw(null);
     setCurrentUser(null);
     setData({}); // clear decrypted data from memory
+    try { sessionStorage.removeItem("sb:session:v1"); } catch (_) {}
+    // clear session
     setOpen(null);
     loaded.current = false;
     setPinError("");
@@ -3103,7 +3132,7 @@ export default function App() {
   useEffect(() => {
     if (locked) return;
     const IDLE_MS = 15 * 60 * 1000;
-    let timer = setTimeout(() => setLocked(true), IDLE_MS);
+    let timer = setTimeout(() => { setLocked(true); try { sessionStorage.removeItem("sb:session:v1"); } catch (_) {} }, IDLE_MS);
     const reset = () => { clearTimeout(timer); timer = setTimeout(() => setLocked(true), IDLE_MS); };
     const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"];
     events.forEach(e => window.addEventListener(e, reset, { passive: true }));
