@@ -4807,6 +4807,17 @@ function ActionEmailModal({ action, data, setData, currentUser, onClose, onSent 
       setSent(true);
       setTimeout(() => { onSent?.(); onClose(); }, 1500);
     } catch (err) {
+      const failEntry = {
+        id: `em_${Date.now()}`, date: new Date().toISOString(),
+        templateId: template?.id || "", templateName: template?.name || "",
+        category: template?.category || "",
+        to: recipient?.email || "",
+        recipientName: recipient?._type === "partner" ? (recipient.contact || recipient.name || "") : cleanName(recipient?.name || ""),
+        recipientType: recipient?._type || "client",
+        subject: finalSubject, body: finalBody,
+        resendId: null, sendStatus: "failed", errorMsg: err.message,
+      };
+      setData(d => ({ ...d, emailLog: [...(d.emailLog || []), failEntry] }));
       setError(err.message);
     }
     setSending(false);
@@ -10288,7 +10299,7 @@ const RESET_WIPE_TABLES = [
   { key: "outreach",       label: "Outreach hub" },
   { key: "content",        label: "Content calendar" },
   { key: "testimonials",   label: "Testimonials" },
-  { key: "emailLog",       label: "Email log" },
+  // emailLog is intentionally excluded — it is a permanent audit trail
 ];
 const RESET_KEEP_ITEMS = [
   "Message templates",
@@ -10296,6 +10307,7 @@ const RESET_KEEP_ITEMS = [
   "CRM settings & dropdown lists",
   "Journey descriptions",
   "User accounts & PINs",
+  "Email log (permanent audit trail)",
 ];
 
 function ResetToProductionView({ data, setData, currentUser }) {
@@ -11647,7 +11659,19 @@ function FollowUpSendButton({ r, data, setData, today }) {
       setSent(true);
       // Brief "Sent!" feedback, then mark completed — this closes modal and shows green badge
       setTimeout(() => { setCompleted(true); }, 900);
-    } catch (err) { setError(err.message); }
+    } catch (err) {
+      const tmplFail = allOptions.find(t => t.id === selectedId);
+      const failEntry = {
+        id: `em_${Date.now()}`, date: new Date().toISOString(),
+        templateId: tmplFail?.id || "followup", templateName: tmplFail?.name || r.name,
+        category: tmplFail?.category || "Follow-Up",
+        to: client?.email || "", recipientName: cleanName(client?.name || ""),
+        recipientType: "client", subject, body,
+        resendId: null, sendStatus: "failed", errorMsg: err.message,
+      };
+      setData(d => ({ ...d, emailLog: [...(d.emailLog || []), failEntry] }));
+      setError(err.message);
+    }
     setSending(false);
   };
 
@@ -14857,6 +14881,17 @@ function MessageQueue({ overdue, todayItems, upcoming, today, markSent, onOpenCl
       markSent(item.seqId, item.stepId);
       setTimeout(() => { setComposing(null); setExpanded(e => ({ ...e, [key]: false })); }, 1500);
     } catch (err) {
+      const selectedTmplFail = state?.selectedTemplateId && state.selectedTemplateId !== "__followup__"
+        ? emailTemplates.find(t => t.id === state.selectedTemplateId) : null;
+      const failEntry = {
+        id: `em_${Date.now()}`, date: new Date().toISOString(),
+        templateId: selectedTmplFail?.id || item.stepId, templateName: selectedTmplFail?.name || item.stepDef?.label || item.stepId,
+        category: selectedTmplFail?.category || "Follow-Up",
+        to: item.client?.email || "", recipientName: cleanName(item.client?.name || ""),
+        recipientType: "client", subject: state?.subject || "", body: state?.body || "",
+        resendId: null, sendStatus: "failed", errorMsg: err.message,
+      };
+      setData(d => ({ ...d, emailLog: [...(d.emailLog || []), failEntry] }));
       setEmailState(s => ({ ...s, [key]: { ...s[key], sending: false, error: err.message || "Send failed." } }));
     }
   };
@@ -15181,7 +15216,18 @@ function FUTemplateEmailModal({ templateBody, templateName, data, setData, onClo
       }));
       setSent(true);
       setTimeout(() => { setSent(false); onClose(); }, 1500);
-    } catch (err) { setError(err.message); }
+    } catch (err) {
+      const failEntry = {
+        id: `em_${Date.now()}`, date: new Date().toISOString(),
+        templateId: "fu_custom", templateName,
+        category: "Follow-Up",
+        to: recipientEmail || "", recipientName: recipient?._type === "partner" ? (recipient.contact || recipient.name) : cleanName(recipient?.name || ""),
+        recipientType: recipient?._type, subject, body,
+        resendId: null, sendStatus: "failed", errorMsg: err.message,
+      };
+      setData(d => ({ ...d, emailLog: [...(d.emailLog || []), failEntry] }));
+      setError(err.message);
+    }
     setSending(false);
   };
 
