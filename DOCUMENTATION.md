@@ -68,6 +68,16 @@ After a successful PIN login, the master key and user ID are saved to **`session
 - The last-visited section and tab view are also saved to `sessionStorage` (`sb:nav:v1`) while the user is logged in, so a refresh returns to the same page rather than the Command Center.
 - Both keys are cleared on explicit logout and on idle auto-lock.
 
+#### Session Token Integrity (HMAC binding)
+
+Every session token stored in `sb:session:v1` includes a `sig` field: an HMAC-SHA256 digest computed over `"sb-session-v2:" + userId + ":" + masterKeyRaw`, using the master key itself as the HMAC key.
+
+On session restore, the app re-computes the expected HMAC and rejects the token if:
+- the `sig` field is missing (legacy unsigned tokens), or
+- the computed digest does not match the stored `sig` (tampered `userId` or `masterKeyRaw`).
+
+A rejected token is removed from `sessionStorage`, and the user must re-enter their PIN. This prevents a lower-privilege user from editing `userId` in DevTools to claim another user's role while reusing a valid master key.
+
 ### Encryption
 
 | Layer | Detail |
@@ -112,7 +122,7 @@ If the app detects a v1 PIN account (pre-PBKDF2, unsalted SHA-256 hash), a yello
 
 ### Idle Auto-Lock
 
-The app automatically locks after **15 minutes of inactivity** (no mouse movement, keypress, touch, or scroll). The timer resets on any user interaction. When the idle lock fires, the `sessionStorage` session token and saved nav state are both cleared, so the next load requires PIN entry.
+The app automatically locks after **15 minutes of inactivity** (no mouse movement, keypress, touch, or scroll). The timer resets on any user interaction. When the idle lock fires — whether from the initial inactivity countdown **or** from a reset countdown after user activity — both `sb:session:v1` and `sb:nav:v1` are removed from `sessionStorage`, so the next page load requires PIN entry and lands on the Command Center.
 
 ### Delete Confirmation
 
@@ -2053,6 +2063,8 @@ Sec.generateMasterKeyB64()                // Random 256-bit master key
 Sec.importMasterKey(b64)                  // Import raw key as CryptoKey
 Sec.wrapKeyForUser(masterKeyB64, pin, salt)   // Encrypt master key for user
 Sec.unwrapKeyForUser(wrappedB64, pin, salt)   // Decrypt master key for user
+Sec.hmacSession(masterKeyRaw, userId)     // HMAC-SHA256 session token sig (tamper protection)
+Sec.verifySession(masterKeyRaw, userId, sig)  // Verify session token sig; returns false on mismatch
 Sec.sanitize(val)                         // Strip formulas and HTML from CSV input and Calendly webhook fields
 Sec.validate(data)                        // Schema validation on load
 ```
@@ -2061,8 +2073,8 @@ Sec.validate(data)                        // Schema validation on load
 
 ### Login Redirect
 
-After a successful login (both first-time setup and subsequent logins), the app immediately navigates to the **Today — Command Center** dashboard (`section = "today"`, `view = 0`). Users always land on their daily action hub rather than the last viewed section.
+After a successful PIN login (both first-time setup and explicit logins), the app navigates to the **Today — Command Center** dashboard (`section = "today"`, `view = 0`). However, if the session is restored automatically on a browser refresh (via the `sb:session:v1` token), the app instead returns the user to the exact section and tab they were on before the refresh, as stored in `sb:nav:v1`.
 
 ---
 
-*Documentation updated June 2026 (v9.2). Simply Breathe OS is a living system — update this document as features are added.*
+*Documentation updated June 2026 (v9.3). Simply Breathe OS is a living system — update this document as features are added.*
