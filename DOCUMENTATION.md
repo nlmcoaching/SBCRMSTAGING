@@ -980,6 +980,10 @@ Both the **This month** and **All transactions** table views display footer rows
 - **Top Performers** — Posts sorted by engagement or leads
 - **Ideas & Drafts** — Filtered view for in-progress content
 
+### Starter Content Prompt
+
+When the Pipeline view is opened and `data.content` is empty, a green prompt is shown with a **"Load sample content"** button. Clicking it inserts 12 pre-built sample posts (`STARTER_CONTENT` constant) covering all status columns (Published, Draft, Scheduled, Idea) across Instagram, TikTok, and Email. Published posts include realistic reach/engagement/leads data so the Analytics view also populates immediately. Content Calendar data is preserved on Reset to Production.
+
 ### Content Analytics View
 
 - Content funnel: Ideas → Drafts → Scheduled → Published
@@ -1371,7 +1375,7 @@ System-wide configuration managed by Owners and Admins.
 
 ### Tab 6 — Email Logs
 
-A system-wide log of every email sent from the CRM via Resend.
+A system-wide log of every email attempted from the CRM via Resend — including both successful sends and failures. All five email send paths (Action Email Modal, Follow-Up record inline send, RecordDrawer/Outreach send, Follow-Up Engine step send, FUTemplateEmailModal) write to this log. Failed sends are recorded with `sendStatus: "failed"` and include an `errorMsg` field displayed as a ⚠ indicator in the Send column. The log is a permanent audit trail and is **excluded from Reset to Production**.
 
 #### Columns
 
@@ -1431,9 +1435,9 @@ Saving here immediately updates all "Journey Used" dropdowns across session reco
 
 Permanently wipes all test/seed data to prepare the app for real production use.
 
-**What gets wiped:** `clients`, `partners`, `sessions`, `registrations`, `payments`, `offers`, `referrals`, `followups`, `sequences`, `expenses`, `revenue`, `outreach`, `content`, `testimonials`, `emailLog`. Partner agreement file blobs in IndexedDB are also removed.
+**What gets wiped:** `clients`, `partners`, `sessions`, `registrations`, `payments`, `offers`, `referrals`, `followups`, `sequences`, `expenses`, `revenue`. Partner agreement file blobs in IndexedDB are also removed.
 
-**What is preserved:** `templates`, `_settings` (journey descriptions, CRM configuration), `fuTemplates` (follow-up template overrides), and user accounts/PINs (`secUsers`).
+**What is preserved:** `templates`, `fuTemplates` (follow-up template overrides), `content` (Content Calendar posts), `testimonials`, `outreach` (Outreach Hub records), `emailLog` (permanent audit trail), `_settings` (journey descriptions, CRM configuration, dropdown lists), and user accounts/PINs (`secUsers`).
 
 **Integration safety:** Calendly and Stripe webhook subscriptions, backend `.env` secrets, and Resend configuration are unchanged. Pending Calendly and Stripe webhook queues are cleared via `POST /api/integration/clear-queues` so old test events do not re-import on the next sync.
 
@@ -2077,4 +2081,4 @@ After a successful PIN login (both first-time setup and explicit logins), the ap
 
 ---
 
-*Documentation updated June 2026 (v9.3). Simply Breathe OS is a living system — update this document as features are added.*
+*Documentation updated June 2026 (v9.4). Simply Breathe OS is a living system — update this document as features are added.*
