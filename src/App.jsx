@@ -1711,6 +1711,8 @@ function registrationPaymentForLtv(reg) {
     const refunded = Number(reg.amountRefunded) || 0;
     if (!Number.isNaN(paid)) return Math.max(0, Math.round((paid - refunded) * 100) / 100);
   }
+  // Explicit $0 paidAmount (coupon/discount code) — don't fall through to list price
+  if (reg.paidAmount != null && Number(reg.paidAmount) === 0) return 0;
   // Not yet Stripe-verified but explicitly paid (paidAmount recorded)
   if (reg.paymentStatus === "paid" && !reg.stripeVerified) {
     const paid = Number(reg.paidAmount);
@@ -3160,9 +3162,9 @@ export default function App() {
     const yr = today.slice(0, 4);
     const expensesMTD = (data.expenses||[]).filter(e => (e.date||"").startsWith(mo)).reduce((s,e) => s + (+e.amount||0), 0);
     const expensesYTD = (data.expenses||[]).filter(e => (e.date||"").startsWith(yr)).reduce((s,e) => s + (+e.amount||0), 0);
-    // Revenue MTD: gross = full session prices; net = after studio splits deducted.
+    // Revenue MTD: filter by bookedAt (booking date) with date as fallback — matches Revenue This Month tab.
     const mtdRows = buildRevenueViewRows(data)
-      .filter(r => (r.date || "").startsWith(mo))
+      .filter(r => ((r.bookedAt || r.date) || "").startsWith(mo))
       .map(applyStudioSessionSplit);
     const grossRevMTD = mtdRows.reduce((s, r) => s + (r.gross || 0), 0);
     const netRevMTD   = mtdRows.reduce((s, r) => s + calcNet(r), 0);
@@ -3963,13 +3965,15 @@ function LaneSplitPanel({ data, today }) {
   const registrations = data.registrations || [];
   const mo            = today.slice(0, 7);
 
+  // ── Shared MTD revenue rows (same source of truth as Revenue This Month tab) ──
+  const allRevRowsMTD = buildRevenueViewRows(data)
+    .filter(r => ((r.bookedAt || r.date) || "").startsWith(mo));
+
   // ── B2C metrics ──
   const b2cOfferTypes = ["Single session","3-pack","6-pack","12-pack","Private session","Virtual session","Group package"];
-  const b2cClosedOffers = offers.filter(o => WON_STATUSES.includes(o.status) && b2cOfferTypes.includes(o.offerType));
-  const b2cOfferRevMTD = b2cClosedOffers.filter(o => sameMonth(o.closeDate || o.dateOffered, today))
-    .reduce((a, o) => a + (Number(o.price) || 0), 0);
-  const b2cVirtualRevMTD = registrationRevenueForMonth(registrations, sessions, mo, { virtualOnly: true });
-  const b2cRevMTD = b2cOfferRevMTD + b2cVirtualRevMTD;
+  const b2cRevMTD = allRevRowsMTD
+    .filter(r => r.channel !== "Studio session")
+    .reduce((a, r) => a + (r.gross || 0), 0);
   const b2cOpenPipeline = offers.filter(o => OPEN_STATUSES.includes(o.status) && b2cOfferTypes.includes(o.offerType))
     .reduce((a, o) => a + (Number(o.price) || 0), 0);
   const activeClients = clients.filter(c => ["Member (4+)","Advocate","Engaged (2-3x)"].includes(c.status)).length;
@@ -3980,7 +3984,9 @@ function LaneSplitPanel({ data, today }) {
     : 0;
 
   // ── B2B metrics ──
-  const b2bRevMTD = registrationRevenueForMonth(registrations, sessions, mo, { studioOnly: true });
+  const b2bRevMTD = allRevRowsMTD
+    .filter(r => r.channel === "Studio session")
+    .reduce((a, r) => a + (r.gross || 0), 0);
   const studioPipeline = partners.filter(p => p.stage !== "Lost / not a fit")
     .reduce((a, p) => a + (Number(p.revenuePotential) || 0), 0);
   const recurringP  = partners.filter(p => p.stage === "Recurring partner").length;
@@ -4361,13 +4367,13 @@ function PipelineSnapshot({ data, today }) {
       label: "Operating profit MTD",
       value: (() => {
         const exp = (data.expenses||[]).filter(e=>(e.date||"").startsWith(mo)).reduce((s,e)=>s+(+e.amount||0),0);
-        const net = buildRevenueViewRows(data).filter(r=>(r.date||"").startsWith(mo)).map(applyStudioSessionSplit).reduce((s,r)=>s+calcNet(r),0);
+        const net = buildRevenueViewRows(data).filter(r=>((r.bookedAt||r.date)||"").startsWith(mo)).map(applyStudioSessionSplit).reduce((s,r)=>s+calcNet(r),0);
         return money(net - exp);
       })(),
       sub: "net session revenue minus expenses",
       accent: (() => {
         const exp = (data.expenses||[]).filter(e=>(e.date||"").startsWith(mo)).reduce((s,e)=>s+(+e.amount||0),0);
-        const net = buildRevenueViewRows(data).filter(r=>(r.date||"").startsWith(mo)).map(applyStudioSessionSplit).reduce((s,r)=>s+calcNet(r),0);
+        const net = buildRevenueViewRows(data).filter(r=>((r.bookedAt||r.date)||"").startsWith(mo)).map(applyStudioSessionSplit).reduce((s,r)=>s+calcNet(r),0);
         return (net-exp) >= 0 ? "#16A34A" : "#E05454";
       })(),
       Icon: TrendingUp,
@@ -5581,12 +5587,12 @@ const VIEWS = {
         run: (rows) => ({ rows: [...rows].sort((a, b) => Number(b.conversion) - Number(a.conversion)) }) },
       { name: "All Sessions", layout: "table",
         columns: [
-          col("date",       "Date",       (r) => fmtDate(r.date)),
+          col("date",       "Session Date & Time", (r) => r.time ? `${fmtDate(r.date)} ${r.time}` : fmtDate(r.date)),
           col("name",       "Session",    (r) => <span style={{ fontWeight: 600 }}>{cleanName(r.name)}</span>),
           col("studioId",   "Studio",     (r, c) => clientShort(c.derived.partnerName[r.studioId] || "—")),
           col("status",     "Status",     (r) => <Tag color={SESSION_STATUS_COLOR[r.status]} soft>{r.status}</Tag>),
           col("attendance", "Attendance", (r) => `${r.attendance || 0}/${r.capacity || "?"}`, { align: "right" }),
-          col("netRevenue", "Net Rev",    (r) => money(r.netRevenue), { align: "right" }),
+          col("netRevenue", "Gross Rev",   (r) => money(r.revenue || r.netRevenue), { align: "right" }),
           col("notes",      "Notes",      (r) => <span style={{ fontSize: 12, color: C.ink2 }}>{r.notes}</span>),
         ],
         run: (rows) => ({ rows: [...rows].sort((a, b) => (b.date || "").localeCompare(a.date || "")) }) },
@@ -9537,7 +9543,7 @@ function ExpenseSummaryView({ data, today, onOpen, onImportExpenses, canEdit = t
 
   // Revenue context for margin — use same pipeline as Revenue Attribution so studio splits are deducted
   const revRowsMTD = buildRevenueViewRows(data)
-    .filter(r => (r.date || "").startsWith(mo))
+    .filter(r => ((r.bookedAt || r.date) || "").startsWith(mo))
     .map(applyStudioSessionSplit);
   const grossRevMTD = sum(revRowsMTD, "gross");
   const studioSplitsMTD = sum(revRowsMTD, "studioSplit");
@@ -13717,7 +13723,7 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
   const rows = buildRevenueViewRows(data).map(applyStudioSessionSplit);
   const [highlight, setHighlight] = useState(null);
   const mo = today.slice(0, 7);
-  const mtdRows = rows.filter(r => sameMonth(r.date, today));
+  const mtdRows = rows.filter(r => sameMonth(r.bookedAt || r.date, today));
 
   // ── Core totals (MTD only) ───────────────────────────────────
   const totalGross = sum(mtdRows, "gross");
@@ -13812,8 +13818,8 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
       <div className="sb-stats">
         <Stat label="Gross revenue MTD" value={money(sum(mtdRows, "gross"))} accent={C.brand} hint="gross session booking revenue this month" />
         <Stat label="Net revenue MTD" value={money(totalNet)} accent="#2F6FD0" hint="after studio splits, fees & refunds" />
-        <Stat label="Total Session Revenue" value={money(sum(rows, "gross"))} accent="#4A8C6F" hint="all-time gross session booking revenue" />
-        <Stat label="Total Net Session Revenue" value={money(rows.reduce((a, r) => a + calcNet(r), 0))} accent={C.gold} hint="all-time net after splits, fees & refunds" />
+        <Stat label="YTD Revenue" value={money(sum(rows.filter(r => (r.bookedAt || r.date || "").startsWith(today.slice(0,4))), "gross"))} accent="#4A8C6F" hint="gross session booking revenue this year" />
+        <Stat label="YTD Net Revenue" value={money(rows.filter(r => (r.bookedAt || r.date || "").startsWith(today.slice(0,4))).reduce((a, r) => a + calcNet(r), 0))} accent={C.gold} hint="net session revenue this year after splits, fees & refunds" />
       </div>
 
       {/* Revenue waterfall: session prices → net (fees/splits when recorded), MTD only */}
