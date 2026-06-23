@@ -60,6 +60,14 @@ The system is designed to answer three core daily questions:
 - Single-user installs auto-select the user and go straight to PIN entry.
 - The heart-wave Simply Breathe logo is displayed prominently on the login screen.
 
+### Session Persistence
+
+After a successful PIN login, the master key and user ID are saved to **`sessionStorage`** (`sb:session:v1`). On the next page load (e.g. browser refresh), the app reads this token, re-imports the master key, decrypts the data, and restores the session automatically — no PIN re-entry required.
+
+- `sessionStorage` is scoped to the browser tab; closing the tab or window clears the session, requiring PIN entry on next open.
+- The last-visited section and tab view are also saved to `sessionStorage` (`sb:nav:v1`) while the user is logged in, so a refresh returns to the same page rather than the Command Center.
+- Both keys are cleared on explicit logout and on idle auto-lock.
+
 ### Encryption
 
 | Layer | Detail |
@@ -104,7 +112,7 @@ If the app detects a v1 PIN account (pre-PBKDF2, unsalted SHA-256 hash), a yello
 
 ### Idle Auto-Lock
 
-The app automatically locks after **15 minutes of inactivity** (no mouse movement, keypress, touch, or scroll). The timer resets on any user interaction.
+The app automatically locks after **15 minutes of inactivity** (no mouse movement, keypress, touch, or scroll). The timer resets on any user interaction. When the idle lock fires, the `sessionStorage` session token and saved nav state are both cleared, so the next load requires PIN entry.
 
 ### Delete Confirmation
 
