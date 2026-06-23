@@ -1272,6 +1272,24 @@ const Sec = {
     const mkB64   = await Sec.decrypt(wrappedB64, wrapKey);
     return { raw: mkB64, key: await Sec.importMasterKey(mkB64) };
   },
+  // ── Session token integrity (HMAC-SHA256 over userId+masterKeyRaw) ──
+  // Prevents a lower-privilege user from editing sessionStorage to claim a
+  // higher-privilege userId while reusing a valid masterKeyRaw.
+  async hmacSession(masterKeyRaw, userId) {
+    const rawKey = Uint8Array.from(atob(masterKeyRaw), c => c.charCodeAt(0));
+    const hmacKey = await crypto.subtle.importKey(
+      "raw", rawKey, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+    );
+    const msg = new TextEncoder().encode("sb-session-v2:" + userId + ":" + masterKeyRaw);
+    const sig  = await crypto.subtle.sign("HMAC", hmacKey, msg);
+    return btoa(String.fromCharCode(...new Uint8Array(sig)));
+  },
+  async verifySession(masterKeyRaw, userId, sig) {
+    try {
+      const expected = await Sec.hmacSession(masterKeyRaw, userId);
+      return expected === sig;
+    } catch { return false; }
+  },
   sanitize(val) {
     if (typeof val !== "string") return val;
     const t = val.trim();
@@ -2284,7 +2302,10 @@ export default function App() {
               if (sessionRaw && alive) {
                 const session = JSON.parse(sessionRaw);
                 const restoredUser = activeUsers.find(u => u.id === session.userId);
-                if (restoredUser && session.masterKeyRaw) {
+                const sigValid = session.sig
+                  ? await Sec.verifySession(session.masterKeyRaw, session.userId, session.sig)
+                  : false; // reject legacy unsigned tokens
+                if (restoredUser && session.masterKeyRaw && sigValid) {
                   const masterKey = await Sec.importMasterKey(session.masterKeyRaw);
                   // Decrypt and load data (same as normal unlock)
                   const encRaw = await store.get(STORE_KEY_ENC);
@@ -2418,7 +2439,7 @@ export default function App() {
         setMasterKeyRaw(masterKeyB64);
         setCryptoKey(masterKey);
         setCurrentUser(owner);
-        try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, masterKeyRaw: masterKeyB64 })); } catch (_) {}
+        try { const _sig = await Sec.hmacSession(masterKeyB64, userId); sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, masterKeyRaw: masterKeyB64, sig: _sig })); } catch (_) {}
         loaded.current = true;
         setLocked(false);
         setSection("today"); setView(0);
@@ -2511,7 +2532,7 @@ export default function App() {
       setPinAttempts(p => { const n = { ...p }; delete n[userId]; return n; }); // reset on success
       // Clean up legacy unencrypted storage
       try { localStorage.removeItem(STORE_KEY); } catch (_) {}
-      try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, masterKeyRaw: mkB64 })); } catch (_) {}
+      try { const _sig = await Sec.hmacSession(mkB64, userId); sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, masterKeyRaw: mkB64, sig: _sig })); } catch (_) {}
       loaded.current = true;
       setLocked(false);
       setSection("today"); setView(0);
@@ -2547,7 +2568,7 @@ export default function App() {
       setCryptoKey(masterKey);
       setCurrentUser(owner);
       setData(SEED);
-      try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId: owner.id, masterKeyRaw: masterKeyB64 })); } catch (_) {}
+      try { const _sig = await Sec.hmacSession(masterKeyB64, owner.id); sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId: owner.id, masterKeyRaw: masterKeyB64, sig: _sig })); } catch (_) {}
       loaded.current = true;
       setNeedsSetup(false);
       setLocked(false);
@@ -3195,8 +3216,12 @@ export default function App() {
   useEffect(() => {
     if (locked) return;
     const IDLE_MS = 15 * 60 * 1000;
-    let timer = setTimeout(() => { setLocked(true); try { sessionStorage.removeItem("sb:session:v1"); } catch (_) {} }, IDLE_MS);
-    const reset = () => { clearTimeout(timer); timer = setTimeout(() => setLocked(true), IDLE_MS); };
+    const lockAndClear = () => {
+      setLocked(true);
+      try { sessionStorage.removeItem("sb:session:v1"); sessionStorage.removeItem("sb:nav:v1"); } catch (_) {}
+    };
+    let timer = setTimeout(lockAndClear, IDLE_MS);
+    const reset = () => { clearTimeout(timer); timer = setTimeout(lockAndClear, IDLE_MS); };
     const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"];
     events.forEach(e => window.addEventListener(e, reset, { passive: true }));
     return () => {
