@@ -5300,7 +5300,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         : <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => (
             section === "revenue" ? openRevenueViewRow(r, data, onOpen) : onOpen({ db: section, record: r })
           )} ctx={{ data, derived, today, setData, section }}
-          maxHeight={section === "registrations" ? "calc(100vh - 240px)" : undefined}
+          maxHeight={(section === "registrations" || section === "clients") ? "calc(100vh - 240px)" : undefined}
           expandRow={v.expandRow ? (r, ctx) => v.expandRow(r, ctx) : undefined} />}
     </div>
   );
