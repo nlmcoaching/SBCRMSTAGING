@@ -1654,6 +1654,29 @@ function formatBookingAmount(reg, fallbackAmount) {
   if (fallbackAmount === 0) return "Free";
   return money(fallbackAmount);
 }
+// Returns the actual amount paid for a booking — Stripe paidAmount when verified,
+// explicit $0 for coupons, otherwise falls back to the Calendly list price.
+function resolveActualBookingAmount(reg, fallbackListPrice) {
+  if (reg.stripeVerified && reg.paidAmount != null) {
+    const paid = Number(reg.paidAmount);
+    const refunded = Number(reg.amountRefunded) || 0;
+    if (!Number.isNaN(paid)) return Math.max(0, Math.round((paid - refunded) * 100) / 100);
+  }
+  if (reg.paidAmount != null && Number(reg.paidAmount) === 0) return 0;
+  if (reg.paymentStatus === "paid" && reg.paidAmount != null) {
+    const paid = Number(reg.paidAmount);
+    if (!Number.isNaN(paid) && paid > 0) return paid;
+  }
+  const listAmt = registrationSessionAmount(reg);
+  if (listAmt != null) return listAmt;
+  return fallbackListPrice ?? null;
+}
+function formatActualBookingAmount(reg, fallbackListPrice) {
+  const amt = resolveActualBookingAmount(reg, fallbackListPrice);
+  if (amt == null) return null;
+  if (amt === 0) return "Free";
+  return money(amt);
+}
 // The expected price for the booking, as reported by Calendly. When Stripe later corrected
 // paymentAmount on a mismatch, the original Calendly value is preserved in lastAmountMismatch.expectedAmount.
 function calendlyBookingAmount(reg) {
@@ -7074,7 +7097,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                   const sessionReg = isVirtual
                     ? (data.registrations || []).find(r => r.sessionId === draft.id && r.status !== "canceled")
                     : null;
-                  const sessionAmountLabel = formatRegistrationAmount(sessionReg);
+                  const sessionAmountLabel = formatActualBookingAmount(sessionReg, null);
                   const studioColor = LANE.b2b.color;
                   return (
                     <div className="sb-fields">
@@ -8342,7 +8365,7 @@ function SessionBookingsTab({ record, data, onOpenRelated, setData }) {
       const email  = esc(client?.email || "—");
       const phone  = esc(client?.phone || "—");
       const status = esc(reg.status || "—");
-      const amount = esc(formatBookingAmount(reg, sessionListPrice) || "—");
+      const amount = esc(formatActualBookingAmount(reg, sessionListPrice) || "—");
       const waiver = reg.waiverStatus === "signed" ? "✓ Signed" : "Pending";
       const paid   = reg.paymentStatus === "paid" ? "✓ Paid" : reg.paymentStatus === "unpaid" ? "Unpaid" : "—";
       const rowBg  = i % 2 === 0 ? "#ffffff" : "#f8f9fc";
@@ -8413,8 +8436,9 @@ function SessionBookingsTab({ record, data, onOpenRelated, setData }) {
   registrations.forEach(r => { if (counts[r.status] != null) counts[r.status]++; });
   const activeRegs = registrations.filter(r => r.status !== "canceled" && r.status !== "rescheduled");
   const bookingRevenue = activeRegs.reduce((sum, r) => {
-    const amt = registrationSessionAmount(r) ?? sessionListPrice;
-    if (r.paymentStatus === "unpaid" || amt == null || amt <= 0) return sum;
+    if (r.paymentStatus === "unpaid") return sum;
+    const amt = resolveActualBookingAmount(r, sessionListPrice);
+    if (amt == null || amt <= 0) return sum;
     return sum + amt;
   }, 0);
 
@@ -8458,7 +8482,7 @@ function SessionBookingsTab({ record, data, onOpenRelated, setData }) {
         {registrations.map(reg => {
           const client = (data.clients || []).find(c => c.id === reg.clientId);
           const statusColor = REG_STATUS_COLOR[reg.status] || C.ink3;
-          const amountLabel = formatBookingAmount(reg, sessionListPrice);
+          const amountLabel = formatActualBookingAmount(reg, sessionListPrice);
           return (
             <div key={reg.id} style={{
               background: C.surfaceAlt, borderRadius: 12, padding: "12px 14px",
