@@ -13751,55 +13751,57 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
         {!matchedCharges.length ? (
           <Empty pad>No matched Stripe charges yet — click Sync Stripe now to pull them from Stripe.</Empty>
         ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={{ ...thS, width: 28 }}></th>
-                <th style={thS}>Booked</th>
-                <th style={thS}>Name</th>
-                <th style={thS}>Session</th>
-                <th style={{ ...thS, textAlign: "right" }}>Expected</th>
-                <th style={{ ...thS, textAlign: "right" }}>Stripe</th>
-                <th style={{ ...thS, textAlign: "right" }}>Session amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {matchedCharges.map(row => {
-                const open = !!expandedCharges[row.id];
-                return (
-                  <Fragment key={row.id}>
-                    <tr onClick={() => toggleCharge(row.id)} style={{ cursor: "pointer", background: open ? C.surfaceAlt : "transparent" }}>
-                      <td style={{ ...tdS, textAlign: "center", color: C.ink3 }}>
-                        <ChevronRight size={14} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
-                      </td>
-                      <td style={tdS}>{row.bookedDisplay}</td>
-                      <td style={tdS}>
-                        <strong>{row.name}</strong>
-                        {row.email && <div style={{ fontSize: 11, color: C.ink3 }}>{row.email}</div>}
-                      </td>
-                      <td style={tdS}>
-                        {row.sessionName}
-                        {row.free && (
-                          <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 20, background: hexA(C.gold, 0.15), color: C.gold, textTransform: "uppercase", letterSpacing: ".04em" }}>Free</span>
-                        )}
-                      </td>
-                      <td style={{ ...tdS, textAlign: "right", color: C.ink3 }}>{row.expected != null ? money(row.expected) : "—"}</td>
-                      <td style={{ ...tdS, textAlign: "right", fontWeight: 600, color: row.free ? C.ink3 : "#2D6A50" }}>{money(row.stripeAmount)}</td>
-                      <td style={{ ...tdS, textAlign: "right", fontWeight: 700 }}>{money(row.sessionAmount)}</td>
-                    </tr>
-                    {open && (
-                      <tr>
-                        <td></td>
-                        <td colSpan={6} style={{ padding: "4px 12px 16px", borderBottom: `1px solid ${C.lineSoft}`, background: C.surfaceAlt }}>
-                          <ChargeDetails row={row} />
+          <div style={{ maxHeight: "calc(100vh - 260px)", overflowY: "auto", overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={{ ...thS, width: 28, position: "sticky", top: 0, background: C.surface, zIndex: 1 }}></th>
+                  <th style={{ ...thS, position: "sticky", top: 0, background: C.surface, zIndex: 1 }}>Booked</th>
+                  <th style={{ ...thS, position: "sticky", top: 0, background: C.surface, zIndex: 1 }}>Name</th>
+                  <th style={{ ...thS, position: "sticky", top: 0, background: C.surface, zIndex: 1 }}>Session</th>
+                  <th style={{ ...thS, textAlign: "right", position: "sticky", top: 0, background: C.surface, zIndex: 1 }}>Expected</th>
+                  <th style={{ ...thS, textAlign: "right", position: "sticky", top: 0, background: C.surface, zIndex: 1 }}>Stripe</th>
+                  <th style={{ ...thS, textAlign: "right", position: "sticky", top: 0, background: C.surface, zIndex: 1 }}>Session amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {matchedCharges.map(row => {
+                  const open = !!expandedCharges[row.id];
+                  return (
+                    <Fragment key={row.id}>
+                      <tr onClick={() => toggleCharge(row.id)} style={{ cursor: "pointer", background: open ? C.surfaceAlt : "transparent" }}>
+                        <td style={{ ...tdS, textAlign: "center", color: C.ink3 }}>
+                          <ChevronRight size={14} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
                         </td>
+                        <td style={tdS}>{row.bookedDisplay}</td>
+                        <td style={tdS}>
+                          <strong>{row.name}</strong>
+                          {row.email && <div style={{ fontSize: 11, color: C.ink3 }}>{row.email}</div>}
+                        </td>
+                        <td style={tdS}>
+                          {row.sessionName}
+                          {row.free && (
+                            <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 20, background: hexA(C.gold, 0.15), color: C.gold, textTransform: "uppercase", letterSpacing: ".04em" }}>Free</span>
+                          )}
+                        </td>
+                        <td style={{ ...tdS, textAlign: "right", color: C.ink3 }}>{row.expected != null ? money(row.expected) : "—"}</td>
+                        <td style={{ ...tdS, textAlign: "right", fontWeight: 600, color: row.free ? C.ink3 : "#2D6A50" }}>{money(row.stripeAmount)}</td>
+                        <td style={{ ...tdS, textAlign: "right", fontWeight: 700 }}>{money(row.sessionAmount)}</td>
                       </tr>
-                    )}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
+                      {open && (
+                        <tr>
+                          <td></td>
+                          <td colSpan={6} style={{ padding: "4px 12px 16px", borderBottom: `1px solid ${C.lineSoft}`, background: C.surfaceAlt }}>
+                            <ChargeDetails row={row} />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </Panel>
 
