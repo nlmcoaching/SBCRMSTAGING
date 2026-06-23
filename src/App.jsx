@@ -2194,6 +2194,11 @@ export default function App() {
   const [data, setData] = useState(SEED);
   const [section, setSection] = useState("today");
   const [view, setView] = useState(0);
+
+  // Persist navigation state so refresh returns to the same page
+  useEffect(() => {
+    try { sessionStorage.setItem("sb:nav:v1", JSON.stringify({ section, view })); } catch {}
+  }, [section, view]);
   const [open, setOpen] = useState(null);   // record drawer { db, record }
   const [importing, setImporting] = useState(false);
   const [query, setQuery] = useState("");
@@ -2286,7 +2291,12 @@ export default function App() {
                     setCurrentUser(restoredUser);
                     loaded.current = true;
                     setLocked(false);
-                    setSection("today"); setView(0);
+                    // Restore the section/view the user was on before refresh
+                    try {
+                      const nav = JSON.parse(sessionStorage.getItem("sb:nav:v1") || "{}");
+                      setSection(nav.section || "today");
+                      setView(typeof nav.view === "number" ? nav.view : 0);
+                    } catch { setSection("today"); setView(0); }
                   }
                 } else {
                   sessionStorage.removeItem("sb:session:v1");
@@ -2537,8 +2547,7 @@ export default function App() {
     setMasterKeyRaw(null);
     setCurrentUser(null);
     setData({}); // clear decrypted data from memory
-    try { sessionStorage.removeItem("sb:session:v1"); } catch (_) {}
-    // clear session
+    try { sessionStorage.removeItem("sb:session:v1"); sessionStorage.removeItem("sb:nav:v1"); } catch (_) {}
     setOpen(null);
     loaded.current = false;
     setPinError("");
