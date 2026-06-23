@@ -10316,13 +10316,14 @@ const RESET_WIPE_TABLES = [
   { key: "expenses",       label: "Expenses" },
   { key: "revenue",        label: "Revenue" },
   { key: "outreach",       label: "Outreach hub" },
-  { key: "content",        label: "Content calendar" },
   { key: "testimonials",   label: "Testimonials" },
+  // content (Content Calendar) is intentionally excluded — posts are evergreen, not test data
   // emailLog is intentionally excluded — it is a permanent audit trail
 ];
 const RESET_KEEP_ITEMS = [
   "Message templates",
   "Follow-up template overrides",
+  "Content Calendar posts",
   "CRM settings & dropdown lists",
   "Journey descriptions",
   "User accounts & PINs",
