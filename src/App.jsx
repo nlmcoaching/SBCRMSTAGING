@@ -12494,6 +12494,263 @@ function EditUserPanel({ user, masterKeyRaw, onSave, onResetPin, saving }) {
   );
 }
 
+/* ── STARTER TEMPLATES ── */
+const STARTER_TEMPLATES = [
+  {
+    name: "Session Booking Confirmation",
+    category: "Session",
+    channel: "Email",
+    linkedTo: "Client",
+    subject: "You're booked! Your breathwork session on {{sessionDate}}",
+    body: `Hi {{firstName}},
+
+You're all set! Here are your booking details:
+
+📅 Date & Time: {{sessionDate}}
+📍 Location / Link: {{sessionLink}}
+
+A few things to help you prepare:
+- Wear comfortable, loose-fitting clothing
+- Avoid heavy meals for 2 hours before the session
+- Have a blanket and pillow nearby if you're joining virtually
+- Come with an open mind and willingness to breathe deeply
+
+If you have any questions or need to reschedule, just reply to this email.
+
+Looking forward to breathing with you soon.
+
+Warm regards,
+{{yourName}}`,
+    notes: "Sent immediately after a new booking is confirmed.",
+  },
+  {
+    name: "Pre-Session Reminder (24-Hour)",
+    category: "Session",
+    channel: "Email",
+    linkedTo: "Client",
+    subject: "Your breathwork session is tomorrow — a few reminders",
+    body: `Hi {{firstName}},
+
+Just a friendly reminder that your breathwork session is tomorrow at {{sessionTime}}.
+
+Here's what to expect:
+- The session typically runs {{sessionDuration}} minutes
+- You may experience tingling, emotional releases, or deep relaxation — all normal
+- Have water nearby and plan to rest quietly for 10–15 minutes after
+
+📍 Location / Link: {{sessionLink}}
+
+If anything comes up and you need to reschedule, please let me know as soon as possible so I can open the spot for someone else.
+
+See you tomorrow!
+
+{{yourName}}`,
+    notes: "Send the day before the session.",
+  },
+  {
+    name: "Post-Session Check-In (Same Day)",
+    category: "Follow-Up",
+    channel: "Email",
+    linkedTo: "Client",
+    subject: "How are you feeling after today's session?",
+    body: `Hi {{firstName}},
+
+Thank you so much for showing up and doing the work today — it was a honour to hold space for you.
+
+Breathwork can continue working in your body and mind for the next 24–72 hours. Here are a few suggestions:
+- Drink plenty of water
+- Rest if you feel tired
+- Journal anything that came up for you
+- Be gentle with yourself
+
+I'd love to hear how you're feeling — just hit reply and let me know. Your feedback helps me tailor future sessions to serve you better.
+
+Looking forward to hearing from you.
+
+With gratitude,
+{{yourName}}`,
+    notes: "Send within a few hours of the session ending.",
+  },
+  {
+    name: "72-Hour Rebooking Offer",
+    category: "Follow-Up",
+    channel: "Email",
+    linkedTo: "Client",
+    subject: "Ready for your next session, {{firstName}}?",
+    body: `Hi {{firstName}},
+
+I hope the past few days have been good to you since our session together.
+
+Many clients find the most powerful shifts happen when they practice consistently. I'd love to support you in building that momentum.
+
+Here are a few ways we can continue:
+
+🌿 Single Session — Book at your own pace
+📦 Package — Save when you commit to a journey (ask me about current options)
+🏢 Studio Group — Join an upcoming group session for a shared experience
+
+If you're ready to book your next session, you can do so here: {{bookingLink}}
+
+If you have any questions or want to chat about what's right for you, just reply to this email.
+
+Looking forward to our next session together.
+
+{{yourName}}`,
+    notes: "Send 72 hours after session. Personalize the package section if relevant.",
+  },
+  {
+    name: "Package / Offer Proposal",
+    category: "Offer",
+    channel: "Email",
+    linkedTo: "Client",
+    subject: "A personalised offer for you, {{firstName}}",
+    body: `Hi {{firstName}},
+
+Based on our work together, I wanted to reach out with a personalised offer I think would be a great fit for where you are right now.
+
+{{offerDetails}}
+
+This offer is available until {{offerExpiry}}.
+
+Here's what's included:
+- {{packageItem1}}
+- {{packageItem2}}
+- {{packageItem3}}
+
+Investment: {{offerPrice}}
+
+If you have questions or want to talk it through, I'm happy to jump on a quick call. Just reply to this email or book a call here: {{bookingLink}}
+
+I believe in this work and I believe in your capacity to transform. I'd love to support you further.
+
+Warmly,
+{{yourName}}`,
+    notes: "Personalise the offerDetails and package items before sending.",
+  },
+  {
+    name: "New Client Welcome",
+    category: "Session",
+    channel: "Email",
+    linkedTo: "Client",
+    subject: "Welcome to Simply Breathe — so glad you're here",
+    body: `Hi {{firstName}},
+
+Welcome! I'm so glad you found your way here.
+
+Simply Breathe is a space for you to slow down, reconnect with your breath, and access the deep healing and clarity that lives inside you. Whether you're here to manage stress, process emotions, or simply explore — you're in the right place.
+
+Here's what to expect as a new client:
+- Your first session is about building trust and finding your rhythm
+- There's no right or wrong way to breathe — just show up as you are
+- I'll guide you through everything; you just need to follow the breath
+
+Your first session is booked for {{sessionDate}} at {{sessionTime}}.
+📍 Location / Link: {{sessionLink}}
+
+If you have any questions before we meet, please don't hesitate to reach out. I read every reply personally.
+
+Looking forward to breathing with you soon.
+
+With warmth,
+{{yourName}}`,
+    notes: "Send to brand new clients after their first booking.",
+  },
+  {
+    name: "Studio Partner — Initial Outreach",
+    category: "B2B Outreach",
+    channel: "Email",
+    linkedTo: "Studio Partner",
+    subject: "Partnering to bring transformative breathwork to {{studioName}}",
+    body: `Hi {{contactName}},
+
+My name is {{yourName}} and I run Simply Breathe — a breathwork practice focused on helping people manage stress, process emotions, and access deep physical and mental renewal.
+
+I've been following {{studioName}} and I think your community would genuinely benefit from what we offer. Breathwork is a natural complement to yoga, mindfulness, and wellness practices, and it tends to attract exactly the kind of client your studio already serves.
+
+I'd love to explore hosting a session at your studio on a revenue-share basis — low risk for you, high value for your members.
+
+Here's a quick overview of what a partnership looks like:
+- I bring everything needed to run the session
+- We split revenue based on attendance
+- Your community gets an experience they'll talk about
+
+Would you be open to a short call this week to see if it's a fit? I'm flexible on timing.
+
+Looking forward to connecting.
+
+{{yourName}}`,
+    notes: "First outreach to a potential studio partner.",
+  },
+  {
+    name: "Studio Partner — Follow-Up After No Reply",
+    category: "B2B Outreach",
+    channel: "Email",
+    linkedTo: "Studio Partner",
+    subject: "Following up — breathwork at {{studioName}}",
+    body: `Hi {{contactName}},
+
+I wanted to follow up on my previous email about bringing breathwork sessions to {{studioName}}.
+
+I know things get busy, so I'll keep this short — I genuinely believe your community would love this experience, and I'd love to make it easy for you to say yes.
+
+If now isn't the right time, no problem at all — just let me know and I'll check back in a few months. If you're curious, I'm happy to answer any questions or send over more details.
+
+Either way, thanks for the work you do at {{studioName}}.
+
+{{yourName}}`,
+    notes: "Send 5–7 days after no reply to the initial outreach.",
+  },
+  {
+    name: "Testimonial Request",
+    category: "Follow-Up",
+    channel: "Email",
+    linkedTo: "Client",
+    subject: "Would you share your experience, {{firstName}}?",
+    body: `Hi {{firstName}},
+
+I hope you're continuing to feel the effects of our work together.
+
+I have a small favour to ask. If your experience with Simply Breathe has meant something to you, I'd be so grateful if you'd share a short testimonial. It helps other people who are searching for this kind of support find their way here.
+
+You could share:
+- What you were feeling before your session
+- What shifted or what you noticed during / after
+- What you'd say to someone thinking about trying breathwork
+
+You can reply directly to this email, or if it's easier, write a quick Google review here: {{reviewLink}}
+
+Even just two or three sentences would mean a lot. Thank you for trusting me with your journey.
+
+With gratitude,
+{{yourName}}`,
+    notes: "Send 1–2 weeks after a completed session or package.",
+  },
+  {
+    name: "Re-Engagement (Lapsed Client)",
+    category: "Follow-Up",
+    channel: "Email",
+    linkedTo: "Client",
+    subject: "Checking in — how have you been, {{firstName}}?",
+    body: `Hi {{firstName}},
+
+It's been a while since we last connected and I've been thinking about you.
+
+Life gets full, and it's easy to let the practices that support us slip. I just wanted to reach out and say — there's no judgment here. The breath is always waiting for you when you're ready.
+
+If you're feeling the pull to reconnect — whether it's stress, a transition you're navigating, or just a desire to feel more like yourself — I'd love to hold space for you again.
+
+I have a few spots open over the next couple of weeks. If you'd like to book, you can do so here: {{bookingLink}}
+
+Or if you just want to chat about where you're at, hit reply. I read every message personally.
+
+Either way, I hope you're well.
+
+Warmly,
+{{yourName}}`,
+    notes: "For clients who haven't booked in 60+ days. Personalise as needed.",
+  },
+];
+
 /* ── TEMPLATE LIBRARY ── */
 function TemplateLibraryView({ data, setData, onOpen, currentUser }) {
   const onUpdate = (db, id, fn) => setData(d => ({ ...d, [db]: (d[db] || []).map(r => r.id === id ? fn(r) : r) }));
@@ -12935,10 +13192,30 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser }) {
         </div>
       )}
 
+      {/* Starter templates prompt */}
+      {templates.length === 0 && (
+        <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 12, padding: "20px 24px", marginBottom: 20, display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: "#166534", marginBottom: 4 }}>No templates yet</div>
+            <div style={{ fontSize: 13, color: "#166534", lineHeight: 1.5 }}>
+              Load 10 ready-to-use starter templates covering session confirmations, follow-ups, studio partner outreach, testimonial requests, and more.
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              const newTemplates = STARTER_TEMPLATES.map((t, i) => ({ ...t, id: uid("tmpl"), createdAt: new Date().toISOString(), notes: t.notes || "" }));
+              setData(d => ({ ...d, templates: [...(d.templates || []), ...newTemplates] }));
+            }}
+            style={{ background: "#16A34A", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 13, padding: "10px 20px", cursor: "pointer", flexShrink: 0 }}>
+            Load starter templates
+          </button>
+        </div>
+      )}
+
       {/* Template grid */}
-      {filtered.length === 0 ? (
+      {filtered.length === 0 && templates.length > 0 ? (
         <Empty pad>No templates match your filters.</Empty>
-      ) : (
+      ) : templates.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }} className="sb-grid2">
           {filtered.map(t => {
             const catColor = TMPL_CATEGORY_COLOR[t.category] || C.ink3;
