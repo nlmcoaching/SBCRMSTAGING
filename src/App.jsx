@@ -10303,6 +10303,7 @@ function EmailLogsView({ data, setData }) {
 /* ── RESET TO PRODUCTION ── */
 // Operational CRM data — wiped on reset. Includes integration-linked records (Calendly bookings,
 // Stripe payments, follow-ups) so test data cannot re-link or pollute production sync.
+// Only operational/test CRM data is wiped. All configuration, content, and admin settings are preserved.
 const RESET_WIPE_TABLES = [
   { key: "clients",        label: "Clients" },
   { key: "partners",       label: "Studio partners" },
@@ -10315,15 +10316,18 @@ const RESET_WIPE_TABLES = [
   { key: "sequences",      label: "Follow-up sequences" },
   { key: "expenses",       label: "Expenses" },
   { key: "revenue",        label: "Revenue" },
-  { key: "outreach",       label: "Outreach hub" },
-  { key: "testimonials",   label: "Testimonials" },
-  // content (Content Calendar) is intentionally excluded — posts are evergreen, not test data
-  // emailLog is intentionally excluded — it is a permanent audit trail
+  // Excluded (preserved on reset):
+  // outreach      — real studio relationship records, not test data
+  // testimonials  — real client-written content
+  // content       — evergreen content calendar posts
+  // emailLog      — permanent audit trail
 ];
 const RESET_KEEP_ITEMS = [
   "Message templates",
   "Follow-up template overrides",
   "Content Calendar posts",
+  "Testimonials",
+  "Outreach Hub records",
   "CRM settings & dropdown lists",
   "Journey descriptions",
   "User accounts & PINs",
