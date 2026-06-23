@@ -5254,6 +5254,85 @@ function SourceBreakdown({ data }) {
   );
 }
 
+/* ── Revenue This Month — Margin Cards ── */
+function RevenueThisMonthStats({ data, today, rows }) {
+  const prevMonthStr = (() => {
+    const d = new Date(today + "T00:00:00");
+    d.setMonth(d.getMonth() - 1);
+    return d.toISOString().slice(0, 7); // "YYYY-MM"
+  })();
+
+  const prevRows = buildRevenueViewRows(data)
+    .map(applyStudioSessionSplit)
+    .filter(r => (r.bookedAt || r.date || "").startsWith(prevMonthStr));
+
+  const calcMargin = (rs) => {
+    const gross = rs.reduce((s, r) => s + Number(r.gross || 0), 0);
+    const net   = rs.reduce((s, r) => s + calcNet(r), 0);
+    return { gross, net, pct: gross > 0 ? Math.round((net / gross) * 100) : 0 };
+  };
+
+  const pctChange = (curr, prev) =>
+    prev > 0 ? Math.round(((curr - prev) / prev) * 100) : null;
+
+  const totalCurr  = calcMargin(rows);
+  const totalPrev  = calcMargin(prevRows);
+  const studioCurr = calcMargin(rows.filter(r => r.channel === "Studio session"));
+  const studioPrev = calcMargin(prevRows.filter(r => r.channel === "Studio session"));
+  const virtCurr   = calcMargin(rows.filter(r => r.channel === "Virtual session"));
+  const virtPrev   = calcMargin(prevRows.filter(r => r.channel === "Virtual session"));
+
+  const cards = [
+    { label: "Total Gross Margin", curr: totalCurr,  prev: totalPrev,  accent: C.brand },
+    { label: "Studio Sessions",    curr: studioCurr, prev: studioPrev, accent: "#6B5CE7" },
+    { label: "Virtual Sessions",   curr: virtCurr,   prev: virtPrev,   accent: "#2563EB" },
+  ];
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16 }}>
+      {cards.map(({ label, curr, prev, accent }) => {
+        const netChange  = pctChange(curr.net,  prev.net);
+        const pctDelta   = curr.pct - prev.pct;
+        const up         = netChange === null ? null : netChange >= 0;
+        return (
+          <div key={label} style={{
+            background: C.surface, borderRadius: 14, border: `1px solid ${C.line}`,
+            padding: "16px 18px", borderTop: `3px solid ${accent}`,
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: C.ink3, marginBottom: 8 }}>{label}</div>
+            {/* Net kept (primary) */}
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 4 }}>
+              <span style={{ fontSize: 22, fontWeight: 800, color: accent }}>{money(curr.net)}</span>
+              <span style={{ fontSize: 12, color: C.ink3, fontWeight: 600 }}>kept</span>
+            </div>
+            {/* Gross margin % */}
+            <div style={{ fontSize: 13, color: C.ink2, fontWeight: 600, marginBottom: 8 }}>
+              {curr.pct}% margin
+              {prev.gross > 0 && (
+                <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 600,
+                  color: pctDelta >= 0 ? "#16A34A" : "#DC2626" }}>
+                  {pctDelta >= 0 ? "▲" : "▼"}{Math.abs(pctDelta)}pp vs last month
+                </span>
+              )}
+            </div>
+            {/* Gross revenue sub-line */}
+            <div style={{ fontSize: 11.5, color: C.ink3 }}>
+              Gross: {money(curr.gross)}
+              {curr.gross > 0 && prev.gross > 0 && netChange !== null && (
+                <span style={{ marginLeft: 6, fontWeight: 700,
+                  color: up ? "#16A34A" : "#DC2626" }}>
+                  {up ? "▲" : "▼"}{Math.abs(netChange)}%
+                </span>
+              )}
+              {curr.gross === 0 && <span style={{ marginLeft: 6, color: C.ink3 }}>no data</span>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ============================================================
    SECTION (per database, with views)
    ============================================================ */
@@ -5381,11 +5460,16 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         ? <OutreachHubView rows={processed.rows} data={data} today={today} onOpen={(r) => onOpen({ db: "outreach", record: r })} />
         : v.layout === "calendar"
         ? <CalendarView rows={processed.rows} today={today} derived={derived} data={data} onOpen={(r) => onOpen({ db: section, record: r })} />
-        : <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => (
-            section === "revenue" ? openRevenueViewRow(r, data, onOpen) : onOpen({ db: section, record: r })
-          )} ctx={{ data, derived, today, setData, section }}
-          maxHeight={(section === "registrations" || section === "clients" || section === "revenue" || section === "sessions") ? "calc(100vh - 240px)" : undefined}
-          expandRow={v.expandRow ? (r, ctx) => v.expandRow(r, ctx) : undefined} />}
+        : <>
+          {section === "revenue" && view === 1 && (
+            <RevenueThisMonthStats data={data} today={today} rows={processed.rows} />
+          )}
+          <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => (
+              section === "revenue" ? openRevenueViewRow(r, data, onOpen) : onOpen({ db: section, record: r })
+            )} ctx={{ data, derived, today, setData, section }}
+            maxHeight={(section === "registrations" || section === "clients" || section === "revenue" || section === "sessions") ? "calc(100vh - 240px)" : undefined}
+            expandRow={v.expandRow ? (r, ctx) => v.expandRow(r, ctx) : undefined} />
+          </>}
     </div>
   );
 }
