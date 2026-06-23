@@ -2170,6 +2170,8 @@ function LockScreen({ onUnlock, error, initialising, users }) {
 }
 
 const DISMISSED_ALERTS_KEY = "sb:dismissed-alerts:v1";
+const LAST_BACKUP_KEY      = "sb:last-backup:v1";
+const BACKUP_REMINDER_DAYS = 7;
 
 class DrawerErrorBoundary extends React.Component {
   state = { error: null };
@@ -2209,6 +2211,15 @@ export default function App() {
   });
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [confirm, setConfirm] = useState(null); // { message, onOk, okLabel?, danger? }
+  const [backupBannerDismissed, setBackupBannerDismissed] = useState(false);
+  const backupOverdue = (() => {
+    try {
+      const last = localStorage.getItem(LAST_BACKUP_KEY);
+      if (!last) return true; // never backed up
+      const daysSince = (Date.now() - new Date(last).getTime()) / (1000 * 60 * 60 * 24);
+      return daysSince >= BACKUP_REMINDER_DAYS;
+    } catch { return false; }
+  })();
   const [saved, setSaved] = useState("idle"); // idle | saving | saved
   const [calendlyStatus, setCalendlyStatus] = useState(null); // null | { pending: n } | { syncing: true } | { synced: n, at: time, items: [] }
   const [showSyncDetail, setShowSyncDetail] = useState(false);
@@ -3564,6 +3575,24 @@ export default function App() {
             const lane = cur?.lane && cur.lane !== "core" ? LANE[cur.lane] : null;
             return lane ? <div style={{ height: 3, background: `linear-gradient(90deg, ${lane.color}, ${lane.color}80)`, flexShrink: 0 }} /> : null;
           })()}
+          {/* Backup overdue reminder banner */}
+          {!locked && backupOverdue && !backupBannerDismissed && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 18px", background: "#FFFBEB", borderBottom: "1px solid #FDE68A", fontSize: 12.5, color: "#92400E", flexShrink: 0 }}>
+              <span style={{ fontSize: 15 }}>⚠️</span>
+              <span style={{ flex: 1 }}>
+                <strong>Backup overdue</strong> — your last data backup was more than {BACKUP_REMINDER_DAYS} days ago. If browser storage is cleared, your data cannot be recovered.
+              </span>
+              <button
+                onClick={() => { setSection("admin"); setView(5); }}
+                style={{ background: "#F59E0B", border: "none", borderRadius: 6, color: "#fff", fontWeight: 600, fontSize: 12, padding: "5px 12px", cursor: "pointer", flexShrink: 0 }}>
+                Back up now
+              </button>
+              <button
+                onClick={() => setBackupBannerDismissed(true)}
+                style={{ background: "none", border: "none", color: "#92400E", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 4px", flexShrink: 0 }}
+                title="Dismiss">×</button>
+            </div>
+          )}
           <header className="sb-header">
             <button className="sb-menu" onClick={() => setNavOpen(true)}><Menu size={20} /></button>
             <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10 }}>
@@ -10533,6 +10562,8 @@ function AdminView({ tab, data, setData, secUsers, currentUser, today, crmSettin
     const a    = document.createElement("a"); a.href = url;
     a.download = `sbcrm-backup-${today}.json`; a.click();
     URL.revokeObjectURL(url);
+    try { localStorage.setItem(LAST_BACKUP_KEY, new Date().toISOString()); } catch {}
+    setBackupBannerDismissed(true); // hide reminder for this session after download
     setExportMsg("✓ Backup downloaded — store it securely");
     setTimeout(() => setExportMsg(""), 5000);
   };
