@@ -14163,10 +14163,11 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
     && r.paymentStatus === "pending_verification"
     && !r.stripeVerified,
   );
-  // One row per Stripe charge, tied to the Calendly session it paid for. Recent bookings
-  // (last 24h) with no Stripe charge are surfaced as $0.00 "Free session" rows for
-  // reconciliation. These are display-only and self-correct: if a charge arrives later,
-  // the booking matches and the row becomes a normal charge automatically.
+  // One row per Stripe charge, tied to the Calendly session it paid for. Any booking with no
+  // Stripe charge (e.g. a free/coupon-code booking that never hits Stripe) is surfaced as a
+  // $0.00 "Free session" row so the page is a complete record of every booking. These are
+  // display-only and self-correct: if a charge arrives later, the booking matches and the row
+  // becomes a normal charge automatically.
   const stripeCharges = useMemo(() => {
     const ts = (s) => { const t = Date.parse(s || ""); return Number.isNaN(t) ? 0 : t; };
     const chargeRows = payments
@@ -14212,15 +14213,10 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
         };
       });
 
-    // Free sessions: bookings created in the last 24h with no Stripe charge tied to them.
-    const FREE_WINDOW_MS = 24 * 60 * 60 * 1000;
-    const now = Date.now();
+    // Free sessions: any active booking with no paid Stripe charge tied to it (e.g. booked with a
+    // free coupon code, which never goes to Stripe). Shown at any age so the page is complete.
     const freeRows = registrations
       .filter(r => r.status !== "canceled" && r.status !== "rescheduled" && !r.stripeVerified)
-      .filter(r => {
-        const created = registrationCreatedTimestamp(r);
-        return created > 0 && (now - created) <= FREE_WINDOW_MS;
-      })
       .filter(r => !payments.some(p => p.bookingId === r.id && p.status === "paid"))
       .map(r => {
         const client = clients.find(c => c.id === r.clientId);
@@ -14254,7 +14250,7 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
             stripeEventId: "",
             receiptUrl: "",
             matchStatus: "free",
-            notes: "No Stripe transaction found within 24h of this booking — recorded as a free ($0.00) session.",
+            notes: "No Stripe transaction tied to this booking — recorded as a free ($0.00) session (e.g. booked with a free coupon code).",
           },
         };
       });
