@@ -470,7 +470,7 @@ const CONTENT_CAT_COLOR = {
 };
 const CONTENT_CTA = ["Book a session","DM me","Link in bio","Sign up","Comment below","Save this","Share with a friend","None"];
 
-const SESSION_STATUS = ["Planned", "Booking open", "Promotion active", "Almost full", "Completed", "Follow-up pending", "Closed out"];
+const SESSION_STATUS = ["Planned", "Booking open", "Promotion active", "Almost full", "Completed", "Follow-up pending", "Closed out", "Canceled"];
 const SESSION_STATUS_COLOR = {
   "Planned":           "#9FB2CC",
   "Booking open":      "#6FA8E8",
@@ -479,6 +479,7 @@ const SESSION_STATUS_COLOR = {
   "Completed":         C.brand,
   "Follow-up pending": "#C0573F",
   "Closed out":        C.brandDeep,
+  "Canceled":          "#C0573F",
 };
 const JOURNEY_TYPES = ["Reset & Release", "Letting Go & Rebirth", "Nervous System Reset", "Breathwork Basics", "Deep Surrender", "Heart Opening", "Energy Activation", "Grief & Healing", "New Moon Ceremony", "Custom"];
 const SETUP_STATUS = ["Not started", "In progress", "Ready"];
@@ -1397,7 +1398,37 @@ function healStudioPartners(sessionsIn, partnersIn) {
 function healStudioPartnersData(d) {
   if (!d || typeof d !== "object") return d;
   const { sessions, partners, changed } = healStudioPartners(d.sessions, d.partners);
-  return changed ? { ...d, sessions, partners } : d;
+  const d2 = changed ? { ...d, sessions, partners } : d;
+  return healCanceledSessions(d2);
+}
+
+/**
+ * Mark sessions as status:"canceled" when every registration for that session
+ * is canceled/rescheduled/no_show. Runs on startup and after each Calendly sync
+ * so the session calendar can simply filter s.status !== "canceled".
+ */
+function healCanceledSessions(d) {
+  if (!d || typeof d !== "object") return d;
+  const regs = d.registrations || [];
+  const sessions = d.sessions || [];
+  let changed = false;
+  const updated = sessions.map(s => {
+    // Already manually or previously marked Canceled — never auto-revert it
+    if ((s.status || "").toLowerCase() === "canceled") return s;
+    // Match registrations by sessionId OR shared calendlyEventUri
+    const sessionRegs = regs.filter(r =>
+      (r.sessionId && r.sessionId === s.id) ||
+      (s.calendlyEventUri && r.calendlyEventUri && r.calendlyEventUri === s.calendlyEventUri)
+    );
+    const allCanceled = sessionRegs.length > 0 &&
+      sessionRegs.every(r => r.status === "canceled" || r.status === "rescheduled" || r.status === "no_show");
+    if (allCanceled) {
+      changed = true;
+      return { ...s, status: "Canceled" };
+    }
+    return s;
+  });
+  return changed ? { ...d, sessions: updated } : d;
 }
 
 /* ── USER MANAGEMENT ── */
@@ -2819,9 +2850,13 @@ export default function App() {
 
               const existingSessionIdx = sessions.findIndex(s => s.calendlyEventUri === evt.calendlyEventUri);
               if (existingSessionIdx >= 0) {
+                const existingSession = sessions[existingSessionIdx];
+                // Never touch a session that has been marked Canceled
+                if ((existingSession.status || "").toLowerCase() === "canceled") {
+                  sessionId = existingSession.id;
+                } else {
                 // Update registered count; also backfill studioId and zoom link if missing
                 const regsForEvent = registrations.filter(r => r.calendlyEventUri === evt.calendlyEventUri && r.status !== "canceled").length + 1;
-                const existingSession = sessions[existingSessionIdx];
                 const zoomUrl = evt.locationJoinUrl || existingSession.locationJoinUrl || "";
                 sessions[existingSessionIdx] = {
                   ...existingSession,
@@ -2834,6 +2869,7 @@ export default function App() {
                   locationAddress: existingSession.locationAddress || evt.locationAddress || "",
                 };
                 sessionId = sessions[existingSessionIdx].id;
+                }
               } else {
                 // Detect if virtual vs studio based on location type
                 const isVirtual = !resolvedStudioId && !isPhysical;
@@ -2904,7 +2940,7 @@ export default function App() {
               calendlyEventUri:   evt.calendlyEventUri,
               calendlyEventTypeUri: evt.calendlyEventTypeUri || prevReg?.calendlyEventTypeUri || "",
               eventName:          evt.eventName,
-              status:             "booked",
+              status: (prevReg?.status === "canceled" || prevReg?.status === "rescheduled" || prevReg?.status === "no_show") ? prevReg.status : "booked",
               paymentAmount,
               paidAmount,
               paymentStatus,
@@ -2969,7 +3005,7 @@ export default function App() {
             const cancelStatus = evt.rescheduled ? "rescheduled" : "canceled";
             const cancelFields = {
               status:       cancelStatus,
-              canceledAt:   evt.receivedAt || new Date().toISOString(),
+              canceledAt:   evt.canceledAt || evt.receivedAt || new Date().toISOString(),
               cancelReason: evt.cancelReason || "",
               cancelerType: evt.cancelerType || "",
             };
@@ -3065,7 +3101,8 @@ export default function App() {
 
         const refreshedSessions = refreshCalendlySessionRevenue(sessions, registrations);
         const ltvData = { registrations, revenue: next.revenue || [], offers: next.offers || [] };
-        return { ...next, clients: applyRegistrationLifetimeValues(clients, ltvData), registrations, sessions: refreshedSessions, followups, partners };
+        const synced = { ...next, clients: applyRegistrationLifetimeValues(clients, ltvData), registrations, sessions: refreshedSessions, followups, partners };
+        return healCanceledSessions(synced);
       });
 
       // Acknowledge processed events
@@ -5790,6 +5827,65 @@ const VIEWS = {
             .filter(r => r.status === "canceled" || r.status === "rescheduled")
             .sort((a, b) => (b.canceledAt || b.createdAt || "").localeCompare(a.canceledAt || a.createdAt || "")),
         }),
+        expandRow: (r, ctx) => {
+          const client = (ctx.data.clients||[]).find(x => x.id === r.clientId);
+          const session = (ctx.data.sessions||[]).find(x => x.id === r.sessionId);
+          const dl = { fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 600, marginBottom: 2 };
+          const dv = { fontSize: 13, color: C.ink, wordBreak: "break-word" };
+          const mono = { ...dv, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11.5 };
+          const field = (l, v, style) => v ? (
+            <div key={l}>
+              <div style={dl}>{l}</div>
+              <div style={style || dv}>{v}</div>
+            </div>
+          ) : null;
+          const statusClr = r.status === "canceled" ? "#C0573F" : C.gold;
+          return (
+            <div style={{ padding: "10px 4px 6px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "12px 24px" }}>
+                {/* Cancellation details first */}
+                {field("Status", <span style={{fontSize:12,padding:"2px 8px",borderRadius:8,background:hexA(statusClr,0.12),color:statusClr,fontWeight:600}}>{r.status}</span>)}
+                {field("Cancelled on", r.canceledAt ? new Date(r.canceledAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : null)}
+                {field("Cancelled by", r.cancelerType ? r.cancelerType.replace(/_/g, " ") : null)}
+                {field("Cancel reason", r.cancelReason || null)}
+                {field("Rescheduled", r.rescheduled ? "Yes" : null)}
+                {/* Client info */}
+                {field("Client", client ? cleanName(client.name) : null)}
+                {field("Email", client?.email)}
+                {field("Phone", client?.phone)}
+                {/* Session / booking info */}
+                {field("Event", r.eventName || null)}
+                {field("Session", session ? cleanName(session.name) : null)}
+                {field("Session date/time", r.scheduledAt ? new Date(r.scheduledAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : null)}
+                {field("Timezone", r.timezone)}
+                {field("Booked on", r.createdAt ? new Date(r.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : null)}
+                {field("Attendance type", r.attendanceType)}
+                {field("Location type", r.locationType)}
+                {field("Location address", r.locationAddress)}
+                {field("Join URL", r.locationJoinUrl ? <a href={r.locationJoinUrl} target="_blank" rel="noreferrer" style={{ color: C.brand, wordBreak: "break-all", fontSize: 12 }}>{r.locationJoinUrl}</a> : null)}
+                {/* Payment info */}
+                {field("Calendly amount", calendlyBookingAmount(r) != null ? money(calendlyBookingAmount(r)) : null)}
+                {field("Paid amount", r.paidAmount != null ? money(r.paidAmount) : null)}
+                {field("Payment status", r.paymentStatus)}
+                {field("Stripe charge ID", r.stripeChargeId, mono)}
+                {field("Amount refunded", r.amountRefunded > 0 ? money(r.amountRefunded) : null)}
+                {/* Intake answers */}
+                {field("How heard", r.howHeard)}
+                {field("Referred by", r.referredBy)}
+                {field("Concerns", r.concerns)}
+                {field("Done breathwork before", r.doneBreathworkBefore)}
+                {field("Reviewed contraindications", r.reviewedContraindications)}
+                {field("Notes", r.notes)}
+              </div>
+              {r.calendlyInviteeUri && (
+                <div style={{ marginTop: 10, fontSize: 11, color: C.ink3, wordBreak: "break-all" }}>
+                  <span style={dl}>Calendly invitee URI</span>
+                  <div>{r.calendlyInviteeUri}</div>
+                </div>
+              )}
+            </div>
+          );
+        },
       },
     ],
   },
@@ -6587,7 +6683,9 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
     : rows;
 
   const byDay = {};
-  filteredRows.forEach((s) => { if (s.date && s.date.slice(0, 7) === cursor) (byDay[Number(s.date.slice(8, 10))] ||= []).push(s); });
+  filteredRows
+    .filter(s => (s.status || "").toLowerCase() !== "canceled")
+    .forEach((s) => { if (s.date && s.date.slice(0, 7) === cursor) (byDay[Number(s.date.slice(8, 10))] ||= []).push(s); });
   Object.values(byDay).forEach((daySessions) => daySessions.sort((a, b) => sessionStartSortKey(a) - sessionStartSortKey(b)));
   const shift = (n) => { let mm = m + n, yy = y; if (mm < 1) { mm = 12; yy--; } if (mm > 12) { mm = 1; yy++; } setCursor(`${yy}-${String(mm).padStart(2, "0")}`); };
   const cells = [];
