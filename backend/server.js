@@ -996,8 +996,12 @@ async function pullRecentCalendlyBookings(daysBack = 30) {
   }
 
   // ── PASS 2: Active bookings (with payment enrichment) ──
+  // Group/studio events stay "active" even when an individual participant cancels — only that
+  // invitee's status flips to "canceled". So we must inspect invitees of active events too and
+  // queue an invitee.canceled for any canceled participant (PASS 1 only catches fully-canceled events).
   const activeEvents = await fetchScheduledEvents(userUri, minStart, "active", token);
   const bookingCandidates = [];
+  const lateCancelCandidates = [];
   for (const scheduled of activeEvents) {
     const uuid = scheduled.uri?.split("/").pop();
     if (!uuid) continue;
@@ -1009,13 +1013,21 @@ async function pullRecentCalendlyBookings(daysBack = 30) {
       for (const invitee of invData.collection || []) {
         scanned++;
         if (!invitee.uri || !invitee.email) continue;
-        if (invitee.status === "canceled") continue;
+        if (invitee.status === "canceled") {
+          lateCancelCandidates.push(buildInviteeCanceledFromApi(invitee, scheduled));
+          continue;
+        }
         const extracted = buildInviteeCreatedFromApi(invitee, scheduled);
         await enrichCalendlyQueueEvent(extracted);
         bookingCandidates.push(extracted);
       }
       invPage = invData.pagination?.next_page_token || null;
     } while (invPage);
+  }
+  if (lateCancelCandidates.length) {
+    const rc = await queueCandidates(lateCancelCandidates);
+    added += rc.added; skipped += rc.skipped;
+    if (rc.added > 0) console.log(`[OK] Calendly API pull queued ${rc.added} group-event participant cancellation(s)`);
   }
   const r2 = await queueCandidates(bookingCandidates);
   added += r2.added; skipped += r2.skipped;
