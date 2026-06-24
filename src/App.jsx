@@ -2752,6 +2752,17 @@ export default function App() {
           };
 
           if (evt.eventType === "invitee.created") {
+            // ── RULE: CRM cancellations/reschedules always win over a re-delivered booking ──
+            // If this invitee already exists in the CRM with a status of "canceled" or
+            // "rescheduled" (whether set by a Calendly cancellation OR a manual status change),
+            // ignore the booking event entirely: do not recreate the client/session, do not
+            // rebuild the registration, do not flip it back to "booked". This prevents the
+            // automated sync from resurrecting or overwriting manual status changes.
+            const crmCanceledReg = registrations.find(r =>
+              r.calendlyInviteeUri && r.calendlyInviteeUri === evt.calendlyInviteeUri
+              && (r.status === "canceled" || r.status === "rescheduled"));
+            if (crmCanceledReg) return;
+
             // 1. Create or update client by email
             const emailNorm = (evt.email || "").toLowerCase();
             let client = clients.find(c => (c.email || "").toLowerCase() === emailNorm);
@@ -5554,7 +5565,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
           )}
           <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => (
               section === "revenue" ? openRevenueViewRow(r, data, onOpen) : onOpen({ db: section, record: r })
-            )} ctx={{ data, derived, today, setData, section }}
+            )} ctx={{ data, derived, today, setData, section, setConfirm, canEdit }}
             maxHeight={(section === "registrations" || section === "clients" || section === "revenue" || section === "sessions") ? "calc(100vh - 240px)" : undefined}
             expandRow={v.expandRow ? (r, ctx) => v.expandRow(r, ctx) : undefined} />
           </>}
@@ -5624,6 +5635,42 @@ function sortRegistrationsByCreatedAt(rows) {
   return [...rows].sort((a, b) => registrationCreatedTimestamp(b) - registrationCreatedTimestamp(a));
 }
 
+// Manually cancel a booking from the CRM (mirrors an `invitee.canceled` sync): marks the
+// registration canceled, frees the session spot (deletes a now-empty virtual session, or
+// decrements a studio session's registered count). Future Calendly syncs leave it alone.
+function cancelRegistrationManually(setData, regId) {
+  if (!setData) return;
+  setData(prev => {
+    const registrations = [...(prev.registrations || [])];
+    const sessions = [...(prev.sessions || [])];
+    const idx = registrations.findIndex(r => r.id === regId);
+    if (idx < 0) return prev;
+    const reg = registrations[idx];
+    if (reg.status === "canceled" || reg.status === "rescheduled") return prev;
+    registrations[idx] = {
+      ...reg,
+      status: "canceled",
+      canceledAt: new Date().toISOString(),
+      cancelReason: reg.cancelReason || "Canceled in CRM",
+      cancelerType: "host",
+    };
+    const sessIdx = sessions.findIndex(s => s.id === reg.sessionId);
+    if (sessIdx >= 0) {
+      const sess = sessions[sessIdx];
+      const isVirtual = !sess.studioId;
+      const remainingActive = registrations.filter(
+        x => x.sessionId === sess.id && x.status !== "canceled" && x.status !== "rescheduled"
+      ).length;
+      if (isVirtual && remainingActive === 0) {
+        sessions.splice(sessIdx, 1);
+      } else if (sess.registered > 0) {
+        sessions[sessIdx] = { ...sess, registered: sess.registered - 1 };
+      }
+    }
+    return { ...prev, registrations, sessions };
+  });
+}
+
 // Shared expanded-row detail panel for registration tables (All Bookings + Cancellations).
 function registrationExpandRow(r, ctx) {
   const client = (ctx.data.clients||[]).find(x => x.id === r.clientId);
@@ -5686,6 +5733,25 @@ function registrationExpandRow(r, ctx) {
         <div style={{ marginTop: 10, fontSize: 11, color: C.ink3, wordBreak: "break-all" }}>
           <span style={dl}>Calendly invitee URI</span>
           <div>{r.calendlyInviteeUri}</div>
+        </div>
+      )}
+      {ctx?.canEdit && ctx?.setData && r.status !== "canceled" && r.status !== "rescheduled" && (
+        <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.lineSoft}` }}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              const doCancel = () => cancelRegistrationManually(ctx.setData, r.id);
+              const who = client ? cleanName(client.name) : (r.eventName || "this booking");
+              if (ctx.setConfirm) {
+                ctx.setConfirm({
+                  message: `Cancel ${who}'s booking? It will move to Cancellations and Reschedules, free up the spot, and future Calendly syncs will not bring it back.`,
+                  okLabel: "Cancel booking", danger: true, onOk: doCancel,
+                });
+              } else { doCancel(); }
+            }}
+            style={{ background: "#C0573F", color: "#fff", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 12.5, padding: "8px 16px", cursor: "pointer" }}>
+            Cancel booking
+          </button>
         </div>
       )}
     </div>

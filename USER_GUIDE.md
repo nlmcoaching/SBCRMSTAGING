@@ -522,7 +522,7 @@ At the bottom of the sidebar you'll see a **Calendly sync status indicator**. Th
 
 Each sync also **pulls recent bookings and cancellations directly from Calendly** (not just webhooks), so new bookings — and any cancellations — appear even if a webhook was missed while ngrok or the backend was offline. Cancellations are checked first on every sync, so a session canceled in Calendly is marked canceled in the CRM (and moves to the Cancellations and Reschedules view) on the very next sync, automatically. This works for **both** a one-on-one virtual session that someone cancels **and** a single participant who drops out of a **studio group class** (where the class itself stays on the calendar but that person's spot is freed) — both kinds of cancellation now come through reliably.
 
-Once a booking is canceled, the sync will **never flip it back to booked** on its own — the cancellation, along with its date and reason, stays put.
+Once a booking is marked **Canceled** or **Rescheduled** in the CRM — whether that happened automatically from Calendly **or** because you changed the status by hand — the automated sync will **never flip it back to booked** or bring the session back. Future syncs simply skip that booking, so your manual status changes always stick. (This is true even if the session is still showing as active in Calendly.) The cancellation, along with its date and reason, stays put.
 
 When a **virtual** session is canceled or rescheduled, it is automatically **removed from the Session Calendar and the session list** (since virtual sessions are one-on-one). You'll still see the canceled/rescheduled booking on the **Cancellations and Reschedules** tab. **Studio** sessions are group events, so canceling one person does not remove the session — instead, that person's booking is **removed from the session's Bookings tab**, which lowers the registered count and frees up a spot for someone else to book. The cancellation is still recorded on the Cancellations and Reschedules tab.
 
@@ -547,6 +547,16 @@ All bookings that come through Calendly are automatically marked as **waiver sig
 | View | What it shows |
 |---|---|
 | All Bookings | Scrollable list of every registration (newest booking first). Columns: Calendly Amount, Client, Session, Session Date/Time, Status, Payment Status. **Click any row to expand** it to see full booking details: client email, session info, journey, location, intake answers, payment status, and booking date. If the booking was canceled or rescheduled you'll also see when it was cancelled, by whom, and the reason. For a **rescheduled** booking the panel shows both the **Original session time** and the **Rescheduled to** time. The Waiver and Booked Amount columns have been removed. |
+
+#### Canceling a booking
+
+To cancel someone's booking manually (for example, they emailed you to cancel instead of using Calendly):
+
+1. Go to **Calendly Bookings → All Bookings**.
+2. **Click the booking's row** to expand it.
+3. At the bottom of the expanded details, click the red **Cancel booking** button and confirm.
+
+The booking moves to the **Cancellations and Reschedules** tab, the spot is freed (for a studio class the registered count drops; for a one-on-one virtual session it's removed from the calendar), and future Calendly syncs will not bring it back. Note: this is **different** from the Lead/Booked/Attended buttons on the *client* record — those describe the client's overall stage, not a single booking.
 | Pending Waivers | Manually-created registrations without a signed waiver, newest session first |
 | Unpaid | Clients who haven't paid, newest session first |
 | Cancellations and Reschedules | Canceled and rescheduled bookings, newest session first. **Click any row to expand** it for full details — when it was cancelled, by whom, the reason, and (for reschedules) the original and new session times. |
