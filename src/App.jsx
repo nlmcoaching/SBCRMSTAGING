@@ -2966,22 +2966,71 @@ export default function App() {
 
           } else if (evt.eventType === "invitee.canceled") {
             const regIdx = registrations.findIndex(r => r.calendlyInviteeUri === evt.calendlyInviteeUri && evt.calendlyInviteeUri);
+            const cancelStatus = evt.rescheduled ? "rescheduled" : "canceled";
+            const cancelFields = {
+              status:       cancelStatus,
+              canceledAt:   evt.receivedAt || new Date().toISOString(),
+              cancelReason: evt.cancelReason || "",
+              cancelerType: evt.cancelerType || "",
+            };
             if (regIdx >= 0) {
-              registrations[regIdx] = { ...registrations[regIdx], status: evt.rescheduled ? "rescheduled" : "canceled" };
+              registrations[regIdx] = { ...registrations[regIdx], ...cancelFields };
               // Decrement session registered count
               const reg = registrations[regIdx];
               const sessIdx = sessions.findIndex(s => s.id === reg.sessionId);
               if (sessIdx >= 0 && sessions[sessIdx].registered > 0) {
                 sessions[sessIdx] = { ...sessions[sessIdx], registered: sessions[sessIdx].registered - 1 };
               }
+            } else {
+              // No prior booking in CRM — create a registration so it appears in Cancellations tab
+              const emailNorm = (evt.email || "").toLowerCase();
+              let cancelClient = emailNorm ? clients.find(c => (c.email || "").toLowerCase() === emailNorm) : null;
+              if (!cancelClient && emailNorm) {
+                cancelClient = {
+                  id: uid("c"), name: evt.name || evt.email, email: emailNorm,
+                  phone: evt.phone || "", source: "Calendly", status: "Lead",
+                  clientType: "First-time attendee", tags: [], firstSession: "",
+                  sessionsAttended: 0, lastSession: "", nextSession: "",
+                  packageType: "None", lifetimeValue: 0, notes: "", referral: "Low",
+                };
+                clients.push(cancelClient);
+              }
+              const existingSession = evt.calendlyEventUri
+                ? sessions.find(s => s.calendlyEventUri === evt.calendlyEventUri)
+                : null;
+              const newReg = {
+                id: uid("reg"),
+                clientId: cancelClient?.id || "",
+                sessionId: existingSession?.id || "",
+                calendlyInviteeUri: evt.calendlyInviteeUri || "",
+                calendlyEventUri:   evt.calendlyEventUri   || "",
+                calendlyEventTypeUri: evt.calendlyEventTypeUri || "",
+                eventName:   evt.eventName   || "",
+                scheduledAt: evt.startTime   || "",
+                timezone:    evt.timezone    || "",
+                locationType: evt.locationType || "",
+                locationAddress: evt.locationAddress || "",
+                attendanceType: evt.attendanceType || "",
+                howHeard:   evt.howHeard    || "",
+                referredBy: evt.referredBy  || "",
+                concerns:   evt.concerns    || "",
+                paymentAmount: evt.paymentAmount ?? null,
+                paidAmount:    evt.paidAmount    ?? null,
+                paymentStatus: "canceled",
+                stripeVerified: false, waiverStatus: "signed",
+                createdAt: evt.createdAt || evt.receivedAt || new Date().toISOString(),
+                notes: "Registration created from cancellation event",
+                ...cancelFields,
+              };
+              registrations.push(newReg);
             }
             syncedItems.push({
-              type: evt.rescheduled ? "Rescheduled" : "Canceled",
+              type: cancelStatus === "rescheduled" ? "Rescheduled" : "Canceled",
               clientName: evt.name || "",
               eventName: evt.eventName || "",
               scheduledAt: evt.startTime || "",
               amount: null,
-              isNew: false,
+              isNew: regIdx < 0,
             });
             processed++;
             ids.push(evt.id);
@@ -5679,6 +5728,9 @@ const VIEWS = {
                 {field("Checked in", r.checkedIn ? "✓ Yes" : null)}
                 {field("Attended", r.attended ? "✓ Yes" : null)}
                 {field("No-show", r.noShow ? "✓ Yes" : null)}
+                {(r.status === "canceled" || r.status === "rescheduled") && field("Cancelled on", r.canceledAt ? new Date(r.canceledAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : null)}
+                {(r.status === "canceled" || r.status === "rescheduled") && field("Cancelled by", r.cancelerType ? r.cancelerType.replace(/_/g, " ") : null)}
+                {(r.status === "canceled" || r.status === "rescheduled") && field("Cancel reason", r.cancelReason || null)}
                 {field("Done breathwork before", r.doneBreathworkBefore)}
                 {field("How heard", r.howHeard)}
                 {field("Referred by", r.referredBy)}
@@ -5722,17 +5774,22 @@ const VIEWS = {
       {
         name: "Cancellations", layout: "table",
         columns: [
-          col("scheduledAt", "Session Date", r => r.scheduledAt ? new Date(r.scheduledAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"),
-          col("clientId",    "Client",       (r, ctx) => { const c = (ctx.data.clients||[]).find(x => x.id === r.clientId); return cleanName(c?.name || "—"); }),
+          col("canceledAt",  "Cancelled On", r => r.canceledAt ? new Date(r.canceledAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) + " " + new Date(r.canceledAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "—"),
+          col("clientId",    "Client",       (r, ctx) => { const c = (ctx.data.clients||[]).find(x => x.id === r.clientId); return cleanName(c?.name || r.eventName || "—"); }),
           col("eventName",   "Event",        r => r.eventName || "—"),
+          col("scheduledAt", "Session Date", r => r.scheduledAt ? new Date(r.scheduledAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"),
           col("status",      "Status",       r => {
             const clr = r.status === "canceled" ? "#C0573F" : C.gold;
             return <span style={{fontSize:12,padding:"2px 8px",borderRadius:8,background:hexA(clr,0.12),color:clr,fontWeight:600}}>{r.status}</span>;
           }),
-          col("howHeard",    "How Heard",    r => r.howHeard || "—"),
-          col("referredBy",  "Referred By",  r => r.referredBy || "—"),
+          col("cancelerType","Cancelled By", r => r.cancelerType ? r.cancelerType.replace(/_/g, " ") : "—"),
+          col("cancelReason","Cancel Reason",r => r.cancelReason || "—"),
         ],
-        run: (rows, ctx) => ({ rows: sortRegistrationsBySessionTime(rows.filter(r => r.status === "canceled" || r.status === "rescheduled"), ctx.data) }),
+        run: (rows, ctx) => ({
+          rows: [...rows]
+            .filter(r => r.status === "canceled" || r.status === "rescheduled")
+            .sort((a, b) => (b.canceledAt || b.createdAt || "").localeCompare(a.canceledAt || a.createdAt || "")),
+        }),
       },
     ],
   },
