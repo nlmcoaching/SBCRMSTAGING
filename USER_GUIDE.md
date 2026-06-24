@@ -524,7 +524,7 @@ Each sync also **pulls recent bookings and cancellations directly from Calendly*
 
 Once a booking is canceled, the sync will **never flip it back to booked** on its own — the cancellation, along with its date and reason, stays put.
 
-When a **virtual** session is canceled or rescheduled, it is automatically **removed from the Session Calendar and the session list** (since virtual sessions are one-on-one). You'll still see the canceled/rescheduled booking on the **Cancellations and Reschedules** tab. **Studio** sessions are group events, so canceling one person does not remove the session — it just lowers the registered count.
+When a **virtual** session is canceled or rescheduled, it is automatically **removed from the Session Calendar and the session list** (since virtual sessions are one-on-one). You'll still see the canceled/rescheduled booking on the **Cancellations and Reschedules** tab. **Studio** sessions are group events, so canceling one person does not remove the session — instead, that person's booking is **removed from the session's Bookings tab**, which lowers the registered count and frees up a spot for someone else to book. The cancellation is still recorded on the Cancellations and Reschedules tab.
 
 On the **Calendly Bookings** page, click the **refresh icon** (↻) in the top bar to pull in new bookings right away instead of waiting for the next automatic sync.
 

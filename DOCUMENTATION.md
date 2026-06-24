@@ -679,7 +679,7 @@ Fields hidden on studio sessions: Studio dropdown, Equipment Needed, Zoom/Join U
 The **Registered Attendees** field on studio sessions is automatically kept in sync with the actual count of non-canceled registrations in the Bookings tab. Every time the session drawer opens, the field is updated to reflect the real booking count, eliminating discrepancies between manually entered numbers and actual registrations.
 
 #### Bookings Tab
-Shows every client registration linked to this session (synced from Calendly or manually linked).
+Shows the **active** client registrations linked to this session (synced from Calendly or manually linked). Canceled and rescheduled registrations are **not** shown here — when a participant cancels, their booking is removed from this tab so the spot is freed for someone else, and the cancellation remains visible on the Calendly Bookings → Cancellations and Reschedules tab. The status-count chips and the session-revenue figure therefore reflect active bookings only.
 
 - Studio session Bookings tab badge shows `booked / capacity` (e.g. `2/15`)
 - Virtual session Bookings tab badge shows the booked count only
@@ -2046,7 +2046,7 @@ All state is managed via React `useState` and `useMemo` in the root `App` compon
 | `UserManagementView` | Multi-user CRUD and permissions |
 | `AdminView` | 8-tab admin panel: overview, schema browser, integrity check, storage, settings, email logs, journey descriptions, reset to production |
 | `JourneyDescriptionsTab` | Admin tab for managing journey names and descriptions (add / edit / remove) |
-| `SessionBookingsTab` | Bookings tab inside session drawer — lists all Calendly registrants with session price per card |
+| `SessionBookingsTab` | Bookings tab inside session drawer — lists active (non-canceled, non-rescheduled) Calendly registrants with session price per card |
 | `WorkflowsView` | Five workflow pipeline visualizations |
 | `TemplateLibraryView` | Template browsing, copy, and direct email send via Resend |
 | `EmailLogsView` | Admin Email Logs tab — system-wide sent email log with delivery status auto-check and row expansion |

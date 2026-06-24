@@ -8717,7 +8717,10 @@ function PartnerSessionsTab({ record, data, onOpenRelated, today }) {
 }
 
 function SessionBookingsTab({ record, data, onOpenRelated, setData }) {
-  const registrations = (data.registrations || []).filter(r => r.sessionId === record.id);
+  const allRegistrations = (data.registrations || []).filter(r => r.sessionId === record.id);
+  // Only active bookings occupy a spot. Canceled/rescheduled bookings are removed from this tab
+  // (they free up capacity) and remain visible on the Cancellations and Reschedules tab.
+  const registrations = allRegistrations.filter(r => r.status !== "canceled" && r.status !== "rescheduled");
   const sessionListPrice = resolveSessionListPrice(data.registrations, record.id);
   const REG_STATUS_COLOR = { booked: C.brand, attended: "#4A8C6F", canceled: "#C0573F", rescheduled: C.gold, no_show: "#8A96AC" };
 
