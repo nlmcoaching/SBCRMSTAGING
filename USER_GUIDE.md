@@ -544,7 +544,7 @@ All bookings that come through Calendly are automatically marked as **waiver sig
 
 | View | What it shows |
 |---|---|
-| All Bookings | Scrollable list of every registration (newest booking first). Columns: Calendly Amount, Client, Session, Session Date/Time, Status, Payment Status. **Click any row to expand** it to see full booking details: client email, session info, journey, location, intake answers, payment status, and booking date. The Waiver and Booked Amount columns have been removed. |
+| All Bookings | Scrollable list of every registration (newest booking first). Columns: Calendly Amount, Client, Session, Session Date/Time, Status, Payment Status. **Click any row to expand** it to see full booking details: client email, session info, journey, location, intake answers, payment status, and booking date. If the booking was canceled or rescheduled you'll also see when it was cancelled, by whom, and the reason. For a **rescheduled** booking the panel shows both the **Original session time** and the **Rescheduled to** time. The Waiver and Booked Amount columns have been removed. |
 | Pending Waivers | Manually-created registrations without a signed waiver, newest session first |
 | Unpaid | Clients who haven't paid, newest session first |
 | Cancellations | Canceled and rescheduled bookings, newest session first |

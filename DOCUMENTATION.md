@@ -1764,10 +1764,13 @@ The description is surfaced in the studio session drawer as **Studio Event Descr
 **Navigation:** Sidebar → Calendly Bookings
 
 Views (all sorted by session date/time, newest first; uses `scheduledAt`, falling back to linked session date/time when empty — except **All Bookings**, which sorts by `createdAt`, newest first):
-- **All Bookings** — Scrollable list of all registrations (most recent first). Columns: **Calendly Amount**, Client, Session, Session Date/Time, Status, Payment Status. **Click any row to expand** a detail panel showing: client email, session type, journey, location, booking source, intake answers, payment status, Calendly amount, raw payment notes, event URI, invitee URI, and created date. The Waiver and Booked Amount columns have been removed from this view.
+- **All Bookings** — Scrollable list of all registrations (most recent first). Columns: **Calendly Amount**, Client, Session, Session Date/Time, Status, Payment Status. **Click any row to expand** a detail panel showing: client email, session type, journey, location, booking source, intake answers, payment status, Calendly amount, raw payment notes, event URI, invitee URI, and created date. The Waiver and Booked Amount columns have been removed from this view. For **canceled / rescheduled** rows the panel also shows Cancelled on, Cancelled by, and Cancel reason; **rescheduled** rows additionally show **Original session time** and **Rescheduled to** (the new time, resolved from Calendly's `new_invitee` link — see Reschedule Linking below). Expanded-panel text wraps cleanly (the expanded cell overrides the table's `white-space: nowrap`).
 - **Pending Waivers** — active registrations where waiver is not yet signed
 - **Unpaid** — active registrations with unpaid status
 - **Cancellations** — canceled and rescheduled registrations
+
+#### Reschedule Linking
+When a booking is rescheduled, Calendly cancels the original invitee (`invitee.canceled` with `rescheduled: true`) and creates a new invitee for the new time (`invitee.created`). The two are linked via Calendly's `new_invitee` (on the canceled side) and `old_invitee` (on the new booking). Both are captured into the queue event and stored on the registration as `rescheduledToInviteeUri` (on the rescheduled record) and `rescheduledFromInviteeUri` (on the new booking). The All Bookings expanded panel uses these links to show the original and new session times for a rescheduled booking; if the new booking has not synced yet it shows "Not synced yet".
 
 ### Auto-Created Follow-Up Tasks
 On each new `invitee.created` event, 3 follow-up tasks are created for the client (if not already existing):

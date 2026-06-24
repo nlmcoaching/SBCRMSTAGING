@@ -2934,6 +2934,7 @@ export default function App() {
               referredBy:         evt.referredBy,
               concerns:           evt.concerns,
               reviewedContraindications: evt.reviewedContraindications,
+              rescheduledFromInviteeUri: evt.oldInviteeUri || prevReg?.rescheduledFromInviteeUri || "",
               notes: "",
             };
             // Carry over cancellation metadata so a re-delivered booking doesn't wipe it.
@@ -2941,6 +2942,7 @@ export default function App() {
               regRecord.canceledAt   = prevReg.canceledAt   || "";
               regRecord.cancelReason = prevReg.cancelReason || "";
               regRecord.cancelerType = prevReg.cancelerType || "";
+              regRecord.rescheduledToInviteeUri = prevReg.rescheduledToInviteeUri || "";
             }
             if (existingRegIdx >= 0) registrations[existingRegIdx] = regRecord;
             else registrations.push(regRecord);
@@ -2981,6 +2983,7 @@ export default function App() {
               canceledAt:   evt.canceledAt || evt.receivedAt || new Date().toISOString(),
               cancelReason: evt.cancelReason || "",
               cancelerType: evt.cancelerType || "",
+              rescheduledToInviteeUri: evt.newInviteeUri || "",
             };
             if (regIdx >= 0) {
               registrations[regIdx] = { ...registrations[regIdx], ...cancelFields };
@@ -5703,6 +5706,14 @@ const VIEWS = {
         expandRow: (r, ctx) => {
           const client = (ctx.data.clients||[]).find(x => x.id === r.clientId);
           const session = (ctx.data.sessions||[]).find(x => x.id === r.sessionId);
+          // For a rescheduled booking, find the new booking it was rescheduled to.
+          let rescheduledToAt = null;
+          if (r.status === "rescheduled") {
+            const regs = ctx.data.registrations || [];
+            const target = (r.rescheduledToInviteeUri && regs.find(x => x.calendlyInviteeUri === r.rescheduledToInviteeUri))
+              || (r.calendlyInviteeUri && regs.find(x => x.rescheduledFromInviteeUri === r.calendlyInviteeUri));
+            rescheduledToAt = target?.scheduledAt || null;
+          }
           const dl = { fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 600, marginBottom: 2 };
           const dv = { fontSize: 13, color: C.ink, wordBreak: "break-word" };
           const mono = { ...dv, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11.5 };
@@ -5740,6 +5751,8 @@ const VIEWS = {
                 {(r.status === "canceled" || r.status === "rescheduled") && field("Cancelled on", r.canceledAt ? new Date(r.canceledAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : null)}
                 {(r.status === "canceled" || r.status === "rescheduled") && field("Cancelled by", r.cancelerType ? r.cancelerType.replace(/_/g, " ") : null)}
                 {(r.status === "canceled" || r.status === "rescheduled") && field("Cancel reason", r.cancelReason || null)}
+                {r.status === "rescheduled" && field("Original session time", formatRegistrationDateTime(r.scheduledAt))}
+                {r.status === "rescheduled" && field("Rescheduled to", rescheduledToAt ? formatRegistrationDateTime(rescheduledToAt) : "Not synced yet")}
                 {field("Done breathwork before", r.doneBreathworkBefore)}
                 {field("How heard", r.howHeard)}
                 {field("Referred by", r.referredBy)}
@@ -6353,7 +6366,7 @@ function TableView({ columns, rows, footer, onOpen, ctx, maxHeight, expandRow })
                 {expandRow && expanded[r.id] && (
                   <tr>
                     <td />
-                    <td colSpan={colSpan - 1} style={{ padding: "4px 12px 16px", borderBottom: `1px solid ${C.lineSoft}`, background: C.surfaceAlt }}>
+                    <td colSpan={colSpan - 1} style={{ padding: "4px 12px 16px", borderBottom: `1px solid ${C.lineSoft}`, background: C.surfaceAlt, whiteSpace: "normal" }}>
                       {expandRow(r, ctx)}
                     </td>
                   </tr>

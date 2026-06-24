@@ -404,6 +404,9 @@ function extractEvent(event, payload) {
     rescheduled:          payload.rescheduled || false,
     cancelerType:         payload.cancellation?.canceler_type || "",
     cancelReason:         payload.cancellation?.reason || "",
+    // Reschedule links (Calendly: new_invitee on the canceled side, old_invitee on the new booking)
+    newInviteeUri:        payload.new_invitee || "",
+    oldInviteeUri:        payload.old_invitee || "",
     // Custom question answers (full map + common fields)
     doneBreathworkBefore: answers.have_you_done_breathwork_before || answers.breathwork_before || "",
     howHeard:             answers.how_did_you_hear_about_us || answers.how_did_you_find_us || "",
@@ -859,6 +862,8 @@ function buildInviteeCreatedFromApi(invitee, scheduled) {
     locationJoinUrl:    location.join_url || "",
     locationAddress:    location.location || "",
     rescheduled:        invitee.rescheduled || false,
+    newInviteeUri:      invitee.new_invitee || "",
+    oldInviteeUri:      invitee.old_invitee || "",
     doneBreathworkBefore: answers.have_you_done_breathwork_before || answers.breathwork_before || "",
     howHeard:           answers.how_did_you_hear_about_us || answers.how_did_you_find_us || "",
     referredBy:         answers.who_referred_you || answers.referred_by || "",
