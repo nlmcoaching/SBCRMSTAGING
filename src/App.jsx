@@ -3355,7 +3355,7 @@ export default function App() {
     if (locked) return;
     syncCalendly();
     syncStripe();
-    const interval = setInterval(() => { syncCalendly(); syncStripe(); }, 5 * 60 * 1000);
+    const interval = setInterval(() => { syncCalendly(); syncStripe(); }, 15 * 60 * 1000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locked]);
