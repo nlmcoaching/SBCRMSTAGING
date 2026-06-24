@@ -903,7 +903,9 @@ Each Stripe sync calls `GET /api/stripe/ledger` to reload processed webhook even
 
 **Calendly API backfill:** Each Calendly sync calls `POST /api/calendly/pull-recent` (requires `CALENDLY_API_TOKEN`) to fetch recent scheduled events from the Calendly API and queue any invitees missing from the webhook queue — e.g. when ngrok was down or a webhook was never delivered. The pull fetches **both active and canceled** scheduled events. Cancellations are scanned first (without payment enrichment) so they queue within ~1–2 seconds — well inside the sync's pull timeout — and are reconciled on the same sync; canceled invitees are queued as `invitee.canceled` events. This makes cancellations recover automatically even when no webhook was received, with no reliance on ngrok.
 
-**Cancellation protection:** A re-delivered `invitee.created` event (from a webhook plus an API pull, or a re-queue) never resurrects a registration that is already `canceled` or `rescheduled` back to `booked`; the cancellation status and its `canceledAt` / `cancelReason` / `cancelerType` fields are preserved. This prevents the sync from silently undoing cancellations.
+**Cancellation protection:** A re-delivered `invitee.created` event (from a webhook plus an API pull, or a re-queue) never resurrects a registration that is already `canceled` or `rescheduled` back to `booked`; the cancellation status and its `canceledAt` / `cancelReason` / `cancelerType` fields are preserved. The same guard also skips session (re)creation for an already-canceled/rescheduled invitee, so a re-delivered booking event cannot bring back a virtual session that was deleted on cancellation. This prevents the sync from silently undoing cancellations.
+
+**Virtual session deletion on cancel:** Virtual sessions are 1:1, so when their booking is canceled or rescheduled the session record is removed from the session list and calendar entirely (rather than left as an empty "Planned" session). Studio sessions are group events and are never deleted on a single cancellation — only the `registered` count is reduced.
 
 ### Revenue Sources
 
@@ -1647,7 +1649,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 | Event | CRM Action |
 |---|---|
 | `invitee.created` | Create/update client · upsert session · create registration · create 3 follow-up tasks |
-| `invitee.canceled` | Set registration status to `canceled` (or `rescheduled` if `payload.rescheduled = true`) · decrement session registered count |
+| `invitee.canceled` | Set registration status to `canceled` (or `rescheduled` if `payload.rescheduled = true`). If the linked session is **virtual** (no `studioId`) and has no remaining active registrations, the session is **deleted** from the session list/calendar (the canceled registration still shows on the Cancellations and Reschedules tab). **Studio** (group) sessions are kept and only have their `registered` count decremented. |
 | `invitee_no_show.created` | Set registration `noShow: true`, status `no_show` · increment session noShows |
 | `invitee_no_show.deleted` | Revert no-show flag · decrement noShows |
 

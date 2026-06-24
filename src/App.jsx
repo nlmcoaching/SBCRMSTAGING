@@ -2780,8 +2780,13 @@ export default function App() {
             }
 
             // 2. Upsert session record (one per unique Calendly event URI)
-            let sessionId = "";
-            if (evt.calendlyEventUri) {
+            // If this invitee's booking is already canceled/rescheduled in the CRM, do NOT
+            // (re)create its session — a re-delivered booking event must not resurrect a
+            // virtual session that was deleted on cancellation.
+            const priorReg = registrations.find(r => r.calendlyInviteeUri === evt.calendlyInviteeUri && evt.calendlyInviteeUri);
+            const priorCanceled = priorReg && (priorReg.status === "canceled" || priorReg.status === "rescheduled");
+            let sessionId = priorCanceled ? (priorReg.sessionId || "") : "";
+            if (evt.calendlyEventUri && !priorCanceled) {
               const isPhysical = evt.locationType === "physical" || (!evt.locationType && evt.locationAddress && evt.locationType !== "zoom");
               let matchedPartner = resolvePartner(partners, evt.eventName || "", evt.locationAddress || "");
 
@@ -2987,11 +2992,24 @@ export default function App() {
             };
             if (regIdx >= 0) {
               registrations[regIdx] = { ...registrations[regIdx], ...cancelFields };
-              // Decrement session registered count
               const reg = registrations[regIdx];
               const sessIdx = sessions.findIndex(s => s.id === reg.sessionId);
-              if (sessIdx >= 0 && sessions[sessIdx].registered > 0) {
-                sessions[sessIdx] = { ...sessions[sessIdx], registered: sessions[sessIdx].registered - 1 };
+              if (sessIdx >= 0) {
+                const sess = sessions[sessIdx];
+                const isVirtual = !sess.studioId;
+                // Active registrations still attached to this session after this cancellation.
+                const remainingActive = registrations.filter(
+                  x => x.sessionId === sess.id && x.status !== "canceled" && x.status !== "rescheduled"
+                ).length;
+                if (isVirtual && remainingActive === 0) {
+                  // Virtual sessions are 1:1 — once canceled/rescheduled, remove them from the
+                  // session calendar and session list (the canceled registration still shows on
+                  // the Cancellations and Reschedules tab).
+                  sessions.splice(sessIdx, 1);
+                } else if (sess.registered > 0) {
+                  // Studio (group) sessions: just decrement the registered count.
+                  sessions[sessIdx] = { ...sess, registered: sess.registered - 1 };
+                }
               }
             } else {
               // No prior booking in CRM — create a registration so it appears in Cancellations tab
