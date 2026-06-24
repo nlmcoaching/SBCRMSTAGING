@@ -5597,6 +5597,74 @@ function sortRegistrationsByCreatedAt(rows) {
   return [...rows].sort((a, b) => registrationCreatedTimestamp(b) - registrationCreatedTimestamp(a));
 }
 
+// Shared expanded-row detail panel for registration tables (All Bookings + Cancellations).
+function registrationExpandRow(r, ctx) {
+  const client = (ctx.data.clients||[]).find(x => x.id === r.clientId);
+  const session = (ctx.data.sessions||[]).find(x => x.id === r.sessionId);
+  // For a rescheduled booking, find the new booking it was rescheduled to.
+  let rescheduledToAt = null;
+  if (r.status === "rescheduled") {
+    const regs = ctx.data.registrations || [];
+    const target = (r.rescheduledToInviteeUri && regs.find(x => x.calendlyInviteeUri === r.rescheduledToInviteeUri))
+      || (r.calendlyInviteeUri && regs.find(x => x.rescheduledFromInviteeUri === r.calendlyInviteeUri));
+    rescheduledToAt = target?.scheduledAt || null;
+  }
+  const dl = { fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 600, marginBottom: 2 };
+  const dv = { fontSize: 13, color: C.ink, wordBreak: "break-word" };
+  const mono = { ...dv, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11.5 };
+  const field = (l, v, style) => v ? (
+    <div key={l}>
+      <div style={dl}>{l}</div>
+      <div style={style || dv}>{v}</div>
+    </div>
+  ) : null;
+  return (
+    <div style={{ padding: "10px 4px 6px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "12px 24px" }}>
+        {field("Client", client ? cleanName(client.name) : null)}
+        {field("Email", client?.email)}
+        {field("Phone", client?.phone)}
+        {field("Session", session ? cleanName(session.name) : (r.eventName || null))}
+        {field("Session date/time", formatRegistrationDateTime(r.scheduledAt))}
+        {field("Timezone", r.timezone)}
+        {field("Location type", r.locationType)}
+        {field("Location address", r.locationAddress)}
+        {field("Join URL", r.locationJoinUrl ? <a href={r.locationJoinUrl} target="_blank" rel="noreferrer" style={{ color: C.brand, wordBreak: "break-all", fontSize: 12 }}>{r.locationJoinUrl}</a> : null)}
+        {field("Attendance type", r.attendanceType)}
+        {field("Payment status", r.paymentStatus)}
+        {field("Calendly amount", calendlyBookingAmount(r) != null ? money(calendlyBookingAmount(r)) : null)}
+        {field("Paid amount", r.paidAmount != null ? money(r.paidAmount) : null)}
+        {field("Paid at", r.paidAt ? formatRegistrationDateTime(r.paidAt) : null)}
+        {field("Stripe verified", r.stripeVerified ? "✓ Yes" : null)}
+        {field("Stripe charge ID", r.stripeChargeId, mono)}
+        {field("Stripe payment intent", r.stripePaymentIntentId, mono)}
+        {field("Amount refunded", r.amountRefunded > 0 ? money(r.amountRefunded) : null)}
+        {field("Waiver", r.waiverStatus)}
+        {field("Checked in", r.checkedIn ? "✓ Yes" : null)}
+        {field("Attended", r.attended ? "✓ Yes" : null)}
+        {field("No-show", r.noShow ? "✓ Yes" : null)}
+        {(r.status === "canceled" || r.status === "rescheduled") && field("Cancelled on", r.canceledAt ? new Date(r.canceledAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : null)}
+        {(r.status === "canceled" || r.status === "rescheduled") && field("Cancelled by", r.cancelerType ? r.cancelerType.replace(/_/g, " ") : null)}
+        {(r.status === "canceled" || r.status === "rescheduled") && field("Cancel reason", r.cancelReason || null)}
+        {r.status === "rescheduled" && field("Original session time", formatRegistrationDateTime(r.scheduledAt))}
+        {r.status === "rescheduled" && field("Rescheduled to", rescheduledToAt ? formatRegistrationDateTime(rescheduledToAt) : "Not synced yet")}
+        {field("Done breathwork before", r.doneBreathworkBefore)}
+        {field("How heard", r.howHeard)}
+        {field("Referred by", r.referredBy)}
+        {field("Concerns", r.concerns)}
+        {field("Reviewed contraindications", r.reviewedContraindications)}
+        {field("Notes", r.notes)}
+      </div>
+      {r.calendlyInviteeUri && (
+        <div style={{ marginTop: 10, fontSize: 11, color: C.ink3, wordBreak: "break-all" }}>
+          <span style={dl}>Calendly invitee URI</span>
+          <div>{r.calendlyInviteeUri}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const VIEWS = {
   workflows: {
     views: [{ name: "All workflows", layout: "workflows" }],
@@ -5703,72 +5771,7 @@ const VIEWS = {
           col("attendanceType","Attendance", r => r.attendanceType || "—"),
         ],
         run: (rows) => ({ rows: sortRegistrationsByCreatedAt(rows) }),
-        expandRow: (r, ctx) => {
-          const client = (ctx.data.clients||[]).find(x => x.id === r.clientId);
-          const session = (ctx.data.sessions||[]).find(x => x.id === r.sessionId);
-          // For a rescheduled booking, find the new booking it was rescheduled to.
-          let rescheduledToAt = null;
-          if (r.status === "rescheduled") {
-            const regs = ctx.data.registrations || [];
-            const target = (r.rescheduledToInviteeUri && regs.find(x => x.calendlyInviteeUri === r.rescheduledToInviteeUri))
-              || (r.calendlyInviteeUri && regs.find(x => x.rescheduledFromInviteeUri === r.calendlyInviteeUri));
-            rescheduledToAt = target?.scheduledAt || null;
-          }
-          const dl = { fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 600, marginBottom: 2 };
-          const dv = { fontSize: 13, color: C.ink, wordBreak: "break-word" };
-          const mono = { ...dv, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11.5 };
-          const field = (l, v, style) => v ? (
-            <div key={l}>
-              <div style={dl}>{l}</div>
-              <div style={style || dv}>{v}</div>
-            </div>
-          ) : null;
-          return (
-            <div style={{ padding: "10px 4px 6px" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "12px 24px" }}>
-                {field("Client", client ? cleanName(client.name) : null)}
-                {field("Email", client?.email)}
-                {field("Phone", client?.phone)}
-                {field("Session", session ? cleanName(session.name) : (r.eventName || null))}
-                {field("Session date/time", formatRegistrationDateTime(r.scheduledAt))}
-                {field("Timezone", r.timezone)}
-                {field("Location type", r.locationType)}
-                {field("Location address", r.locationAddress)}
-                {field("Join URL", r.locationJoinUrl ? <a href={r.locationJoinUrl} target="_blank" rel="noreferrer" style={{ color: C.brand, wordBreak: "break-all", fontSize: 12 }}>{r.locationJoinUrl}</a> : null)}
-                {field("Attendance type", r.attendanceType)}
-                {field("Payment status", r.paymentStatus)}
-                {field("Calendly amount", calendlyBookingAmount(r) != null ? money(calendlyBookingAmount(r)) : null)}
-                {field("Paid amount", r.paidAmount != null ? money(r.paidAmount) : null)}
-                {field("Paid at", r.paidAt ? formatRegistrationDateTime(r.paidAt) : null)}
-                {field("Stripe verified", r.stripeVerified ? "✓ Yes" : null)}
-                {field("Stripe charge ID", r.stripeChargeId, mono)}
-                {field("Stripe payment intent", r.stripePaymentIntentId, mono)}
-                {field("Amount refunded", r.amountRefunded > 0 ? money(r.amountRefunded) : null)}
-                {field("Waiver", r.waiverStatus)}
-                {field("Checked in", r.checkedIn ? "✓ Yes" : null)}
-                {field("Attended", r.attended ? "✓ Yes" : null)}
-                {field("No-show", r.noShow ? "✓ Yes" : null)}
-                {(r.status === "canceled" || r.status === "rescheduled") && field("Cancelled on", r.canceledAt ? new Date(r.canceledAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : null)}
-                {(r.status === "canceled" || r.status === "rescheduled") && field("Cancelled by", r.cancelerType ? r.cancelerType.replace(/_/g, " ") : null)}
-                {(r.status === "canceled" || r.status === "rescheduled") && field("Cancel reason", r.cancelReason || null)}
-                {r.status === "rescheduled" && field("Original session time", formatRegistrationDateTime(r.scheduledAt))}
-                {r.status === "rescheduled" && field("Rescheduled to", rescheduledToAt ? formatRegistrationDateTime(rescheduledToAt) : "Not synced yet")}
-                {field("Done breathwork before", r.doneBreathworkBefore)}
-                {field("How heard", r.howHeard)}
-                {field("Referred by", r.referredBy)}
-                {field("Concerns", r.concerns)}
-                {field("Reviewed contraindications", r.reviewedContraindications)}
-                {field("Notes", r.notes)}
-              </div>
-              {r.calendlyInviteeUri && (
-                <div style={{ marginTop: 10, fontSize: 11, color: C.ink3, wordBreak: "break-all" }}>
-                  <span style={dl}>Calendly invitee URI</span>
-                  <div>{r.calendlyInviteeUri}</div>
-                </div>
-              )}
-            </div>
-          );
-        },
+        expandRow: registrationExpandRow,
       },
       {
         name: "Pending Waivers", layout: "table",
@@ -5794,7 +5797,7 @@ const VIEWS = {
         run: (rows, ctx) => ({ rows: sortRegistrationsBySessionTime(rows.filter(r => r.paymentStatus === "unpaid" && r.status !== "canceled"), ctx.data) }),
       },
       {
-        name: "Cancellations", layout: "table",
+        name: "Cancellations and Reschedules", layout: "table",
         columns: [
           col("canceledAt",  "Cancelled On", r => r.canceledAt ? new Date(r.canceledAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) + " " + new Date(r.canceledAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "—"),
           col("clientId",    "Client",       (r, ctx) => { const c = (ctx.data.clients||[]).find(x => x.id === r.clientId); return cleanName(c?.name || r.eventName || "—"); }),
@@ -5812,6 +5815,7 @@ const VIEWS = {
             .filter(r => r.status === "canceled" || r.status === "rescheduled")
             .sort((a, b) => (b.canceledAt || b.createdAt || "").localeCompare(a.canceledAt || a.createdAt || "")),
         }),
+        expandRow: registrationExpandRow,
       },
     ],
   },
