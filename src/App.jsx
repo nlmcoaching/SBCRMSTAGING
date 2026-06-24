@@ -2897,6 +2897,9 @@ export default function App() {
                 evt.paymentSuccessful,
               );
             }
+            // Never let a (re-delivered) booking event resurrect a canceled/rescheduled
+            // registration back to "booked" — this was silently undoing cancellations.
+            const preserveCancel = prevReg && (prevReg.status === "canceled" || prevReg.status === "rescheduled");
             const regRecord = {
               id: existingRegIdx >= 0 ? registrations[existingRegIdx].id : uid("reg"),
               clientId: client.id, sessionId,
@@ -2904,7 +2907,7 @@ export default function App() {
               calendlyEventUri:   evt.calendlyEventUri,
               calendlyEventTypeUri: evt.calendlyEventTypeUri || prevReg?.calendlyEventTypeUri || "",
               eventName:          evt.eventName,
-              status:             "booked",
+              status:             preserveCancel ? prevReg.status : "booked",
               paymentAmount,
               paidAmount,
               paymentStatus,
@@ -2933,6 +2936,12 @@ export default function App() {
               reviewedContraindications: evt.reviewedContraindications,
               notes: "",
             };
+            // Carry over cancellation metadata so a re-delivered booking doesn't wipe it.
+            if (preserveCancel) {
+              regRecord.canceledAt   = prevReg.canceledAt   || "";
+              regRecord.cancelReason = prevReg.cancelReason || "";
+              regRecord.cancelerType = prevReg.cancelerType || "";
+            }
             if (existingRegIdx >= 0) registrations[existingRegIdx] = regRecord;
             else registrations.push(regRecord);
 
@@ -2969,7 +2978,7 @@ export default function App() {
             const cancelStatus = evt.rescheduled ? "rescheduled" : "canceled";
             const cancelFields = {
               status:       cancelStatus,
-              canceledAt:   evt.receivedAt || new Date().toISOString(),
+              canceledAt:   evt.canceledAt || evt.receivedAt || new Date().toISOString(),
               cancelReason: evt.cancelReason || "",
               cancelerType: evt.cancelerType || "",
             };

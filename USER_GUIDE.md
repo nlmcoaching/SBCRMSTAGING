@@ -520,7 +520,9 @@ When a client books through your Calendly link, the CRM automatically:
 
 At the bottom of the sidebar you'll see a **Calendly sync status indicator**. The CRM syncs automatically every **5 minutes** in the background — no action needed.
 
-Each sync also **pulls recent bookings directly from Calendly** (not just webhooks), so new bookings appear even if a webhook was missed while ngrok or the backend was offline.
+Each sync also **pulls recent bookings and cancellations directly from Calendly** (not just webhooks), so new bookings — and any cancellations — appear even if a webhook was missed while ngrok or the backend was offline. Cancellations are checked first on every sync, so a session canceled in Calendly is marked canceled in the CRM (and moves to the Cancellations view) on the very next sync, automatically.
+
+Once a booking is canceled, the sync will **never flip it back to booked** on its own — the cancellation, along with its date and reason, stays put.
 
 On the **Calendly Bookings** page, click the **refresh icon** (↻) in the top bar to pull in new bookings right away instead of waiting for the next automatic sync.
 

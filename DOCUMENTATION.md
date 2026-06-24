@@ -901,7 +901,9 @@ Use **Sync Stripe now** to load charges from the backend ledger and run reconcil
 
 Each Stripe sync calls `GET /api/stripe/ledger` to reload processed webhook events so payments are not lost after a browser refresh.
 
-**Calendly API backfill:** Each Calendly sync calls `POST /api/calendly/pull-recent` (requires `CALENDLY_API_TOKEN`) to fetch recent scheduled events from the Calendly API and queue any invitees missing from the webhook queue — e.g. when ngrok was down or a webhook was never delivered.
+**Calendly API backfill:** Each Calendly sync calls `POST /api/calendly/pull-recent` (requires `CALENDLY_API_TOKEN`) to fetch recent scheduled events from the Calendly API and queue any invitees missing from the webhook queue — e.g. when ngrok was down or a webhook was never delivered. The pull fetches **both active and canceled** scheduled events. Cancellations are scanned first (without payment enrichment) so they queue within ~1–2 seconds — well inside the sync's pull timeout — and are reconciled on the same sync; canceled invitees are queued as `invitee.canceled` events. This makes cancellations recover automatically even when no webhook was received, with no reliance on ngrok.
+
+**Cancellation protection:** A re-delivered `invitee.created` event (from a webhook plus an API pull, or a re-queue) never resurrects a registration that is already `canceled` or `rescheduled` back to `booked`; the cancellation status and its `canceledAt` / `cancelReason` / `cancelerType` fields are preserved. This prevents the sync from silently undoing cancellations.
 
 ### Revenue Sources
 

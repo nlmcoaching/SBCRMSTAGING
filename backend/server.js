@@ -900,7 +900,52 @@ async function enrichCalendlyQueueEvent(extracted) {
   return extracted;
 }
 
-/** Fetch recent Calendly bookings via API and queue any missing invitees (webhook fallback). */
+/** Build an invitee.canceled queue event from Calendly API objects (canceled invitee). */
+function buildInviteeCanceledFromApi(invitee, scheduled) {
+  const evt = buildInviteeCreatedFromApi(invitee, scheduled);
+  evt.eventType    = "invitee.canceled";
+  evt.rescheduled  = invitee.rescheduled || false;
+  evt.cancelerType = invitee.cancellation?.canceler_type || "";
+  evt.cancelReason = invitee.cancellation?.reason || "";
+  evt.canceledAt   = invitee.cancellation?.created_at || invitee.updated_at || "";
+  return evt;
+}
+
+/** Fetch all scheduled events of a given status (active|canceled) within the window. */
+async function fetchScheduledEvents(userUri, minStart, status, token) {
+  const events = [];
+  let pageToken = null;
+  do {
+    const qs = new URLSearchParams({ user: userUri, min_start_time: minStart, count: "100", status });
+    if (pageToken) qs.set("page_token", pageToken);
+    const data = await calendlyApiGet(`scheduled_events?${qs}`, token);
+    events.push(...(data.collection || []));
+    pageToken = data.pagination?.next_page_token || null;
+  } while (pageToken);
+  return events;
+}
+
+/** Append candidate events to the queue, deduped by invitee URI + event type. Returns {added, skipped}. */
+async function queueCandidates(candidates) {
+  let added = 0, skipped = 0;
+  await withQueueLock(() => {
+    const queue = readQueue();
+    // Dedup by invitee URI + event type so a cancellation can still be queued even if the
+    // original booking event for that invitee is already in the queue.
+    const knownKeys = new Set(queue.map(e => `${e.calendlyInviteeUri}|${e.eventType}`).filter(k => k !== "|"));
+    for (const evt of candidates) {
+      const key = `${evt.calendlyInviteeUri}|${evt.eventType}`;
+      if (knownKeys.has(key)) { skipped++; continue; }
+      queue.push(evt);
+      knownKeys.add(key);
+      added++;
+    }
+    writeQueue(queue);
+  });
+  return { added, skipped };
+}
+
+/** Fetch recent Calendly bookings AND cancellations via API; queue any missing events (webhook fallback). */
 async function pullRecentCalendlyBookings(daysBack = 30) {
   const token = process.env.CALENDLY_API_TOKEN;
   if (!token) {
@@ -913,20 +958,42 @@ async function pullRecentCalendlyBookings(daysBack = 30) {
   }
 
   const minStart = new Date(Date.now() - Math.min(Math.max(daysBack, 1), 90) * 86400000).toISOString();
-  const scheduledEvents = [];
-  let pageToken = null;
-  do {
-    const qs = new URLSearchParams({ user: userUri, min_start_time: minStart, count: "100", status: "active" });
-    if (pageToken) qs.set("page_token", pageToken);
-    const data = await calendlyApiGet(`scheduled_events?${qs}`, token);
-    scheduledEvents.push(...(data.collection || []));
-    pageToken = data.pagination?.next_page_token || null;
-  } while (pageToken);
+  let added = 0, skipped = 0, scanned = 0;
 
-  const candidates = [];
-  let scanned = 0;
+  // ── PASS 1: Cancellations first ──
+  // Canceled events are few and need no payment enrichment, so they queue within ~1-2s —
+  // well inside the frontend's ~12s pull timeout, ensuring they're processed on the same sync.
+  try {
+    const canceledEvents = await fetchScheduledEvents(userUri, minStart, "canceled", token);
+    const cancelCandidates = [];
+    for (const scheduled of canceledEvents) {
+      const uuid = scheduled.uri?.split("/").pop();
+      if (!uuid) continue;
+      let invPage = null;
+      do {
+        const qs = new URLSearchParams({ count: "100" });
+        if (invPage) qs.set("page_token", invPage);
+        const invData = await calendlyApiGet(`scheduled_events/${uuid}/invitees?${qs}`, token);
+        for (const invitee of invData.collection || []) {
+          scanned++;
+          if (!invitee.uri || !invitee.email) continue;
+          if (invitee.status !== "canceled") continue;
+          cancelCandidates.push(buildInviteeCanceledFromApi(invitee, scheduled));
+        }
+        invPage = invData.pagination?.next_page_token || null;
+      } while (invPage);
+    }
+    const r1 = await queueCandidates(cancelCandidates);
+    added += r1.added; skipped += r1.skipped;
+    if (r1.added > 0) console.log(`[OK] Calendly API pull queued ${r1.added} cancellation(s)`);
+  } catch (e) {
+    console.warn(`[WARN] Cancellation pull failed: ${e.message}`);
+  }
 
-  for (const scheduled of scheduledEvents) {
+  // ── PASS 2: Active bookings (with payment enrichment) ──
+  const activeEvents = await fetchScheduledEvents(userUri, minStart, "active", token);
+  const bookingCandidates = [];
+  for (const scheduled of activeEvents) {
     const uuid = scheduled.uri?.split("/").pop();
     if (!uuid) continue;
     let invPage = null;
@@ -936,35 +1003,20 @@ async function pullRecentCalendlyBookings(daysBack = 30) {
       const invData = await calendlyApiGet(`scheduled_events/${uuid}/invitees?${qs}`, token);
       for (const invitee of invData.collection || []) {
         scanned++;
-        if (invitee.status === "canceled") continue;
         if (!invitee.uri || !invitee.email) continue;
+        if (invitee.status === "canceled") continue;
         const extracted = buildInviteeCreatedFromApi(invitee, scheduled);
         await enrichCalendlyQueueEvent(extracted);
-        candidates.push(extracted);
+        bookingCandidates.push(extracted);
       }
       invPage = invData.pagination?.next_page_token || null;
     } while (invPage);
   }
-
-  let added = 0;
-  let skipped = 0;
-  await withQueueLock(() => {
-    const queue = readQueue();
-    const knownUris = new Set(queue.map(e => e.calendlyInviteeUri).filter(Boolean));
-    for (const evt of candidates) {
-      if (knownUris.has(evt.calendlyInviteeUri)) {
-        skipped++;
-        continue;
-      }
-      queue.push(evt);
-      knownUris.add(evt.calendlyInviteeUri);
-      added++;
-    }
-    writeQueue(queue);
-  });
+  const r2 = await queueCandidates(bookingCandidates);
+  added += r2.added; skipped += r2.skipped;
 
   if (added > 0) {
-    console.log(`[OK] Calendly API pull queued ${added} new booking(s) (${skipped} already known, ${scanned} invitees scanned)`);
+    console.log(`[OK] Calendly API pull queued ${added} new event(s) total (${skipped} already known, ${scanned} invitees scanned)`);
   }
 
   return { added, skipped, scanned };
