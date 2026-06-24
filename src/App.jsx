@@ -1413,13 +1413,26 @@ function healCanceledSessions(d) {
   const sessions = d.sessions || [];
   let changed = false;
   const updated = sessions.map(s => {
-    // Already manually or previously marked Canceled — never auto-revert it
+    // Already marked Canceled — never auto-revert it
     if ((s.status || "").toLowerCase() === "canceled") return s;
-    // Match registrations by sessionId OR shared calendlyEventUri
-    const sessionRegs = regs.filter(r =>
-      (r.sessionId && r.sessionId === s.id) ||
-      (s.calendlyEventUri && r.calendlyEventUri && r.calendlyEventUri === s.calendlyEventUri)
-    );
+
+    // Match registrations by sessionId, calendlyEventUri, OR date+eventName fallback
+    const norm = (v) => (v || "").toLowerCase().trim();
+    const sDate = (s.date || "").slice(0, 10);
+    const sName = norm(s.name || s.journey || "");
+
+    const sessionRegs = regs.filter(r => {
+      if (r.sessionId && r.sessionId === s.id) return true;
+      if (s.calendlyEventUri && r.calendlyEventUri && r.calendlyEventUri === s.calendlyEventUri) return true;
+      // Fallback: same date AND event name contains session name (or vice-versa)
+      if (sDate && sName.length > 3) {
+        const rDate = (r.scheduledAt || "").slice(0, 10);
+        const rName = norm(r.eventName || "");
+        if (rDate === sDate && (rName.includes(sName) || sName.includes(rName))) return true;
+      }
+      return false;
+    });
+
     const allCanceled = sessionRegs.length > 0 &&
       sessionRegs.every(r => r.status === "canceled" || r.status === "rescheduled" || r.status === "no_show");
     if (allCanceled) {
@@ -2774,13 +2787,15 @@ export default function App() {
           };
 
           if (evt.eventType === "invitee.created") {
-            // If a canceled/rescheduled registration already exists for this invitee, this
-            // is a stale API re-pull of a booking that was subsequently canceled.
+            // If a canceled/rescheduled registration already exists for this invitee or event,
+            // this is a stale API re-pull of a booking that was subsequently canceled.
             // Acknowledge the event but do not re-create the booking or session.
-            const alreadyCanceled = evt.calendlyInviteeUri && registrations.some(r =>
-              r.calendlyInviteeUri === evt.calendlyInviteeUri &&
-              (r.status === "canceled" || r.status === "rescheduled")
-            );
+            const isCanceledReg = (r) => r.status === "canceled" || r.status === "rescheduled";
+            const alreadyCanceled =
+              // Match by invitee URI (most specific)
+              (evt.calendlyInviteeUri && registrations.some(r => r.calendlyInviteeUri === evt.calendlyInviteeUri && isCanceledReg(r))) ||
+              // Match by event URI (all invitees of this scheduled event)
+              (evt.calendlyEventUri && registrations.some(r => r.calendlyEventUri === evt.calendlyEventUri && isCanceledReg(r)));
             if (alreadyCanceled) { ids.push(evt.id); return; }
 
             // 1. Create or update client by email
