@@ -3009,14 +3009,21 @@ export default function App() {
               cancelReason: evt.cancelReason || "",
               cancelerType: evt.cancelerType || "",
             };
+            // Helper: mark a session as Canceled by index
+            const markSessionCanceled = (sessIdx) => {
+              if (sessIdx >= 0) {
+                sessions[sessIdx] = { ...sessions[sessIdx], status: "Canceled" };
+              }
+            };
+
             if (regIdx >= 0) {
               registrations[regIdx] = { ...registrations[regIdx], ...cancelFields };
-              // Decrement session registered count
               const reg = registrations[regIdx];
-              const sessIdx = sessions.findIndex(s => s.id === reg.sessionId);
-              if (sessIdx >= 0 && sessions[sessIdx].registered > 0) {
-                sessions[sessIdx] = { ...sessions[sessIdx], registered: sessions[sessIdx].registered - 1 };
-              }
+              // Find session by sessionId or calendlyEventUri and mark it Canceled
+              let sessIdx = reg.sessionId ? sessions.findIndex(s => s.id === reg.sessionId) : -1;
+              if (sessIdx < 0 && evt.calendlyEventUri)
+                sessIdx = sessions.findIndex(s => s.calendlyEventUri === evt.calendlyEventUri);
+              markSessionCanceled(sessIdx);
             } else {
               // No prior booking in CRM — create a registration so it appears in Cancellations tab
               const emailNorm = (evt.email || "").toLowerCase();
@@ -3031,9 +3038,12 @@ export default function App() {
                 };
                 clients.push(cancelClient);
               }
-              const existingSession = evt.calendlyEventUri
-                ? sessions.find(s => s.calendlyEventUri === evt.calendlyEventUri)
-                : null;
+              const existingSessionIdx = evt.calendlyEventUri
+                ? sessions.findIndex(s => s.calendlyEventUri === evt.calendlyEventUri)
+                : -1;
+              const existingSession = existingSessionIdx >= 0 ? sessions[existingSessionIdx] : null;
+              // Mark the session Canceled immediately
+              markSessionCanceled(existingSessionIdx);
               const newReg = {
                 id: uid("reg"),
                 clientId: cancelClient?.id || "",
