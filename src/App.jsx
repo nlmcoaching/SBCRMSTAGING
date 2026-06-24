@@ -2774,6 +2774,15 @@ export default function App() {
           };
 
           if (evt.eventType === "invitee.created") {
+            // If a canceled/rescheduled registration already exists for this invitee, this
+            // is a stale API re-pull of a booking that was subsequently canceled.
+            // Acknowledge the event but do not re-create the booking or session.
+            const alreadyCanceled = evt.calendlyInviteeUri && registrations.some(r =>
+              r.calendlyInviteeUri === evt.calendlyInviteeUri &&
+              (r.status === "canceled" || r.status === "rescheduled")
+            );
+            if (alreadyCanceled) { ids.push(evt.id); return; }
+
             // 1. Create or update client by email
             const emailNorm = (evt.email || "").toLowerCase();
             let client = clients.find(c => (c.email || "").toLowerCase() === emailNorm);
