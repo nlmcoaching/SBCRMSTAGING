@@ -17,7 +17,11 @@ dist-ssr
 .env.local
 .env.*.local
 backend/.env
-backend/data/pending-events.json
+
+# Runtime data: encrypted webhook queues + audit log (contain customer/financial PII).
+# Never commit; only the directory itself is tracked via .gitkeep.
+backend/data/*
+!backend/data/.gitkeep
 
 # Editor directories and files
 .vscode/*

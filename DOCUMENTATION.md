@@ -62,21 +62,24 @@ The system is designed to answer three core daily questions:
 
 ### Session Persistence
 
-After a successful PIN login, the master key and user ID are saved to **`sessionStorage`** (`sb:session:v1`). On the next page load (e.g. browser refresh), the app reads this token, re-imports the master key, decrypts the data, and restores the session automatically — no PIN re-entry required.
+After a successful PIN login, the master key, user ID, and a per-login restore token are saved to **`sessionStorage`** (`sb:session:v1`). On the next page load (e.g. browser refresh), the app validates the token (see Session Token Integrity below), re-imports the master key, decrypts the data, and restores the session automatically — no PIN re-entry required.
 
 - `sessionStorage` is scoped to the browser tab; closing the tab or window clears the session, requiring PIN entry on next open.
 - The last-visited section and tab view are also saved to `sessionStorage` (`sb:nav:v1`) while the user is logged in, so a refresh returns to the same page rather than the Command Center.
 - Both keys are cleared on explicit logout and on idle auto-lock.
 
-#### Session Token Integrity (HMAC binding)
+#### Session Token Integrity (per-user restore token)
 
-Every session token stored in `sb:session:v1` includes a `sig` field: an HMAC-SHA256 digest computed over `"sb-session-v2:" + userId + ":" + masterKeyRaw`, using the master key itself as the HMAC key.
+Because the CRM uses **one shared master key** (envelope-wrapped per user), the master key cannot prove *which* user authenticated — so the session is bound with a per-login bearer token instead.
 
-On session restore, the app re-computes the expected HMAC and rejects the token if:
-- the `sig` field is missing (legacy unsigned tokens), or
-- the computed digest does not match the stored `sig` (tampered `userId` or `masterKeyRaw`).
+On each unlock the app mints a fresh random 256-bit **restore token** and stores it only in that tab's `sessionStorage` (`sb:session:v1`, alongside `userId` and `masterKeyRaw`). Only the token's **SHA-256 hash** (`sessionTokenHash`, salted with the constant `sb-session-v3:`) is persisted on that user's record in the user list.
 
-A rejected token is removed from `sessionStorage`, and the user must re-enter their PIN. This prevents a lower-privilege user from editing `userId` in DevTools to claim another user's role while reusing a valid master key.
+On session restore the app re-hashes the token from `sessionStorage` and rejects it if:
+- the `token` field is missing (legacy/upgraded tokens — forces one PIN entry after upgrade), or
+- the user has no stored `sessionTokenHash`, or
+- the re-hashed token does not match the restored user's stored `sessionTokenHash`.
+
+A rejected token is removed from `sessionStorage` and the user must re-enter their PIN. Because the raw token never leaves the tab that minted it and the stored value is a one-way hash, a lower-privilege user **cannot** forge a session for another `userId` (e.g. Owner) — they would need the other user's raw token, which is not recoverable from the hash. This closes the prior escalation where the HMAC was keyed by the shared master key and could be recomputed by anyone who had logged in. A new token is issued on every unlock, invalidating any previous one for that user.
 
 ### Encryption
 
@@ -2076,8 +2079,8 @@ Sec.generateMasterKeyB64()                // Random 256-bit master key
 Sec.importMasterKey(b64)                  // Import raw key as CryptoKey
 Sec.wrapKeyForUser(masterKeyB64, pin, salt)   // Encrypt master key for user
 Sec.unwrapKeyForUser(wrappedB64, pin, salt)   // Decrypt master key for user
-Sec.hmacSession(masterKeyRaw, userId)     // HMAC-SHA256 session token sig (tamper protection)
-Sec.verifySession(masterKeyRaw, userId, sig)  // Verify session token sig; returns false on mismatch
+Sec.randomToken()                          // Fresh 256-bit per-login restore token (base64)
+Sec.sessionTokenHash(token)                // SHA-256 hash of a restore token (stored per-user)
 Sec.sanitize(val)                         // Strip formulas and HTML from CSV input and Calendly webhook fields
 Sec.validate(data)                        // Schema validation on load
 ```

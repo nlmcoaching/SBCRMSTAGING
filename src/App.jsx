@@ -1272,23 +1272,20 @@ const Sec = {
     const mkB64   = await Sec.decrypt(wrappedB64, wrapKey);
     return { raw: mkB64, key: await Sec.importMasterKey(mkB64) };
   },
-  // ── Session token integrity (HMAC-SHA256 over userId+masterKeyRaw) ──
-  // Prevents a lower-privilege user from editing sessionStorage to claim a
-  // higher-privilege userId while reusing a valid masterKeyRaw.
-  async hmacSession(masterKeyRaw, userId) {
-    const rawKey = Uint8Array.from(atob(masterKeyRaw), c => c.charCodeAt(0));
-    const hmacKey = await crypto.subtle.importKey(
-      "raw", rawKey, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
-    );
-    const msg = new TextEncoder().encode("sb-session-v2:" + userId + ":" + masterKeyRaw);
-    const sig  = await crypto.subtle.sign("HMAC", hmacKey, msg);
-    return btoa(String.fromCharCode(...new Uint8Array(sig)));
+  // ── Session restore token (per-login bearer token; hash stored per-user) ──
+  // A fresh random token is minted on every unlock and kept ONLY in the originating tab's
+  // sessionStorage. Its SHA-256 hash is persisted on that user's record in the (plaintext)
+  // user list. On refresh the stored token is re-hashed and compared to the user's hash.
+  // Because the hash is one-way and the raw token never leaves the tab that unlocked, a
+  // different (lower-privilege) user cannot forge a session for another userId — unlike the
+  // previous HMAC, which was keyed by the SHARED master key and so could be recomputed by
+  // anyone who had logged in (privilege-escalation fix).
+  randomToken() {
+    return btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
   },
-  async verifySession(masterKeyRaw, userId, sig) {
-    try {
-      const expected = await Sec.hmacSession(masterKeyRaw, userId);
-      return expected === sig;
-    } catch { return false; }
+  async sessionTokenHash(token) {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("sb-session-v3:" + token));
+    return btoa(String.fromCharCode(...new Uint8Array(buf)));
   },
   sanitize(val) {
     if (typeof val !== "string") return val;
@@ -2302,10 +2299,13 @@ export default function App() {
               if (sessionRaw && alive) {
                 const session = JSON.parse(sessionRaw);
                 const restoredUser = activeUsers.find(u => u.id === session.userId);
-                const sigValid = session.sig
-                  ? await Sec.verifySession(session.masterKeyRaw, session.userId, session.sig)
-                  : false; // reject legacy unsigned tokens
-                if (restoredUser && session.masterKeyRaw && sigValid) {
+                // Validate the restore token against THIS user's stored hash. The token is
+                // bound per-user via a one-way hash, so a lower-privilege user cannot mint a
+                // token that validates for a different (e.g. Owner) userId.
+                const tokenValid = (session.token && restoredUser?.sessionTokenHash)
+                  ? (await Sec.sessionTokenHash(session.token)) === restoredUser.sessionTokenHash
+                  : false; // reject legacy/unsigned tokens — forces one PIN entry after upgrade
+                if (restoredUser && session.masterKeyRaw && tokenValid) {
                   const masterKey = await Sec.importMasterKey(session.masterKeyRaw);
                   // Decrypt and load data (same as normal unlock)
                   const encRaw = await store.get(STORE_KEY_ENC);
@@ -2405,6 +2405,7 @@ export default function App() {
         const masterKeyB64 = await Sec.generateMasterKeyB64();
         const pinSalt      = sec.salt;
         const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyB64, pin, pinSalt, Sec.PBKDF2_ITERATIONS);
+        const _migToken = Sec.randomToken();
         const owner = {
           id: "u_owner", name: "Admin", role: "Owner",
           // pinHash intentionally omitted — v2 verification uses PBKDF2 unwrap only
@@ -2412,6 +2413,7 @@ export default function App() {
           permissions: ROLE_PERMISSIONS.Owner,
           active: true, color: USER_COLORS[0],
           createdAt: todayISO(), lastLogin: todayISO(),
+          sessionTokenHash: await Sec.sessionTokenHash(_migToken),
         };
         const newSec = { version: 2, users: [owner] };
         await store.set(SEC_META_KEY, JSON.stringify(newSec));
@@ -2439,7 +2441,7 @@ export default function App() {
         setMasterKeyRaw(masterKeyB64);
         setCryptoKey(masterKey);
         setCurrentUser(owner);
-        try { const _sig = await Sec.hmacSession(masterKeyB64, userId); sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, masterKeyRaw: masterKeyB64, sig: _sig })); } catch (_) {}
+        try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, masterKeyRaw: masterKeyB64, token: _migToken })); } catch (_) {}
         loaded.current = true;
         setLocked(false);
         setSection("today"); setView(0);
@@ -2509,7 +2511,11 @@ export default function App() {
         }
       }
 
-      // Update lastLogin, scrub legacy pinHash, persist iteration count
+      // Mint a fresh per-login restore token; persist only its hash on this user's record.
+      const _sessionToken = Sec.randomToken();
+      const _sessionTokenHash = await Sec.sessionTokenHash(_sessionToken);
+
+      // Update lastLogin, scrub legacy pinHash, persist iteration count + session token hash
       const updatedUsers = sec.users.map(u => {
         const { pinHash: _dropped, ...rest } = u; // remove legacy SHA-256 hash
         if (u.id === userId) {
@@ -2519,6 +2525,7 @@ export default function App() {
             pinSalt:           upgradedSalt,
             wrappedMasterKey:  upgradedWrappedKey,
             pbkdf2Iterations:  Sec.PBKDF2_ITERATIONS,
+            sessionTokenHash:  _sessionTokenHash,
           };
         }
         return rest;
@@ -2532,7 +2539,7 @@ export default function App() {
       setPinAttempts(p => { const n = { ...p }; delete n[userId]; return n; }); // reset on success
       // Clean up legacy unencrypted storage
       try { localStorage.removeItem(STORE_KEY); } catch (_) {}
-      try { const _sig = await Sec.hmacSession(mkB64, userId); sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, masterKeyRaw: mkB64, sig: _sig })); } catch (_) {}
+      try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, masterKeyRaw: mkB64, token: _sessionToken })); } catch (_) {}
       loaded.current = true;
       setLocked(false);
       setSection("today"); setView(0);
@@ -2553,12 +2560,14 @@ export default function App() {
       const pinSalt      = Sec.newSalt();
       const masterKeyB64 = await Sec.generateMasterKeyB64();
       const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyB64, pin, pinSalt, Sec.PBKDF2_ITERATIONS);
+      const _setupToken = Sec.randomToken();
       const owner = {
         id: "u_owner", name: name.trim(), role: "Owner",
         pinSalt, wrappedMasterKey, pbkdf2Iterations: Sec.PBKDF2_ITERATIONS,
         permissions: ROLE_PERMISSIONS.Owner,
         active: true, color: USER_COLORS[0],
         createdAt: todayISO(), lastLogin: todayISO(),
+        sessionTokenHash: await Sec.sessionTokenHash(_setupToken),
       };
       const newSec = { version: 2, users: [owner] };
       await store.set(SEC_META_KEY, JSON.stringify(newSec));
@@ -2568,7 +2577,7 @@ export default function App() {
       setCryptoKey(masterKey);
       setCurrentUser(owner);
       setData(SEED);
-      try { const _sig = await Sec.hmacSession(masterKeyB64, owner.id); sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId: owner.id, masterKeyRaw: masterKeyB64, sig: _sig })); } catch (_) {}
+      try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId: owner.id, masterKeyRaw: masterKeyB64, token: _setupToken })); } catch (_) {}
       loaded.current = true;
       setNeedsSetup(false);
       setLocked(false);
