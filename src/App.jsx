@@ -1424,9 +1424,14 @@ function healCanceledSessions(d) {
     const sessionRegs = regs.filter(r => {
       if (r.sessionId && r.sessionId === s.id) return true;
       if (s.calendlyEventUri && r.calendlyEventUri && r.calendlyEventUri === s.calendlyEventUri) return true;
-      // Fallback: same date AND event name contains session name (or vice-versa)
+      // Fallback: same LOCAL date AND event name match
+      // Use local date conversion to avoid UTC off-by-one for evening sessions
       if (sDate && sName.length > 3) {
-        const rDate = (r.scheduledAt || "").slice(0, 10);
+        const rRaw = r.scheduledAt || "";
+        const rDt = rRaw ? new Date(rRaw) : null;
+        const rDate = rDt && !isNaN(rDt)
+          ? `${rDt.getFullYear()}-${String(rDt.getMonth()+1).padStart(2,"0")}-${String(rDt.getDate()).padStart(2,"0")}`
+          : rRaw.slice(0, 10);
         const rName = norm(r.eventName || "");
         if (rDate === sDate && (rName.includes(sName) || sName.includes(rName))) return true;
       }
@@ -2791,7 +2796,10 @@ export default function App() {
             // this is a stale API re-pull of a booking that was subsequently canceled.
             // Acknowledge the event but do not re-create the booking or session.
             const isCanceledReg = (r) => r.status === "canceled" || r.status === "rescheduled";
-            const evtDate = (evt.startTime || "").slice(0, 10);
+            const _evtDt = evt.startTime ? new Date(evt.startTime) : null;
+            const evtDate = _evtDt && !isNaN(_evtDt)
+              ? `${_evtDt.getFullYear()}-${String(_evtDt.getMonth()+1).padStart(2,"0")}-${String(_evtDt.getDate()).padStart(2,"0")}`
+              : (evt.startTime || "").slice(0, 10);
             const evtEmail = (evt.email || "").toLowerCase();
             const alreadyCanceled =
               // Match by invitee URI (most specific)
@@ -6736,15 +6744,21 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
       })
     : rows;
 
-  // Build a lookup: session dates that have ALL-canceled registrations
-  // Matches by sessionId, calendlyEventUri, OR date+eventName — catches duplicate session records
+  // Build a lookup: canceled registrations indexed multiple ways
+  // Uses LOCAL date (not UTC slice) to avoid timezone off-by-one for evening sessions
   const canceledSessionIds = new Set();
   const norm2 = (v) => (v || "").toLowerCase().trim();
+  const toLocalDate = (iso) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d)) return (iso || "").slice(0, 10);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  };
   (data?.registrations || []).forEach(r => {
     if (r.status !== "canceled" && r.status !== "rescheduled" && r.status !== "no_show") return;
     if (r.sessionId) canceledSessionIds.add(`sid:${r.sessionId}`);
     if (r.calendlyEventUri) canceledSessionIds.add(`uri:${r.calendlyEventUri}`);
-    const rDate = (r.scheduledAt || "").slice(0, 10);
+    const rDate = toLocalDate(r.scheduledAt);
     const rName = norm2(r.eventName);
     if (rDate && rName.length > 3) canceledSessionIds.add(`date:${rDate}:${rName}`);
   });
