@@ -2791,11 +2791,20 @@ export default function App() {
             // this is a stale API re-pull of a booking that was subsequently canceled.
             // Acknowledge the event but do not re-create the booking or session.
             const isCanceledReg = (r) => r.status === "canceled" || r.status === "rescheduled";
+            const evtDate = (evt.startTime || "").slice(0, 10);
+            const evtEmail = (evt.email || "").toLowerCase();
             const alreadyCanceled =
               // Match by invitee URI (most specific)
               (evt.calendlyInviteeUri && registrations.some(r => r.calendlyInviteeUri === evt.calendlyInviteeUri && isCanceledReg(r))) ||
-              // Match by event URI (all invitees of this scheduled event)
-              (evt.calendlyEventUri && registrations.some(r => r.calendlyEventUri === evt.calendlyEventUri && isCanceledReg(r)));
+              // Match by event URI
+              (evt.calendlyEventUri && registrations.some(r => r.calendlyEventUri === evt.calendlyEventUri && isCanceledReg(r))) ||
+              // Match by client email + session date (catches cases where URIs are missing)
+              (evtEmail && evtDate && registrations.some(r => {
+                if (!isCanceledReg(r)) return false;
+                const rDate = (r.scheduledAt || "").slice(0, 10);
+                const rClient = (clients.find(c => c.id === r.clientId)?.email || "").toLowerCase();
+                return rDate === evtDate && rClient === evtEmail;
+              }));
             if (alreadyCanceled) { ids.push(evt.id); return; }
 
             // 1. Create or update client by email
@@ -2872,7 +2881,18 @@ export default function App() {
 
               const resolvedStudioId = matchedPartner?.id || "";
 
-              const existingSessionIdx = sessions.findIndex(s => s.calendlyEventUri === evt.calendlyEventUri);
+              // Find existing session: first by calendlyEventUri, then by date+name (catches
+              // duplicate records created when the URI was temporarily missing)
+              const evtDateStr = (evt.startTime || "").slice(0, 10);
+              const evtNameNorm = (evt.eventName || "").toLowerCase().trim();
+              let existingSessionIdx = sessions.findIndex(s => s.calendlyEventUri === evt.calendlyEventUri);
+              if (existingSessionIdx < 0 && evtDateStr && evtNameNorm.length > 3) {
+                existingSessionIdx = sessions.findIndex(s => {
+                  const sDate = (s.date || "").slice(0, 10);
+                  const sName = (s.name || s.journey || "").toLowerCase().trim();
+                  return sDate === evtDateStr && (sName.includes(evtNameNorm) || evtNameNorm.includes(sName));
+                });
+              }
               if (existingSessionIdx >= 0) {
                 const existingSession = sessions[existingSessionIdx];
                 // Never touch a session that has been marked Canceled
@@ -6716,9 +6736,31 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
       })
     : rows;
 
+  // Build a lookup: session dates that have ALL-canceled registrations
+  // Matches by sessionId, calendlyEventUri, OR date+eventName — catches duplicate session records
+  const canceledSessionIds = new Set();
+  const norm2 = (v) => (v || "").toLowerCase().trim();
+  (data?.registrations || []).forEach(r => {
+    if (r.status !== "canceled" && r.status !== "rescheduled" && r.status !== "no_show") return;
+    if (r.sessionId) canceledSessionIds.add(`sid:${r.sessionId}`);
+    if (r.calendlyEventUri) canceledSessionIds.add(`uri:${r.calendlyEventUri}`);
+    const rDate = (r.scheduledAt || "").slice(0, 10);
+    const rName = norm2(r.eventName);
+    if (rDate && rName.length > 3) canceledSessionIds.add(`date:${rDate}:${rName}`);
+  });
+  const isSessionCanceled = (s) => {
+    if ((s.status || "").toLowerCase() === "canceled") return true;
+    if (canceledSessionIds.has(`sid:${s.id}`)) return true;
+    if (s.calendlyEventUri && canceledSessionIds.has(`uri:${s.calendlyEventUri}`)) return true;
+    const sDate = (s.date || "").slice(0, 10);
+    const sName = norm2(s.name || s.journey || "");
+    if (sDate && sName.length > 3 && canceledSessionIds.has(`date:${sDate}:${sName}`)) return true;
+    return false;
+  };
+
   const byDay = {};
   filteredRows
-    .filter(s => (s.status || "").toLowerCase() !== "canceled")
+    .filter(s => !isSessionCanceled(s))
     .forEach((s) => { if (s.date && s.date.slice(0, 7) === cursor) (byDay[Number(s.date.slice(8, 10))] ||= []).push(s); });
   Object.values(byDay).forEach((daySessions) => daySessions.sort((a, b) => sessionStartSortKey(a) - sessionStartSortKey(b)));
   const shift = (n) => { let mm = m + n, yy = y; if (mm < 1) { mm = 12; yy--; } if (mm > 12) { mm = 1; yy++; } setCursor(`${yy}-${String(mm).padStart(2, "0")}`); };
