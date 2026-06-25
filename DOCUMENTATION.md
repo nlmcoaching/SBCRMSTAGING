@@ -939,7 +939,7 @@ Studio session · Virtual session · Private client · Group package · Corporat
 
 Each derived booking row shows: Booked Date & Time · client + session name · session date · channel (Studio session / Virtual session) · gross = session price · net (after studio split for studio sessions). Facilitator and Source columns are not shown in this view.
 
-Manual **Revenue** records (gross, Stripe fee, studio split, etc.) are part of the revenue ledger and are listed in Revenue tab views alongside the auto booking rows. Auto booking records (`regrev_*`) are stored in the table for backup/audit but are not shown a second time in the views, since the live per-booking rows already represent them.
+Manual **Revenue** records (gross, Stripe fee, studio split, etc.) are part of the revenue ledger and are listed in the derived Revenue tab views alongside the auto booking rows. Auto booking records (`regrev_*`) are not shown a second time in the **Revenue Attribution** / **This month** views (the live per-booking rows already represent them), but the **Revenue Table** tab lists *every* stored record — auto and manual — for full transparency and auditing.
 
 ### Analytics Views
 
@@ -956,15 +956,24 @@ Manual **Revenue** records (gross, Stripe fee, studio split, etc.) are part of t
   - **P&L by channel — MTD**: Gross, fees, splits, net by session type/source. Data is limited to the current month.
   - **Recently Charged Sessions**: Mirrors the Stripe page — all Stripe charges sorted by `paidAt` (newest first). Columns: Booked Date & Time, Description, Stripe amount, Status.
 
-- **This month** (tab 1) — revenue rows for the current calendar month. Columns: **Booked Date & Time**, Description, Date, Channel, Gross, Fees, Studio Split, Net. Facilitator and Source columns removed.
+- **This month** (tab 1) — rebuilt around the actual ledgers (`revenue-this-month` layout, `RevenueThisMonthView`). It no longer derives figures from registrations or applies a 70/30 split. Instead:
+  - **Gross Revenue** = sum of the **Stripe amounts stored on records in the `revenue` table** (`gross`) dated in the current month. This includes both auto booking records (`regrev_*`) and manually-entered revenue rows.
+  - **Expenses** = sum of `amount` across records in the `expenses` table dated in the current month (auto cancellation records + manual expenses).
+  - **Net Revenue** = Gross Revenue − revenue refunds − Expenses. Margin % = Net ÷ Gross.
+  - Three stat cards (Gross Revenue, Expenses, Net Revenue) each show a **% change vs the previous month** (the Expenses card inverts the favourable colour, since a rise in expenses is unfavourable).
+  - Below the cards, two sortable/expandable `RecordTableView` listings show the month's **revenue records** (with Stripe amounts) and **expense records**.
 
-- **All transactions** (tab 2) — complete revenue history sorted by **Booked Date & Time** (newest first). Columns: **Booked Date & Time**, Description, Date, Channel, Gross, Fees, Studio Split, Net.
+- **Revenue Table** (tab 2) — a raw listing of **every record stored in the `revenue` table** (including auto booking records `regrev_*` and manually-entered rows), rendered with the `record-table` layout (`RecordTableView`). Unlike the derived views above, this reads `data.revenue` directly and does not apply the studio split. Behaviour:
+  - **Sortable column headings** — click any header (Date, Description, Channel, Source, Gross, Refunds, Net, Type) to sort; click again to toggle ascending/descending. The active column shows a ▲/▼ indicator. Sort columns are defined by `revenueTableCols()` (each column carries a `sortVal` accessor).
+  - **Expandable rows** — click a row (or its chevron) to expand an inline panel listing **all fields** stored on that record as label/value pairs (keys humanised, money fields formatted, booleans shown as Yes/No). Editors see an **Edit record** button in the expanded panel.
+  - **Type column** distinguishes **Auto** (booking-generated, `auto: true`) from **Manual** records.
+  - Footer shows the record count and column totals for Gross and Net.
 
 ### Table Footer Totals
 
-Both the **This month** and **All transactions** table views display footer rows showing gross and net totals for the filtered rows.
+The **Revenue Table** and **Expense Table** tabs (and the revenue/expense listings on the **This month** tab) display footer rows showing the record count and column totals.
 
-**This month** and **All transactions** apply a **70/30 revenue split** on **Studio session** rows: gross = full Calendly session price, studio split = 30%, net = 70% (Simply Breathe). Virtual sessions and offer rows are unchanged (net = gross).
+The **This month** tab no longer applies the legacy 70/30 studio split to its headline figures — gross comes straight from stored Stripe amounts and net is gross minus expenses. The 70/30 split logic still applies inside the **Revenue Attribution** analytics views.
 
 ---
 
@@ -1529,6 +1538,7 @@ Records in **Refunds & Cancellations** with `auto: true` (id prefix `cxlexp_`) a
 | By Category | Table sorted by category with footer total |
 | Recurring | Filtered to recurring expenses only with footer total |
 | Tax Deductible | Filtered to tax-deductible items only with footer total |
+| Expense Table | Raw listing of **every record in the `expenses` table** (`record-table` layout, `RecordTableView`). **Sortable column headings** (Date, Vendor, Description, Category, Amount, Payment, Tax Ded., Type — click to sort, click again to reverse, active column shows ▲/▼). **Expandable rows** reveal all stored fields as label/value pairs; editors get an **Edit record** button. A **Type** column flags **Auto** (cancellation-generated, `auto: true`) vs **Manual** expenses. Footer shows record count and total amount. Columns defined by `expenseTableCols()`. |
 
 ### Summary Dashboard
 **Stats Row (5 tiles):**
@@ -2059,6 +2069,9 @@ All state is managed via React `useState` and `useMemo` in the root `App` compon
 | `Today` | Dashboard with stats, alerts, NBA |
 | `ActionEmailModal` | Relationship NBA email compose — template dropdown, pre-filled recipient, editable subject/body, send via Resend |
 | `Section` | Dynamic view renderer for all data sections |
+| `TableView` | Standard table layout renderer (columns + optional expandable rows / footer) |
+| `RecordTableView` | Raw-table renderer for the **Revenue Table** and **Expense Table** tabs — sortable column headings and expandable rows that reveal every stored field; reads the underlying table directly. Columns supplied by `revenueTableCols()` / `expenseTableCols()` |
+| `RevenueThisMonthView` | Revenue **This month** tab — computes Gross Revenue from Stripe amounts in the `revenue` table and Net Revenue = gross − refunds − expenses (from the `expenses` table), with month-over-month deltas and supporting record listings |
 | `RecordDrawer` | Slide-in detail/edit panel |
 | `EditProfileModal` | Profile photo + info + PIN change |
 | `UserManagementView` | Multi-user CRUD and permissions |

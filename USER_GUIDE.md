@@ -766,9 +766,7 @@ You can also add revenue that didn't come from a Calendly booking (for example a
 
 ### Reading the Revenue Table
 
-The **Revenue attribution**, **Payment reconciliation**, **This month**, and **All transactions** tabs are built from **Stripe-verified booking amounts** (when matched) or **Calendly session prices**, plus **accepted/paid offers**. Bookings still in **Pending verification** do not appear in revenue totals until Stripe confirms payment.
-
-The footer on **This month** and **All transactions** shows gross (full session prices) and **net** after a **70/30 split** on studio sessions (you keep 70%, studio 30%). Virtual sessions and packages show full amount as net.
+The **Revenue attribution** and **Payment reconciliation** tabs are built from **Stripe-verified booking amounts** (when matched) or **Calendly session prices**, plus **accepted/paid offers**. Bookings still in **Pending verification** do not appear in revenue totals until Stripe confirms payment.
 
 **Revenue Attribution tab (first tab)** gives you a full MTD breakdown:
 - **Gross revenue MTD** — total gross session revenue for the month
@@ -779,9 +777,25 @@ The footer on **This month** and **All transactions** shows gross (full session 
 - **P&L by channel — MTD**: gross, fees, splits, and net broken down by session type for the current month.
 - **Recently Charged Sessions**: shows all Stripe charges processed, sorted newest first — this mirrors the Stripe page.
 
-Both **This month** and **All transactions** now include a **Booked Date & Time** column (when the booking was made) as the first column, and **All transactions** is sorted by that date (newest first). The Facilitator and Source columns have been removed from these views.
+### This month tab — gross revenue minus expenses
 
-> **Session price vs net:** Right now each booking row shows the **session price** from Calendly (gross = net until you record studio splits and processing fees separately). Focus on these figures for actual booking revenue; fee/split columns show "—" until entered manually.
+The **This month** tab gives you a simple, real-money picture for the current calendar month, drawn straight from your two ledgers:
+
+- **Gross Revenue** adds up the **Stripe amounts on every record in your Revenue table** dated this month — both the entries created automatically from bookings and any you added by hand.
+- **Expenses** adds up every record in your Expense table dated this month (including the automatic refund/cancellation entries).
+- **Net Revenue** = Gross Revenue − refunds − Expenses. The card also shows your **margin** (net as a percentage of gross).
+
+Each of the three cards shows how it compares to **last month** (for the Expenses card, going up is shown in red because higher expenses are worse). Below the cards you'll see two listings — your **revenue records** and **expense records** for the month — which you can sort by any column and expand to see full details.
+
+### Revenue Table tab — see every stored record
+
+The **Revenue Table** tab (which replaces the old "All transactions" tab) shows a plain listing of **every record actually stored in your Revenue table** — both the entries the CRM creates automatically from bookings and any you add by hand.
+
+- **Sort by any column** — click a column heading (Date, Description, Channel, Source, Gross, Refunds, Net, or Type) to sort by it. Click the same heading again to flip between ascending and descending. The column you're sorting by shows a small ▲ or ▼ arrow.
+- **Expand a row to see everything** — click any row (or the arrow on the left) and it opens up to show **all the fields** saved on that record, not just the columns in the table.
+- **Type column** tells you whether a record was created **Auto**matically (from a booking) or entered **Manual**ly.
+- If you can edit records, an **Edit record** button appears inside the expanded row.
+- The footer shows how many records there are and the total gross and net.
 
 ### Why This Matters
 
@@ -1079,6 +1093,16 @@ This is the fastest way to add expenses — export from your bank or accounting 
 | Studio & Venue | Room hire, venue deposits (separate from revenue splits) |
 | Refunds & Cancellations | Added automatically when a booking is canceled (the amount that was paid in Stripe). You don't need to enter these yourself. |
 | Other | Anything that doesn't fit above |
+
+### Expense Table tab — see every stored expense
+
+The **Expense Table** tab shows a plain listing of **every record in your Expense table**, the same way the Revenue Table does for revenue.
+
+- **Sort by any column** — click a heading (Date, Vendor, Description, Category, Amount, Payment, Tax Ded., or Type) to sort; click again to reverse the order. The active column shows a ▲ or ▼ arrow.
+- **Expand a row** — click any row (or the arrow on the left) to see **all the fields** saved on that expense.
+- **Type column** shows whether the expense was added **Auto**matically (for example a canceled booking) or **Manual**ly by you.
+- If you can edit records, an **Edit record** button appears inside the expanded row.
+- The footer shows the number of records and the total amount.
 
 ### How Expenses Affect Your Numbers
 The system automatically uses your expense data in:

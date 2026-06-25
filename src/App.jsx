@@ -5448,80 +5448,89 @@ function SourceBreakdown({ data }) {
 }
 
 /* ── Revenue This Month — Margin Cards ── */
-function RevenueThisMonthStats({ data, today, rows }) {
+// "This month" tab. Gross revenue is taken directly from the Stripe amounts stored on
+// records in the Revenue table (data.revenue → `gross`), and net revenue = gross − refunds −
+// total expenses pulled from the Expense table (data.expenses → `amount`) for the same month.
+function RevenueThisMonthView({ data, today, onOpen, canEdit }) {
+  const monthStr = String(today || new Date().toISOString().slice(0, 10)).slice(0, 7); // "YYYY-MM"
   const prevMonthStr = (() => {
-    const d = new Date(today + "T00:00:00");
+    const d = new Date(monthStr + "-01T00:00:00");
     d.setMonth(d.getMonth() - 1);
-    return d.toISOString().slice(0, 7); // "YYYY-MM"
+    return d.toISOString().slice(0, 7);
   })();
+  const monthLabel = new Date(monthStr + "-01T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const inMonth = (dateStr, m) => String(dateStr || "").startsWith(m);
 
-  const prevRows = buildRevenueViewRows(data)
-    .map(applyStudioSessionSplit)
-    .filter(r => (r.bookedAt || r.date || "").startsWith(prevMonthStr));
+  const allRev = data.revenue || [];
+  const allExp = data.expenses || [];
+  const revThis = allRev.filter(r => inMonth(r.date, monthStr));
+  const expThis = allExp.filter(e => inMonth(e.date, monthStr));
+  const revPrev = allRev.filter(r => inMonth(r.date, prevMonthStr));
+  const expPrev = allExp.filter(e => inMonth(e.date, prevMonthStr));
 
-  const calcMargin = (rs) => {
-    const gross = rs.reduce((s, r) => s + Number(r.gross || 0), 0);
-    const net   = rs.reduce((s, r) => s + calcNet(r), 0);
-    return { gross, net, pct: gross > 0 ? Math.round((net / gross) * 100) : 0 };
+  const sumGross   = (rs) => rs.reduce((s, r) => s + (Number(r.gross)   || 0), 0);
+  const sumRefunds = (rs) => rs.reduce((s, r) => s + (Number(r.refunds) || 0), 0);
+  const sumAmount  = (es) => es.reduce((s, e) => s + (Number(e.amount)  || 0), 0);
+
+  const figures = (rs, es) => {
+    const gross = sumGross(rs);
+    const refunds = sumRefunds(rs);
+    const expenses = sumAmount(es);
+    const net = gross - refunds - expenses;
+    return { gross, refunds, expenses, net, pct: gross > 0 ? Math.round((net / gross) * 100) : 0 };
   };
+  const curr = figures(revThis, expThis);
+  const prev = figures(revPrev, expPrev);
 
-  const pctChange = (curr, prev) =>
-    prev > 0 ? Math.round(((curr - prev) / prev) * 100) : null;
+  const pctChange = (c, p) => (p > 0 ? Math.round(((c - p) / p) * 100) : null);
 
-  const totalCurr  = calcMargin(rows);
-  const totalPrev  = calcMargin(prevRows);
-  const studioCurr = calcMargin(rows.filter(r => r.channel === "Studio session"));
-  const studioPrev = calcMargin(prevRows.filter(r => r.channel === "Studio session"));
-  const virtCurr   = calcMargin(rows.filter(r => r.channel === "Virtual session"));
-  const virtPrev   = calcMargin(prevRows.filter(r => r.channel === "Virtual session"));
-
+  // For expenses an increase is unfavourable, so its delta colours are inverted.
   const cards = [
-    { label: "Total Gross Margin", curr: totalCurr,  prev: totalPrev,  accent: C.brand },
-    { label: "Studio Sessions",    curr: studioCurr, prev: studioPrev, accent: "#6B5CE7" },
-    { label: "Virtual Sessions",   curr: virtCurr,   prev: virtPrev,   accent: "#2563EB" },
+    { label: "Gross Revenue", value: curr.gross, prevVal: prev.gross, accent: C.brand,
+      sub: `${revThis.length} revenue record${revThis.length !== 1 ? "s" : ""} · Stripe amounts` },
+    { label: "Expenses", value: curr.expenses, prevVal: prev.expenses, accent: "#C0573F", invert: true,
+      sub: `${expThis.length} expense record${expThis.length !== 1 ? "s" : ""}${curr.refunds ? ` · ${money(curr.refunds)} refunds` : ""}` },
+    { label: "Net Revenue", value: curr.net, prevVal: prev.net, accent: "#2D6A50",
+      sub: `${curr.pct}% margin (gross − expenses)` },
   ];
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16 }}>
-      {cards.map(({ label, curr, prev, accent }) => {
-        const netChange  = pctChange(curr.net,  prev.net);
-        const pctDelta   = curr.pct - prev.pct;
-        const up         = netChange === null ? null : netChange >= 0;
-        return (
-          <div key={label} style={{
-            background: C.surface, borderRadius: 14, border: `1px solid ${C.line}`,
-            padding: "16px 18px", borderTop: `3px solid ${accent}`,
-          }}>
-            <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: C.ink3, marginBottom: 8 }}>{label}</div>
-            {/* Net kept (primary) */}
-            <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 4 }}>
-              <span style={{ fontSize: 22, fontWeight: 800, color: accent }}>{money(curr.net)}</span>
-              <span style={{ fontSize: 12, color: C.ink3, fontWeight: 600 }}>kept</span>
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 18 }}>
+        {cards.map(({ label, value, prevVal, accent, sub, invert }) => {
+          const change = pctChange(value, prevVal);
+          const favourable = change === null ? null : (invert ? change <= 0 : change >= 0);
+          return (
+            <div key={label} style={{
+              background: C.surface, borderRadius: 14, border: `1px solid ${C.line}`,
+              padding: "16px 18px", borderTop: `3px solid ${accent}`,
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: C.ink3, marginBottom: 8 }}>{label}</div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 24, fontWeight: 800, color: value < 0 ? "#DC2626" : accent }}>{money(value)}</span>
+                {change !== null && (
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: favourable ? "#16A34A" : "#DC2626" }}>
+                    {change >= 0 ? "▲" : "▼"}{Math.abs(change)}% vs last month
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 11.5, color: C.ink3 }}>{sub}</div>
             </div>
-            {/* Gross margin % */}
-            <div style={{ fontSize: 13, color: C.ink2, fontWeight: 600, marginBottom: 8 }}>
-              {curr.pct}% margin
-              {prev.gross > 0 && (
-                <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 600,
-                  color: pctDelta >= 0 ? "#16A34A" : "#DC2626" }}>
-                  {pctDelta >= 0 ? "▲" : "▼"}{Math.abs(pctDelta)}pp vs last month
-                </span>
-              )}
-            </div>
-            {/* Gross revenue sub-line */}
-            <div style={{ fontSize: 11.5, color: C.ink3 }}>
-              Gross: {money(curr.gross)}
-              {curr.gross > 0 && prev.gross > 0 && netChange !== null && (
-                <span style={{ marginLeft: 6, fontWeight: 700,
-                  color: up ? "#16A34A" : "#DC2626" }}>
-                  {up ? "▲" : "▼"}{Math.abs(netChange)}%
-                </span>
-              )}
-              {curr.gross === 0 && <span style={{ marginLeft: 6, color: C.ink3 }}>no data</span>}
-            </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
+
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink2, margin: "4px 2px 8px", textTransform: "uppercase", letterSpacing: ".05em" }}>
+        Revenue records — {monthLabel}
+      </div>
+      <RecordTableView records={revThis} columns={revenueTableCols()} section="revenue"
+        ctx={{ data, today }} onOpen={onOpen} canEdit={canEdit} />
+
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink2, margin: "20px 2px 8px", textTransform: "uppercase", letterSpacing: ".05em" }}>
+        Expenses — {monthLabel}
+      </div>
+      <RecordTableView records={expThis} columns={expenseTableCols()} section="expenses"
+        ctx={{ data, today }} onOpen={onOpen} canEdit={canEdit} />
     </div>
   );
 }
@@ -5653,10 +5662,11 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         ? <OutreachHubView rows={processed.rows} data={data} today={today} onOpen={(r) => onOpen({ db: "outreach", record: r })} />
         : v.layout === "calendar"
         ? <CalendarView rows={processed.rows} today={today} derived={derived} data={data} onOpen={(r) => onOpen({ db: section, record: r })} />
+        : v.layout === "record-table"
+        ? <RecordTableView records={data[section] || []} columns={v.columns} query={query} section={section} ctx={{ data, derived, today }} onOpen={onOpen} canEdit={canEdit} maxHeight="calc(100vh - 240px)" />
+        : v.layout === "revenue-this-month"
+        ? <RevenueThisMonthView data={data} today={today} onOpen={onOpen} canEdit={canEdit} />
         : <>
-          {section === "revenue" && view === 1 && (
-            <RevenueThisMonthStats data={data} today={today} rows={processed.rows} />
-          )}
           <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => (
               section === "revenue" ? openRevenueViewRow(r, data, onOpen) : onOpen({ db: section, record: r })
             )} ctx={{ data, derived, today, setData, section, setConfirm, canEdit }}
@@ -5933,6 +5943,7 @@ const VIEWS = {
           return { rows: filtered, footer: { amount: filtered.reduce((s,r)=>s+(+r.amount||0),0) } };
         },
       },
+      { name: "Expense Table", layout: "record-table", columns: expenseTableCols() },
     ],
   },
   registrations: {
@@ -6200,37 +6211,8 @@ const VIEWS = {
   revenue: {
     views: [
       { name: "Revenue attribution", layout: "revenue-analytics" },
-      { name: "This month", layout: "table", columns: revCols(),
-        run: (rows, c) => {
-          const r = [...rows]
-            .filter(x => sameMonth(x.bookedAt || x.date, c.today))
-            .map(applyStudioSessionSplit)
-            .sort((a, b) => {
-              const ta = a.bookedAt || "";
-              const tb = b.bookedAt || "";
-              if (!ta && !tb) return 0;
-              if (!ta) return 1;   // no date → bottom
-              if (!tb) return -1;  // no date → bottom
-              return tb.localeCompare(ta);  // newest first
-            });
-          const netTotal = r.reduce((s, row) => s + calcNet(row), 0);
-          return { rows: r, footer: { gross: money(sum(r, "gross")), net: money(netTotal), label: "This month (70/30 studio split on net)" } };
-        } },
-      { name: "All transactions", layout: "table", columns: revCols(),
-        run: (rows) => {
-          const r = [...rows]
-            .map(applyStudioSessionSplit)
-            .sort((a, b) => {
-              const ta = a.bookedAt || "";
-              const tb = b.bookedAt || "";
-              if (!ta && !tb) return 0;
-              if (!ta) return 1;   // no date → bottom
-              if (!tb) return -1;  // no date → bottom
-              return tb.localeCompare(ta);  // newest first
-            });
-          const netTotal = r.reduce((s, row) => s + calcNet(row), 0);
-          return { rows: r, footer: { gross: money(sum(r, "gross")), net: money(netTotal), label: "All transactions (70/30 studio split on net)" } };
-        } },
+      { name: "This month", layout: "revenue-this-month" },
+      { name: "Revenue Table", layout: "record-table", columns: revenueTableCols() },
     ],
   },
   content: {
@@ -6504,6 +6486,41 @@ function revCols() {
     }, { align: "right", sum: "net" }),
   ];
 }
+// Collapsed columns for the raw Revenue table listing (record-table layout).
+// `sortVal` returns the raw comparable value used by the sortable column headers.
+function revenueTableCols() {
+  return [
+    col("date", "Date", (r) => fmtDate(r.date), { sortVal: (r) => r.date || "" }),
+    col("name", "Description", (r) => (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span style={{ fontWeight: 600 }}>{cleanName(r.name) || "—"}</span>
+        {r.isFree && <span style={{ fontSize: 10.5, fontWeight: 700, background: "#F0F4FF", color: "#5B6ECC", border: "1px solid #C7D0F5", borderRadius: 5, padding: "1px 6px", letterSpacing: ".04em" }}>FREE</span>}
+      </span>
+    ), { sortVal: (r) => norm(r.name) }),
+    col("channel", "Channel", (r) => r.channel ? <Tag color={REV_CHANNEL_COLOR[r.channel] || C.ink3} soft>{r.channel}</Tag> : "—", { sortVal: (r) => r.channel || "" }),
+    col("source", "Source", (r) => r.source || "—", { sortVal: (r) => r.source || "" }),
+    col("gross", "Gross", (r) => <span style={{ color: r.isFree ? C.ink3 : "inherit" }}>{money(r.gross)}</span>, { align: "right", sum: "gross", sortVal: (r) => Number(r.gross) || 0 }),
+    col("refunds", "Refunds", (r) => r.refunds ? <span style={{ color: "#C0573F" }}>-{money(r.refunds)}</span> : "—", { align: "right", sortVal: (r) => Number(r.refunds) || 0 }),
+    col("net", "Net", (r) => {
+      const n = calcNet(r);
+      return <strong style={{ color: n > 0 ? "#4A8C6F" : n < 0 ? "#C0573F" : C.ink3 }}>{money(n)}</strong>;
+    }, { align: "right", sum: "net", sortVal: (r) => calcNet(r) }),
+    col("auto", "Type", (r) => r.auto ? <Tag soft>Auto</Tag> : <Tag color={C.brand} soft>Manual</Tag>, { align: "center", sortVal: (r) => (r.auto ? 1 : 0) }),
+  ];
+}
+// Collapsed columns for the raw Expense table listing (record-table layout).
+function expenseTableCols() {
+  return [
+    col("date", "Date", (r) => fmtDate(r.date), { sortVal: (r) => r.date || "" }),
+    col("vendor", "Vendor", (r) => <strong style={{ color: C.ink }}>{r.vendor || "—"}</strong>, { sortVal: (r) => norm(r.vendor) }),
+    col("description", "Description", (r) => r.description || "—", { sortVal: (r) => norm(r.description) }),
+    col("category", "Category", (r) => r.category ? <span style={{ fontSize: 12, padding: "2px 8px", borderRadius: 8, background: hexA(EXPENSE_CATEGORY_COLOR[r.category] || C.ink3, 0.12), color: EXPENSE_CATEGORY_COLOR[r.category] || C.ink3, fontWeight: 600 }}>{r.category}</span> : "—", { sortVal: (r) => r.category || "" }),
+    col("amount", "Amount", (r) => <strong style={{ color: C.ink }}>{money(r.amount)}</strong>, { align: "right", sum: "amount", sortVal: (r) => Number(r.amount) || 0 }),
+    col("paymentMethod", "Payment", (r) => r.paymentMethod || "—", { sortVal: (r) => r.paymentMethod || "" }),
+    col("taxDeductible", "Tax Ded.", (r) => r.taxDeductible ? <span style={{ color: "#16A34A", fontWeight: 700 }}>✓ Yes</span> : <span style={{ color: C.ink3 }}>No</span>, { align: "center", sortVal: (r) => (r.taxDeductible ? 1 : 0) }),
+    col("auto", "Type", (r) => r.auto ? <Tag soft>Auto</Tag> : <Tag color={C.brand} soft>Manual</Tag>, { align: "center", sortVal: (r) => (r.auto ? 1 : 0) }),
+  ];
+}
 function contentCols() {
   return [
     col("name",      "Title",    (r) => (
@@ -6571,6 +6588,146 @@ function TableView({ columns, rows, footer, onOpen, ctx, maxHeight, expandRow })
               {columns.map((c, i) => (
                 <td key={c.key} style={{ textAlign: c.align || "left" }}>
                   {i === 0 ? <span style={{ color: C.ink3, fontSize: 12 }}>{footer.label} · {rows.length}</span> : (footer[c.sum] != null ? <strong>{footer[c.sum]}</strong> : "")}
+                </td>
+              ))}
+            </tr></tfoot>
+          )}
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   RECORD TABLE  (raw table listing: sortable headers + expandable
+   rows that reveal every stored field — used by Revenue Table and
+   Expense Table tabs)
+   ============================================================ */
+const MONEY_FIELD_KEYS = new Set([
+  "gross", "net", "amount", "stripeFee", "studioSplit", "facilitatorCost",
+  "refunds", "price", "paidAmount", "amountRefunded",
+]);
+// camelCase / snake_case field key → human-readable label.
+const humanizeFieldKey = (k) =>
+  String(k)
+    .replace(/_/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/\b(id|url|uri|mtd|ltv)\b/gi, (m) => m.toUpperCase())
+    .replace(/^./, (s) => s.toUpperCase());
+function formatRecordFieldValue(key, val) {
+  if (val == null || val === "") return "—";
+  if (typeof val === "boolean") return val ? "Yes" : "No";
+  if (Array.isArray(val)) return val.length ? val.join(", ") : "—";
+  if (typeof val === "object") return JSON.stringify(val);
+  if (typeof val === "number") return MONEY_FIELD_KEYS.has(key) ? money(val) : String(val);
+  return String(val);
+}
+
+function RecordTableView({ records, columns, query, section, ctx, onOpen, canEdit, maxHeight }) {
+  const [sortKey, setSortKey] = useState(columns[0]?.key || null);
+  const [sortDir, setSortDir] = useState("desc");
+  const [expanded, setExpanded] = useState({});
+  const toggle = (id) => setExpanded((p) => ({ ...p, [id]: !p[id] }));
+
+  let rows = records || [];
+  if (query && query.trim()) {
+    const q = norm(query);
+    rows = rows.filter((r) => Object.values(r).some((v) => norm(v).includes(q)));
+  }
+
+  const sortCol = columns.find((c) => c.key === sortKey);
+  const sorted = [...rows].sort((a, b) => {
+    if (!sortCol) return 0;
+    const get = sortCol.sortVal || ((r) => r[sortCol.key]);
+    const va = get(a), vb = get(b);
+    let cmp;
+    if (typeof va === "number" && typeof vb === "number") cmp = va - vb;
+    else cmp = String(va ?? "").localeCompare(String(vb ?? ""));
+    return sortDir === "asc" ? cmp : -cmp;
+  });
+
+  const onSort = (key) => {
+    if (key === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir("asc"); }
+  };
+
+  // Totals for any column flagged with `sum` (net is derived via calcNet).
+  const totals = {};
+  columns.forEach((c) => {
+    if (!c.sum) return;
+    totals[c.sum] = c.key === "net"
+      ? rows.reduce((s, r) => s + calcNet(r), 0)
+      : rows.reduce((s, r) => s + (Number(r[c.sum]) || 0), 0);
+  });
+  const hasTotals = Object.keys(totals).length > 0;
+
+  if (!rows.length) return <Empty pad>No records in this table yet.</Empty>;
+
+  const thStyle = maxHeight ? { position: "sticky", top: 0, zIndex: 1, background: C.surface } : null;
+  const dl = { fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 600, marginBottom: 2 };
+  const dv = { fontSize: 13, color: C.ink, wordBreak: "break-word" };
+
+  return (
+    <div className="sb-card" style={{ overflow: "hidden" }}>
+      <div style={{ overflowX: "auto", ...(maxHeight ? { maxHeight, overflowY: "auto" } : {}) }}>
+        <table className="sb-table">
+          <thead><tr>
+            <th style={{ width: 28, ...thStyle }} />
+            {columns.map((c) => {
+              const active = sortKey === c.key;
+              return (
+                <th key={c.key} onClick={() => onSort(c.key)}
+                  style={{ textAlign: c.align || "left", cursor: "pointer", userSelect: "none", whiteSpace: "nowrap", color: active ? C.brand : undefined, ...thStyle }}>
+                  {c.label}
+                  <span style={{ marginLeft: 4, opacity: active ? 1 : 0.25, fontSize: 10 }}>{active ? (sortDir === "asc" ? "▲" : "▼") : "▲"}</span>
+                </th>
+              );
+            })}
+          </tr></thead>
+          <tbody>
+            {sorted.map((r) => (
+              <Fragment key={r.id}>
+                <tr className="sb-trow" onClick={() => toggle(r.id)} style={{ cursor: "pointer" }}>
+                  <td style={{ textAlign: "center", color: C.ink3, padding: "0 6px" }}>
+                    <ChevronRight size={14} style={{ transform: expanded[r.id] ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
+                  </td>
+                  {columns.map((c) => <td key={c.key} style={{ textAlign: c.align || "left" }}>{c.render(r, ctx)}</td>)}
+                </tr>
+                {expanded[r.id] && (
+                  <tr>
+                    <td />
+                    <td colSpan={columns.length} style={{ padding: "4px 12px 16px", borderBottom: `1px solid ${C.lineSoft}`, background: C.surfaceAlt, whiteSpace: "normal" }}>
+                      <div style={{ padding: "10px 4px 6px" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "12px 24px" }}>
+                          {Object.keys(r).map((k) => (
+                            <div key={k}>
+                              <div style={dl}>{humanizeFieldKey(k)}</div>
+                              <div style={dv}>{formatRecordFieldValue(k, r[k])}</div>
+                            </div>
+                          ))}
+                        </div>
+                        {canEdit && onOpen && (
+                          <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${C.lineSoft}` }}>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onOpen({ db: section, record: r }); }}
+                              style={{ background: C.brand, color: "#fff", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 12.5, padding: "8px 16px", cursor: "pointer" }}>
+                              Edit record
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            ))}
+          </tbody>
+          {hasTotals && (
+            <tfoot><tr>
+              <td />
+              {columns.map((c, i) => (
+                <td key={c.key} style={{ textAlign: c.align || "left" }}>
+                  {i === 0 ? <span style={{ color: C.ink3, fontSize: 12 }}>{rows.length} record{rows.length !== 1 ? "s" : ""}</span> : (c.sum && totals[c.sum] != null ? <strong>{money(totals[c.sum])}</strong> : "")}
                 </td>
               ))}
             </tr></tfoot>
