@@ -15395,7 +15395,6 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
           : <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <th style={thS}>Charged</th>
                 <th style={thS}>Booked</th>
                 <th style={thS}>Client</th>
                 <th style={thS}>Session</th>
@@ -15406,7 +15405,6 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
             <tbody>
               {recent.map(r => (
                 <tr key={r.id} style={{ cursor: "default" }} className="sb-trow">
-                  <td style={tdS}>{r.paidAt ? formatRegistrationDateTime(r.paidAt) : "—"}</td>
                   <td style={tdS}>{r.bookedAt ? formatRegistrationDateTime(r.bookedAt) : "—"}</td>
                   <td style={{ ...tdS, fontWeight: 600 }}>{r.name}</td>
                   <td style={{ ...tdS, maxWidth: 200 }}>{r.sessionName}</td>
