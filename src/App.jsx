@@ -3715,9 +3715,9 @@ export default function App() {
     const yr = today.slice(0, 4);
     const expensesMTD = (data.expenses||[]).filter(e => (e.date||"").startsWith(mo)).reduce((s,e) => s + (+e.amount||0), 0);
     const expensesYTD = (data.expenses||[]).filter(e => (e.date||"").startsWith(yr)).reduce((s,e) => s + (+e.amount||0), 0);
-    // Revenue MTD: filter by bookedAt (booking date) with date as fallback — matches Revenue This Month tab.
+    // Revenue MTD: filter by session date (date field), matching the Revenue This Month tab.
     const mtdRows = buildRevenueViewRows(data)
-      .filter(r => ((r.bookedAt || r.date) || "").startsWith(mo))
+      .filter(r => ((r.date || r.bookedAt) || "").startsWith(mo))
       .map(applyStudioSessionSplit);
     const grossRevMTD = mtdRows.reduce((s, r) => s + (r.gross || 0), 0);
     const netRevMTD   = mtdRows.reduce((s, r) => s + calcNet(r), 0);
@@ -5899,6 +5899,8 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         ? <OfferConversionView data={data} derived={derived} today={today} onOpen={(r) => onOpen({ db: "offers", record: r })} />
         : v.layout === "revenue-analytics"
         ? <RevenueAttributionView data={data} derived={derived} today={today} onOpen={(r) => openRevenueViewRow(r, data, onOpen)} />
+        : v.layout === "revenue-analytics-booked"
+        ? <RevenueAttributionView data={data} derived={derived} today={today} onOpen={(r) => openRevenueViewRow(r, data, onOpen)} dateMode="booked" />
         : v.layout === "payment-reconciliation"
         ? <PaymentReconciliationView data={data} derived={derived} setData={setData} onOpen={onOpen} syncStripe={syncStripe} stripeStatus={stripeStatus} canEdit={canEdit} query={query} />
         : v.layout === "referral-tree"
@@ -6466,6 +6468,7 @@ const VIEWS = {
   revenue: {
     views: [
       { name: "Revenue attribution", layout: "revenue-analytics" },
+      { name: "Revenue by Booked Date", layout: "revenue-analytics-booked" },
       { name: "This month", layout: "revenue-this-month" },
       { name: "Revenue Table", layout: "record-table", columns: revenueTableCols() },
     ],
@@ -15136,7 +15139,8 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
    REVENUE ATTRIBUTION VIEW
    ============================================================ */
 
-function RevenueAttributionView({ data, derived, today, onOpen }) {
+// dateMode: "session" (default) — filter by session date (r.date); "booked" — filter by booking date (r.bookedAt).
+function RevenueAttributionView({ data, derived, today, onOpen, dateMode = "session" }) {
   // Read directly from the revenue and expense ledgers (auto-synced from bookings/payments).
   // This ensures gross amounts match Stripe, studio splits use the actual partner studioSharePct,
   // and cancellation expenses are included — rather than re-deriving from raw registrations.
@@ -15144,7 +15148,8 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
   const allExpenses = data.expenses || [];
   const [highlight, setHighlight] = useState(null);
   const mo = today.slice(0, 7);
-  const mtdRows     = rows.filter(r => sameMonth(r.bookedAt || r.date, today));
+  const dateKey = (r) => dateMode === "booked" ? (r.bookedAt || r.date || "") : (r.date || r.bookedAt || "");
+  const mtdRows     = rows.filter(r => sameMonth(dateKey(r), today));
   const mtdExpRows  = allExpenses.filter(e => sameMonth(e.date, today));
   const mtdSplitExp = mtdExpRows.filter(e => e.category === "Studio Split");
   const mtdCxlExp   = mtdExpRows.filter(e => e.category === "Refunds & Cancellations");
@@ -15280,12 +15285,12 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
       <div className="sb-stats">
         <Stat label="Gross revenue MTD" value={money(sum(mtdRows, "gross"))} accent={C.brand} hint="gross session booking revenue this month" />
         <Stat label="Net revenue MTD" value={money(totalNet)} accent="#2F6FD0" hint="after studio splits, fees & refunds" />
-        <Stat label="YTD Revenue" value={money(sum(rows.filter(r => (r.bookedAt || r.date || "").startsWith(today.slice(0,4))), "gross"))} accent="#4A8C6F" hint="gross session booking revenue this year" />
-        <Stat label="YTD Net Revenue" value={money(rows.filter(r => (r.bookedAt || r.date || "").startsWith(today.slice(0,4))).reduce((a, r) => a + calcNet(r), 0))} accent={C.gold} hint="net session revenue this year after splits, fees & refunds" />
+        <Stat label="YTD Revenue" value={money(sum(rows.filter(r => dateKey(r).startsWith(today.slice(0,4))), "gross"))} accent="#4A8C6F" hint="gross session booking revenue this year" />
+        <Stat label="YTD Net Revenue" value={money(rows.filter(r => dateKey(r).startsWith(today.slice(0,4))).reduce((a, r) => a + calcNet(r), 0))} accent={C.gold} hint="net session revenue this year after splits, fees & refunds" />
       </div>
 
       {/* Revenue waterfall: session prices → net (fees/splits when recorded), MTD only */}
-      <Panel title="Revenue waterfall — month to date">
+      <Panel title={`Revenue waterfall — month to date${dateMode === "booked" ? " (by booked date)" : ""}`}>
         <div style={{ padding: "4px 0 8px" }}>
           {[
             { label: "Session booking revenue", value: totalGross, color: "#2F6FD0", op: "base" },
@@ -15308,7 +15313,7 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
       </Panel>
 
       {/* Channel P&L table */}
-      <Panel title="P&L by channel — MTD">
+      <Panel title={`P&L by channel — MTD${dateMode === "booked" ? " (by booked date)" : ""}`}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>

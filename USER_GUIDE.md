@@ -793,7 +793,7 @@ You can also add revenue that didn't come from a Calendly booking (for example a
 
 The **Revenue attribution** and **Payment reconciliation** tabs use each booking's **actual matched Stripe charge** (the same amount shown on the Stripe page); a booking with no charge counts as **$0**. **Accepted/paid offers** are added on top. Bookings still in **Pending verification** do not appear in revenue totals until Stripe confirms payment.
 
-**Revenue Attribution tab (first tab)** gives you a full MTD breakdown drawn directly from your revenue and expense ledgers (the same records used by the This month tab):
+**Revenue Attribution tab (first tab)** gives you a full MTD breakdown drawn directly from your revenue and expense ledgers, bucketed by **session date** — so a booking paid in June for a July session counts in July:
 - **Gross revenue MTD** — total gross session revenue for the month (from the Revenue table)
 - **Net revenue MTD** — gross minus studio splits, fees, and refunds for the month
 - **YTD Revenue** — gross revenue so far this year
@@ -801,6 +801,8 @@ The **Revenue attribution** and **Payment reconciliation** tabs use each booking
 - **Revenue waterfall — month to date**: shows how gross revenue flows down through studio splits (using your actual partner percentages from the Expense table), fees, and refunds to arrive at net.
 - **P&L by channel — MTD**: gross, studio splits, fees, and net broken down by session type for the current month — studio split amounts come from the Studio Split expense records, not an estimated percentage.
 - **Recently Charged Sessions**: shows your latest sessions newest-first — every paid Stripe charge plus any **free/coupon** booking (shown as **Free**), mirroring the Stripe page so it always reflects recent activity.
+
+**Revenue by Booked Date tab (second tab)** — the same layout as Revenue Attribution, but bucketed by **booking/payment date** instead of session date. A booking paid in June for a July session counts in June here. Use this tab when you want to see revenue by when money was actually collected. The waterfall and P&L panel titles include "(by booked date)" so it's clear which mode you're viewing.
 
 ### This month tab — gross revenue minus expenses
 
