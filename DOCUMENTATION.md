@@ -1917,6 +1917,7 @@ Sections are grouped into three visual lanes rendered in this order:
 - Calendly Bookings
 - Stripe
 - Content Calendar
+- Offers & Sales
 - Workflows
 - Templates
 - Admin
