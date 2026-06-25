@@ -996,7 +996,7 @@ Manual **Revenue** records (gross, Stripe fee, studio split, etc.) are part of t
 - **Revenue by Booked Date** (tab 1) — identical layout to Revenue Attribution but filtered by **booking/payment date** (`r.bookedAt`, falling back to `r.date`). Revenue counts in the month the booking was made rather than the month the session runs. Panel titles include "(by booked date)" to distinguish them. Layout: `revenue-analytics-booked`, rendered by `<RevenueAttributionView dateMode="booked" />`.
 
 - **This month** (tab 2) — rebuilt around the actual ledgers (`revenue-this-month` layout, `RevenueThisMonthView`). It no longer derives figures from registrations or applies a 70/30 split. Instead:
-  - **Gross Revenue** = sum of the **Stripe amounts stored on records in the `revenue` table** (`gross`) whose `date` (session date) falls in the current month. Includes both auto booking records (`regrev_*`) and manually-entered revenue rows.
+  - **Gross Revenue** = sum of the **Stripe amounts stored on records in the `revenue` table** (`gross`) whose `bookedAt` (booking/payment date, falling back to `date`) falls in the current month — reflects money actually collected. Includes both auto booking records (`regrev_*`) and manually-entered revenue rows.
   - **Expenses** = sum of `amount` across records in the `expenses` table dated in the current month (auto cancellation records + manual expenses).
   - **Net Revenue** = Gross Revenue − revenue refunds − Expenses. Margin % = Net ÷ Gross.
   - Three stat cards (Gross Revenue, Expenses, Net Revenue) each show a **% change vs the previous month** (the Expenses card inverts the favourable colour, since a rise in expenses is unfavourable).

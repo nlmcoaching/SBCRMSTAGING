@@ -808,7 +808,7 @@ The **Revenue attribution** and **Payment reconciliation** tabs use each booking
 
 The **This month** tab gives you a simple, real-money picture for the current calendar month, drawn straight from your two ledgers:
 
-- **Gross Revenue** adds up the **Stripe amounts on every record in your Revenue table** for this month — both the entries created automatically from bookings and any you added by hand. Bookings count in the month they were **booked** (the "Scheduled On" date), the same as the Command Center revenue trend.
+- **Gross Revenue** adds up the **Stripe amounts on every record in your Revenue table** for this month — both the entries created automatically from bookings and any you added by hand. Bookings count in the month the **payment was collected** (booking date), so this shows you the money you actually received this month.
 - **Expenses** adds up every record in your Expense table dated this month (including the automatic refund/cancellation entries).
 - **Net Revenue** = Gross Revenue − refunds − Expenses. The card also shows your **margin** (net as a percentage of gross).
 

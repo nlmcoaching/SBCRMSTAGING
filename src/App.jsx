@@ -3715,9 +3715,9 @@ export default function App() {
     const yr = today.slice(0, 4);
     const expensesMTD = (data.expenses||[]).filter(e => (e.date||"").startsWith(mo)).reduce((s,e) => s + (+e.amount||0), 0);
     const expensesYTD = (data.expenses||[]).filter(e => (e.date||"").startsWith(yr)).reduce((s,e) => s + (+e.amount||0), 0);
-    // Revenue MTD: filter by session date (date field), matching the Revenue This Month tab.
+    // Revenue MTD: filter by booking/payment date (bookedAt), matching the Revenue This Month tab.
     const mtdRows = buildRevenueViewRows(data)
-      .filter(r => ((r.date || r.bookedAt) || "").startsWith(mo))
+      .filter(r => ((r.bookedAt || r.date) || "").startsWith(mo))
       .map(applyStudioSessionSplit);
     const grossRevMTD = mtdRows.reduce((s, r) => s + (r.gross || 0), 0);
     const netRevMTD   = mtdRows.reduce((s, r) => s + calcNet(r), 0);
@@ -5723,9 +5723,9 @@ function RevenueThisMonthView({ data, today, query, onOpen, canEdit }) {
 
   const allRev = data.revenue || [];
   const allExp = data.expenses || [];
-  const revThis = allRev.filter(r => inMonth(r.date, monthStr));
+  const revThis = allRev.filter(r => inMonth(r.bookedAt || r.date, monthStr));
   const expThis = allExp.filter(e => inMonth(e.date, monthStr));
-  const revPrev = allRev.filter(r => inMonth(r.date, prevMonthStr));
+  const revPrev = allRev.filter(r => inMonth(r.bookedAt || r.date, prevMonthStr));
   const expPrev = allExp.filter(e => inMonth(e.date, prevMonthStr));
 
   const sumGross   = (rs) => rs.reduce((s, r) => s + (Number(r.gross)   || 0), 0);
