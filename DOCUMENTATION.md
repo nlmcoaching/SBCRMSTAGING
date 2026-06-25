@@ -1286,6 +1286,19 @@ Displays the two storage keys the application uses (persisted in IndexedDB, or `
 
 These keys are stored in **IndexedDB** (object store `kv` in the `simplybreathe` database), which avoids the ~5 MB `localStorage` quota that previously caused silent save failures (`QuotaExceededError`) once the encrypted payload grew large. On first load, any existing `localStorage` value for a key is automatically migrated into IndexedDB and the stale `localStorage` copy is removed. Under the Cursor canvas, `window.storage` is used instead; `localStorage` remains only as a last-resort fallback when IndexedDB is unavailable.
 
+#### Save Status Indicator
+
+A real-time save status chip appears in the header bar:
+
+| State | Display | Meaning |
+|---|---|---|
+| Idle | (hidden) | No pending changes |
+| Saving | *Saving…* (grey italic) | Write is in progress |
+| Saved | ✓ Saved (green) | Most recent change was persisted |
+| Error | Red banner below nav | Last write failed — export backup immediately via Admin → Storage |
+
+When a save error occurs a full-width red banner appears below the navigation bar with a link to Admin and a dismiss button. The banner stays visible until the next successful save or the user dismisses it. A single alert() is also shown on first failure (with quota/reason details); subsequent failures are indicated only by the banner.
+
 #### Encryption Spec Panel
 
 | Setting | Value |

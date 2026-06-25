@@ -3597,31 +3597,39 @@ export default function App() {
     const snapshot = data;
     setSaved("saving");
     const timer = setTimeout(() => {
-      persistRef.current.chain = persistRef.current.chain.then(async () => {
-        if (seq < persistRef.current.seq) return; // a newer change was scheduled — skip this stale write
-        try {
-          await persistAllAgreementBlobs(snapshot, cryptoKey);
-          const payload = normalizeCrmData(dataForEncryptedStore(snapshot));
-          if (!Sec.validate(payload)) {
-            console.error("CRM persist skipped: invalid data shape");
-            return;
+      // Chain is always reset to a resolved promise after each attempt so a single
+      // failure (including an unexpected throw from alert() in some environments)
+      // can never permanently block all future saves.
+      persistRef.current.chain = persistRef.current.chain
+        .then(async () => {
+          if (seq < persistRef.current.seq) return; // a newer change was scheduled — skip this stale write
+          try {
+            await persistAllAgreementBlobs(snapshot, cryptoKey);
+            const payload = normalizeCrmData(dataForEncryptedStore(snapshot));
+            if (!Sec.validate(payload)) {
+              console.error("CRM persist skipped: invalid data shape");
+              setSaved("error");
+              return;
+            }
+            const enc = await Sec.encrypt(payload, cryptoKey);
+            if (seq < persistRef.current.seq) return; // superseded while encrypting — don't commit
+            await store.set(STORE_KEY_ENC, enc);
+            setSaved("saved");
+            setTimeout(() => setSaved("idle"), 1400);
+          } catch (e) {
+            console.error("CRM persist failed:", e);
+            setSaved("error");
+            try {
+              if (typeof window !== "undefined" && !window.__sbcrmPersistAlerted) {
+                window.__sbcrmPersistAlerted = true;
+                alert("Warning: your changes could NOT be saved to storage.\n\n" + (e && e.name === "QuotaExceededError"
+                  ? "Browser storage is full (QuotaExceededError). Use Admin → Storage to export a backup."
+                  : ("Reason: " + (e && e.message ? e.message : e))) + "\n\nThe red banner in the header will show until saving is restored. Use Admin → Storage to export a backup now.");
+              }
+            } catch { /* alert() can throw in some environments — suppress */ }
           }
-          const enc = await Sec.encrypt(payload, cryptoKey);
-          if (seq < persistRef.current.seq) return; // superseded while encrypting — don't commit
-          await store.set(STORE_KEY_ENC, enc);
-          setSaved("saved");
-          setTimeout(() => setSaved("idle"), 1400);
-        } catch (e) {
-          console.error("CRM persist failed:", e);
-          setSaved("error");
-          if (typeof window !== "undefined" && !window.__sbcrmPersistAlerted) {
-            window.__sbcrmPersistAlerted = true;
-            alert("Warning: your changes could NOT be saved to storage.\n\n" + (e && e.name === "QuotaExceededError"
-              ? "Browser storage is full (QuotaExceededError)."
-              : ("Reason: " + (e && e.message ? e.message : e))) + "\n\nNothing you edit will persist until this is resolved.");
-          }
-        }
-      });
+        })
+        .catch(() => { /* prevent a rejected chain from blocking all future saves */ });
     }, 200);
     return () => clearTimeout(timer);
   }, [data, cryptoKey]);
@@ -4004,6 +4012,14 @@ export default function App() {
                 title="Dismiss">×</button>
             </div>
           )}
+          {saved === "error" && (
+            <div style={{ background: "#FEE2E2", borderBottom: "1px solid #FCA5A5", padding: "8px 16px", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#7F1D1D" }}>
+              <span style={{ fontWeight: 700, flexShrink: 0 }}>⚠ Save failed</span>
+              <span style={{ flex: 1 }}>Your last change could not be saved. This may be a storage quota issue. Export a backup from <strong>Admin → Storage</strong> immediately, then reload the page.</span>
+              <button onClick={() => { go("admin"); setSaved("idle"); }} style={{ background: "#DC2626", color: "#fff", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>Go to Admin</button>
+              <button onClick={() => setSaved("idle")} style={{ background: "none", border: "none", color: "#7F1D1D", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 4px", flexShrink: 0 }} title="Dismiss">×</button>
+            </div>
+          )}
           <header className="sb-header">
             <button className="sb-menu" onClick={() => setNavOpen(true)}><Menu size={20} /></button>
             <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10 }}>
@@ -4021,6 +4037,12 @@ export default function App() {
                   }}>{lane.full}</span>
                 ) : null;
               })()}
+              {saved === "saving" && (
+                <span style={{ fontSize: 11, color: C.ink3, fontStyle: "italic" }}>Saving…</span>
+              )}
+              {saved === "saved" && (
+                <span style={{ fontSize: 11, color: "#4A8C6F", fontWeight: 600 }}>✓ Saved</span>
+              )}
             </div>
             {section !== "today" && (
               <>

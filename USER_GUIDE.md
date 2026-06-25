@@ -1285,6 +1285,17 @@ Yes, as long as you use the same browser and have not cleared your browser stora
 **What happens if I clear my browser cache?**
 Your encrypted data could be lost. Always use the **Admin → Storage & Backup → Download Backup** option regularly to keep a safe copy of your data.
 
+**I see a red "Save failed" banner at the top of the screen. What do I do?**
+This means your last change could not be written to browser storage (most often a storage quota issue). Your in-memory data is still intact for the current session, but it will be lost on a page reload. Do the following immediately:
+1. Click **Go to Admin** in the red banner (or navigate to Admin → Storage & Backup).
+2. Click **Download Backup** to save a JSON copy of all your data.
+3. Reload the page. Your data will reload from the last successfully saved point.
+4. Restore the backup via Admin → Storage & Backup → Restore if the reload lost recent changes.
+5. If the error keeps happening, your browser storage may be full — try clearing cached files for other sites, or switch to a different browser profile.
+
+**The header shows "Saving…" — is that normal?**
+Yes. Every time you save a record the header briefly shows "Saving…" while the change is written to storage, then "✓ Saved" for a moment. If you see "Saving…" for more than a few seconds and it never changes to "✓ Saved", check your browser console for errors and export a backup as a precaution.
+
 **Is my data secure?**
 Yes. All data is encrypted with AES-256-GCM — the same standard used by banks. Your PIN is never stored; only a cryptographic hash is kept. Even if someone accessed your browser storage directly, they could not read your data without your PIN.
 
