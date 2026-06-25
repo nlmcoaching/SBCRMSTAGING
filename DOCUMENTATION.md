@@ -568,9 +568,9 @@ The "Emails Sent from CRM" summary card has been removed from the partner **Deta
 | Paid Attendees | Number |
 | Waivers Completed | Number |
 | No-Shows | Number |
-| Price per attendee | Currency — studio sessions; what each attendee pays (`pricePerSeat`). Drives the studio gross and split (see *Studio split tracking*) |
-| Gross Revenue | Currency — virtual sessions: sum of Stripe charges from bookings. Studio sessions: price-per-seat × paid attendees |
-| Studio Split | Currency — studio sessions only; Gross × the partner's revenue share %, mirrored to an auto `Studio Split` expense |
+| Price per attendee | Currency — studio sessions; what each attendee pays (`pricePerSeat`). Displayed for reference only — the split is calculated from actual Stripe revenue, not this field |
+| Gross Revenue | Currency — virtual sessions: sum of Stripe charges from bookings. Studio sessions: sum of actual Stripe charges received for that session (see *Studio split tracking*) |
+| Studio Split | Currency — studio sessions only; actual received gross × the partner's revenue share %, mirrored to an auto `Studio Split` expense |
 | Net Revenue | Currency — Gross Revenue − Studio Split |
 | Room Setup Status | Dropdown |
 | Music / Headset Setup | Dropdown |
@@ -608,7 +608,7 @@ Equipment setup and run checklist items are combined into a single **Session Che
 
 - Per-session metric row: **In room** (attendance/capacity), **Price/seat**, **Gross**, **Studio split**, **Net profit**, **Conversion**
 - Attendance rate vs capacity
-- Net vs gross comparison (Net profit = Gross − Studio split, where Gross = price/seat × paid attendees)
+- Net vs gross comparison (Net profit = Gross − Studio split, where Gross = actual Stripe revenue received for the session)
 - Conversion rate (attended → purchased follow-on offer)
 
 #### PDF Export — Studio Session Performance
@@ -937,36 +937,36 @@ The **Revenue** and **Expense** tables are kept in sync with bookings automatica
 
 - **Revenue table** — every **active** virtual or studio booking is materialised as a revenue record (`id` prefixed `regrev_`, `auto: true`, `channel` = `Virtual session` / `Studio session`). The record's `gross` is the booking's **actual matched Stripe charge** (`amountGross`), with `refunds` = `amountRefunded` and `net` = gross − refunds; a booking with **no Stripe charge** (free / coupon) is `$0` — the Calendly list price is never used, so these values match the Stripe page row-for-row. Records regenerate from the current bookings on every change, so amounts track Stripe reconciliation and canceled/rescheduled bookings drop out automatically.
 - **Expense table** — every **canceled** booking is materialised as an expense record (`id` prefixed `cxlexp_`, `auto: true`, `category` = `Refunds & Cancellations`, `amount` = the booking's Stripe amount, `$0` for free/coupon bookings). Reschedules are **not** expensed (the payment simply follows the booking to its new time). These records feed Expenses MTD / Operating Profit, so each cancellation reduces profit by its Stripe amount.
-- **Studio split expenses** — every **studio session** that owes its partner a revenue share is materialised as one expense record (`id` prefixed `studiosplit_`, `auto: true`, `category` = `Studio Split`, `vendor` = the studio partner name, `linkedSession` / `linkedPartner` set). The `amount` is computed (`studioSessionFinance`) as the session's **price-per-seat × paid attendees × the partner's revenue share %** — all hand-entered. It only changes when one of those three fields is edited, so it stays in sync (no duplicates) without being disturbed by Calendly/Stripe syncs. See *Studio split tracking* below. **Preservation rule:** if a previously-recorded positive-amount studio split expense would recompute to $0 (e.g. `paidAttendees` was accidentally cleared), the record is retained rather than silently deleted. The user must manually delete stale records if needed.
+- **Studio split expenses** — every **studio session** that owes its partner a revenue share is materialised as one expense record (`id` prefixed `studiosplit_`, `auto: true`, `category` = `Studio Split`, `vendor` = the studio partner name, `linkedSession` / `linkedPartner` set). The `amount` is computed (`studioSessionFinance`) as the **sum of actual Stripe charges received for that session** (from the matching `regrev_*` revenue rows, gross minus refunds) **× the partner's revenue share %**. The split updates automatically whenever payments come in, refunds occur, or the partner's share % changes — no manual entry needed. See *Studio split tracking* below. **Preservation rule:** if a previously-recorded positive-amount studio split expense would recompute to $0 (e.g. no paid bookings yet), the record is retained rather than silently deleted. The user must manually delete stale records if needed.
 
 Manually-entered revenue/expense rows are always preserved; only the `auto` records are regenerated. To avoid double-counting, client **Lifetime Value** and the Revenue tab exclude the `auto` revenue records (the underlying registrations/live booking rows already represent them).
 
 ### Studio split tracking
 
-For studio (B2B) sessions, payment is collected up front, but the studio's revenue share is only owed once the session runs and attendance is known. The economics are computed by `studioSessionFinance(session, data)` from three **hand-entered** inputs (so they never shift on a Calendly/Stripe sync).
+For studio (B2B) sessions, all payments go through Calendly/Stripe and are matched to individual bookings. The studio's revenue share is calculated from the **actual payments received** for that session, so it stays accurate automatically as payments come in and refunds occur — no manual entry of price-per-seat or paid-attendee counts is required to drive the split.
 
-**Sync protection**: `refreshCalendlySessionRevenue` — called on every Calendly/Stripe auto-sync and on every registration save — now completely skips sessions that have a `studioId`. This prevents the sync from overwriting `pricePerSeat`, `paidAttendees`, `attendance`, `revenue`, `studioSplit`, or `netRevenue` with Stripe booking sums. The `registered` count (bookings taken) IS still updated when a registration is saved (separate, targeted update). The partner's `studioSharePct` is preserved by `normalizeCrmData` on every save/load. If a partner record is ever reconstructed automatically (via `healStudioPartners`), `studioSharePct` is inferred from the session's stored `studioSplit ÷ revenue` ratio instead of defaulting to 0.
+The economics are computed by `studioSessionFinance(session, data, ctx)`:
 
 | Input | Source |
 |---|---|
-| **Price per seat** | `pricePerSeat` — a currency field on the **Studio Session** card (what each attendee pays). |
-| **Paid attendees** | The session's `paidAttendees` field (the count that actually paid). |
+| **Actual gross received** | Sum of `gross − refunds` across all active `regrev_*` booking revenue rows for that `sessionId` (real Stripe charges, not list price). Pass `ctx.revenueRows` to reuse a pre-built set in list views. |
 | **Studio revenue share %** | `studioSharePct` on the linked **Studio Partner** record (the studio's cut, e.g. `30` = studio keeps 30%). |
 
 The calculation:
 
 ```
-gross        = pricePerSeat × paid attendees
+gross        = Σ (Stripe charge − refund) per booking for this session
 studioSplit  = gross × (studioSharePct ÷ 100)     ← owed to the studio partner
 net          = gross − studioSplit                ← Simply Breathe's keep
 ```
 
-The values recompute from the session + partner records, so the **only** edits that change a studio split (and its linked expense) are the **price-per-seat**, the **paid attendees**, or the partner's **share %**. The result is reflected everywhere — Performance tab, partner Sessions tab, Revenue leaderboard, Expense table — without re-saving.
+The values recompute whenever bookings, payments, or the partner's share % change. The `pricePerSeat` field on the session is retained for **display reference only** (shown in the Performance tab as "Price/seat") and no longer drives the split calculation.
 
-- **Expense sync**: the computed `studioSplit` is mirrored into a single auto expense (category `Studio Split`, id prefix `studiosplit_`) linked to the session. The ledger sync effect still watches `registrations`, `sessions`, `clients`, `partners`, and `payments` (the per-booking revenue rows need them), but because the studio split is derived from hand-entered fields only, a sync that doesn't touch price/attendance/share leaves the split expense unchanged (the sync is guarded by an `id | amount | date` signature).
+- **Expense sync**: the computed `studioSplit` is mirrored into a single auto expense (category `Studio Split`, id prefix `studiosplit_`) linked to the session. `buildBookingLedgerRecords` builds the `regrev_*` revenue rows once and passes them to `studioSessionFinance` via `ctx.revenueRows` to avoid redundant computation. The sync is guarded by an `id | amount | date` signature so unchanged sessions produce no state updates.
 - **`sessionFinanceFor(session, data)`** is the shared wrapper: studio sessions use `studioSessionFinance`; virtual sessions fall back to their booking-derived `revenue` with no split.
+- **Sync protection**: `refreshCalendlySessionRevenue` still skips sessions with a `studioId`, preventing Calendly/Stripe syncs from touching session-level fields like `attendance`, `revenue`, or `studioSplit`. The `registered` count (bookings taken) is still updated when a registration is saved. The partner's `studioSharePct` is preserved by `normalizeCrmData` on every save/load.
 
-The **Studio Session Performance** tab and the session drawer's Performance tab surface **Price/seat**, **Gross**, **Studio split**, and **Net profit** per session using this model.
+The **Studio Session Performance** tab and the session drawer's Performance tab surface **Price/seat** (reference), **Gross**, **Studio split**, and **Net profit** per session using this model.
 
 ### Revenue Channels Tracked
 
@@ -1561,7 +1561,7 @@ Track all business-related expenditures, import them in bulk via CSV, and have t
 | Insurance | General liability, professional indemnity |
 | Administrative | Website hosting, domain, banking fees |
 | Studio & Venue | Room hire fees, venue deposits (separate from revenue splits) |
-| Studio Split | Auto-recorded studio revenue share — amount = the session's price-per-seat × paid attendees × the partner's revenue share %. One linked record per studio session |
+| Studio Split | Auto-recorded studio revenue share — amount = sum of actual Stripe payments received for the session (gross − refunds) × the partner's revenue share %. Updates automatically as payments come in or refunds occur. One linked record per studio session |
 | Refunds & Cancellations | Auto-recorded when a Calendly booking is canceled — amount = the booking's Stripe payment ($0 for free/coupon bookings) |
 | Other | Miscellaneous business costs |
 
@@ -2128,7 +2128,7 @@ All state is managed via React `useState` and `useMemo` in the root `App` compon
 | `TableView` | Standard table layout renderer (columns + optional expandable rows / footer) |
 | `RecordTableView` | Raw-table renderer for the **Revenue Table** and **Expense Table** tabs — sortable column headings and expandable rows that reveal every stored field; reads the underlying table directly. Columns supplied by `revenueTableCols()` / `expenseTableCols()` |
 | `RevenueThisMonthView` | Revenue **This month** tab — computes Gross Revenue from Stripe amounts in the `revenue` table and Net Revenue = gross − refunds − expenses (from the `expenses` table), with month-over-month deltas and supporting record listings |
-| `studioSessionFinance` / `sessionFinanceFor` | Compute a studio session's economics — the session's `pricePerSeat` × `paidAttendees` × the partner's `studioSharePct` → `{ seatPrice, gross, studioSplit, net, sharePct }`. Used by the Performance views, partner Sessions tab, Revenue leaderboard, and the auto `Studio Split` expense |
+| `studioSessionFinance` / `sessionFinanceFor` | Compute a studio session's economics — sums actual Stripe charges (gross − refunds) across all `regrev_*` booking rows for the session, then multiplies by the partner's `studioSharePct` → `{ seatPrice, gross, studioSplit, net, sharePct, participantCount }`. `seatPrice` is display-only. Accepts `ctx.revenueRows` to reuse pre-built rows in list views. Used by the Performance views, partner Sessions tab, and the auto `Studio Split` expense |
 | `RecordDrawer` | Slide-in detail/edit panel |
 | `EditProfileModal` | Profile photo + info + PIN change |
 | `UserManagementView` | Multi-user CRUD and permissions |

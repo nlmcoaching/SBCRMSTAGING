@@ -1867,13 +1867,20 @@ function applySessionRevenueFromRegistrations(session, registrations) {
 // split (and its linked expense) are editing the price-per-seat, the paid attendees, or the share %.
 function studioSessionFinance(session, data, ctx) {
   const partnersById = ctx?.partnersById || Object.fromEntries((data.partners || []).map(p => [p.id, p]));
-  const seatPrice = Number(session.pricePerSeat) || 0;
-  const paidAttendees = Number(session.paidAttendees) || 0;
-  const gross = Math.round(seatPrice * paidAttendees * 100) / 100;
   const sharePct = Math.min(100, Math.max(0, Number(partnersById[session.studioId]?.studioSharePct) || 0));
+  // Gross = sum of actual payments received (Stripe charges minus refunds) for this session.
+  // Pass ctx.revenueRows from the caller to avoid re-building the full table in list views.
+  const revenueRows = ctx?.revenueRows || buildRegistrationRevenueRows(data);
+  const sessionRevRows = revenueRows.filter(r => r.sessionId === session.id);
+  const gross = Math.round(
+    sessionRevRows.reduce((sum, r) => sum + Math.max(0, r.gross - r.refunds), 0) * 100
+  ) / 100;
+  const participantCount = sessionRevRows.length;
   const studioSplit = Math.round(gross * (sharePct / 100) * 100) / 100;
   const net = Math.round((gross - studioSplit) * 100) / 100;
-  return { seatPrice, attendance: Number(session.attendance) || 0, paidAttendees, gross, sharePct, studioSplit, net };
+  // seatPrice kept for display reference only — no longer drives the split calculation.
+  const seatPrice = Number(session.pricePerSeat) || 0;
+  return { seatPrice, attendance: Number(session.attendance) || 0, paidAttendees: Number(session.paidAttendees) || 0, participantCount, gross, sharePct, studioSplit, net };
 }
 // Finance for any session: the live studio model for studio sessions, or the booking-derived
 // revenue (no split) for virtual sessions.
@@ -1989,9 +1996,9 @@ function buildRegistrationRevenueRows(data = {}) {
       const client = clients[r.clientId];
       const { gross, refunds } = bookingStripeCharge(r, paidByBooking);
       const net = Math.round((gross - refunds) * 100) / 100;
-      // Date = when the booking was made (booked/scheduled), matching the Command Center revenue
-      // trend and the Revenue → This month tab. Falls back to the session date if neither is set.
-      const date = (r.createdAt || r.scheduledAt || session?.date || "").slice(0, 10);
+      // Date = the session date (when the service is delivered). Falls back to scheduledAt
+      // (session start time from Calendly), then createdAt (booking time) if no session is linked.
+      const date = (session?.date || r.scheduledAt || r.createdAt || "").slice(0, 10);
       if (!date) return null;
       return {
         id: "regrev_" + r.id,
@@ -2075,7 +2082,9 @@ function buildBookingLedgerRecords(data = {}) {
 
   // Revenue: reuse the exact per-booking rows the reports derive (channel = session type,
   // gross = resolved Stripe amount), flagged as auto-generated for the persisted ledger.
-  const revenue = buildRegistrationRevenueRows(data).map(row => ({
+  // Build once here so the studio-split block below can reuse the same rows without re-computing.
+  const revenueRows = buildRegistrationRevenueRows(data);
+  const revenue = revenueRows.map(row => ({
     ...row,
     notes: "Auto-recorded from Calendly booking",
     auto: true,
@@ -2112,12 +2121,12 @@ function buildBookingLedgerRecords(data = {}) {
     });
 
   // Studio split: one expense per studio session that owes its partner a revenue share. The amount
-  // is derived from the session's price-per-seat × actual attendance × the partner's share % — all
-  // hand-entered, so it only changes when one of those is edited (not on a Calendly/Stripe sync).
+  // is derived from actual Stripe revenue received for that session × the partner's share % —
+  // automatically stays accurate without any manual entry as payments come in and refunds occur.
   const splitExpenses = (data.sessions || [])
     .filter(s => s.studioId)
     .map(s => {
-      const fin = studioSessionFinance(s, data, { partnersById: partners });
+      const fin = studioSessionFinance(s, data, { partnersById: partners, revenueRows });
       if (fin.studioSplit <= 0) return null;
       const partner = partners[s.studioId];
       const sessName = cleanName(s.name || "Studio session");
@@ -2136,7 +2145,7 @@ function buildBookingLedgerRecords(data = {}) {
         linkedSession: s.id,
         linkedPartner: s.studioId,
         receiptUrl: "",
-        notes: `Auto-recorded studio revenue split — ${fin.paidAttendees} paid × ${money(fin.seatPrice)}/seat × ${fin.sharePct}% to studio.`,
+        notes: `Auto-recorded studio revenue split — ${fin.participantCount} paid × ${money(fin.gross)} actual revenue × ${fin.sharePct}% to studio.`,
         auto: true,
       };
     })
@@ -8268,11 +8277,12 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
 function SessionPerfView({ rows, derived, data = {}, onOpen }) {
   if (!rows.length) return <Empty pad>No sessions logged yet.</Empty>;
 
-  // Studio sessions derive gross/split/net from price-per-seat × attendance × studio share %.
+  // Studio sessions derive gross/split/net from actual Stripe revenue × studio share %.
   // Virtual sessions keep their booking-derived figures (no studio split).
   const partnersById = Object.fromEntries((data.partners || []).map((p) => [p.id, p]));
+  const revenueRows = buildRegistrationRevenueRows(data);
   const finOf = (r) => r.studioId
-    ? studioSessionFinance(r, data, { partnersById })
+    ? studioSessionFinance(r, data, { partnersById, revenueRows })
     : { seatPrice: 0, gross: Number(r.revenue) || 0, studioSplit: 0, net: Number(r.netRevenue) || 0 };
 
   const allNet = rows.map((r) => finOf(r).net);
@@ -9264,9 +9274,10 @@ function PartnerSessionsTab({ record, data, onOpenRelated, today }) {
     .filter(s => s.studioId === record.id)
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
-  // Studio finance per session: price-per-seat × attendance × this studio's share %.
+  // Studio finance per session: actual Stripe revenue received × this studio's share %.
   const partnersById = { [record.id]: record };
-  const finBySession = Object.fromEntries(sessions.map(s => [s.id, studioSessionFinance(s, data, { partnersById })]));
+  const revenueRows = buildRegistrationRevenueRows(data);
+  const finBySession = Object.fromEntries(sessions.map(s => [s.id, studioSessionFinance(s, data, { partnersById, revenueRows })]));
   const totalGross = sessions.reduce((s, x) => s + finBySession[x.id].gross, 0);
   const totalSplit = sessions.reduce((s, x) => s + finBySession[x.id].studioSplit, 0);
   const totalNet   = sessions.reduce((s, x) => s + finBySession[x.id].net, 0);
@@ -9627,9 +9638,9 @@ function SessionChecklist({ checklist, onChange, sessionName, status, isVirtual 
    SESSION PERFORMANCE (drawer tab)
    ============================================================ */
 function SessionPerformance({ record: r, derived, data }) {
-  // Studio sessions: gross/split/net derive live from price-per-seat × attendance × studio share %.
+  // Studio sessions: gross/split/net derive from actual Stripe revenue received × studio share %.
   const fin = r.studioId
-    ? studioSessionFinance(r, data)
+    ? studioSessionFinance(r, data, { revenueRows: buildRegistrationRevenueRows(data) })
     : { seatPrice: 0, gross: Number(r.revenue) || 0, studioSplit: 0, net: Number(r.netRevenue) || 0, sharePct: 0 };
   const net = fin.net;
   const gross = fin.gross;

@@ -386,27 +386,26 @@ Move the **Status** forward as things happen:
 
 Once a session is complete, update:
 - **Actual Attendance** — how many people were in the room
-- **Price per attendee** (studio sessions) — what each person paid, used to calculate the studio split
+- **Price per attendee** (studio sessions) — what each person paid, shown for reference in the Performance tab
 - **Paid Attendees** and **Waivers Completed**
 - Check **Follow-Up Sent** once you've sent the follow-up
 - Check **Breakthrough Noted** if a client had a powerful experience — this will create a reminder to request a testimonial
 
 ### Studio Split — Paying the Studio Their Share
 
-For studio sessions, you collect payment up front, but the studio's cut is only owed once you know how many people attended. The app works this out from three numbers you control:
+For studio sessions, all bookings go through Calendly and payment is collected via Stripe. The app calculates the studio's cut directly from the **actual payments received** — so the split is always accurate and updates automatically as bookings come in, refunds happen, or you change the studio's share percentage.
+
+**The only thing you need to set:**
 
 1. **Set the studio's revenue share once.** Open the **Studio Partner** record and fill in **Studio revenue share %** — the percentage the *studio* keeps (for example, `30` means the studio gets 30% and you keep 70%).
-2. **Set the price per attendee** on the Studio Session card (**Price per attendee** — what each person pays for that session).
-3. **Record the turnout** — update **Actual Attendance** after the session.
-4. The app then calculates:
-   - **Gross** = price per attendee × paid attendees.
-   - **Studio split** = Gross × the studio's revenue share %.
-   - **Net profit** = Gross − Studio split (what you keep).
-5. An **expense** is created automatically in the **Studio Split** category for the studio's cut, linked to the session and the studio. If you change the price, attendance, or the studio's share %, that same expense updates — no duplicates, nothing to enter by hand.
 
-Because these three values are all set by you, the studio split **won't change on its own** when Calendly or Stripe syncs run — only your edits move it. The app's sync engine now fully skips studio sessions when it refreshes virtual-session revenue from Stripe/Calendly, so fields like **Price per attendee**, **Paid attendees**, and **Actual attendance** can never be zeroed or overwritten by a background sync. Only the **Registered** count (bookings taken) is updated automatically when a new booking comes in.
+That's it. The app then:
+- Adds up every Stripe payment received for that session (minus any refunds) to get the **Gross**.
+- Calculates **Studio split** = Gross × the studio's revenue share %.
+- Calculates **Net profit** = Gross − Studio split (what you keep).
+- Creates an **expense** automatically in the **Studio Split** category for the studio's cut, linked to the session and the studio. It updates as new payments arrive or refunds occur — no duplicates, nothing to enter by hand.
 
-You'll see **Price/seat, Gross, Studio split, and Net profit** on the session's **Performance** tab, in the **Revenue Leaderboard**, and on the studio partner's **Sessions** tab — all kept in sync automatically.
+You'll see **Price/seat** (for reference), **Gross**, **Studio split**, and **Net profit** on the session's **Performance** tab, in the **Revenue Leaderboard**, and on the studio partner's **Sessions** tab — all kept in sync automatically.
 
 ### Equipment Checklist
 
@@ -775,7 +774,7 @@ You don't have to log session revenue or cancellations by hand — the CRM does 
 
 - **Every new booking** (virtual or studio) automatically creates a **revenue record** set to the **actual amount charged in Stripe** — the same figure you see on the Stripe page. Until a Stripe charge is confirmed, and for **free / coupon** bookings, the amount is **$0** (the Calendly list price is never used), and it updates automatically when the matching payment arrives. The record's channel is set to **Virtual session** or **Studio session** to match the booking.
 - **Every canceled booking** automatically creates an **expense record** in the **Refunds & Cancellations** category for the amount that was paid in Stripe (or **$0** if it was a free/coupon booking). This lowers your operating profit by that amount, so your numbers reflect the cost of the cancellation. (A **reschedule** is not treated as a cancellation — the payment just moves to the new time, so no expense is created.)
-- **Every studio session with a studio split** automatically creates an **expense record** in the **Studio Split** category for the amount owed to that studio — calculated as the session's price-per-attendee × paid attendees × the studio's revenue share % (see *Studio Split — Paying the Studio Their Share* under Sessions). It's linked to the session, so when you change the price, paid attendees, or the studio's share %, the same expense updates instead of creating a duplicate. (It is not affected by Calendly/Stripe syncs.)
+- **Every studio session with a studio split** automatically creates an **expense record** in the **Studio Split** category for the amount owed to that studio — calculated as the total Stripe payments actually received for that session (minus any refunds) × the studio's revenue share % (see *Studio Split — Paying the Studio Their Share* under Sessions). It's linked to the session and updates automatically as payments arrive or refunds occur.
 
 These automatic records keep themselves up to date as Stripe payments settle, as bookings are canceled, and as studio attendance is recorded. You can still add your own revenue and expense entries by hand (see below) — those are always kept and never overwritten.
 
@@ -1117,7 +1116,7 @@ This is the fastest way to add expenses — export from your bank or accounting 
 | Insurance | General liability and professional indemnity |
 | Administrative | Website hosting, domain name, bank fees |
 | Studio & Venue | Room hire, venue deposits (separate from revenue splits) |
-| Studio Split | Added automatically for each studio session's revenue share owed to the studio. Updates when you change the session's price per attendee, paid attendees, or the studio's revenue share %. You don't need to enter these yourself. |
+| Studio Split | Added automatically for each studio session's revenue share owed to the studio. Calculated from the actual Stripe payments received for that session × the studio's revenue share %. Updates automatically as payments come in or refunds occur. You don't need to enter these yourself. |
 | Refunds & Cancellations | Added automatically when a booking is canceled (the amount that was paid in Stripe). You don't need to enter these yourself. |
 | Other | Anything that doesn't fit above |
 
