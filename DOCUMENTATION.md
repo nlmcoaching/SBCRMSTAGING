@@ -297,6 +297,10 @@ Side-by-side view of studio vs client revenue, with **Studio Revenue (B2B) on th
 
 Pie/bar chart breaking down clients by their `source` field. Tracked sources include: Referral, Instagram, Studio, Website, Direct, Event, Corporate, **Calendly**, Other. Clients auto-created from Calendly bookings are tagged with `source: "Calendly"` and appear in this chart.
 
+### Revenue Trend Chart
+
+Area chart of monthly revenue (`RevenueTrend` → `registrationRevenueByMonth`). Each booking's **actual Stripe charge** (free/uncharged = $0) is bucketed by the **booked month** — the booking's `createdAt` ("Scheduled On" date), falling back to `scheduledAt` — **not** the session date. Accepted offers are added on top by their `closeDate`. Caption: "Stripe revenue + closed offers, by booked month".
+
 ### Pipeline Snapshot
 
 Appears **below the Lane Split Panel**. Key business metrics displayed in order:

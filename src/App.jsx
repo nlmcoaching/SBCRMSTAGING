@@ -1797,15 +1797,16 @@ function registrationRevenueForMonth(registrations, sessions, monthPrefix, { stu
     return sum + registrationPaymentForLtv(r);
   }, 0);
 }
-function registrationRevenueByMonth(registrations, sessions) {
-  const sessionById = buildSessionMap(sessions);
+// Revenue bucketed by the month the booking was made (createdAt = "Scheduled On"), falling back
+// to the session date/time, so the trend reflects when sales happened rather than when sessions run.
+function registrationRevenueByMonth(registrations) {
   const months = {};
   (registrations || []).forEach(r => {
-    const session = sessionById[r.sessionId];
-    if (!session?.date) return;
     const amt = registrationPaymentForLtv(r);
     if (amt <= 0) return;
-    const k = session.date.slice(0, 7);
+    const dateStr = r.createdAt || r.scheduledAt || "";
+    if (!dateStr) return;
+    const k = dateStr.slice(0, 7);
     months[k] = (months[k] || 0) + amt;
   });
   return months;
@@ -5382,7 +5383,7 @@ function Today({ data, derived, today, onOpen, onGo, setData, currentUser, canEd
 
 /* ---------- Dashboard charts ---------- */
 function RevenueTrend({ data }) {
-  const months = registrationRevenueByMonth(data.registrations, data.sessions);
+  const months = registrationRevenueByMonth(data.registrations);
   (data.offers || []).forEach((o) => { if (o.status === "Accepted" && o.closeDate) { const k = o.closeDate.slice(0, 7); months[k] = (months[k] || 0) + (Number(o.price) || 0); } });
   const keys = Object.keys(months).sort();
   const years = new Set(keys.map((k) => k.slice(0, 4)));
@@ -5393,7 +5394,7 @@ function RevenueTrend({ data }) {
     <div style={{ padding: "2px 4px 8px" }}>
       <div style={{ padding: "0 12px 4px" }}>
         <span style={{ fontFamily: FONT.display, fontSize: 26, fontWeight: 600 }}>{money(total)}</span>
-        <span style={{ fontSize: 12.5, color: C.ink3, marginLeft: 8 }}>session prices + closed offers</span>
+        <span style={{ fontSize: 12.5, color: C.ink3, marginLeft: 8 }}>Stripe revenue + closed offers, by booked month</span>
       </div>
       <ResponsiveContainer width="100%" height={208}>
         <AreaChart data={rows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>

@@ -158,6 +158,10 @@ Four numbers at the top give you an instant health check:
 
 A side-by-side panel shows your two business lanes at a glance — **studio session Stripe revenue** (B2B) vs **virtual session Stripe revenue + packages** (B2C), plus pipeline value and active relationships. Amounts reflect actual Stripe charges; bookings with no charge yet count as $0.
 
+### Revenue Trend
+
+An area chart showing your revenue month by month. Each booking is counted by the **month it was booked** (the "Scheduled On" date) — not the month the session takes place — using the **actual amount charged in Stripe** (free/uncharged bookings count as $0). Accepted offers are added in by their close date.
+
 ### Pipeline Snapshot
 
 Key business metrics (tiles appear in this order):
