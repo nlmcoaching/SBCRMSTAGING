@@ -814,7 +814,7 @@ Each of the three cards shows how it compares to **last month** (for the Expense
 
 The **Revenue Table** tab (which replaces the old "All transactions" tab) shows a plain listing of **every record actually stored in your Revenue table** — both the entries the CRM creates automatically from bookings and any you add by hand.
 
-- **Sort by any column** — click a column heading (Date, Description, Channel, Source, Gross, Refunds, Net, or Type) to sort by it. Click the same heading again to flip between ascending and descending. The column you're sorting by shows a small ▲ or ▼ arrow.
+- **Sort by any column** — click a column heading (Date, Description, Channel, Source, Gross, Refunds, Net, or Type) to sort by it. Click the same heading again to flip between ascending and descending. The column you're sorting by shows a small ▲ or ▼ arrow. The **Date** column shows when the booking or sale was **booked** (with the time of day), not the date of the session.
 - **Expand a row to see everything** — click any row (or the arrow on the left) and it opens up to show **all the fields** saved on that record, not just the columns in the table.
 - **Type column** tells you whether a record was created **Auto**matically (from a booking) or entered **Manual**ly.
 - If you can edit records, an **Edit record** button appears inside the expanded row.

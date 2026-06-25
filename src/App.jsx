@@ -6677,7 +6677,11 @@ function revCols() {
 // `sortVal` returns the raw comparable value used by the sortable column headers.
 function revenueTableCols() {
   return [
-    col("date", "Date", (r) => fmtDate(r.date), { sortVal: (r) => r.date || "" }),
+    col("date", "Date", (r) => {
+      const v = r.bookedAt || r.date || "";
+      // Full ISO timestamps (with a time component) → date + time; bare YYYY-MM-DD → date only.
+      return v.includes("T") ? formatRegistrationDateTime(v) : fmtDate(v, true);
+    }, { sortVal: (r) => (r.bookedAt || r.date || "") }),
     col("name", "Description", (r) => (
       <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
         <span style={{ fontWeight: 600 }}>{cleanName(r.name) || "—"}</span>
