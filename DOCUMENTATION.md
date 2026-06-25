@@ -509,7 +509,7 @@ Overall and per-phase progress bars are shown. Completed phases are visually dis
 
 | Tab | Description |
 |---|---|
-| **Active Partners** | Studios at Recurring Partner, First Session Scheduled, or Pilot Completed stage — sorted A–Z. **Default first tab.** Per-row alert icon when no PDF is on the **Agreements** tab; full alert also appears in the header **Alerts** bell. |
+| **Active Partners** | Studios at Recurring Partner, First Session Scheduled, or Pilot Completed stage, **plus any studio that has an uploaded agreement (PDF or Word) on the Agreements tab, or has at least one studio session on the session calendar** (any session linked via `studioId`) — sorted A–Z. **Default first tab.** Per-row alert icon when no PDF is on the **Agreements** tab; full alert also appears in the header **Alerts** bell. |
 | **Pipeline** | Kanban board grouped by pipeline stage |
 | **In Outreach** | Studios being actively pursued, sorted by next action date |
 | **Revenue Forecast** | All non-lost studios ranked by revenue potential with pipeline total |
@@ -1255,7 +1255,7 @@ A real-time snapshot of the entire system.
 
 | Card | Value |
 |---|---|
-| Total Records | Sum of all records across all 10 tables |
+| Total Records | Sum of all records across all 11 tables |
 | Active Users | Number of active user accounts in the security config |
 | Data Size | Uncompressed JSON size of all CRM data (KB) |
 | Storage Used | Size of the encrypted store entry (KB) |
@@ -1302,7 +1302,7 @@ A full, interactive reference for every database table and field in the CRM. No 
 
 #### Table Selector
 
-Toggle buttons for all 10 tables. Each button shows the table label and field count. The selected table is highlighted.
+Toggle buttons for all 11 tables. Each button shows the table label and field count. The selected table is highlighted.
 
 #### Field Listing
 
@@ -1345,13 +1345,14 @@ Per-table counts: total fields · required fields · dropdown fields · checkbox
 | `sessions` | Sessions | B2C | 23 |
 | `offers` | Offers | B2C | 11 |
 | `revenue` | Revenue | B2C | 15 |
+| `expenses` | Expenses | Core | 15 |
 | `referrals` | Referrals | B2C | 11 |
 | `content` | Content Calendar | B2C | 20 |
 | `outreach` | Outreach Hub | B2B | 14 |
 | `testimonials` | Testimonials | Core | 15 |
 | `templates` | Templates | Core | 8 |
 
-**Total: 150 documented fields across 10 tables.**
+**Total: 165 documented fields across 11 tables.**
 
 ---
 
@@ -1400,7 +1401,7 @@ Click **Run Check**. The scanner inspects every record and returns a list of iss
 Downloads a full JSON backup of all CRM data to the local machine.
 
 - File name format: `sbcrm-backup-{today}.json`
-- Content: raw unencrypted JSON of all 10 table arrays
+- Content: raw unencrypted JSON of all table arrays
 - Pre-download summary shows record count and uncompressed size
 - A "✓ Backup downloaded" confirmation is shown for 3 seconds after export
 

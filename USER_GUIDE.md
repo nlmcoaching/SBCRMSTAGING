@@ -335,7 +335,7 @@ This is the tab to open when you're preparing a partner revenue report or decidi
 
 ### Active Partners — Default View
 
-When you open Studio Partners, the **Active Partners** tab loads first (studios at Recurring Partner, First Session Scheduled, or Pilot Completed stage), sorted A–Z. This is your fastest path to the studios you're actively working with.
+When you open Studio Partners, the **Active Partners** tab loads first, sorted A–Z. This is your fastest path to the studios you're actively working with. A studio appears here if it is at the **Recurring Partner**, **First Session Scheduled**, or **Pilot Completed** stage, **or** if it has an agreement uploaded on its **Agreements** tab, **or** if it has at least one studio session on the session calendar — so any studio you've signed or scheduled shows up even if its pipeline stage hasn't been updated yet.
 
 **Missing agreement alerts:** If an active partner does not have a PDF uploaded on their **Agreements** tab, you'll see:
 1. A **critical alert** in the **Alerts bell** (next to your profile picture) — click the bell to see which studio(s) need an agreement and tap **View** to open their record.

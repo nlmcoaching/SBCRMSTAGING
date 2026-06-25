@@ -1840,7 +1840,11 @@ function applySessionRevenueFromRegistrations(session, registrations) {
     ...session,
     revenue: gross,
     netRevenue: gross,
-    paidAttendees: isVirtual ? (gross > 0 ? 1 : (session.paidAttendees || 0)) : paidCount,
+    // Studio sessions drive paid attendees by hand (part of the studio finance model), so a
+    // Calendly/Stripe sync must never reset it. Only virtual/booking-driven sessions derive it.
+    paidAttendees: session.studioId
+      ? (Number(session.paidAttendees) || 0)
+      : (isVirtual ? (gross > 0 ? 1 : (session.paidAttendees || 0)) : paidCount),
     registered: activeRegs.length || session.registered || 0,
   };
 }
@@ -6250,7 +6254,7 @@ const VIEWS = {
     views: [
       { name: "Active partners", layout: "table",
         columns: activePartnerCols(),
-        run: (rows) => ({ rows: rows.filter((r) => r.stage === "Recurring partner" || r.stage === "First session scheduled" || r.stage === "Pilot completed").sort((a, b) => (a.name || "").toLowerCase().localeCompare((b.name || "").toLowerCase())) }) },
+        run: (rows, c) => ({ rows: rows.filter((r) => partnerIsActive(r, c?.derived?.sessionsByStudio)).sort((a, b) => (a.name || "").toLowerCase().localeCompare((b.name || "").toLowerCase())) }) },
       { name: "Pipeline", layout: "partner-pipeline",
         run: (rows) => ({ groups: STAGE.map((s) => ({ key: s, label: s, color: STAGE_COLOR[s], cards: rows.filter((r) => r.stage === s) })) }) },
       { name: "In outreach", layout: "table",
@@ -6539,6 +6543,23 @@ function partnerHasAgreementPdf(partner) {
     if (a.isPdf === true || a.id) return true;
     return agreementRecordIsPdf(a);
   });
+}
+
+// Any uploaded Studio Partner Agreement file (PDF or Word) marks a partner as a live, working partner.
+function partnerHasUploadedAgreement(partner) {
+  return (partner?.agreements || []).length > 0;
+}
+
+// A partner counts as "active" when their pipeline stage shows a live engagement, they have an
+// uploaded agreement on file, OR they have at least one studio session on the calendar — so
+// signed/working partners are never hidden by a stale stage value.
+function partnerIsActive(partner, sessionsByStudio) {
+  if (partner.stage === "Recurring partner"
+    || partner.stage === "First session scheduled"
+    || partner.stage === "Pilot completed") return true;
+  if (partnerHasUploadedAgreement(partner)) return true;
+  if ((sessionsByStudio?.[partner.id] || []).length > 0) return true;
+  return false;
 }
 
 function partnerCols() {
@@ -10719,6 +10740,27 @@ const DB_SCHEMA = [
       { name: "costCenter",      type: "string",   required: false, description: "Cost center or accounting category" },
       { name: "source",          type: "string",   required: false, description: "Marketing source or campaign" },
       { name: "campaign",        type: "string",   required: false, description: "Campaign name" },
+      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
+    ],
+  },
+  {
+    table: "expenses", label: "Expenses", lane: "Core",
+    description: "Business expenses — manually entered, or auto-generated from studio revenue splits and canceled bookings.",
+    fields: [
+      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
+      { name: "date",            type: "date",     required: true,  description: "Expense date (ISO 8601)" },
+      { name: "vendor",          type: "string",   required: false, description: "Vendor or payee name" },
+      { name: "description",     type: "string",   required: false, description: "What the expense was for" },
+      { name: "amount",          type: "currency",  required: false, description: "Expense amount ($)" },
+      { name: "category",        type: "select",   required: false, description: "Expense category", values: "Equipment & Supplies · Software & Subscriptions · Marketing & Advertising · Travel & Transport · Education & Training · Professional Services · Insurance · Administrative · Studio & Venue · Studio Split · Refunds & Cancellations · Other" },
+      { name: "paymentMethod",   type: "select",   required: false, description: "How the expense was paid", values: "Credit Card · Bank Transfer · Cash · Check · Other" },
+      { name: "taxDeductible",   type: "boolean",  required: false, description: "Is this expense tax deductible?" },
+      { name: "recurring",       type: "boolean",  required: false, description: "Is this a recurring expense?" },
+      { name: "recurringFreq",   type: "select",   required: false, description: "Recurrence frequency", values: "One-time · Monthly · Quarterly · Annual" },
+      { name: "linkedSession",   type: "string",   required: false, description: "Linked session ID (if tied to a session)" },
+      { name: "linkedPartner",   type: "string",   required: false, description: "Linked studio partner ID (if tied to a partner)" },
+      { name: "receiptUrl",      type: "string",   required: false, description: "Link to a receipt or supporting document" },
+      { name: "auto",            type: "boolean",  required: false, description: "True for auto-generated rows (studio split / canceled booking) — read-only in the UI" },
       { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
     ],
   },
