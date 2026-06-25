@@ -2,7 +2,7 @@
 
 > **Version:** 9.2 (June 2026)
 > **Stack:** React 18 · Vite · Recharts · Lucide React · PapaParse · Node.js/Express (backend)
-> **Storage:** Browser `localStorage` (encrypted) + Cursor canvas `window.storage`
+> **Storage:** Browser **IndexedDB** (encrypted) + Cursor canvas `window.storage`, with `localStorage` as a last-resort fallback
 > **Security:** AES-256-GCM encryption · PBKDF2 key derivation · PIN-based auth
 
 ---
@@ -456,7 +456,9 @@ Target Identified → Researched → Initial Outreach Sent → Follow-Up Needed 
 
 ### Fields Tracked
 
-Studio name · Owner/Manager name · Email · Phone · Location · Type (yoga, gym, meditation, wellness, Pilates, corporate, etc.) · Estimated community size · Best-fit journey · Revenue potential · Last touch date · Next action · Probability of closing · Notes · Contract status · Insurance requirements · Promotion commitments
+Studio name · Owner/Manager name · Email · Phone · Location · Type (yoga, gym, meditation, wellness, Pilates, corporate, etc.) · Estimated community size · Best-fit journey · Revenue potential · **Studio revenue share % (`studioSharePct`)** — the studio's cut, used to compute each studio session's split · Last touch date · Next action · Probability of closing · Notes · Contract status · Insurance requirements · Promotion commitments
+
+> The legacy free-text "Revenue share model" field has been replaced by the numeric **Studio revenue share %** (`studioSharePct`). Partner lists, the partner PDF, and the `{{revSplit}}` email token now show this percentage.
 
 ### Partner Pipeline View
 
@@ -566,9 +568,10 @@ The "Emails Sent from CRM" summary card has been removed from the partner **Deta
 | Paid Attendees | Number |
 | Waivers Completed | Number |
 | No-Shows | Number |
-| Gross Revenue | Currency |
-| Studio Split | Currency |
-| Net Revenue | Currency |
+| Price per attendee | Currency — studio sessions; what each attendee pays (`pricePerSeat`). Drives the studio gross and split (see *Studio split tracking*) |
+| Gross Revenue | Currency — virtual sessions: sum of Stripe charges from bookings. Studio sessions: price-per-seat × paid attendees |
+| Studio Split | Currency — studio sessions only; Gross × the partner's revenue share %, mirrored to an auto `Studio Split` expense |
+| Net Revenue | Currency — Gross Revenue − Studio Split |
 | Room Setup Status | Dropdown |
 | Music / Headset Setup | Dropdown |
 | Testimonials Captured | Checkbox |
@@ -603,9 +606,9 @@ Equipment setup and run checklist items are combined into a single **Session Che
 
 ### Session Performance View
 
-- Revenue per session bar chart
+- Per-session metric row: **In room** (attendance/capacity), **Price/seat**, **Gross**, **Studio split**, **Net profit**, **Conversion**
 - Attendance rate vs capacity
-- Net vs gross comparison
+- Net vs gross comparison (Net profit = Gross − Studio split, where Gross = price/seat × paid attendees)
 - Conversion rate (attended → purchased follow-on offer)
 
 #### PDF Export — Studio Session Performance
@@ -932,8 +935,34 @@ The **Revenue** and **Expense** tables are kept in sync with bookings automatica
 
 - **Revenue table** — every **active** virtual or studio booking is materialised as a revenue record (`id` prefixed `regrev_`, `auto: true`, `channel` = `Virtual session` / `Studio session`). The record's `gross` is the booking's **actual matched Stripe charge** (`amountGross`), with `refunds` = `amountRefunded` and `net` = gross − refunds; a booking with **no Stripe charge** (free / coupon) is `$0` — the Calendly list price is never used, so these values match the Stripe page row-for-row. Records regenerate from the current bookings on every change, so amounts track Stripe reconciliation and canceled/rescheduled bookings drop out automatically.
 - **Expense table** — every **canceled** booking is materialised as an expense record (`id` prefixed `cxlexp_`, `auto: true`, `category` = `Refunds & Cancellations`, `amount` = the booking's Stripe amount, `$0` for free/coupon bookings). Reschedules are **not** expensed (the payment simply follows the booking to its new time). These records feed Expenses MTD / Operating Profit, so each cancellation reduces profit by its Stripe amount.
+- **Studio split expenses** — every **studio session** that owes its partner a revenue share is materialised as one expense record (`id` prefixed `studiosplit_`, `auto: true`, `category` = `Studio Split`, `vendor` = the studio partner name, `linkedSession` / `linkedPartner` set). The `amount` is computed (`studioSessionFinance`) as the session's **price-per-seat × paid attendees × the partner's revenue share %** — all hand-entered. It only changes when one of those three fields is edited, so it stays in sync (no duplicates) without being disturbed by Calendly/Stripe syncs. See *Studio split tracking* below.
 
 Manually-entered revenue/expense rows are always preserved; only the `auto` records are regenerated. To avoid double-counting, client **Lifetime Value** and the Revenue tab exclude the `auto` revenue records (the underlying registrations/live booking rows already represent them).
+
+### Studio split tracking
+
+For studio (B2B) sessions, payment is collected up front, but the studio's revenue share is only owed once the session runs and attendance is known. The economics are computed by `studioSessionFinance(session, data)` from three **hand-entered** inputs (so they never shift on a Calendly/Stripe sync):
+
+| Input | Source |
+|---|---|
+| **Price per seat** | `pricePerSeat` — a currency field on the **Studio Session** card (what each attendee pays). |
+| **Paid attendees** | The session's `paidAttendees` field (the count that actually paid). |
+| **Studio revenue share %** | `studioSharePct` on the linked **Studio Partner** record (the studio's cut, e.g. `30` = studio keeps 30%). |
+
+The calculation:
+
+```
+gross        = pricePerSeat × paid attendees
+studioSplit  = gross × (studioSharePct ÷ 100)     ← owed to the studio partner
+net          = gross − studioSplit                ← Simply Breathe's keep
+```
+
+The values recompute from the session + partner records, so the **only** edits that change a studio split (and its linked expense) are the **price-per-seat**, the **paid attendees**, or the partner's **share %**. The result is reflected everywhere — Performance tab, partner Sessions tab, Revenue leaderboard, Expense table — without re-saving.
+
+- **Expense sync**: the computed `studioSplit` is mirrored into a single auto expense (category `Studio Split`, id prefix `studiosplit_`) linked to the session. The ledger sync effect still watches `registrations`, `sessions`, `clients`, `partners`, and `payments` (the per-booking revenue rows need them), but because the studio split is derived from hand-entered fields only, a sync that doesn't touch price/attendance/share leaves the split expense unchanged (the sync is guarded by an `id | amount | date` signature).
+- **`sessionFinanceFor(session, data)`** is the shared wrapper: studio sessions use `studioSessionFinance`; virtual sessions fall back to their booking-derived `revenue` with no split.
+
+The **Studio Session Performance** tab and the session drawer's Performance tab surface **Price/seat**, **Gross**, **Studio split**, and **Net profit** per session using this model.
 
 ### Revenue Channels Tracked
 
@@ -1229,7 +1258,7 @@ A real-time snapshot of the entire system.
 | Total Records | Sum of all records across all 10 tables |
 | Active Users | Number of active user accounts in the security config |
 | Data Size | Uncompressed JSON size of all CRM data (KB) |
-| Storage Used | Size of the encrypted `localStorage` entry (KB) |
+| Storage Used | Size of the encrypted store entry (KB) |
 
 #### Database Tables Table
 
@@ -1246,12 +1275,14 @@ Full listing of every table with:
 
 #### Storage Keys Reference
 
-Displays the two `localStorage` / `window.storage` keys the application uses:
+Displays the two storage keys the application uses (persisted in IndexedDB, or `window.storage` under Cursor canvas):
 
 | Key | Purpose |
 |---|---|
 | `simplybreathe:data:v5:enc` | AES-256-GCM encrypted CRM data payload |
 | `sb:security:v1` | User accounts, PIN hashes, wrapped master keys |
+
+These keys are stored in **IndexedDB** (object store `kv` in the `simplybreathe` database), which avoids the ~5 MB `localStorage` quota that previously caused silent save failures (`QuotaExceededError`) once the encrypted payload grew large. On first load, any existing `localStorage` value for a key is automatically migrated into IndexedDB and the stale `localStorage` copy is removed. Under the Cursor canvas, `window.storage` is used instead; `localStorage` remains only as a last-resort fallback when IndexedDB is unavailable.
 
 #### Encryption Spec Panel
 
@@ -1381,7 +1412,7 @@ Live read of current storage state:
 
 | Field | Value |
 |---|---|
-| Encrypted store size | Size of `localStorage` encrypted entry |
+| Encrypted store size | Size of the encrypted store entry |
 | Uncompressed data size | Size of all data as plain JSON |
 | Total records | Count across all tables |
 | Active users | Number of user accounts |
@@ -1491,7 +1522,7 @@ If the backend is offline during reset, CRM data is still wiped but queue cleari
 | Integrity checks | Non-destructive read-only scan — no data is modified |
 | Schema data | Defined in the `DB_SCHEMA` constant in `App.jsx` — must be updated when new fields are added |
 | Export format | JSON (not encrypted) — suitable for manual backup and disaster recovery |
-| Storage calculation | Encrypted size read from `localStorage` directly; uncompressed size computed via `TextEncoder` |
+| Storage calculation | Encrypted size read from the encrypted store directly; uncompressed size computed via `TextEncoder` |
 
 ---
 
@@ -1512,10 +1543,11 @@ Track all business-related expenditures, import them in bulk via CSV, and have t
 | Insurance | General liability, professional indemnity |
 | Administrative | Website hosting, domain, banking fees |
 | Studio & Venue | Room hire fees, venue deposits (separate from revenue splits) |
+| Studio Split | Auto-recorded studio revenue share — amount = the session's price-per-seat × paid attendees × the partner's revenue share %. One linked record per studio session |
 | Refunds & Cancellations | Auto-recorded when a Calendly booking is canceled — amount = the booking's Stripe payment ($0 for free/coupon bookings) |
 | Other | Miscellaneous business costs |
 
-Records in **Refunds & Cancellations** with `auto: true` (id prefix `cxlexp_`) are generated automatically from canceled bookings and regenerate on every change; do not edit them by hand. Manually-entered expenses are always preserved.
+Auto-recorded expense records (id prefix `cxlexp_` for cancellations, `studiosplit_` for studio splits, both `auto: true`) are generated automatically and regenerate on every change; do not edit them by hand. Manually-entered expenses are always preserved.
 
 ### Fields Tracked
 | Field | Type | Description |
@@ -1524,7 +1556,7 @@ Records in **Refunds & Cancellations** with `auto: true` (id prefix `cxlexp_`) a
 | vendor | Text | Payee or vendor name |
 | description | Text | What was purchased |
 | amount | Number | Cost in USD (no currency symbol) |
-| category | Select | One of 10 expense categories |
+| category | Select | One of 12 expense categories |
 | paymentMethod | Select | Credit Card, Bank Transfer, Cash, Check, Other |
 | taxDeductible | Checkbox | Whether deductible as a business expense |
 | recurring | Checkbox | Whether this is a recurring charge |
@@ -2075,6 +2107,7 @@ All state is managed via React `useState` and `useMemo` in the root `App` compon
 | `TableView` | Standard table layout renderer (columns + optional expandable rows / footer) |
 | `RecordTableView` | Raw-table renderer for the **Revenue Table** and **Expense Table** tabs — sortable column headings and expandable rows that reveal every stored field; reads the underlying table directly. Columns supplied by `revenueTableCols()` / `expenseTableCols()` |
 | `RevenueThisMonthView` | Revenue **This month** tab — computes Gross Revenue from Stripe amounts in the `revenue` table and Net Revenue = gross − refunds − expenses (from the `expenses` table), with month-over-month deltas and supporting record listings |
+| `studioSessionFinance` / `sessionFinanceFor` | Compute a studio session's economics — the session's `pricePerSeat` × `paidAttendees` × the partner's `studioSharePct` → `{ seatPrice, gross, studioSplit, net, sharePct }`. Used by the Performance views, partner Sessions tab, Revenue leaderboard, and the auto `Studio Split` expense |
 | `RecordDrawer` | Slide-in detail/edit panel |
 | `EditProfileModal` | Profile photo + info + PIN change |
 | `UserManagementView` | Multi-user CRUD and permissions |

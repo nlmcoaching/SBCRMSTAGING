@@ -333,7 +333,7 @@ function autoFillTemplateVars(varKeys, recipient, type, currentUser) {
       if (lk === "avgattendance" || lk === "avgattendan") { set(k, recipient.avgAttendance != null ? String(recipient.avgAttendance) : ""); return; }
       if (lk === "lastcontactdate")  { set(k, recipient.lastTouch ? fmtDate(recipient.lastTouch) : ""); return; }
       if (lk === "sessionspermonth") { set(k, recipient.sessionsPerMonth != null ? String(recipient.sessionsPerMonth) : ""); return; }
-      if (lk === "revsplit")         { set(k, recipient.revShare || ""); return; }
+      if (lk === "revsplit")         { set(k, recipient.studioSharePct ? `${recipient.studioSharePct}% to studio` : (recipient.revShare || "")); return; }
       if (lk === "referencestudio")  { set(k, recipient.name || ""); return; }
     }
     vals[k] = "";
@@ -393,7 +393,7 @@ function suggestEmailTemplatesForAction(action, templates) {
 const EXPENSE_CATEGORY = [
   "Equipment & Supplies","Software & Subscriptions","Marketing & Advertising",
   "Travel & Transport","Education & Training","Professional Services",
-  "Insurance","Administrative","Studio & Venue","Refunds & Cancellations","Other",
+  "Insurance","Administrative","Studio & Venue","Studio Split","Refunds & Cancellations","Other",
 ];
 const EXPENSE_CATEGORY_COLOR = {
   "Equipment & Supplies":    "#2E6FB0",
@@ -405,6 +405,7 @@ const EXPENSE_CATEGORY_COLOR = {
   "Insurance":               "#C0392B",
   "Administrative":          "#55627B",
   "Studio & Venue":          "#16A085",
+  "Studio Split":            "#C99A2E",
   "Refunds & Cancellations": "#B0413E",
   "Other":                   "#8A96AC",
 };
@@ -659,11 +660,11 @@ function makeSequenceSteps(startDate) {
 /* ---------- Seed data (from the six source files, relations wired) ---------- */
 const SEED = {
   partners: [
-    { id: "sp1", name: "YogaSix Walnut Creek", studioType: "Yoga", location: "Walnut Creek, CA", contact: "Alyssa Tran", role: "Manager", email: "alyssa@example.com", phone: "555-0201", stage: "Recurring partner", estimatedCommunitySize: 320, bestFitJourney: "Reset & Release", revenuePotential: 2400, closeProbability: "Closed Won", revShare: "70/30 split (us/studio)", contractStatus: "Signed", outreachDate: "2026-03-01", lastTouch: "2026-06-11", nextAction: "2026-06-18", avgAttendance: 14, sessionsPerMonth: 4, insuranceReqs: "COI on file", promotionCommitments: "Monthly IG story + email to list", notes: "Thursday Reset is the anchor class; strong word of mouth. Alyssa is a champion.", checklist: { discovery_call: true, revenue_discussed: true, capacity_confirmed: true, insurance_answered: true, decision_maker: true, agreement_uploaded: true, booking_page: true, qr_code: true, event_flyer: true, studio_email: true, social_posts: true, waiver_link: true, payment_flow: true, registration_checked: true, reminder_email: true, room_setup: true, equipment_packed: true, arrival_confirmed: true, revenue_reconciled: true, studio_paid: true, followup_sent: true, testimonials_requested: true, next_date: true } },
-    { id: "sp2", name: "CorePower Lafayette", studioType: "Yoga", location: "Lafayette, CA", contact: "Mike Donnelly", role: "Owner", email: "mike@example.com", phone: "555-0202", stage: "Demo completed", estimatedCommunitySize: 280, bestFitJourney: "Letting Go & Rebirth", revenuePotential: 1800, closeProbability: "High", revShare: "Flat room fee $75", contractStatus: "None", outreachDate: "2026-05-10", lastTouch: "2026-06-03", nextAction: "2026-06-16", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "Needs COI before pilot", promotionCommitments: "TBD — discussing newsletter feature", notes: "Demo went well 6/3. Mike is interested but cautious. Follow up with pilot proposal this week.", checklist: { discovery_call: true, revenue_discussed: true, capacity_confirmed: true, insurance_answered: false, decision_maker: true, agreement_uploaded: false, booking_page: false, qr_code: false, event_flyer: false, studio_email: false, social_posts: false, waiver_link: false, payment_flow: false, registration_checked: false, reminder_email: false, room_setup: false, equipment_packed: false, arrival_confirmed: false, revenue_reconciled: false, studio_paid: false, followup_sent: false, testimonials_requested: false, next_date: false } },
-    { id: "sp3", name: "The Still Point", studioType: "Meditation", location: "Pleasant Hill, CA", contact: "Renee Park", role: "Director", email: "renee@example.com", phone: "555-0203", stage: "Pilot proposed", estimatedCommunitySize: 140, bestFitJourney: "Nervous System Reset", revenuePotential: 1200, closeProbability: "Medium", revShare: "80/20 split (us/studio)", contractStatus: "Drafted", outreachDate: "2026-04-15", lastTouch: "2026-06-05", nextAction: "2026-06-14", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "COI + liability waiver required", promotionCommitments: "4-week pilot feature on their blog", notes: "4-week Sunday evening pilot proposed. Contract drafted but not returned. Renee responsive over email.", checklist: { discovery_call: true, revenue_discussed: true, capacity_confirmed: true, insurance_answered: true, decision_maker: true, agreement_uploaded: false, booking_page: false, qr_code: false, event_flyer: false, studio_email: false, social_posts: false, waiver_link: false, payment_flow: false, registration_checked: false, reminder_email: false, room_setup: false, equipment_packed: false, arrival_confirmed: false, revenue_reconciled: false, studio_paid: false, followup_sent: false, testimonials_requested: false, next_date: false } },
-    { id: "sp4", name: "Flow State Studio", studioType: "Wellness", location: "Concord, CA", contact: "Tara Iverson", role: "Owner", email: "tara@example.com", phone: "555-0204", stage: "Initial outreach sent", estimatedCommunitySize: 90, bestFitJourney: "Breathwork Basics", revenuePotential: 900, closeProbability: "Low", revShare: "TBD", contractStatus: "None", outreachDate: "2026-06-09", lastTouch: "2026-06-09", nextAction: "2026-06-17", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "Warm intro from Dana. Sent intro email 6/9. Waiting on reply.", checklist: emptyChecklist() },
-    { id: "sp5", name: "Lotus & Pine", studioType: "Yoga", location: "Danville, CA", contact: "Geoff Adams", role: "Manager", email: "geoff@example.com", phone: "555-0205", stage: "Recurring partner", estimatedCommunitySize: 500, bestFitJourney: "Deep Surrender", revenuePotential: 5200, closeProbability: "Closed Won", revShare: "60/40 split (us/studio)", contractStatus: "Signed", outreachDate: "2026-01-15", lastTouch: "2026-06-10", nextAction: "2026-06-20", avgAttendance: 18, sessionsPerMonth: 8, insuranceReqs: "COI on file + annual renewal", promotionCommitments: "Co-branded social posts + monthly email feature", notes: "Two weekly slots plus monthly workshop. Best earner. Geoff wants to add a Friday morning slot.", checklist: { discovery_call: true, revenue_discussed: true, capacity_confirmed: true, insurance_answered: true, decision_maker: true, agreement_uploaded: true, booking_page: true, qr_code: true, event_flyer: true, studio_email: true, social_posts: true, waiver_link: true, payment_flow: true, registration_checked: true, reminder_email: true, room_setup: true, equipment_packed: true, arrival_confirmed: true, revenue_reconciled: true, studio_paid: true, followup_sent: true, testimonials_requested: true, next_date: true } },
+    { id: "sp1", name: "YogaSix Walnut Creek", studioType: "Yoga", location: "Walnut Creek, CA", contact: "Alyssa Tran", role: "Manager", email: "alyssa@example.com", phone: "555-0201", stage: "Recurring partner", estimatedCommunitySize: 320, bestFitJourney: "Reset & Release", revenuePotential: 2400, closeProbability: "Closed Won", revShare: "70/30 split (us/studio)", studioSharePct: 30, contractStatus: "Signed", outreachDate: "2026-03-01", lastTouch: "2026-06-11", nextAction: "2026-06-18", avgAttendance: 14, sessionsPerMonth: 4, insuranceReqs: "COI on file", promotionCommitments: "Monthly IG story + email to list", notes: "Thursday Reset is the anchor class; strong word of mouth. Alyssa is a champion.", checklist: { discovery_call: true, revenue_discussed: true, capacity_confirmed: true, insurance_answered: true, decision_maker: true, agreement_uploaded: true, booking_page: true, qr_code: true, event_flyer: true, studio_email: true, social_posts: true, waiver_link: true, payment_flow: true, registration_checked: true, reminder_email: true, room_setup: true, equipment_packed: true, arrival_confirmed: true, revenue_reconciled: true, studio_paid: true, followup_sent: true, testimonials_requested: true, next_date: true } },
+    { id: "sp2", name: "CorePower Lafayette", studioType: "Yoga", location: "Lafayette, CA", contact: "Mike Donnelly", role: "Owner", email: "mike@example.com", phone: "555-0202", stage: "Demo completed", estimatedCommunitySize: 280, bestFitJourney: "Letting Go & Rebirth", revenuePotential: 1800, closeProbability: "High", revShare: "Flat room fee $75", studioSharePct: 0, contractStatus: "None", outreachDate: "2026-05-10", lastTouch: "2026-06-03", nextAction: "2026-06-16", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "Needs COI before pilot", promotionCommitments: "TBD — discussing newsletter feature", notes: "Demo went well 6/3. Mike is interested but cautious. Follow up with pilot proposal this week.", checklist: { discovery_call: true, revenue_discussed: true, capacity_confirmed: true, insurance_answered: false, decision_maker: true, agreement_uploaded: false, booking_page: false, qr_code: false, event_flyer: false, studio_email: false, social_posts: false, waiver_link: false, payment_flow: false, registration_checked: false, reminder_email: false, room_setup: false, equipment_packed: false, arrival_confirmed: false, revenue_reconciled: false, studio_paid: false, followup_sent: false, testimonials_requested: false, next_date: false } },
+    { id: "sp3", name: "The Still Point", studioType: "Meditation", location: "Pleasant Hill, CA", contact: "Renee Park", role: "Director", email: "renee@example.com", phone: "555-0203", stage: "Pilot proposed", estimatedCommunitySize: 140, bestFitJourney: "Nervous System Reset", revenuePotential: 1200, closeProbability: "Medium", revShare: "80/20 split (us/studio)", studioSharePct: 20, contractStatus: "Drafted", outreachDate: "2026-04-15", lastTouch: "2026-06-05", nextAction: "2026-06-14", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "COI + liability waiver required", promotionCommitments: "4-week pilot feature on their blog", notes: "4-week Sunday evening pilot proposed. Contract drafted but not returned. Renee responsive over email.", checklist: { discovery_call: true, revenue_discussed: true, capacity_confirmed: true, insurance_answered: true, decision_maker: true, agreement_uploaded: false, booking_page: false, qr_code: false, event_flyer: false, studio_email: false, social_posts: false, waiver_link: false, payment_flow: false, registration_checked: false, reminder_email: false, room_setup: false, equipment_packed: false, arrival_confirmed: false, revenue_reconciled: false, studio_paid: false, followup_sent: false, testimonials_requested: false, next_date: false } },
+    { id: "sp4", name: "Flow State Studio", studioType: "Wellness", location: "Concord, CA", contact: "Tara Iverson", role: "Owner", email: "tara@example.com", phone: "555-0204", stage: "Initial outreach sent", estimatedCommunitySize: 90, bestFitJourney: "Breathwork Basics", revenuePotential: 900, closeProbability: "Low", revShare: "TBD", studioSharePct: 0, contractStatus: "None", outreachDate: "2026-06-09", lastTouch: "2026-06-09", nextAction: "2026-06-17", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "Warm intro from Dana. Sent intro email 6/9. Waiting on reply.", checklist: emptyChecklist() },
+    { id: "sp5", name: "Lotus & Pine", studioType: "Yoga", location: "Danville, CA", contact: "Geoff Adams", role: "Manager", email: "geoff@example.com", phone: "555-0205", stage: "Recurring partner", estimatedCommunitySize: 500, bestFitJourney: "Deep Surrender", revenuePotential: 5200, closeProbability: "Closed Won", revShare: "60/40 split (us/studio)", studioSharePct: 40, contractStatus: "Signed", outreachDate: "2026-01-15", lastTouch: "2026-06-10", nextAction: "2026-06-20", avgAttendance: 18, sessionsPerMonth: 8, insuranceReqs: "COI on file + annual renewal", promotionCommitments: "Co-branded social posts + monthly email feature", notes: "Two weekly slots plus monthly workshop. Best earner. Geoff wants to add a Friday morning slot.", checklist: { discovery_call: true, revenue_discussed: true, capacity_confirmed: true, insurance_answered: true, decision_maker: true, agreement_uploaded: true, booking_page: true, qr_code: true, event_flyer: true, studio_email: true, social_posts: true, waiver_link: true, payment_flow: true, registration_checked: true, reminder_email: true, room_setup: true, equipment_packed: true, arrival_confirmed: true, revenue_reconciled: true, studio_paid: true, followup_sent: true, testimonials_requested: true, next_date: true } },
   ],
   clients: [
     { id: "c1", name: "Jordan Lee",   phone: "555-0101", email: "jordan@example.com", source: "Studio partner",  status: "Lead",          clientType: "High-value lead",          tags: ["Anxiety","Stress relief"],                              firstSession: "",           sessionsAttended: 0,  lastSession: "",           nextSession: "2026-06-12", packageType: "None",       lifetimeValue: 0,   notes: "Found us via YogaSix flyer; anxious about first session, wants calm intro",      referral: "Low"    },
@@ -674,10 +675,10 @@ const SEED = {
     { id: "c6", name: "Dana Wolfe",   phone: "555-0106", email: "dana@example.com",   source: "Referral",        status: "Advocate",      clientType: "Advocate",                 tags: ["Spiritual growth","Transformation seeker"],             firstSession: "2026-03-15", sessionsAttended: 12, lastSession: "2026-06-10", nextSession: "2026-06-17", packageType: "5-pack",     lifetimeValue: 610, notes: "Has referred 3 friends; natural community builder",                            referral: "High"   },
   ],
   sessions: [
-    { id: "se1", name: "YogaSix Thursday Reset 6/4", studioId: "sp1", date: "2026-06-04", time: "7:00 PM", status: "Closed out", journey: "Reset & Release", capacity: 18, registered: 15, attendance: 13, paidAttendees: 13, waivers: 12, noShows: 2, revenue: 455, studioSplit: 136.5, netRevenue: 318.5, conversion: 0.31, packagesSold: 2, referralsGenerated: 1, equipmentNeeded: "Headset, portable speaker, lavender oil", roomSetupStatus: "Ready", musicSetupStatus: "Ready", testimonialsCapt: 1, followUpSent: true, rebookOfferSent: true, referralsRequested: true, notes: "Sound bath close landed well; 2 three-packs sold at door", checklist: { room_booked: true, capacity_set: true, booking_live: true, promo_sent: true, equipment_packed: true, room_setup_done: true, audio_tested: true, waivers_shared: true, attendance_logged: true, revenue_recorded: true, studio_paid: true, testimonials_done: true, followup_sent: true, rebook_offered: true, referrals_asked: true, notes_written: true } },
-    { id: "se2", name: "YogaSix Thursday Reset 6/11", studioId: "sp1", date: "2026-06-11", time: "7:00 PM", status: "Follow-up pending", journey: "Reset & Release", capacity: 18, registered: 18, attendance: 16, paidAttendees: 16, waivers: 15, noShows: 2, revenue: 560, studioSplit: 168, netRevenue: 392, conversion: 0.38, packagesSold: 3, referralsGenerated: 2, equipmentNeeded: "Headset, portable speaker, eye masks", roomSetupStatus: "Ready", musicSetupStatus: "Ready", testimonialsCapt: 2, followUpSent: false, rebookOfferSent: false, referralsRequested: false, notes: "Best turnout yet; Priya brought a friend. Room hit capacity — talk to Alyssa about expanding.", checklist: { room_booked: true, capacity_set: true, booking_live: true, promo_sent: true, equipment_packed: true, room_setup_done: true, audio_tested: true, waivers_shared: true, attendance_logged: true, revenue_recorded: true, studio_paid: false, testimonials_done: true, followup_sent: false, rebook_offered: false, referrals_asked: false, notes_written: false } },
-    { id: "se3", name: "Lotus & Pine Sunday Slow Down 6/7", studioId: "sp5", date: "2026-06-07", time: "5:00 PM", status: "Closed out", journey: "Deep Surrender", capacity: 24, registered: 21, attendance: 19, paidAttendees: 19, waivers: 18, noShows: 2, revenue: 665, studioSplit: 266, netRevenue: 399, conversion: 0.26, packagesSold: 2, referralsGenerated: 0, equipmentNeeded: "Headset, speaker, singing bowl, blankets", roomSetupStatus: "Ready", musicSetupStatus: "Ready", testimonialsCapt: 0, followUpSent: true, rebookOfferSent: true, referralsRequested: false, notes: "Room near capacity; pitch membership earlier next time. No testimonials captured — add request at end.", checklist: { room_booked: true, capacity_set: true, booking_live: true, promo_sent: true, equipment_packed: true, room_setup_done: true, audio_tested: true, waivers_shared: true, attendance_logged: true, revenue_recorded: true, studio_paid: true, testimonials_done: false, followup_sent: true, rebook_offered: true, referrals_asked: false, notes_written: true } },
-    { id: "se4", name: "Lotus & Pine New Moon Workshop 6/9", studioId: "sp5", date: "2026-06-09", time: "7:30 PM", status: "Closed out", journey: "New Moon Ceremony", capacity: 30, registered: 25, attendance: 22, paidAttendees: 20, waivers: 20, noShows: 3, revenue: 1100, studioSplit: 440, netRevenue: 660, conversion: 0.18, packagesSold: 1, referralsGenerated: 3, equipmentNeeded: "Headset, speaker, candles, intention cards, journal prompts", roomSetupStatus: "Ready", musicSetupStatus: "Ready", testimonialsCapt: 3, followUpSent: true, rebookOfferSent: true, referralsRequested: true, notes: "Workshop format converts slower but generates referrals. 2 unpaid attendees — tighten payment flow.", checklist: { room_booked: true, capacity_set: true, booking_live: true, promo_sent: true, equipment_packed: true, room_setup_done: true, audio_tested: true, waivers_shared: true, attendance_logged: true, revenue_recorded: true, studio_paid: true, testimonials_done: true, followup_sent: true, rebook_offered: true, referrals_asked: true, notes_written: true } },
+    { id: "se1", name: "YogaSix Thursday Reset 6/4", studioId: "sp1", date: "2026-06-04", time: "7:00 PM", status: "Closed out", journey: "Reset & Release", capacity: 18, registered: 15, attendance: 13, paidAttendees: 13, waivers: 12, noShows: 2, pricePerSeat: 35, revenue: 455, studioSplit: 136.5, netRevenue: 318.5, conversion: 0.31, packagesSold: 2, referralsGenerated: 1, equipmentNeeded: "Headset, portable speaker, lavender oil", roomSetupStatus: "Ready", musicSetupStatus: "Ready", testimonialsCapt: 1, followUpSent: true, rebookOfferSent: true, referralsRequested: true, notes: "Sound bath close landed well; 2 three-packs sold at door", checklist: { room_booked: true, capacity_set: true, booking_live: true, promo_sent: true, equipment_packed: true, room_setup_done: true, audio_tested: true, waivers_shared: true, attendance_logged: true, revenue_recorded: true, studio_paid: true, testimonials_done: true, followup_sent: true, rebook_offered: true, referrals_asked: true, notes_written: true } },
+    { id: "se2", name: "YogaSix Thursday Reset 6/11", studioId: "sp1", date: "2026-06-11", time: "7:00 PM", status: "Follow-up pending", journey: "Reset & Release", capacity: 18, registered: 18, attendance: 16, paidAttendees: 16, waivers: 15, noShows: 2, pricePerSeat: 35, revenue: 560, studioSplit: 168, netRevenue: 392, conversion: 0.38, packagesSold: 3, referralsGenerated: 2, equipmentNeeded: "Headset, portable speaker, eye masks", roomSetupStatus: "Ready", musicSetupStatus: "Ready", testimonialsCapt: 2, followUpSent: false, rebookOfferSent: false, referralsRequested: false, notes: "Best turnout yet; Priya brought a friend. Room hit capacity — talk to Alyssa about expanding.", checklist: { room_booked: true, capacity_set: true, booking_live: true, promo_sent: true, equipment_packed: true, room_setup_done: true, audio_tested: true, waivers_shared: true, attendance_logged: true, revenue_recorded: true, studio_paid: false, testimonials_done: true, followup_sent: false, rebook_offered: false, referrals_asked: false, notes_written: false } },
+    { id: "se3", name: "Lotus & Pine Sunday Slow Down 6/7", studioId: "sp5", date: "2026-06-07", time: "5:00 PM", status: "Closed out", journey: "Deep Surrender", capacity: 24, registered: 21, attendance: 19, paidAttendees: 19, waivers: 18, noShows: 2, pricePerSeat: 35, revenue: 665, studioSplit: 266, netRevenue: 399, conversion: 0.26, packagesSold: 2, referralsGenerated: 0, equipmentNeeded: "Headset, speaker, singing bowl, blankets", roomSetupStatus: "Ready", musicSetupStatus: "Ready", testimonialsCapt: 0, followUpSent: true, rebookOfferSent: true, referralsRequested: false, notes: "Room near capacity; pitch membership earlier next time. No testimonials captured — add request at end.", checklist: { room_booked: true, capacity_set: true, booking_live: true, promo_sent: true, equipment_packed: true, room_setup_done: true, audio_tested: true, waivers_shared: true, attendance_logged: true, revenue_recorded: true, studio_paid: true, testimonials_done: false, followup_sent: true, rebook_offered: true, referrals_asked: false, notes_written: true } },
+    { id: "se4", name: "Lotus & Pine New Moon Workshop 6/9", studioId: "sp5", date: "2026-06-09", time: "7:30 PM", status: "Closed out", journey: "New Moon Ceremony", capacity: 30, registered: 25, attendance: 22, paidAttendees: 20, waivers: 20, noShows: 3, pricePerSeat: 50, revenue: 1100, studioSplit: 440, netRevenue: 660, conversion: 0.18, packagesSold: 1, referralsGenerated: 3, equipmentNeeded: "Headset, speaker, candles, intention cards, journal prompts", roomSetupStatus: "Ready", musicSetupStatus: "Ready", testimonialsCapt: 3, followUpSent: true, rebookOfferSent: true, referralsRequested: true, notes: "Workshop format converts slower but generates referrals. 2 unpaid attendees — tighten payment flow.", checklist: { room_booked: true, capacity_set: true, booking_live: true, promo_sent: true, equipment_packed: true, room_setup_done: true, audio_tested: true, waivers_shared: true, attendance_logged: true, revenue_recorded: true, studio_paid: true, testimonials_done: true, followup_sent: true, rebook_offered: true, referrals_asked: true, notes_written: true } },
   ],
   offers: [
     { id: "o1",  name: "Chris / 3-pack",                  clientId: "c3", offerType: "3-pack",                    price: 105, status: "Sent",           dateOffered: "2026-06-01", expireDate: "2026-06-15", followUpDate: "2026-06-08",  probability: "60%", source: "Post-session",    notes: "Said he'd think about it",         reasonLost: "" },
@@ -1167,34 +1168,95 @@ function applyCalendlyDescriptionToSessions(setData, sessionId, desc, onSave) {
   }));
 }
 
-// Unified storage — uses window.storage (Cursor canvas) when available, falls back to localStorage
+// ── IndexedDB key/value backend ──────────────────────────────────────────────
+// localStorage has a hard ~5 MB per-origin cap and throws QuotaExceededError when full, which
+// silently breaks saving once the encrypted dataset + agreement blobs grow large. IndexedDB offers
+// hundreds of MB to GBs, so the encrypted store lives here. Existing localStorage values are
+// migrated lazily on first read so no data is lost on upgrade.
+const IDB_NAME = "simplybreathe";
+const IDB_STORE = "kv";
+let _idbPromise = null;
+function _idbOpen() {
+  if (_idbPromise) return _idbPromise;
+  _idbPromise = new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") { reject(new Error("no-indexeddb")); return; }
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains(IDB_STORE)) req.result.createObjectStore(IDB_STORE); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return _idbPromise;
+}
+function _idbGet(key) {
+  return _idbOpen().then(db => new Promise((resolve, reject) => {
+    const req = db.transaction(IDB_STORE, "readonly").objectStore(IDB_STORE).get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  }));
+}
+function _idbSet(key, value) {
+  return _idbOpen().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  }));
+}
+function _idbRemove(key) {
+  return _idbOpen().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  }));
+}
+
+// Unified storage — window.storage (Cursor canvas) → IndexedDB → localStorage (last-resort fallback)
 const store = {
   async get(key) {
     try {
       if (typeof window !== "undefined" && window.storage) {
         return window.storage.get(key);
       }
-      const val = localStorage.getItem(key);
-      return { value: val };
+      if (typeof indexedDB !== "undefined") {
+        const v = await _idbGet(key);
+        if (v != null) return { value: v };
+        // Lazy migration: pull a pre-existing localStorage value into IndexedDB once.
+        const ls = (typeof localStorage !== "undefined") ? localStorage.getItem(key) : null;
+        if (ls != null) { try { await _idbSet(key, ls); } catch { /* ignore */ } }
+        return { value: ls };
+      }
+      return { value: localStorage.getItem(key) };
     } catch { return { value: null }; }
   },
   async set(key, value) {
     try {
       if (typeof window !== "undefined" && window.storage) {
-        return window.storage.set(key, value);
+        return await window.storage.set(key, value);
+      }
+      if (typeof indexedDB !== "undefined") {
+        await _idbSet(key, value);
+        // Best-effort: drop the now-stale localStorage copy so it stops consuming the 5 MB cap.
+        try { if (typeof localStorage !== "undefined") localStorage.removeItem(key); } catch { /* ignore */ }
+        return;
       }
       localStorage.setItem(key, value);
-    } catch { /* storage unavailable */ }
+    } catch (e) {
+      console.error("[SBCRM store.set] FAILED for key " + key + " (value " + (typeof value === "string" ? value.length : 0) + " chars):", e);
+      throw e;
+    }
   },
   async remove(key) {
     try {
       if (typeof window !== "undefined" && window.storage?.remove) {
         return window.storage.remove(key);
       }
-      localStorage.removeItem(key);
+      if (typeof indexedDB !== "undefined") { await _idbRemove(key); }
+      if (typeof localStorage !== "undefined") localStorage.removeItem(key);
     } catch { /* storage unavailable */ }
   },
-  available() { return true; }, // store always works via localStorage fallback
+  available() { return true; }, // store always works via a fallback
 };
 
 /* ── SECURITY UTILITIES ── */
@@ -1310,6 +1372,12 @@ function normalizeCrmData(d) {
   if (out.revenue.some(r => SAMPLE_SEED_REVENUE_IDS.has(r?.id))) {
     out.revenue = out.revenue.filter(r => !SAMPLE_SEED_REVENUE_IDS.has(r?.id));
   }
+  // Every studio partner must carry a numeric studio revenue share % so the value is never lost
+  // to a missing/stringified field on save or reload (drives studio split + net calculations).
+  out.partners = out.partners.map(p =>
+    p && typeof p === "object" && typeof p.studioSharePct === "number"
+      ? p
+      : { ...p, studioSharePct: Number(p?.studioSharePct) || 0 });
   return out;
 }
 
@@ -1342,7 +1410,7 @@ function healStudioPartners(sessionsIn, partnersIn) {
     contact: "", role: "", email: "", phone: "",
     stage: "Recurring partner",
     estimatedCommunitySize: 0, bestFitJourney: "", revenuePotential: 0,
-    closeProbability: "Closed Won", revShare: "",
+    closeProbability: "Closed Won", revShare: "", studioSharePct: 0,
     contractStatus: "None", outreachDate: "", lastTouch: "",
     nextAction: "", avgAttendance: 0, sessionsPerMonth: 0,
     insuranceReqs: "", promotionCommitments: "",
@@ -1776,6 +1844,38 @@ function applySessionRevenueFromRegistrations(session, registrations) {
     registered: activeRegs.length || session.registered || 0,
   };
 }
+// ── Studio session finance (simple model) ───────────────────────────────────
+// A studio session's economics come from three inputs, all set by hand so they never move on a
+// Calendly/Stripe sync: the per-seat price entered on the session (`pricePerSeat`), the number of
+// PAID attendees, and the studio partner's revenue share %.
+//   gross        = price-per-seat × paid attendees
+//   studioSplit  = gross × (studio's share % ÷ 100)   ← owed to the studio partner
+//   net          = gross − studioSplit                ← Simply Breathe's keep
+// The values recompute from the session + partner records, so the only things that change a studio
+// split (and its linked expense) are editing the price-per-seat, the paid attendees, or the share %.
+function studioSessionFinance(session, data, ctx) {
+  const partnersById = ctx?.partnersById || Object.fromEntries((data.partners || []).map(p => [p.id, p]));
+  const seatPrice = Number(session.pricePerSeat) || 0;
+  const paidAttendees = Number(session.paidAttendees) || 0;
+  const gross = Math.round(seatPrice * paidAttendees * 100) / 100;
+  const sharePct = Math.min(100, Math.max(0, Number(partnersById[session.studioId]?.studioSharePct) || 0));
+  const studioSplit = Math.round(gross * (sharePct / 100) * 100) / 100;
+  const net = Math.round((gross - studioSplit) * 100) / 100;
+  return { seatPrice, attendance: Number(session.attendance) || 0, paidAttendees, gross, sharePct, studioSplit, net };
+}
+// Finance for any session: the live studio model for studio sessions, or the booking-derived
+// revenue (no split) for virtual sessions.
+function sessionFinanceFor(session, data) {
+  if (session?.studioId) return studioSessionFinance(session, data);
+  return {
+    seatPrice: 0,
+    attendance: Number(session?.attendance) || 0,
+    gross: Number(session?.revenue) || 0,
+    sharePct: 0,
+    studioSplit: 0,
+    net: Number(session?.netRevenue) || 0,
+  };
+}
 function refreshCalendlySessionRevenue(sessions, registrations) {
   return sessions.map(s => (
     s.calendlyEventUri || (registrations || []).some(r => r.sessionId === s.id && r.paymentAmount != null)
@@ -1944,12 +2044,16 @@ function buildOfferRevenueRows(data = {}) {
 // syncBookingLedgers is run from an effect whenever bookings change (see the App component).
 const AUTO_REV_ID_PREFIX = "regrev_";      // revenue record per active booking
 const AUTO_CXL_EXP_ID_PREFIX = "cxlexp_";  // expense record per canceled booking
+const AUTO_SPLIT_EXP_ID_PREFIX = "studiosplit_"; // expense record per studio session's revenue split
 const isAutoRevenueRecord = (r) => !!r?.auto || String(r?.id || "").startsWith(AUTO_REV_ID_PREFIX);
-const isAutoExpenseRecord = (e) => !!e?.auto || String(e?.id || "").startsWith(AUTO_CXL_EXP_ID_PREFIX);
+const isAutoExpenseRecord = (e) => !!e?.auto
+  || String(e?.id || "").startsWith(AUTO_CXL_EXP_ID_PREFIX)
+  || String(e?.id || "").startsWith(AUTO_SPLIT_EXP_ID_PREFIX);
 
 function buildBookingLedgerRecords(data = {}) {
   const sessions = buildSessionMap(data.sessions);
   const clients = Object.fromEntries((data.clients || []).map(c => [c.id, c]));
+  const partners = Object.fromEntries((data.partners || []).map(p => [p.id, p]));
   const listPrices = buildSessionListPriceMap(data.registrations);
 
   // Revenue: reuse the exact per-booking rows the reports derive (channel = session type,
@@ -1990,7 +2094,38 @@ function buildBookingLedgerRecords(data = {}) {
       };
     });
 
-  return { revenue, expenses };
+  // Studio split: one expense per studio session that owes its partner a revenue share. The amount
+  // is derived from the session's price-per-seat × actual attendance × the partner's share % — all
+  // hand-entered, so it only changes when one of those is edited (not on a Calendly/Stripe sync).
+  const splitExpenses = (data.sessions || [])
+    .filter(s => s.studioId)
+    .map(s => {
+      const fin = studioSessionFinance(s, data, { partnersById: partners });
+      if (fin.studioSplit <= 0) return null;
+      const partner = partners[s.studioId];
+      const sessName = cleanName(s.name || "Studio session");
+      const dateStr = (s.date || "").slice(0, 10);
+      return {
+        id: AUTO_SPLIT_EXP_ID_PREFIX + s.id,
+        date: dateStr,
+        vendor: partner ? cleanName(partner.name) : "Studio partner",
+        description: `Studio split — ${sessName}${dateStr ? ` ${dateStr}` : ""}`,
+        amount: fin.studioSplit,
+        category: "Studio Split",
+        paymentMethod: "Bank Transfer",
+        taxDeductible: true,
+        recurring: false,
+        recurringFreq: "One-time",
+        linkedSession: s.id,
+        linkedPartner: s.studioId,
+        receiptUrl: "",
+        notes: `Auto-recorded studio revenue split — ${fin.paidAttendees} paid × ${money(fin.seatPrice)}/seat × ${fin.sharePct}% to studio.`,
+        auto: true,
+      };
+    })
+    .filter(Boolean);
+
+  return { revenue, expenses: [...expenses, ...splitExpenses] };
 }
 
 // Merge manually-entered revenue/expense rows with freshly-rebuilt auto booking records.
@@ -2334,6 +2469,9 @@ export default function App() {
     } catch { return false; }
   })();
   const [saved, setSaved] = useState("idle"); // idle | saving | saved
+  // Serializes encrypted writes so concurrent/async store.set calls can never land out of order
+  // (a stale write resolving after a newer one would otherwise clobber just-saved data).
+  const persistRef = useRef({ seq: 0, chain: Promise.resolve() });
   const [calendlyStatus, setCalendlyStatus] = useState(null); // null | { pending: n } | { syncing: true } | { synced: n, at: time, items: [] }
   const [showSyncDetail, setShowSyncDetail] = useState(false);
   const [stripeStatus, setStripeStatus] = useState(null);
@@ -2569,6 +2707,7 @@ export default function App() {
       if (encRaw?.value) {
         try {
           const dec = normalizeCrmData(await Sec.decrypt(encRaw.value, masterKey));
+          console.log("[SBCRM load] decrypted partners studioSharePct = " + JSON.stringify((dec.partners || []).map(p => p.id + ":" + JSON.stringify(p.studioSharePct))));
           if (Sec.validate(dec)) {
             setData(healStudioPartnersData(dec));
             // Restore CRM settings from encrypted store — preferred over unencrypted localStorage cache
@@ -2922,7 +3061,7 @@ export default function App() {
                       contact: "", role: "", email: "", phone: "",
                       stage: "Recurring partner",
                       estimatedCommunitySize: 0, bestFitJourney: "", revenuePotential: 0,
-                      closeProbability: "Closed Won", revShare: "",
+                      closeProbability: "Closed Won", revShare: "", studioSharePct: 0,
                       contractStatus: "None", outreachDate: "", lastTouch: sessionDate,
                       nextAction: "", avgAttendance: 0, sessionsPerMonth: 0,
                       insuranceReqs: "", promotionCommitments: "",
@@ -3441,27 +3580,45 @@ export default function App() {
     } catch (e) { console.error("handleSaveProfile:", e); }
   };
 
-  /* ── Persist on change (encrypted) ── */
+  /* ── Persist on change (encrypted) ──
+     Writes are debounced (coalesce bursts of setData into one write) and serialized through a
+     single promise chain with a monotonic sequence number. Because store.set is async (it may be
+     backed by an IPC/IndexedDB layer), two writes could otherwise complete out of order and a
+     stale snapshot could overwrite freshly-saved data. The seq guard discards any superseded write
+     before it commits, and the chain guarantees writes never overlap. */
   useEffect(() => {
     if (!loaded.current || !cryptoKey) return;
-    let alive = true;
+    const seq = ++persistRef.current.seq;
+    const snapshot = data;
     setSaved("saving");
-    (async () => {
-      try {
-        await persistAllAgreementBlobs(data, cryptoKey);
-        const payload = normalizeCrmData(dataForEncryptedStore(data));
-        if (!Sec.validate(payload)) {
-          console.error("CRM persist skipped: invalid data shape");
-          return;
+    const timer = setTimeout(() => {
+      persistRef.current.chain = persistRef.current.chain.then(async () => {
+        if (seq < persistRef.current.seq) return; // a newer change was scheduled — skip this stale write
+        try {
+          await persistAllAgreementBlobs(snapshot, cryptoKey);
+          const payload = normalizeCrmData(dataForEncryptedStore(snapshot));
+          if (!Sec.validate(payload)) {
+            console.error("CRM persist skipped: invalid data shape");
+            return;
+          }
+          const enc = await Sec.encrypt(payload, cryptoKey);
+          if (seq < persistRef.current.seq) return; // superseded while encrypting — don't commit
+          await store.set(STORE_KEY_ENC, enc);
+          setSaved("saved");
+          setTimeout(() => setSaved("idle"), 1400);
+        } catch (e) {
+          console.error("CRM persist failed:", e);
+          setSaved("error");
+          if (typeof window !== "undefined" && !window.__sbcrmPersistAlerted) {
+            window.__sbcrmPersistAlerted = true;
+            alert("Warning: your changes could NOT be saved to storage.\n\n" + (e && e.name === "QuotaExceededError"
+              ? "Browser storage is full (QuotaExceededError)."
+              : ("Reason: " + (e && e.message ? e.message : e))) + "\n\nNothing you edit will persist until this is resolved.");
+          }
         }
-        const enc = await Sec.encrypt(payload, cryptoKey);
-        if (alive) await store.set(STORE_KEY_ENC, enc);
-        if (alive) { setSaved("saved"); setTimeout(() => alive && setSaved("idle"), 1400); }
-      } catch (e) {
-        console.error("CRM persist failed:", e);
-      }
-    })();
-    return () => { alive = false; };
+      });
+    }, 200);
+    return () => clearTimeout(timer);
   }, [data, cryptoKey]);
 
   /* ── Keep the revenue + expense ledgers in sync with bookings ──
@@ -3473,7 +3630,7 @@ export default function App() {
       const { revenue, expenses, changed } = syncBookingLedgers(prev);
       return changed ? { ...prev, revenue, expenses } : prev;
     });
-  }, [data.registrations, data.sessions, data.clients]);
+  }, [data.registrations, data.sessions, data.clients, data.partners, data.payments]);
 
   /* ── Migrate legacy inline agreement blobs to separate encrypted storage ── */
   useEffect(() => {
@@ -4047,8 +4204,8 @@ function newRecord(db) {
   const base = { id: uid(db) };
   const m = {
     clients: { name: "", phone: "", email: "", source: "Post-session", status: "Lead", clientType: "First-time attendee", tags: [], firstSession: "", sessionsAttended: 0, lastSession: "", nextSession: "", packageType: "None", lifetimeValue: 0, notes: "", referral: "Low" },
-    partners: { name: "", studioType: "Yoga", location: "", contact: "", role: "Owner", email: "", phone: "", stage: "Target identified", estimatedCommunitySize: 0, bestFitJourney: "", revenuePotential: 0, closeProbability: "Low", revShare: "", contractStatus: "None", outreachDate: "", lastTouch: todayISO(), nextAction: "", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "", checklist: emptyChecklist() },
-    sessions: { name: "", studioId: "", date: todayISO(), time: "", durationMins: 0, status: "Planned", journey: "Breathwork Basics", capacity: 20, registered: 0, attendance: 0, paidAttendees: 0, waivers: 0, noShows: 0, revenue: 0, studioSplit: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, equipmentNeeded: "", roomSetupStatus: "Not started", musicSetupStatus: "Not started", testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false, referralsRequested: false, breakthroughNoted: false, notes: "", calendlyEventUri: "", locationType: "", locationJoinUrl: "", locationAddress: "", checklist: emptySessionChecklist(), equipChecklist: emptyEquipChecklist() },
+    partners: { name: "", studioType: "Yoga", location: "", contact: "", role: "Owner", email: "", phone: "", stage: "Target identified", estimatedCommunitySize: 0, bestFitJourney: "", revenuePotential: 0, closeProbability: "Low", revShare: "", studioSharePct: 0, contractStatus: "None", outreachDate: "", lastTouch: todayISO(), nextAction: "", avgAttendance: 0, sessionsPerMonth: 0, insuranceReqs: "", promotionCommitments: "", notes: "", checklist: emptyChecklist() },
+    sessions: { name: "", studioId: "", date: todayISO(), time: "", durationMins: 0, status: "Planned", journey: "Breathwork Basics", capacity: 20, registered: 0, attendance: 0, paidAttendees: 0, waivers: 0, noShows: 0, pricePerSeat: 0, revenue: 0, studioSplit: 0, netRevenue: 0, conversion: 0, packagesSold: 0, referralsGenerated: 0, equipmentNeeded: "", roomSetupStatus: "Not started", musicSetupStatus: "Not started", testimonialsCapt: 0, followUpSent: false, rebookOfferSent: false, referralsRequested: false, breakthroughNoted: false, notes: "", calendlyEventUri: "", locationType: "", locationJoinUrl: "", locationAddress: "", checklist: emptySessionChecklist(), equipChecklist: emptyEquipChecklist() },
     offers:    { name: "", clientId: "", offerType: "Single session", price: 0, status: "Drafted", probability: "50%", source: "", dateOffered: todayISO(), expireDate: "", followUpDate: "", notes: "", reasonLost: "" },
     revenue:   { name: "", date: todayISO(), channel: "Studio session", source: "", campaign: "", sessionId: "", clientId: "", gross: 0, stripeFee: 0, studioSplit: 0, facilitatorCost: 0, refunds: 0, costCenter: "Studio sessions", notes: "" },
     content: { name: "", category: "Breathwork education", status: "Idea", platform: "Instagram", scheduledDate: "", datePosted: "", body: "", cta: "Book a session", sessionId: "", partnerId: "", reused: false, reach: 0, likes: 0, comments: 0, shares: 0, saves: 0, engagement: 0, leads: 0, booked: 0, revenue: 0, notes: "" },
@@ -5648,7 +5805,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         : v.layout === "partner-pipeline"
         ? <PartnerPipelineView groups={processed.groups} onOpen={(r) => onOpen({ db: section, record: r })} />
         : v.layout === "session-perf"
-        ? <SessionPerfView rows={processed.rows} derived={derived} onOpen={(r) => onOpen({ db: section, record: r })} />
+        ? <SessionPerfView rows={processed.rows} derived={derived} data={data} onOpen={(r) => onOpen({ db: section, record: r })} />
         : v.layout === "offer-analytics"
         ? <OfferConversionView data={data} derived={derived} today={today} onOpen={(r) => onOpen({ db: "offers", record: r })} />
         : v.layout === "revenue-analytics"
@@ -6129,7 +6286,7 @@ const VIEWS = {
           col("contact",   "Contact",       (r) => r.contact || "—"),
           col("phone",     "Phone",         (r) => r.phone ? <a href={`tel:${r.phone}`} style={{ color: C.brand }}>{r.phone}</a> : "—"),
           col("email",     "Email",         (r) => r.email ? <a href={`mailto:${r.email}`} style={{ color: C.brand }}>{r.email}</a> : "—"),
-          col("revShare",  "Rev share",     (r) => r.revShare || "—"),
+          col("studioSharePct", "Studio share", (r) => r.studioSharePct ? `${r.studioSharePct}%` : "—"),
           col("contractStatus", "Contract", (r) => r.contractStatus ? <Tag color={r.contractStatus === "Signed" ? "#4A8C6F" : C.gold} soft>{r.contractStatus}</Tag> : "—"),
           col("lastTouch", "Last touch",    (r, c) => <DateChip iso={r.lastTouch} today={c.today} />),
         ],
@@ -6147,13 +6304,21 @@ const VIEWS = {
           col("date", "Date", (r) => fmtDate(r.date)),
           col("status", "Status", (r) => <Tag color={SESSION_STATUS_COLOR[r.status]} soft>{r.status}</Tag>),
           col("attendance", "In room", (r) => `${r.attendance || 0}/${r.capacity || "?"}`, { align: "right" }),
-          col("revenue", "Gross", (r) => money(r.revenue), { align: "right" }),
-          col("studioSplit", "Studio cut", (r) => money(r.studioSplit), { align: "right" }),
-          col("netRevenue", "Your net", (r) => <strong>{money(r.netRevenue)}</strong>, { align: "right", sum: "netRevenue" }),
+          col("revenue", "Gross", (r, c) => money(sessionFinanceFor(r, c.data).gross), { align: "right" }),
+          col("studioSplit", "Studio cut", (r, c) => money(sessionFinanceFor(r, c.data).studioSplit), { align: "right" }),
+          col("netRevenue", "Your net", (r, c) => <strong>{money(sessionFinanceFor(r, c.data).net)}</strong>, { align: "right" }),
         ],
-        run: (rows) => {
-          const sorted = [...rows].sort((a, b) => Number(b.netRevenue) - Number(a.netRevenue));
-          return { rows: sorted, footer: { revenue: money(sum(sorted, "revenue")), netRevenue: money(sum(sorted, "netRevenue")), label: "All-time total" } };
+        run: (rows, ctx) => {
+          const withFin = rows.map(r => ({ r, fin: sessionFinanceFor(r, ctx.data) }));
+          withFin.sort((a, b) => b.fin.net - a.fin.net);
+          return {
+            rows: withFin.map(x => x.r),
+            footer: {
+              revenue: money(withFin.reduce((s, x) => s + x.fin.gross, 0)),
+              netRevenue: money(withFin.reduce((s, x) => s + x.fin.net, 0)),
+              label: "All-time total",
+            },
+          };
         } },
       { name: "Conversion", layout: "table",
         columns: [
@@ -7162,7 +7327,7 @@ const FIELDS = {
     f("studioType", "Studio type", "tagselector", { options: STUDIO_TYPE }),
     f("closeProbability", "Close probability", "select", { options: CLOSE_PROB }),
     f("stage", "Pipeline stage", "select", { options: STAGE }),
-    f("revShare", "Revenue share model", "text"),
+    f("studioSharePct", "Studio revenue share % (studio's cut)", "number"),
     f("contractStatus", "Contract status", "select", { options: CONTRACT_STATUS }),
     f("outreachDate", "First outreach date", "date"),
     f("lastTouch", "Last touch date", "date"),
@@ -7181,6 +7346,7 @@ const FIELDS = {
     f("capacity", "Room capacity", "number"), f("registered", "Registered attendees", "number"),
     f("attendance", "Actual attendance", "number"), f("paidAttendees", "Paid attendees", "number"),
     f("waivers", "Waivers completed", "number"), f("noShows", "No-shows", "number"),
+    f("pricePerSeat", "Price per attendee (studio sessions)", "currency"),
     f("revenue", "Gross revenue", "currency"), f("studioSplit", "Studio split (paid out)", "currency"),
     f("netRevenue", "Your net revenue", "currency"),
     f("conversion", "Package conversion rate", "percent"), f("packagesSold", "Packages sold", "number"),
@@ -7998,10 +8164,17 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
 /* ============================================================
    SESSION PERFORMANCE VIEW (list)
    ============================================================ */
-function SessionPerfView({ rows, derived, onOpen }) {
+function SessionPerfView({ rows, derived, data = {}, onOpen }) {
   if (!rows.length) return <Empty pad>No sessions logged yet.</Empty>;
 
-  const allNet = rows.map((r) => Number(r.netRevenue) || 0);
+  // Studio sessions derive gross/split/net from price-per-seat × attendance × studio share %.
+  // Virtual sessions keep their booking-derived figures (no studio split).
+  const partnersById = Object.fromEntries((data.partners || []).map((p) => [p.id, p]));
+  const finOf = (r) => r.studioId
+    ? studioSessionFinance(r, data, { partnersById })
+    : { seatPrice: 0, gross: Number(r.revenue) || 0, studioSplit: 0, net: Number(r.netRevenue) || 0 };
+
+  const allNet = rows.map((r) => finOf(r).net);
   const avgNet = allNet.reduce((a, b) => a + b, 0) / allNet.length;
   const allConv = rows.filter((r) => r.conversion > 0).map((r) => Number(r.conversion));
   const avgConv = allConv.length ? allConv.reduce((a, b) => a + b, 0) / allConv.length : 0;
@@ -8025,9 +8198,12 @@ function SessionPerfView({ rows, derived, onOpen }) {
 
       {/* Per-session cards */}
       {rows.map((r) => {
-        const net = Number(r.netRevenue) || 0;
+        const fin = finOf(r);
+        const gross = fin.gross;
+        const split = fin.studioSplit;
+        const net = fin.net;
+        const seatPrice = fin.seatPrice;
         const capUtil = r.capacity ? Math.round(((r.attendance || 0) / r.capacity) * 100) : null;
-        const revPerHead = r.attendance ? Math.round(net / r.attendance) : 0;
         const above = net >= avgNet;
         const convColor = r.conversion >= 0.3 ? "#4A8C6F" : r.conversion >= 0.2 ? C.brand : r.conversion > 0 ? C.gold : C.ink3;
         const studio = clientShort(derived.partnerName[r.studioId] || "");
@@ -8060,11 +8236,11 @@ function SessionPerfView({ rows, derived, onOpen }) {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 8, marginBottom: insights.length ? 12 : 0 }}>
                 {[
                   { label: "In room", val: `${r.attendance || 0}${r.capacity ? `/${r.capacity}` : ""}`, accent: capUtil !== null && capUtil < 60 ? C.gold : null },
-                  { label: "Paid", val: r.paidAttendees || r.attendance || 0 },
-                  { label: "Net rev", val: money(net), accent: above ? "#4A8C6F" : net === 0 ? "#C0573F" : null },
-                  { label: "Rev/head", val: money(revPerHead) },
+                  { label: "Price/seat", val: r.studioId ? money(seatPrice) : "—" },
+                  { label: "Gross", val: money(gross) },
+                  { label: "Studio split", val: split > 0 ? money(split) : "—", accent: split > 0 ? C.gold : null },
+                  { label: "Net profit", val: money(net), accent: above ? "#4A8C6F" : net === 0 ? "#C0573F" : null },
                   { label: "Conversion", val: pct(r.conversion), accent: convColor },
-                  { label: "Pkgs sold", val: r.packagesSold || 0 },
                 ].map(({ label, val, accent }) => (
                   <div key={label} style={{ textAlign: "center" }}>
                     <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 700 }}>{label}</div>
@@ -8987,9 +9163,12 @@ function PartnerSessionsTab({ record, data, onOpenRelated, today }) {
     .filter(s => s.studioId === record.id)
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
-  const totalNet   = sessions.reduce((s, x) => s + (Number(x.netRevenue)   || 0), 0);
-  const totalGross = sessions.reduce((s, x) => s + (Number(x.revenue)      || 0), 0);
-  const totalSplit = sessions.reduce((s, x) => s + (Number(x.studioSplit)  || 0), 0);
+  // Studio finance per session: price-per-seat × attendance × this studio's share %.
+  const partnersById = { [record.id]: record };
+  const finBySession = Object.fromEntries(sessions.map(s => [s.id, studioSessionFinance(s, data, { partnersById })]));
+  const totalGross = sessions.reduce((s, x) => s + finBySession[x.id].gross, 0);
+  const totalSplit = sessions.reduce((s, x) => s + finBySession[x.id].studioSplit, 0);
+  const totalNet   = sessions.reduce((s, x) => s + finBySession[x.id].net, 0);
 
   if (!sessions.length) {
     return <div style={{ padding: "32px 0", textAlign: "center", color: C.ink3, fontSize: 13 }}>No sessions logged for this studio yet.</div>;
@@ -9013,9 +9192,10 @@ function PartnerSessionsTab({ record, data, onOpenRelated, today }) {
       <div style={{ fontSize: 12, color: C.ink3, marginBottom: 2 }}>{sessions.length} session{sessions.length !== 1 ? "s" : ""}</div>
 
       {sessions.map(s => {
-        const net   = Number(s.netRevenue)  || 0;
-        const gross = Number(s.revenue)     || 0;
-        const split = Number(s.studioSplit) || 0;
+        const fin   = finBySession[s.id];
+        const net   = fin.net;
+        const gross = fin.gross;
+        const split = fin.studioSplit;
         const isPast = s.date && s.date < today;
         const statusColor = SESSION_STATUS_COLOR[s.status] || C.ink3;
         return (
@@ -9346,9 +9526,14 @@ function SessionChecklist({ checklist, onChange, sessionName, status, isVirtual 
    SESSION PERFORMANCE (drawer tab)
    ============================================================ */
 function SessionPerformance({ record: r, derived, data }) {
-  const net = Number(r.netRevenue) || 0;
-  const gross = Number(r.revenue) || 0;
-  const split = Number(r.studioSplit) || 0;
+  // Studio sessions: gross/split/net derive live from price-per-seat × attendance × studio share %.
+  const fin = r.studioId
+    ? studioSessionFinance(r, data)
+    : { seatPrice: 0, gross: Number(r.revenue) || 0, studioSplit: 0, net: Number(r.netRevenue) || 0, sharePct: 0 };
+  const net = fin.net;
+  const gross = fin.gross;
+  const split = fin.studioSplit;
+  const seatPrice = fin.seatPrice;
   const capUtil = r.capacity ? Math.round(((r.attendance || 0) / r.capacity) * 100) : null;
   const revPerHead = r.attendance ? (net / r.attendance).toFixed(2) : 0;
   const fillRate = r.registered ? Math.round(((r.attendance || 0) / r.registered) * 100) : null;
@@ -9482,6 +9667,10 @@ function SessionPerformance({ record: r, derived, data }) {
     { label: "Paid attendees",  val: r.paidAttendees || r.attendance || 0 },
     { label: "Waivers",         val: r.waivers || 0 },
     { label: "No-shows",        val: r.noShows || 0, accent: (r.noShows || 0) > 2 ? C.gold : null },
+    ...(r.studioId ? [
+      { label: "Price per seat",  val: money(seatPrice) },
+      { label: "Studio share",    val: `${fin.sharePct}%`, accent: C.gold },
+    ] : []),
     { label: "Gross revenue",   val: money(gross) },
     { label: "Studio split",    val: money(split), accent: C.gold },
     { label: "Your net",        val: money(net), accent: net > 0 ? "#4A8C6F" : "#C0573F" },
@@ -9897,7 +10086,7 @@ function buildPartnerTimeline(record, data, derived, today) {
   // Partnership milestone
   events.push(tlEvent(record.outreachDate || sessions[0]?.date || "", "milestone",
     `Partnership: ${record.stage}`,
-    `${record.revShare || "Revenue share TBD"} · Contact: ${record.contact} (${record.role})`));
+    `${record.studioSharePct ? `${record.studioSharePct}% to studio` : (record.revShare || "Revenue share TBD")} · Contact: ${record.contact} (${record.role})`));
 
   // Outreach date (if different from first session)
   if (record.outreachDate) {
@@ -9956,7 +10145,7 @@ function buildPartnerTimeline(record, data, derived, today) {
       { label: "Est. community",    value: record.estimatedCommunitySize ? Number(record.estimatedCommunitySize).toLocaleString() + " people" : "—" },
       { label: "Revenue potential", value: money(record.revenuePotential || 0), accent: C.brand },
       { label: "Close probability", value: record.closeProbability || "—", accent: CLOSE_PROB_COLOR[record.closeProbability] },
-      { label: "Revenue share",     value: record.revShare || "TBD" },
+      { label: "Studio revenue share", value: record.studioSharePct ? `${record.studioSharePct}% to studio` : (record.revShare || "TBD") },
       { label: "Contract status",   value: record.contractStatus || "None" },
       { label: "First outreach",    value: fmtDate(record.outreachDate) || "—" },
       { label: "Last touch",        value: fmtDate(record.lastTouch) || "—" },
@@ -10221,7 +10410,7 @@ function FieldInput({ fld, value, onChange, data }) {
    CSV IMPORT
    ============================================================ */
 const IMPORT_MAP = {
-  partners: { file: "02-Studio-Partners.csv", map: { "studio name": "name", location: "location", "contact name": "contact", role: "role", email: "email", phone: "phone", "partnership stage": "stage", "revenue share model": "revShare", "avg attendance": "avgAttendance", "sessions per month": "sessionsPerMonth", notes: "notes" }, nums: ["avgAttendance", "sessionsPerMonth"] },
+  partners: { file: "02-Studio-Partners.csv", map: { "studio name": "name", location: "location", "contact name": "contact", role: "role", email: "email", phone: "phone", "partnership stage": "stage", "studio revenue share %": "studioSharePct", "avg attendance": "avgAttendance", "sessions per month": "sessionsPerMonth", notes: "notes" }, nums: ["studioSharePct", "avgAttendance", "sessionsPerMonth"] },
   clients: { file: "01-Clients.csv", map: { name: "name", phone: "phone", email: "email", source: "source", status: "status", "first session date": "firstSession", "sessions attended": "sessionsAttended", "last session date": "lastSession", "next session date": "nextSession", "package type": "packageType", "lifetime value": "lifetimeValue", "emotional notes": "notes", "referral potential": "referral" }, nums: ["sessionsAttended", "lifetimeValue"] },
   sessions: { file: "03-Sessions.csv", map: { "session name": "name", studio: "_studio", date: "date", "attendance count": "attendance", revenue: "revenue", "your net revenue": "netRevenue", "conversion rate": "conversion", "packages sold": "packagesSold", "referrals generated": "referralsGenerated", notes: "notes" }, nums: ["attendance", "revenue", "netRevenue", "conversion", "packagesSold", "referralsGenerated"], rel: { field: "_studio", to: "partners", set: "studioId" } },
   offers: { file: "04-Offers-Sales.csv", map: { offer: "name", "client name": "_client", "offer type": "offerType", price: "price", status: "status", "date offered": "dateOffered", "close date": "closeDate" }, nums: ["price"], rel: { field: "_client", to: "clients", set: "clientId" } },
@@ -13448,7 +13637,7 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser }) {
         if (lk === "avgattendance" || lk === "avgattendan") { set(k, recipient.avgAttendance != null ? String(recipient.avgAttendance) : ""); return; }
         if (lk === "lastcontactdate")  { set(k, recipient.lastTouch ? fmtDate(recipient.lastTouch) : ""); return; }
         if (lk === "sessionspermonth") { set(k, recipient.sessionsPerMonth != null ? String(recipient.sessionsPerMonth) : ""); return; }
-        if (lk === "revsplit")         { set(k, recipient.revShare || ""); return; }
+        if (lk === "revsplit")         { set(k, recipient.studioSharePct ? `${recipient.studioSharePct}% to studio` : (recipient.revShare || "")); return; }
         if (lk === "referencestudio")  { set(k, recipient.name || ""); return; }
       }
       vals[k] = ""; // not auto-fillable — manual entry
