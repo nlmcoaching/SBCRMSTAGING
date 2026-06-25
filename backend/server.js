@@ -1312,7 +1312,10 @@ app.delete("/api/stripe/events", requireAdminToken, (_req, res) => {
 // POST /api/integration/clear-queues
 // Clears Calendly + Stripe pending queues (used by Reset to Production).
 // ────────────────────────────────────────────────────────────────
-app.post("/api/integration/clear-queues", requireFrontendSecret, requireAdminToken, (_req, res) => {
+// requireAdminToken is intentionally omitted: this endpoint is called from the browser during
+// Reset to Production. ADMIN_SECRET is a server-side-only secret the browser cannot send.
+// requireFrontendSecret is the correct gate here — it ensures only the CRM app can call this.
+app.post("/api/integration/clear-queues", requireFrontendSecret, (_req, res) => {
   writeQueue([]);
   writeNamedQueue(STRIPE_QUEUE_FILE, []);
   res.json({ status: "cleared", calendly: 0, stripe: 0 });

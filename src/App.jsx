@@ -5986,7 +5986,7 @@ function registrationExpandRow(r, ctx) {
         {field("Timezone", r.timezone)}
         {field("Location type", r.locationType)}
         {field("Location address", r.locationAddress)}
-        {field("Join URL", r.locationJoinUrl ? <a href={r.locationJoinUrl} target="_blank" rel="noreferrer" style={{ color: C.brand, wordBreak: "break-all", fontSize: 12 }}>{r.locationJoinUrl}</a> : null)}
+        {field("Join URL", r.locationJoinUrl && r.locationJoinUrl.startsWith("https://") ? <a href={r.locationJoinUrl} target="_blank" rel="noreferrer noopener" style={{ color: C.brand, wordBreak: "break-all", fontSize: 12 }}>{r.locationJoinUrl}</a> : (r.locationJoinUrl || null))}
         {field("Attendance type", r.attendanceType)}
         {field("Payment status", r.paymentStatus)}
         {field("Calendly amount", calendlyBookingAmount(r) != null ? money(calendlyBookingAmount(r)) : null)}
