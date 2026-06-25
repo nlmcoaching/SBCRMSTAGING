@@ -3752,7 +3752,7 @@ export default function App() {
     { id: "outreach", label: "Outreach Hub",       Icon: Send,        lane: "b2b"  },
     // Shared — financial & ops
     { id: "sessions", label: "Sessions",           Icon: CalendarDays,lane: "core" },
-    { id: "pandl",    label: "P&L",                Icon: Scale,       lane: "core" },
+    { id: "pandl",    label: "P&L",                Icon: Scale,       lane: "core", groupOnly: true },
     { id: "revenue",  label: "Revenue",            Icon: TrendingUp,  lane: "core", parent: "pandl" },
     { id: "expenses", label: "Expenses",           Icon: BarChart2,   lane: "core", parent: "pandl" },
     { id: "registrations", label: "Calendly Bookings", Icon: CalendarCheck, lane: "core" },
@@ -3871,9 +3871,11 @@ export default function App() {
                     // Collapse — add to collapsed set without navigating
                     setCollapsedGroups(prev => new Set([...prev, s.id]));
                   } else {
-                    // Expand — remove from collapsed set and navigate to first child
+                    // Expand — remove from collapsed set
                     setCollapsedGroups(prev => { const n = new Set(prev); n.delete(s.id); return n; });
-                    go(children[0].id);
+                    // groupOnly parents (e.g. P&L) have no own content → go to first child.
+                    // Parents with own content (e.g. Admin) → navigate to themselves.
+                    go(s.groupOnly ? children[0].id : s.id);
                   }
                 };
                 return (
