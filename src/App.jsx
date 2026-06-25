@@ -2452,6 +2452,7 @@ export default function App() {
   const [importing, setImporting] = useState(false);
   const [query, setQuery] = useState("");
   const [navOpen, setNavOpen] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState(new Set());
   const [showProfile, setShowProfile] = useState(false);
   const [showAlerts,  setShowAlerts]  = useState(false);
   const [crmSettings, setCrmSettings] = useState(() => loadCrmSettings());
@@ -3861,22 +3862,35 @@ export default function App() {
                 const count = (data[s.id] || []).length;
                 const children = sections.filter(c => c.parent === s.id);
                 const anyChildActive = children.some(c => c.id === section);
-                const expanded = active || anyChildActive;
+                // Groups expand when a child is active; clicking the parent toggles collapse.
+                // collapsedGroups tracks manual overrides so the user can hide the sub-items.
+                const groupExpanded = children.length > 0 && (active || anyChildActive) && !collapsedGroups.has(s.id);
+                const handleParentClick = () => {
+                  if (children.length === 0) { go(s.id); return; }
+                  if (groupExpanded) {
+                    // Collapse — add to collapsed set without navigating
+                    setCollapsedGroups(prev => new Set([...prev, s.id]));
+                  } else {
+                    // Expand — remove from collapsed set and navigate to first child
+                    setCollapsedGroups(prev => { const n = new Set(prev); n.delete(s.id); return n; });
+                    go(children[0].id);
+                  }
+                };
                 return (
                   <div key={s.id}>
-                    <button onClick={() => go(children.length > 0 ? children[0].id : s.id)} className="sb-navbtn"
+                    <button onClick={handleParentClick} className="sb-navbtn"
                       style={{ background: (active || anyChildActive) ? C.brandSoft : "transparent", color: (active || anyChildActive) ? C.brandDeep : C.ink2, fontWeight: (active || anyChildActive) ? 600 : 500 }}>
                       <s.Icon size={16} strokeWidth={1.5} style={{ flexShrink: 0 }} />
                       <span style={{ flex: 1, textAlign: "left" }}>{s.label}</span>
                       {children.length > 0
-                        ? <ChevronRight size={13} style={{ color: C.ink3, transform: expanded ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
+                        ? <ChevronRight size={13} style={{ color: C.ink3, transform: groupExpanded ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
                         : (count > 0 && <span style={{ fontSize: 11, color: active ? C.brand : C.ink3 }}>{count}</span>)
                       }
                     </button>
-                    {children.length > 0 && expanded && children.map(c => {
+                    {children.length > 0 && groupExpanded && children.map(c => {
                       const cActive = section === c.id;
                       return (
-                        <button key={c.id} onClick={() => go(c.id)} className="sb-navbtn"
+                        <button key={c.id} onClick={() => { setCollapsedGroups(prev => { const n = new Set(prev); n.delete(s.id); return n; }); go(c.id); }} className="sb-navbtn"
                           style={{ background: cActive ? C.brandSoft : "transparent", color: cActive ? C.brandDeep : C.ink2, fontWeight: cActive ? 600 : 400, paddingLeft: 30 }}>
                           <span style={{ width: 6, height: 6, borderRadius: "50%", background: cActive ? C.brand : C.ink3, flexShrink: 0, marginRight: 2 }} />
                           <c.Icon size={14} strokeWidth={1.5} style={{ flexShrink: 0 }} />
