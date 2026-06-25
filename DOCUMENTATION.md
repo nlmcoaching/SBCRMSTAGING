@@ -888,7 +888,7 @@ Manages proactive studio and referral outreach — separate from the reactive St
 
 ## Revenue Attribution
 
-**Navigation:** Sidebar → Revenue (Core section)
+**Navigation:** Sidebar → P&L → Revenue
 
 Revenue views derive each booking's amount from its **actual matched Stripe charge** (`amountGross`, via `bookingStripeCharge` / `buildPaidPaymentsByBooking`) — the same number shown on the Stripe reconciliation page. A booking with **no Stripe charge** (free / coupon) is **$0**; the Calendly list price is never substituted. Bookings in `pending_verification`, `unmatched`, `unpaid`, and `failed` are excluded until Stripe confirms payment. Accepted/paid **offers** are added on top.
 
@@ -1911,16 +1911,18 @@ Sections are grouped into three visual lanes rendered in this order:
 - Testimonials
 - Referrals
 - Offers & Sales
-- Revenue
-- Expenses
+- P&L *(parent nav item — clicking navigates to Revenue)*
+  - Revenue *(nested sub-item)*
+  - Expenses *(nested sub-item)*
 - Workflows
 - Calendly Bookings
+- Stripe
 - Content Calendar
 - Templates
 - Admin
   - User Management *(nested sub-item, expands when Admin is active)*
 
-> **Note:** User Management is a collapsible child of Admin. The Admin nav item shows a chevron indicator; clicking Admin or User Management automatically expands the group.
+> **Note:** Revenue and Expenses are collapsible children of the **P&L** nav item. Clicking P&L navigates to Revenue (first child) and expands the group. User Management is similarly nested under Admin. Both parent items show a chevron indicator that rotates when the group is open.
 
 ### Record Editing — Modal Popup
 

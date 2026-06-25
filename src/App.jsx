@@ -6,7 +6,7 @@ import {
   RefreshCw, Plus, X, Search, Upload, Download, Trash2, ChevronLeft,
   ChevronRight, ChevronDown, Menu, Phone, Mail, Link2, Wind, ArrowUpRight, Check,
   Zap, Copy, Clock, TrendingUp, BarChart2, AlertCircle, Activity, Send, Info, BellRing, Milestone,
-  LogOut, UserCircle, Shield, KeyRound, Receipt, ClipboardList, FileSignature, CalendarCheck, CheckCircle, Save,
+  LogOut, UserCircle, Shield, KeyRound, Receipt, ClipboardList, FileSignature, CalendarCheck, CheckCircle, Save, Scale,
 } from "lucide-react";
 import {
   amountsMatch,
@@ -3752,8 +3752,9 @@ export default function App() {
     { id: "testimonials", label: "Testimonials",       Icon: ArrowUpRight, lane: "core" },
     { id: "referrals",    label: "Referrals",          Icon: Users,       lane: "core" },
     { id: "offers",   label: "Offers & Sales",     Icon: DollarSign,  lane: "core" },
-    { id: "revenue",  label: "Revenue",            Icon: TrendingUp,  lane: "core" },
-    { id: "expenses", label: "Expenses",           Icon: BarChart2,   lane: "core" },
+    { id: "pandl",    label: "P&L",                Icon: Scale,       lane: "core" },
+    { id: "revenue",  label: "Revenue",            Icon: TrendingUp,  lane: "core", parent: "pandl" },
+    { id: "expenses", label: "Expenses",           Icon: BarChart2,   lane: "core", parent: "pandl" },
     { id: "workflows", label: "Workflows",        Icon: Milestone,   lane: "core" },
     { id: "registrations", label: "Calendly Bookings", Icon: CalendarCheck, lane: "core" },
     { id: "stripe",    label: "Stripe",            Icon: Receipt,     lane: "core" },
@@ -3863,8 +3864,8 @@ export default function App() {
                 const expanded = active || anyChildActive;
                 return (
                   <div key={s.id}>
-                    <button onClick={() => go(s.id)} className="sb-navbtn"
-                      style={{ background: active ? C.brandSoft : "transparent", color: active ? C.brandDeep : C.ink2, fontWeight: active ? 600 : 500 }}>
+                    <button onClick={() => go(children.length > 0 ? children[0].id : s.id)} className="sb-navbtn"
+                      style={{ background: (active || anyChildActive) ? C.brandSoft : "transparent", color: (active || anyChildActive) ? C.brandDeep : C.ink2, fontWeight: (active || anyChildActive) ? 600 : 500 }}>
                       <s.Icon size={16} strokeWidth={1.5} style={{ flexShrink: 0 }} />
                       <span style={{ flex: 1, textAlign: "left" }}>{s.label}</span>
                       {children.length > 0

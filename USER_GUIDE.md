@@ -107,8 +107,9 @@ System-wide tools that support everything else.
 | Testimonials | Client testimonials and social proof |
 | Referrals | Who's referring who and the value they generate |
 | Offers & Sales | Packages and proposals you've made to clients |
-| Revenue | Revenue tracking and attribution |
-| Expenses | Business expense tracking and P&L |
+| P&L | Groups Revenue and Expenses — click to expand |
+| ↳ Revenue | Revenue tracking and attribution |
+| ↳ Expenses | Business expense tracking and P&L |
 | Workflows | A visual view of your five core business pipelines |
 | Calendly Bookings | Bookings synced automatically from Calendly |
 | Content Calendar | Your content calendar and social post planning |
@@ -116,7 +117,7 @@ System-wide tools that support everything else.
 | Admin | System health, database info, and backup tools |
 | ↳ User Management | Nested under Admin — add or manage system users |
 
-> **Tip:** User Management lives inside the Admin section. Click **Admin** in the sidebar to expand it and reveal the User Management sub-item.
+> **Tip:** Revenue and Expenses are grouped under a **P&L** sidebar item. Click **P&L** to go straight to Revenue and expand the group, then click **Expenses** to switch. User Management is similarly nested under Admin.
 
 ### The Header
 
@@ -1049,7 +1050,7 @@ Answers: Are referrals converting? Are referrers being acknowledged?
 Keeping tabs on what you spend is just as important as tracking what you earn. The Expenses section helps you record, categorize, and analyze every business cost — and automatically shows you your true operating profit.
 
 ### Getting to Expenses
-Click **Expenses** in the left sidebar (under the B2C section).
+Click **P&L** in the left sidebar, then **Expenses**.
 
 ### The Summary Dashboard
 When you open Expenses, you land on the **Summary** tab which gives you an instant financial health check:
