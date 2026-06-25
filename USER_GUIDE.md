@@ -404,7 +404,7 @@ For studio sessions, you collect payment up front, but the studio's cut is only 
    - **Net profit** = Gross − Studio split (what you keep).
 5. An **expense** is created automatically in the **Studio Split** category for the studio's cut, linked to the session and the studio. If you change the price, attendance, or the studio's share %, that same expense updates — no duplicates, nothing to enter by hand.
 
-Because these three values are all set by you, the studio split **won't change on its own** when Calendly or Stripe syncs run — only your edits move it.
+Because these three values are all set by you, the studio split **won't change on its own** when Calendly or Stripe syncs run — only your edits move it. The app's sync engine now fully skips studio sessions when it refreshes virtual-session revenue from Stripe/Calendly, so fields like **Price per attendee**, **Paid attendees**, and **Actual attendance** can never be zeroed or overwritten by a background sync. Only the **Registered** count (bookings taken) is updated automatically when a new booking comes in.
 
 You'll see **Price/seat, Gross, Studio split, and Net profit** on the session's **Performance** tab, in the **Revenue Leaderboard**, and on the studio partner's **Sessions** tab — all kept in sync automatically.
 
@@ -794,13 +794,13 @@ You can also add revenue that didn't come from a Calendly booking (for example a
 
 The **Revenue attribution** and **Payment reconciliation** tabs use each booking's **actual matched Stripe charge** (the same amount shown on the Stripe page); a booking with no charge counts as **$0**. **Accepted/paid offers** are added on top. Bookings still in **Pending verification** do not appear in revenue totals until Stripe confirms payment.
 
-**Revenue Attribution tab (first tab)** gives you a full MTD breakdown:
-- **Gross revenue MTD** — total gross session revenue for the month
-- **Net revenue MTD** — gross minus studio splits for the month
-- **Total Session Revenue** — all-time gross
-- **Total Net Session Revenue** — all-time net after splits
-- **Revenue waterfall — month to date**: shows how gross revenue flows down through fees, studio splits, and refunds to arrive at net.
-- **P&L by channel — MTD**: gross, fees, splits, and net broken down by session type for the current month.
+**Revenue Attribution tab (first tab)** gives you a full MTD breakdown drawn directly from your revenue and expense ledgers (the same records used by the This month tab):
+- **Gross revenue MTD** — total gross session revenue for the month (from the Revenue table)
+- **Net revenue MTD** — gross minus studio splits, fees, and refunds for the month
+- **YTD Revenue** — gross revenue so far this year
+- **YTD Net Revenue** — net revenue so far this year
+- **Revenue waterfall — month to date**: shows how gross revenue flows down through studio splits (using your actual partner percentages from the Expense table), fees, and refunds to arrive at net.
+- **P&L by channel — MTD**: gross, studio splits, fees, and net broken down by session type for the current month — studio split amounts come from the Studio Split expense records, not an estimated percentage.
 - **Recently Charged Sessions**: shows your latest sessions newest-first — every paid Stripe charge plus any **free/coupon** booking (shown as **Free**), mirroring the Stripe page so it always reflects recent activity.
 
 ### This month tab — gross revenue minus expenses

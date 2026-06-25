@@ -937,13 +937,15 @@ The **Revenue** and **Expense** tables are kept in sync with bookings automatica
 
 - **Revenue table** — every **active** virtual or studio booking is materialised as a revenue record (`id` prefixed `regrev_`, `auto: true`, `channel` = `Virtual session` / `Studio session`). The record's `gross` is the booking's **actual matched Stripe charge** (`amountGross`), with `refunds` = `amountRefunded` and `net` = gross − refunds; a booking with **no Stripe charge** (free / coupon) is `$0` — the Calendly list price is never used, so these values match the Stripe page row-for-row. Records regenerate from the current bookings on every change, so amounts track Stripe reconciliation and canceled/rescheduled bookings drop out automatically.
 - **Expense table** — every **canceled** booking is materialised as an expense record (`id` prefixed `cxlexp_`, `auto: true`, `category` = `Refunds & Cancellations`, `amount` = the booking's Stripe amount, `$0` for free/coupon bookings). Reschedules are **not** expensed (the payment simply follows the booking to its new time). These records feed Expenses MTD / Operating Profit, so each cancellation reduces profit by its Stripe amount.
-- **Studio split expenses** — every **studio session** that owes its partner a revenue share is materialised as one expense record (`id` prefixed `studiosplit_`, `auto: true`, `category` = `Studio Split`, `vendor` = the studio partner name, `linkedSession` / `linkedPartner` set). The `amount` is computed (`studioSessionFinance`) as the session's **price-per-seat × paid attendees × the partner's revenue share %** — all hand-entered. It only changes when one of those three fields is edited, so it stays in sync (no duplicates) without being disturbed by Calendly/Stripe syncs. See *Studio split tracking* below.
+- **Studio split expenses** — every **studio session** that owes its partner a revenue share is materialised as one expense record (`id` prefixed `studiosplit_`, `auto: true`, `category` = `Studio Split`, `vendor` = the studio partner name, `linkedSession` / `linkedPartner` set). The `amount` is computed (`studioSessionFinance`) as the session's **price-per-seat × paid attendees × the partner's revenue share %** — all hand-entered. It only changes when one of those three fields is edited, so it stays in sync (no duplicates) without being disturbed by Calendly/Stripe syncs. See *Studio split tracking* below. **Preservation rule:** if a previously-recorded positive-amount studio split expense would recompute to $0 (e.g. `paidAttendees` was accidentally cleared), the record is retained rather than silently deleted. The user must manually delete stale records if needed.
 
 Manually-entered revenue/expense rows are always preserved; only the `auto` records are regenerated. To avoid double-counting, client **Lifetime Value** and the Revenue tab exclude the `auto` revenue records (the underlying registrations/live booking rows already represent them).
 
 ### Studio split tracking
 
-For studio (B2B) sessions, payment is collected up front, but the studio's revenue share is only owed once the session runs and attendance is known. The economics are computed by `studioSessionFinance(session, data)` from three **hand-entered** inputs (so they never shift on a Calendly/Stripe sync):
+For studio (B2B) sessions, payment is collected up front, but the studio's revenue share is only owed once the session runs and attendance is known. The economics are computed by `studioSessionFinance(session, data)` from three **hand-entered** inputs (so they never shift on a Calendly/Stripe sync).
+
+**Sync protection**: `refreshCalendlySessionRevenue` — called on every Calendly/Stripe auto-sync and on every registration save — now completely skips sessions that have a `studioId`. This prevents the sync from overwriting `pricePerSeat`, `paidAttendees`, `attendance`, `revenue`, `studioSplit`, or `netRevenue` with Stripe booking sums. The `registered` count (bookings taken) IS still updated when a registration is saved (separate, targeted update). The partner's `studioSharePct` is preserved by `normalizeCrmData` on every save/load. If a partner record is ever reconstructed automatically (via `healStudioPartners`), `studioSharePct` is inferred from the session's stored `studioSplit ÷ revenue` ratio instead of defaulting to 0.
 
 | Input | Source |
 |---|---|
@@ -985,10 +987,10 @@ Manual **Revenue** records (gross, Stripe fee, studio split, etc.) are part of t
 
 ### Views
 
-- **Revenue Attribution** (tab 0) — stat cards and analytics:
-  - Stat cards: **Gross revenue MTD**, **Net revenue MTD**, **Total Session Revenue** (all-time gross), **Total Net Session Revenue** (all-time net after splits)
-  - **Revenue waterfall — month to date**: Gross → Processing fees → Studio splits → Refunds → Net. All figures limited to the current calendar month.
-  - **P&L by channel — MTD**: Gross, fees, splits, net by session type/source. Data is limited to the current month.
+- **Revenue Attribution** (tab 0) — stat cards and analytics driven directly by the **revenue and expense ledgers** (same source of truth as the This month tab):
+  - Stat cards: **Gross revenue MTD**, **Net revenue MTD**, **YTD Revenue**, **YTD Net Revenue**
+  - **Revenue waterfall — month to date**: Gross (sum of `data.revenue` gross) → Studio splits (sum of `data.expenses` where `category = "Studio Split"`) → Processing fees → Refunds (revenue refunds + cancellation expenses) → Net. All figures limited to the current calendar month.
+  - **P&L by channel — MTD**: Gross and fees from `data.revenue` grouped by channel; studio split expenses attributed to "Studio session"; cancellation expenses routed to the channel of the linked session. Net = Gross − Fees − Split − Refunds per channel.
   - **Recently Charged Sessions**: Mirrors the Stripe page — every paid Stripe charge **plus** every active booking with no charge (free/coupon) shown as a `$0` **Free** row, so the card always reflects the latest activity. Sorted newest-first by charge time (free rows fall back to booked time). Columns: Charged, Booked, Client, Session, Channel, Amount.
 
 - **This month** (tab 1) — rebuilt around the actual ledgers (`revenue-this-month` layout, `RevenueThisMonthView`). It no longer derives figures from registrations or applies a 70/30 split. Instead:
@@ -1008,7 +1010,7 @@ Manual **Revenue** records (gross, Stripe fee, studio split, etc.) are part of t
 
 The **Revenue Table** and **Expense Table** tabs (and the revenue/expense listings on the **This month** tab) display footer rows showing the record count and column totals.
 
-The **This month** tab no longer applies the legacy 70/30 studio split to its headline figures — gross comes straight from stored Stripe amounts and net is gross minus expenses. The 70/30 split logic still applies inside the **Revenue Attribution** analytics views.
+Both the **This month** tab and the **Revenue Attribution** tab now derive all figures from the stored revenue and expense ledgers. Studio splits use the actual partner `studioSharePct` (via the `studiosplit_*` expense records) rather than a hardcoded 70/30 ratio.
 
 ---
 

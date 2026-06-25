@@ -1405,18 +1405,26 @@ function healStudioPartners(sessionsIn, partnersIn) {
     }
     return null;
   };
-  const makePartner = (id, name, location) => ({
+  const makePartner = (id, name, location, inferredSharePct = 0) => ({
     id, name, location: location || "", studioType: "Yoga",
     contact: "", role: "", email: "", phone: "",
     stage: "Recurring partner",
     estimatedCommunitySize: 0, bestFitJourney: "", revenuePotential: 0,
-    closeProbability: "Closed Won", revShare: "", studioSharePct: 0,
+    closeProbability: "Closed Won", revShare: "", studioSharePct: inferredSharePct,
     contractStatus: "None", outreachDate: "", lastTouch: "",
     nextAction: "", avgAttendance: 0, sessionsPerMonth: 0,
     insuranceReqs: "", promotionCommitments: "",
     notes: "Re-created automatically from existing session data (studio partner record was missing).",
     checklist: emptyChecklist(),
   });
+
+  // Infer studio revenue share % from a session's stored gross/split when reconstituting a lost partner.
+  const inferSharePct = (session) => {
+    const gross = Number(session.revenue) || 0;
+    const split = Number(session.studioSplit) || 0;
+    if (gross > 0 && split > 0) return Math.round((split / gross) * 100);
+    return 0;
+  };
 
   for (const s of sessions) {
     // Case A: studioId set but the partner is gone — recreate it with the SAME id so every
@@ -1428,7 +1436,7 @@ function healStudioPartners(sessionsIn, partnersIn) {
         if (existing) {
           if (s.studioId !== existing.id) { s.studioId = existing.id; changed = true; }
         } else {
-          const np = makePartner(s.studioId, parsed.name, parsed.location);
+          const np = makePartner(s.studioId, parsed.name, parsed.location, inferSharePct(s));
           partners.push(np); byId.set(np.id, np); byName.set(parsed.name.toLowerCase(), np);
           changed = true;
         }
@@ -1881,11 +1889,16 @@ function sessionFinanceFor(session, data) {
   };
 }
 function refreshCalendlySessionRevenue(sessions, registrations) {
-  return sessions.map(s => (
-    s.calendlyEventUri || (registrations || []).some(r => r.sessionId === s.id && r.paymentAmount != null)
-      ? applySessionRevenueFromRegistrations(s, registrations)
-      : s
-  ));
+  return sessions.map(s => {
+    // Studio sessions use hand-entered financial fields (pricePerSeat, paidAttendees, attendance,
+    // revenue, studioSplit). Never overwrite these from Stripe/Calendly booking sums — the model
+    // is pricePerSeat × paidAttendees, not the sum of individual charges.
+    if (s.studioId) return s;
+    if (s.calendlyEventUri || (registrations || []).some(r => r.sessionId === s.id && r.paymentAmount != null)) {
+      return applySessionRevenueFromRegistrations(s, registrations);
+    }
+    return s;
+  });
 }
 function buildSessionMap(sessions) {
   return Object.fromEntries((sessions || []).map(s => [s.id, s]));
@@ -2138,8 +2151,22 @@ function syncBookingLedgers(data = {}) {
   const { revenue: autoRev, expenses: autoExp } = buildBookingLedgerRecords(data);
   const manualRev = (data.revenue || []).filter(r => !isAutoRevenueRecord(r));
   const manualExp = (data.expenses || []).filter(e => !isAutoExpenseRecord(e));
+
+  // Studio-split auto expenses are keyed to a session. If a session's computed split drops to $0
+  // (e.g. paidAttendees was accidentally cleared, or the partner's share % was temporarily zeroed),
+  // the record is excluded from autoExp. Rather than silently deleting a previously-recorded
+  // positive-amount split, we preserve it so the user doesn't lose data. The user can manually
+  // delete the record if it is genuinely no longer owed.
+  const newAutoSplitIds = new Set(
+    autoExp.filter(e => String(e?.id || "").startsWith(AUTO_SPLIT_EXP_ID_PREFIX)).map(e => e.id)
+  );
+  const preservedSplitExp = (data.expenses || [])
+    .filter(e => String(e?.id || "").startsWith(AUTO_SPLIT_EXP_ID_PREFIX)
+      && Number(e.amount) > 0
+      && !newAutoSplitIds.has(e.id));
+
   const nextRevenue = [...manualRev, ...autoRev];
-  const nextExpenses = [...manualExp, ...autoExp];
+  const nextExpenses = [...manualExp, ...autoExp, ...preservedSplitExp];
   const sig = (arr, amtKey) => arr.map(x => `${x.id}|${x[amtKey] ?? ""}|${x.date ?? ""}`).sort().join(";");
   const changed =
     sig(nextRevenue, "gross") !== sig(data.revenue || [], "gross") ||
@@ -3716,7 +3743,17 @@ export default function App() {
           offers: d.offers || [],
         });
         if (toSave.sessionId) {
-          next.sessions = refreshCalendlySessionRevenue(d.sessions || [], nextRows);
+          // refreshCalendlySessionRevenue now skips studio sessions to protect hand-entered
+          // financial fields (pricePerSeat, paidAttendees, attendance). Update their registered
+          // count separately so the session card stays accurate after a booking is saved.
+          const refreshed = refreshCalendlySessionRevenue(d.sessions || [], nextRows);
+          next.sessions = refreshed.map(s => {
+            if (s.studioId && s.id === toSave.sessionId) {
+              const regCount = nextRows.filter(r => r.sessionId === s.id && r.status !== "canceled").length;
+              return { ...s, registered: regCount };
+            }
+            return s;
+          });
         }
       }
       return next;
@@ -15089,34 +15126,56 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
    ============================================================ */
 
 function RevenueAttributionView({ data, derived, today, onOpen }) {
-  const rows = buildRevenueViewRows(data).map(applyStudioSessionSplit);
+  // Read directly from the revenue and expense ledgers (auto-synced from bookings/payments).
+  // This ensures gross amounts match Stripe, studio splits use the actual partner studioSharePct,
+  // and cancellation expenses are included — rather than re-deriving from raw registrations.
+  const rows = data.revenue || [];
+  const allExpenses = data.expenses || [];
   const [highlight, setHighlight] = useState(null);
   const mo = today.slice(0, 7);
-  const mtdRows = rows.filter(r => sameMonth(r.bookedAt || r.date, today));
+  const mtdRows     = rows.filter(r => sameMonth(r.bookedAt || r.date, today));
+  const mtdExpRows  = allExpenses.filter(e => sameMonth(e.date, today));
+  const mtdSplitExp = mtdExpRows.filter(e => e.category === "Studio Split");
+  const mtdCxlExp   = mtdExpRows.filter(e => e.category === "Refunds & Cancellations");
 
   // ── Core totals (MTD only) ───────────────────────────────────
   const totalGross = sum(mtdRows, "gross");
   const totalFees  = sum(mtdRows, "stripeFee") + sum(mtdRows, "facilitatorCost");
-  const totalSplit = sum(mtdRows, "studioSplit");
-  const totalRef   = sum(mtdRows, "refunds");
-  const totalNet   = mtdRows.reduce((a, r) => a + calcNet(r), 0);
+  const totalSplit = mtdSplitExp.reduce((a, e) => a + (Number(e.amount) || 0), 0);
+  const totalRef   = sum(mtdRows, "refunds") + mtdCxlExp.reduce((a, e) => a + (Number(e.amount) || 0), 0);
+  const totalNet   = totalGross - totalFees - totalSplit - totalRef;
   const margin     = totalGross > 0 ? Math.round((totalNet / totalGross) * 100) : 0;
 
   // ── By channel (MTD) ────────────────────────────────────────
   const byChannel = {};
   mtdRows.forEach(r => {
     const ch = r.channel || "Unknown";
-    if (!byChannel[ch]) byChannel[ch] = { gross: 0, fees: 0, split: 0, facilitator: 0, refunds: 0, net: 0, count: 0 };
-    byChannel[ch].gross       += Number(r.gross || 0);
-    byChannel[ch].fees        += Number(r.stripeFee || 0);
-    byChannel[ch].split       += Number(r.studioSplit || 0);
-    byChannel[ch].facilitator += Number(r.facilitatorCost || 0);
-    byChannel[ch].refunds     += Number(r.refunds || 0);
-    byChannel[ch].net         += calcNet(r);
+    if (!byChannel[ch]) byChannel[ch] = { gross: 0, fees: 0, split: 0, refunds: 0, net: 0, count: 0 };
+    byChannel[ch].gross   += Number(r.gross || 0);
+    byChannel[ch].fees    += Number(r.stripeFee || 0) + Number(r.facilitatorCost || 0);
+    byChannel[ch].refunds += Number(r.refunds || 0);
     byChannel[ch].count++;
   });
+  // Studio splits come from the expense ledger — always attributed to the "Studio session" channel
+  mtdSplitExp.forEach(e => {
+    const ch = "Studio session";
+    if (!byChannel[ch]) byChannel[ch] = { gross: 0, fees: 0, split: 0, refunds: 0, net: 0, count: 0 };
+    byChannel[ch].split += Number(e.amount || 0);
+  });
+  // Cancellation expenses are attributed to the channel of the linked session
+  const sessionsById = Object.fromEntries((data.sessions || []).map(s => [s.id, s]));
+  mtdCxlExp.forEach(e => {
+    const session = e.linkedSession ? sessionsById[e.linkedSession] : null;
+    const ch = session ? registrationRevenueChannel(session) : "Unknown";
+    if (!byChannel[ch]) byChannel[ch] = { gross: 0, fees: 0, split: 0, refunds: 0, net: 0, count: 0 };
+    byChannel[ch].refunds += Number(e.amount || 0);
+  });
   const channelRows = Object.entries(byChannel)
-    .map(([ch, d]) => ({ ch, ...d, margin: d.gross > 0 ? Math.round((d.net / d.gross) * 100) : 0 }))
+    .map(([ch, d]) => ({
+      ch, ...d,
+      net: d.gross - d.fees - d.split - d.refunds,
+      margin: d.gross > 0 ? Math.round(((d.gross - d.fees - d.split - d.refunds) / d.gross) * 100) : 0,
+    }))
     .sort((a, b) => b.net - a.net);
 
   // ── By source (MTD) ─────────────────────────────────────────
@@ -15132,8 +15191,8 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
     .map(([src, d]) => ({ src, ...d, margin: d.gross > 0 ? Math.round((d.net / d.gross) * 100) : 0 }))
     .sort((a, b) => b.net - a.net);
 
-  // ── By client ────────────────────────────────────────────────
-  // Top clients by net revenue — all-time (not MTD) so long-term value is visible
+  // ── By client (all-time) ──────────────────────────────────────
+  // Top clients by gross revenue — all-time so long-term value is visible
   const byClient = {};
   rows.filter(r => r.clientId).forEach(r => {
     if (!byClient[r.clientId]) byClient[r.clientId] = { gross: 0, net: 0, count: 0 };
@@ -15265,7 +15324,7 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
                 <td style={tdR}>{r.count}</td>
                 <td style={tdR}>{money(r.gross)}</td>
                 <td style={{ ...tdR, color: r.split > 0 ? C.gold : C.ink3 }}>{r.split > 0 ? money(r.split) : "—"}</td>
-                <td style={{ ...tdR, color: C.ink2 }}>{r.fees > 0 ? money(r.fees + r.facilitator) : "—"}</td>
+                <td style={{ ...tdR, color: C.ink2 }}>{r.fees > 0 ? money(r.fees) : "—"}</td>
                 <td style={{ ...tdR, fontWeight: 700, color: marginColor(r.margin) }}>{money(r.net)}</td>
                 <td style={{ ...tdS, minWidth: 130 }}>{marginBar(r.margin)}</td>
               </tr>
