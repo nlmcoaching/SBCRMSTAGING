@@ -1914,10 +1914,10 @@ Sections are grouped into three visual lanes rendered in this order:
 - P&L *(parent nav item — clicking navigates to Revenue)*
   - Revenue *(nested sub-item)*
   - Expenses *(nested sub-item)*
-- Workflows
 - Calendly Bookings
 - Stripe
 - Content Calendar
+- Workflows
 - Templates
 - Admin
   - User Management *(nested sub-item, expands when Admin is active)*
