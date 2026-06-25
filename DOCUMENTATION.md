@@ -905,6 +905,8 @@ Revenue views derive each booking's amount from its **actual matched Stripe char
 
 Use **Sync Stripe now** to load charges from the backend ledger and run reconciliation (also polls every 5 minutes).
 
+The page header **search box** (the global `query`, passed into `PaymentReconciliationView`) filters every list on this page — Stripe charges, unmatched transactions, refunded payments, and bookings awaiting a charge — matching on name, email, session, and description.
+
 **Matching rule (time-based):** A Stripe charge is created the moment a participant books, so the charge time equals the booking time. For each participant (matched by **email**), each unlinked charge is tied to the booking whose time (`createdAt`) is **closest** to the charge time, within a window of `STRIPE_MATCH_WINDOW_MS` (2 days, to absorb webhook/sync lag). The Stripe `amountGross` becomes that booking's `paidAmount` and session amount. List price is kept as *expected*. There is **no manual override** — matching is automatic.
 
 **Self-healing:** Each reconciliation run (on Sync Stripe and on opening the panel) first clears automatic links, then re-matches with the rule above, so a mis-tied charge corrects itself. Any link with `matchStatus: "manual"` (legacy) is preserved.
@@ -994,7 +996,7 @@ Manual **Revenue** records (gross, Stripe fee, studio split, etc.) are part of t
   - **Expenses** = sum of `amount` across records in the `expenses` table dated in the current month (auto cancellation records + manual expenses).
   - **Net Revenue** = Gross Revenue − revenue refunds − Expenses. Margin % = Net ÷ Gross.
   - Three stat cards (Gross Revenue, Expenses, Net Revenue) each show a **% change vs the previous month** (the Expenses card inverts the favourable colour, since a rise in expenses is unfavourable).
-  - Below the cards, two sortable/expandable `RecordTableView` listings show the month's **revenue records** (with Stripe amounts) and **expense records**.
+  - Below the cards, two sortable/expandable `RecordTableView` listings show the month's **revenue records** (with Stripe amounts) and **expense records**. The page **search box** filters both listings (the `query` is passed through to each `RecordTableView`); the summary cards continue to reflect the full month.
 
 - **Revenue Table** (tab 2) — a raw listing of **every record stored in the `revenue` table** (including auto booking records `regrev_*` and manually-entered rows), rendered with the `record-table` layout (`RecordTableView`). Unlike the derived views above, this reads `data.revenue` directly and does not apply the studio split. Behaviour:
   - **Sortable column headings** — click any header (Date, Description, Channel, Source, Gross, Refunds, Net, Type) to sort; click again to toggle ascending/descending. The active column shows a ▲/▼ indicator. Sort columns are defined by `revenueTableCols()` (each column carries a `sortVal` accessor). The **Date** column displays the record's **booked-at date** (`bookedAt`, falling back to `date`) rather than the session date. Full ISO timestamps are formatted as date **and** time via `formatRegistrationDateTime` (e.g. `Jun 23, 2026, 03:14 PM`); bare `YYYY-MM-DD` values show the date only.
@@ -1125,7 +1127,7 @@ Pre-built communication templates that can be copied and sent directly from the 
 ### Features
 
 - Filter by category and channel (Email / SMS).
-- Search by name or body text.
+- Search by name, subject, or body text. Both the page header **search box** (the global `query`, passed into `TemplateLibraryView`) and the in-page search field filter the list; when both are set, a template must match both.
 - Variable highlighting — placeholders like `{{clientName}}`, `{{sessionDate}}`, `{{studioName}}` are highlighted in the preview.
 - **Copy** — one-click copy of the raw template to clipboard.
 - **Email** — opens a recipient-aware compose modal (see below).

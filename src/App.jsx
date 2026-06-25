@@ -5626,7 +5626,7 @@ function SourceBreakdown({ data }) {
 // "This month" tab. Gross revenue is taken directly from the Stripe amounts stored on
 // records in the Revenue table (data.revenue → `gross`), and net revenue = gross − refunds −
 // total expenses pulled from the Expense table (data.expenses → `amount`) for the same month.
-function RevenueThisMonthView({ data, today, onOpen, canEdit }) {
+function RevenueThisMonthView({ data, today, query, onOpen, canEdit }) {
   const monthStr = String(today || new Date().toISOString().slice(0, 10)).slice(0, 7); // "YYYY-MM"
   const prevMonthStr = (() => {
     const d = new Date(monthStr + "-01T00:00:00");
@@ -5699,13 +5699,13 @@ function RevenueThisMonthView({ data, today, onOpen, canEdit }) {
         Revenue records — {monthLabel}
       </div>
       <RecordTableView records={revThis} columns={revenueTableCols()} section="revenue"
-        ctx={{ data, today }} onOpen={onOpen} canEdit={canEdit} />
+        query={query} ctx={{ data, today }} onOpen={onOpen} canEdit={canEdit} />
 
       <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink2, margin: "20px 2px 8px", textTransform: "uppercase", letterSpacing: ".05em" }}>
         Expenses — {monthLabel}
       </div>
       <RecordTableView records={expThis} columns={expenseTableCols()} section="expenses"
-        ctx={{ data, today }} onOpen={onOpen} canEdit={canEdit} />
+        query={query} ctx={{ data, today }} onOpen={onOpen} canEdit={canEdit} />
     </div>
   );
 }
@@ -5815,15 +5815,15 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         : v.layout === "revenue-analytics"
         ? <RevenueAttributionView data={data} derived={derived} today={today} onOpen={(r) => openRevenueViewRow(r, data, onOpen)} />
         : v.layout === "payment-reconciliation"
-        ? <PaymentReconciliationView data={data} derived={derived} setData={setData} onOpen={onOpen} syncStripe={syncStripe} stripeStatus={stripeStatus} canEdit={canEdit} />
+        ? <PaymentReconciliationView data={data} derived={derived} setData={setData} onOpen={onOpen} syncStripe={syncStripe} stripeStatus={stripeStatus} canEdit={canEdit} query={query} />
         : v.layout === "referral-tree"
-        ? <ReferralTreeView data={data} derived={derived} today={today} onOpen={(r) => onOpen({ db: "referrals", record: r })} />
+        ? <ReferralTreeView data={data} derived={derived} today={today} query={query} onOpen={(r) => onOpen({ db: "referrals", record: r })} />
         : v.layout === "content-analytics"
         ? <ContentAnalyticsView data={data} onOpen={onOpen} />
         : v.layout === "testimonial-library"
-        ? <TestimonialLibraryView data={data} onOpen={onOpen} />
+        ? <TestimonialLibraryView data={data} query={query} onOpen={onOpen} />
         : v.layout === "template-library"
-        ? <TemplateLibraryView data={data} setData={setData} onOpen={onOpen} currentUser={currentUser} />
+        ? <TemplateLibraryView data={data} setData={setData} onOpen={onOpen} currentUser={currentUser} query={query} />
         : v.layout === "workflows"
         ? <WorkflowsView data={data} derived={derived} today={today} />
         : v.layout === "user-management"
@@ -5844,7 +5844,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         : v.layout === "record-table"
         ? <RecordTableView records={data[section] || []} columns={v.columns} query={query} section={section} ctx={{ data, derived, today }} onOpen={onOpen} canEdit={canEdit} maxHeight="calc(100vh - 240px)" />
         : v.layout === "revenue-this-month"
-        ? <RevenueThisMonthView data={data} today={today} onOpen={onOpen} canEdit={canEdit} />
+        ? <RevenueThisMonthView data={data} today={today} query={query} onOpen={onOpen} canEdit={canEdit} />
         : <>
           <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => (
               section === "revenue" ? openRevenueViewRow(r, data, onOpen) : onOpen({ db: section, record: r })
@@ -13613,7 +13613,7 @@ const STARTER_CONTENT = [
 ];
 
 /* ── TEMPLATE LIBRARY ── */
-function TemplateLibraryView({ data, setData, onOpen, currentUser }) {
+function TemplateLibraryView({ data, setData, onOpen, currentUser, query }) {
   const onUpdate = (db, id, fn) => setData(d => ({ ...d, [db]: (d[db] || []).map(r => r.id === id ? fn(r) : r) }));
   const [catFilter, setCatFilter] = useState("All");
   const [chanFilter, setChanFilter] = useState("All");
@@ -13630,13 +13630,17 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser }) {
   const clients    = data.clients    || [];
   const partners   = data.partners   || [];
 
+  const matchesText = (t, term) => {
+    const q = term.toLowerCase();
+    return (t.name || "").toLowerCase().includes(q)
+      || (t.body || "").toLowerCase().includes(q)
+      || (t.subject || "").toLowerCase().includes(q);
+  };
   const filtered = templates.filter(t => {
     if (catFilter !== "All" && t.category !== catFilter) return false;
     if (chanFilter !== "All" && t.channel !== chanFilter) return false;
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      return t.name.toLowerCase().includes(q) || t.body.toLowerCase().includes(q) || t.subject.toLowerCase().includes(q);
-    }
+    if (search.trim() && !matchesText(t, search.trim())) return false;
+    if ((query || "").trim() && !matchesText(t, query.trim())) return false;
     return true;
   });
 
@@ -14165,9 +14169,20 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser }) {
 }
 
 /* ── TESTIMONIAL LIBRARY ── */
-function TestimonialLibraryView({ data, onOpen }) {
-  const testimonials = data.testimonials || [];
-  const clients      = data.clients || [];
+function TestimonialLibraryView({ data, query, onOpen }) {
+  const allTestimonials = data.testimonials || [];
+  const clients         = data.clients || [];
+  const q = norm(query);
+
+  const clientName = (id) => {
+    const c = clients.find(x => x.id === id);
+    return c ? cleanName(c.name) : "";
+  };
+
+  const testimonials = !q ? allTestimonials : allTestimonials.filter(t =>
+    [t.bestQuote, t.notes, t.category, t.status, t.type, clientName(t.clientId)]
+      .some(v => norm(v).includes(q))
+  );
 
   const published    = testimonials.filter(t => t.status === "Published");
   const approved     = testimonials.filter(t => t.status === "Approved");
@@ -14177,11 +14192,6 @@ function TestimonialLibraryView({ data, onOpen }) {
   const withVideo    = testimonials.filter(t => t.type === "Video" && t.status === "Published");
   const readyForWeb  = published.filter(t => t.useOnWebsite);
   const readyForSocial = published.filter(t => t.useOnSocial);
-
-  const clientName = (id) => {
-    const c = clients.find(x => x.id === id);
-    return c ? cleanName(c.name) : "—";
-  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -14504,9 +14514,10 @@ function ContentAnalyticsView({ data, onOpen }) {
   );
 }
 
-function ReferralTreeView({ data, derived, today, onOpen }) {
+function ReferralTreeView({ data, derived, today, query, onOpen }) {
   const refs = data.referrals || [];
   const clients = data.clients || [];
+  const q = norm(query);
 
   // ── Build per-referrer stats ─────────────────────────────────
   const byReferrer = {};
@@ -14522,7 +14533,15 @@ function ReferralTreeView({ data, derived, today, onOpen }) {
   });
 
   const sorted = Object.entries(byReferrer)
-    .sort(([, a], [, b]) => b.totalRev - a.totalRev || b.refs.length - a.refs.length);
+    .sort(([, a], [, b]) => b.totalRev - a.totalRev || b.refs.length - a.refs.length)
+    .filter(([refId, stats]) => {
+      if (!q) return true;
+      const referrer = clients.find(c => c.id === refId);
+      if (norm(referrer?.name).includes(q)) return true;
+      return stats.refs.some(r =>
+        norm(r.referredName).includes(q) || norm(r.notes).includes(q)
+      );
+    });
 
   // ── Top-level stats ──────────────────────────────────────────
   const totalRev    = refs.reduce((s, r) => s + (Number(r.revenue) || 0), 0);
@@ -14695,7 +14714,7 @@ function ChargeDetails({ row }) {
     </div>
   );
 }
-function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe, stripeStatus, canEdit }) {
+function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe, stripeStatus, canEdit, query }) {
   const payments = data.payments || [];
   const registrations = data.registrations || [];
   const clients = data.clients || [];
@@ -14823,9 +14842,20 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
 
     return [...chargeRows, ...freeRows].sort((a, b) => b.sortTs - a.sortTs);
   }, [payments, registrations, clients, data, stripeStatus?.reconciledAt, stripeStatus?.at]);
-  const matchedCharges = stripeCharges.filter(c => c.matched);
-  const unmatchedCharges = stripeCharges.filter(c => !c.matched);
-  const refundedPayments = payments.filter(p => p.status === "refunded" || p.status === "partial_refund");
+  // Header search box: filter every list on the page by name, email, session, or description.
+  const q = norm(query);
+  const chargeMatches = (c) => !q
+    || [c.name, c.email, c.sessionName, c.description, c.channel].some(v => norm(v).includes(q));
+  const matchedCharges = stripeCharges.filter(c => c.matched).filter(chargeMatches);
+  const unmatchedCharges = stripeCharges.filter(c => !c.matched).filter(chargeMatches);
+  const refundedPayments = payments
+    .filter(p => p.status === "refunded" || p.status === "partial_refund")
+    .filter(p => !q || [p.customerEmail, p.description].some(v => norm(v).includes(q)));
+  const pendingBookingsShown = pendingBookings.filter(r => {
+    if (!q) return true;
+    const client = clients.find(c => c.id === r.clientId);
+    return [client?.name, client?.email, r.eventName].some(v => norm(v).includes(q));
+  });
 
   const thS = { fontSize: 11.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 600, padding: "10px 12px", borderBottom: `1px solid ${C.line}`, textAlign: "left" };
   const tdS = { padding: "11px 12px", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 };
@@ -14970,8 +15000,8 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
         )}
       </Panel>
 
-      {pendingBookings.length > 0 && (
-        <Panel title={`Bookings awaiting a Stripe charge (${pendingBookings.length})`}>
+      {pendingBookingsShown.length > 0 && (
+        <Panel title={`Bookings awaiting a Stripe charge (${pendingBookingsShown.length})`}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
@@ -14983,7 +15013,7 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
               </tr>
             </thead>
             <tbody>
-              {sortRegistrationsByCreatedAt(pendingBookings).map(r => {
+              {sortRegistrationsByCreatedAt(pendingBookingsShown).map(r => {
                 const client = clients.find(c => c.id === r.clientId);
                 return (
                   <tr key={r.id}>

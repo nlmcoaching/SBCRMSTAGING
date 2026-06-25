@@ -760,6 +760,8 @@ This is fully automatic — there is no manual matching to do.
 3. **Bookings awaiting a Stripe charge** — sessions booked but with no charge pulled yet (they appear here until the next sync ties a charge to them).
 4. **Refunded payments** — any refunds.
 
+Use the **search box** at the top of the page to filter every list here by name, email, session, or description.
+
 **Important:** Calendly email and Stripe checkout email must match. A booking under `jeff@simplybreathe.ai` will not match a Stripe payment for `jeffreywmason@yahoo.com`.
 
 Click **Sync Stripe now** to pull new payments immediately (the CRM also checks every 5 minutes). Sync reloads the full Stripe ledger from the backend so payments are not lost after a refresh.
@@ -808,7 +810,7 @@ The **This month** tab gives you a simple, real-money picture for the current ca
 - **Expenses** adds up every record in your Expense table dated this month (including the automatic refund/cancellation entries).
 - **Net Revenue** = Gross Revenue − refunds − Expenses. The card also shows your **margin** (net as a percentage of gross).
 
-Each of the three cards shows how it compares to **last month** (for the Expenses card, going up is shown in red because higher expenses are worse). Below the cards you'll see two listings — your **revenue records** and **expense records** for the month — which you can sort by any column and expand to see full details.
+Each of the three cards shows how it compares to **last month** (for the Expenses card, going up is shown in red because higher expenses are worse). Below the cards you'll see two listings — your **revenue records** and **expense records** for the month — which you can sort by any column and expand to see full details. The **search box** at the top filters both listings so you can quickly find a specific entry; the three summary cards always show the full month's totals.
 
 ### Revenue Table tab — see every stored record
 
@@ -911,7 +913,7 @@ The best time to ask is within 5–7 days of a powerful session. When you check 
 
 **Navigate to:** Sidebar → Templates
 
-Templates save you from writing the same messages over and over. The system comes with 14 pre-written templates covering the most common situations.
+Templates save you from writing the same messages over and over. The system comes with 14 pre-written templates covering the most common situations. Use the **search box** at the top of the page (or the search field on the templates page itself) to find a template by name, subject, or message text.
 
 ### Three Buttons on Every Template
 
