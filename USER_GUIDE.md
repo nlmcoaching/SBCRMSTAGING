@@ -65,6 +65,8 @@ If you see **"Data integrity check failed"**, hard-refresh the page and try agai
 
 > **Stay logged in on refresh:** If you hit the browser refresh button, the app will restore your session automatically — you won't need to re-enter your PIN. It will also return you to the exact page you were on. This session is tied to the browser tab; opening a new tab or a new browser window will require PIN entry again.
 
+> **Important — use only one browser tab at a time:** The CRM saves data to your browser's local storage. If you have the app open in two tabs or two windows simultaneously and both tabs try to save, the app will detect the conflict. The tab that is out of date will show a yellow **"Another window has newer data"** warning banner at the top of the page. Click **Refresh Now** on the banner to reload that window with the latest data before continuing to edit. Editing in multiple tabs without refreshing can cause one tab to overwrite the other's changes.
+
 > **Auto-lock:** The app locks itself after 15 minutes with no activity. Simply re-enter your PIN to continue. When the auto-lock fires (even if you were active earlier), the session is fully cleared — the next login returns you to the Command Center, not your previous page. This is intentional: the auto-lock resets your session as a security measure.
 
 > **Security upgrade banner:** If you see a yellow banner saying "Security upgrade required", simply log in as usual — the app will automatically upgrade your account to the latest security standard in the background. You only need to do this once.

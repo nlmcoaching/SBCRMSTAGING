@@ -2589,7 +2589,8 @@ export default function App() {
       return daysSince >= BACKUP_REMINDER_DAYS;
     } catch { return false; }
   })();
-  const [saved, setSaved] = useState("idle"); // idle | saving | saved
+  const [saved, setSaved] = useState("idle"); // idle | saving | saved | error
+  const [staleDetected, setStaleDetected] = useState(false); // another tab has newer data
   // Serializes encrypted writes so concurrent/async store.set calls can never land out of order
   // (a stale write resolving after a newer one would otherwise clobber just-saved data).
   const persistRef = useRef({ seq: 0, chain: Promise.resolve() });
@@ -2599,6 +2600,10 @@ export default function App() {
   const [lastCalendlyReceived, setLastCalendlyReceived] = useState(null); // { count, atFull } — only set when bookings > 0
   const loaded = useRef(false);
   const agreementsMigrated = useRef(false);
+  // Cross-tab stale-write guard: records the localStorage timestamp at which this tab last
+  // loaded or saved data. If another tab saves a newer version before we do, we skip our write
+  // to prevent overwriting the other tab's changes.
+  const dataLoadedAtRef = useRef(0);
   const today = todayISO();
 
   /* ── Auth state ── */
@@ -2619,6 +2624,9 @@ export default function App() {
   const [pinError,     setPinError]    = useState("");
   const SESSION_KEY = "sb:session:v1"; // sessionStorage — cleared when tab/window closes
   const PIN_LOCKOUT_KEY = "sb:pin-lockout:v1";
+  // Cross-tab coordination: written to localStorage on every successful IndexedDB save so other
+  // tabs can detect that a newer version exists and abort their stale writes.
+  const SAVE_TS_KEY = "sb:data:v5:save-ts";
   const [pinAttempts,  setPinAttempts]  = useState(() => {
     // localStorage: persists across tabs and page refreshes (cross-tab lockout enforcement).
     // Stale entries (expired lockout, no pending attempts) are pruned on read.
@@ -2684,6 +2692,7 @@ export default function App() {
                     setCryptoKey(masterKey);
                     setCurrentUser(restoredUser);
                     loaded.current = true;
+                    dataLoadedAtRef.current = parseInt(localStorage.getItem(SAVE_TS_KEY) || "0") || Date.now();
                     setLocked(false);
                     // Restore the section/view the user was on before refresh
                     try {
@@ -2831,6 +2840,7 @@ export default function App() {
           console.log("[SBCRM load] decrypted partners studioSharePct = " + JSON.stringify((dec.partners || []).map(p => p.id + ":" + JSON.stringify(p.studioSharePct))));
           if (Sec.validate(dec)) {
             setData(healStudioPartnersData(dec));
+            dataLoadedAtRef.current = parseInt(localStorage.getItem(SAVE_TS_KEY) || "0") || Date.now();
             // Restore CRM settings from encrypted store — preferred over unencrypted localStorage cache
             if (dec._settings && typeof dec._settings === "object") {
               const s = parseCrmSettings(dec._settings);
@@ -2931,6 +2941,7 @@ export default function App() {
           const dec = normalizeCrmData(await Sec.decrypt(encRaw.value, masterKey));
           if (Sec.validate(dec)) {
             setData(healStudioPartnersData(dec));
+            dataLoadedAtRef.current = parseInt(localStorage.getItem(SAVE_TS_KEY) || "0") || Date.now();
             if (dec._settings && typeof dec._settings === "object") {
               const s = parseCrmSettings(dec._settings);
               _crmSettings = s;
@@ -3763,6 +3774,24 @@ export default function App() {
     };
   }, [locked]);
 
+  /* ── Cross-tab data-sync: detect when another window saves a newer version ──
+     When the save timestamp in localStorage advances beyond what this tab loaded,
+     the stale-write guard (above) will block our next save. We surface a banner so
+     the user can refresh to get the latest data before continuing to edit. */
+  useEffect(() => {
+    if (locked) return;
+    const handler = (e) => {
+      if (e.key !== SAVE_TS_KEY || !e.newValue) return;
+      const newTs = parseInt(e.newValue);
+      if (newTs > dataLoadedAtRef.current + 2000) {
+        console.log("[SBCRM] Another tab saved newer data at", new Date(newTs).toISOString());
+        setStaleDetected(true);
+      }
+    };
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
+  }, [locked]);
+
   /* ── Save profile edits ── */
   const handleSaveProfile = async (updates) => {
     const updated = { ...currentUser, ...updates };
@@ -3796,6 +3825,16 @@ export default function App() {
       persistRef.current.chain = persistRef.current.chain
         .then(async () => {
           if (seq < persistRef.current.seq) return; // a newer change was scheduled — skip this stale write
+          // ── Cross-tab stale-write guard ──
+          // If another tab saved after this tab last loaded/saved, our in-memory state is behind.
+          // Skipping the write prevents us from overwriting the other tab's newer changes.
+          const externalSaveTs = parseInt(localStorage.getItem(SAVE_TS_KEY) || "0");
+          if (externalSaveTs > dataLoadedAtRef.current + 2000) {
+            console.warn("[SBCRM] Stale-write blocked — another tab saved at", new Date(externalSaveTs).toISOString(), ". This tab's data is from", new Date(dataLoadedAtRef.current).toISOString());
+            setSaved("idle");
+            setStaleDetected(true);
+            return;
+          }
           try {
             await persistAllAgreementBlobs(snapshot, cryptoKey);
             const payload = normalizeCrmData(dataForEncryptedStore(snapshot));
@@ -3807,6 +3846,11 @@ export default function App() {
             const enc = await Sec.encrypt(payload, cryptoKey);
             if (seq < persistRef.current.seq) return; // superseded while encrypting — don't commit
             await store.set(STORE_KEY_ENC, enc);
+            // Record save timestamp so other tabs know a newer version exists
+            const nowTs = Date.now();
+            try { localStorage.setItem(SAVE_TS_KEY, String(nowTs)); } catch {}
+            dataLoadedAtRef.current = nowTs;
+            setStaleDetected(false);
             setSaved("saved");
             setTimeout(() => setSaved("idle"), 1400);
           } catch (e) {
@@ -4221,6 +4265,14 @@ export default function App() {
               <span style={{ flex: 1 }}>Your last change could not be saved. This may be a storage quota issue. Export a backup from <strong>Admin → Storage</strong> immediately, then reload the page.</span>
               <button onClick={() => { go("admin"); setSaved("idle"); }} style={{ background: "#DC2626", color: "#fff", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>Go to Admin</button>
               <button onClick={() => setSaved("idle")} style={{ background: "none", border: "none", color: "#7F1D1D", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 4px", flexShrink: 0 }} title="Dismiss">×</button>
+            </div>
+          )}
+          {staleDetected && (
+            <div style={{ background: "#FEF3C7", borderBottom: "1px solid #FCD34D", padding: "8px 16px", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: "#78350F" }}>
+              <span style={{ fontWeight: 700, flexShrink: 0 }}>⚠ Another window has newer data</span>
+              <span style={{ flex: 1 }}>This window's data is out of date — another browser tab or window has saved changes more recently. <strong>Refresh this window</strong> to get the latest data before making edits here, or your changes may overwrite the other window's saves.</span>
+              <button onClick={() => window.location.reload()} style={{ background: "#D97706", color: "#fff", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>Refresh Now</button>
+              <button onClick={() => setStaleDetected(false)} style={{ background: "none", border: "none", color: "#78350F", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 4px", flexShrink: 0 }} title="Dismiss">×</button>
             </div>
           )}
           <header className="sb-header">

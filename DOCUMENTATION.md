@@ -136,6 +136,25 @@ After recovery, the user should generate a new recovery code from Profile settin
 - Clearing or regenerating the code immediately invalidates the old one.
 - `Sec.generateRecoveryCode()` uses `crypto.getRandomValues` with a 32-character alphabet that excludes visually ambiguous characters (I, O, 0, 1).
 
+### Cross-Tab Data Integrity (Stale-Write Guard)
+
+The app uses a **stale-write guard** to prevent one browser tab from silently overwriting another tab's newer data — the most common cause of lost edits.
+
+**How it works:**
+- After every successful save to IndexedDB, a timestamp is written to `localStorage` under the key `sb:data:v5:save-ts`.
+- Every tab records `dataLoadedAtRef` — the timestamp of the last data it loaded or saved.
+- Before each IndexedDB write, the persist effect compares the current `localStorage` save timestamp with `dataLoadedAtRef`. If the saved timestamp is more than 2 seconds newer, this tab's data is considered stale and the write is **blocked**.
+- A yellow **"Another window has newer data"** banner appears with a **Refresh Now** button so the user can reload before continuing.
+- A `storage` event listener detects when another tab saves and immediately surfaces the banner.
+
+**Scenario this prevents:**
+1. Tab A makes edits (e.g. sets `studioSharePct: 30`, adds session notes) and saves → IndexedDB updated.
+2. Tab B was opened before Tab A's edits — its in-memory state is stale.
+3. Tab B's 15-minute auto-sync fires and tries to write its stale state to IndexedDB.
+4. **The guard blocks Tab B's write.** The banner appears on Tab B. Tab A's data is preserved.
+
+**Single-tab usage:** There is no performance or UX impact. On single-tab sessions, `dataLoadedAtRef` is always current after each save, so the check is a no-op.
+
 ### Legacy Account Upgrade Banner
 
 If the app detects a v1 PIN account (pre-PBKDF2, unsalted SHA-256 hash), a yellow banner is displayed on the lock screen: **"Security upgrade required — please log in to automatically upgrade to enhanced security (PBKDF2)."** Logging in once completes the migration silently; the old hash is permanently removed.
