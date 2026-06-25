@@ -5558,29 +5558,33 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
   let rows = data[section] || [];
   if (section === "revenue") rows = buildRevenueViewRows(data);
 
-  // search
+  // search — matches a row's own fields PLUS the human names behind its relation ids
+  // (client, session, studio/partner), so searching by name works on every list, not just Sessions.
   if (query.trim()) {
     const q = norm(query);
+    const clientsById = Object.fromEntries((data.clients || []).map(c => [c.id, c]));
+    const sessionsById = Object.fromEntries((data.sessions || []).map(s => [s.id, s]));
+    // Sessions list: also match the names of clients who booked each session.
+    const sessionClientNames = {};
     if (section === "sessions") {
-      // Build a map of sessionId → client names from registrations for richer search
-      const sessionClientMap = {};
-      (data?.registrations || []).forEach(reg => {
-        if (reg.sessionId) {
-          const client = (data?.clients || []).find(c => c.id === reg.clientId);
-          if (client) (sessionClientMap[reg.sessionId] ||= []).push(norm(cleanName(client.name)));
-        }
+      (data.registrations || []).forEach(reg => {
+        if (!reg.sessionId) return;
+        const client = clientsById[reg.clientId];
+        if (client) (sessionClientNames[reg.sessionId] ||= []).push(norm(cleanName(client.name)));
       });
-      rows = rows.filter((r) => {
-        if (Object.values(r).some((val) => norm(val).includes(q))) return true;
-        const studioName = derived?.partnerName?.[r.studioId] ? norm(cleanName(derived.partnerName[r.studioId])) : "";
-        if (studioName.includes(q)) return true;
-        const clientNames = (sessionClientMap[r.id] || []).join(" ");
-        if (clientNames.includes(q)) return true;
-        return false;
-      });
-    } else {
-      rows = rows.filter((r) => Object.values(r).some((val) => norm(val).includes(q)));
     }
+    const matches = (r) => {
+      if (Object.values(r).some((val) => norm(val).includes(q))) return true;
+      const client = r.clientId ? clientsById[r.clientId] : null;
+      if (client && (norm(cleanName(client.name)).includes(q) || norm(client.email).includes(q) || norm(client.phone).includes(q))) return true;
+      const session = r.sessionId ? sessionsById[r.sessionId] : null;
+      if (session && norm(cleanName(session.name)).includes(q)) return true;
+      const studioId = r.studioId || r.partnerId;
+      if (studioId && norm(cleanName(derived?.partnerName?.[studioId] || "")).includes(q)) return true;
+      if (section === "sessions" && (sessionClientNames[r.id] || []).join(" ").includes(q)) return true;
+      return false;
+    };
+    rows = rows.filter(matches);
   }
   const processed = v.run ? v.run(rows, { data, derived, today }) : { rows };
 
@@ -6629,7 +6633,17 @@ function RecordTableView({ records, columns, query, section, ctx, onOpen, canEdi
   let rows = records || [];
   if (query && query.trim()) {
     const q = norm(query);
-    rows = rows.filter((r) => Object.values(r).some((v) => norm(v).includes(q)));
+    const clientsById = Object.fromEntries(((ctx?.data?.clients) || []).map(c => [c.id, c]));
+    const sessionsById = Object.fromEntries(((ctx?.data?.sessions) || []).map(s => [s.id, s]));
+    rows = rows.filter((r) => {
+      if (Object.values(r).some((v) => norm(v).includes(q))) return true;
+      const client = r.clientId ? clientsById[r.clientId] : null;
+      if (client && (norm(cleanName(client.name)).includes(q) || norm(client.email).includes(q))) return true;
+      const sessId = r.sessionId || r.linkedSession;
+      const session = sessId ? sessionsById[sessId] : null;
+      if (session && norm(cleanName(session.name)).includes(q)) return true;
+      return false;
+    });
   }
 
   const sortCol = columns.find((c) => c.key === sortKey);

@@ -1902,7 +1902,7 @@ Clicking any record (or the **New** button) opens a **centered modal popup** rat
 Each page has a sticky header with:
 - Page title
 - Lane badge (B2C / B2B) if applicable
-- Search bar
+- Search bar — filters the current list by any of the row's own fields **plus the human names behind its relation ids**: linked client (name/email/phone), linked session name, and linked studio/partner name. This means a name search works on every list (Clients, Calendly Bookings, Offers, Revenue, etc.), not only the Sessions list. Implemented in `Section` (and mirrored in `RecordTableView` for the Revenue/Expense Table tabs).
 - "New" button (permission-gated)
 - Profile avatar (top-right)
 

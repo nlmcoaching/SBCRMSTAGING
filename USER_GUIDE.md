@@ -122,7 +122,7 @@ System-wide tools that support everything else.
 
 At the top of every page you'll find:
 - The name of the section you're in
-- A **search bar** to filter records on that page
+- A **search bar** to filter records on that page — it matches anything shown in the row, including the **client, session, or studio name** behind a record (so searching a client's name finds their bookings, offers, and revenue, not just their client record)
 - A **New** button to add a new record (if you have edit access)
 - A **bell icon** (blue) showing your alert count — click it to see all active alerts in a popup
 - Your **profile avatar** in the top-right corner
