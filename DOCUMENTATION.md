@@ -1906,10 +1906,10 @@ Sections are grouped into three visual lanes rendered in this order:
 - Clients
 - Follow-Ups
 - Follow-up Engine
-
-**Core — Operations** (no accent, always visible)
 - Testimonials
 - Referrals
+
+**Core — Operations** (no accent, always visible)
 - Offers & Sales
 - P&L *(parent nav item — clicking navigates to Revenue)*
   - Revenue *(nested sub-item)*
