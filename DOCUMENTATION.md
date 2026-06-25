@@ -282,7 +282,7 @@ The dashboard is the daily starting point. It surfaces the most important inform
 
 | Metric | Source |
 |---|---|
-| Gross Revenue MTD | Total gross session prices for the current calendar month (virtual + studio, before any splits). Calculated using `buildRevenueViewRows` → sum of `gross`. Includes registrations with `pending_verification`, `unmatched`, and `unknown` payment statuses (at Calendly list price); excludes `unpaid`, `failed`, `refunded`. Clicking the card navigates to Revenue → **This month**. |
+| Gross Revenue MTD | Total gross session revenue for the current calendar month (virtual + studio, before any splits). Calculated using `buildRevenueViewRows` → sum of `gross`, where each booking's `gross` is its **actual matched Stripe charge** (`amountGross`) — exactly the value shown on the Stripe page. Bookings with no Stripe charge (free / 100%-off coupon) count as **$0**; the Calendly list price is no longer used. Excludes `unpaid`, `pending_verification`, `unmatched`, `failed`. Clicking the card navigates to Revenue → **This month**. |
 | Referral Revenue | Revenue from clients whose source is "Referral" |
 | Active Clients | Total number of clients in the system |
 | Active Sequences | Follow-up sequences with pending steps |
@@ -290,7 +290,7 @@ The dashboard is the daily starting point. It surfaces the most important inform
 ### Lane Split Panel
 
 Side-by-side view of studio vs client revenue, with **Studio Revenue (B2B) on the left card** and **Client Revenue (B2C) on the right card**. The **Lane Split Panel appears above the Pipeline Snapshot** on the dashboard.
-- **B2B (left):** Studio session booking prices MTD (includes `pending_verification` and `unmatched` bookings at list price) · Open partner pipeline value · Active partners · Avg session rev
+- **B2B (left):** Studio session **Stripe revenue** MTD (actual charges only — `pending_verification`/`unmatched`/free bookings count as $0) · Open partner pipeline value · Active partners · Avg session rev
 - **B2C (right):** Virtual session booking prices MTD + closed offer revenue · Open offers value · Active clients
 
 ### Clients by Source Chart
@@ -883,7 +883,7 @@ Manages proactive studio and referral outreach — separate from the reactive St
 
 **Navigation:** Sidebar → Revenue (Core section)
 
-Revenue views are built from **Stripe-verified booking amounts** (when matched) or **Calendly session prices** (`paymentAmount`) plus **accepted/paid offers**. Bookings in `pending_verification` are excluded until Stripe confirms payment. Manual legacy revenue rows in the database are not shown here — this matches Command Center, LTV, and session booking cards.
+Revenue views derive each booking's amount from its **actual matched Stripe charge** (`amountGross`, via `bookingStripeCharge` / `buildPaidPaymentsByBooking`) — the same number shown on the Stripe reconciliation page. A booking with **no Stripe charge** (free / coupon) is **$0**; the Calendly list price is never substituted. Bookings in `pending_verification`, `unmatched`, `unpaid`, and `failed` are excluded until Stripe confirms payment. Accepted/paid **offers** are added on top.
 
 ### Stripe (Payment Reconciliation) View
 
@@ -926,7 +926,7 @@ Dates use the linked **session date** (bookings) or **close/offered date** (offe
 
 The **Revenue** and **Expense** tables are kept in sync with bookings automatically (no manual entry needed for sessions):
 
-- **Revenue table** — every **active** virtual or studio booking is materialised as a revenue record (`id` prefixed `regrev_`, `auto: true`, `channel` = `Virtual session` / `Studio session`, `gross` = resolved Stripe amount). Records regenerate from the current bookings on every change, so amounts track Stripe reconciliation and canceled/rescheduled bookings drop out automatically.
+- **Revenue table** — every **active** virtual or studio booking is materialised as a revenue record (`id` prefixed `regrev_`, `auto: true`, `channel` = `Virtual session` / `Studio session`). The record's `gross` is the booking's **actual matched Stripe charge** (`amountGross`), with `refunds` = `amountRefunded` and `net` = gross − refunds; a booking with **no Stripe charge** (free / coupon) is `$0` — the Calendly list price is never used, so these values match the Stripe page row-for-row. Records regenerate from the current bookings on every change, so amounts track Stripe reconciliation and canceled/rescheduled bookings drop out automatically.
 - **Expense table** — every **canceled** booking is materialised as an expense record (`id` prefixed `cxlexp_`, `auto: true`, `category` = `Refunds & Cancellations`, `amount` = the booking's Stripe amount, `$0` for free/coupon bookings). Reschedules are **not** expensed (the payment simply follows the booking to its new time). These records feed Expenses MTD / Operating Profit, so each cancellation reduces profit by its Stripe amount.
 
 Manually-entered revenue/expense rows are always preserved; only the `auto` records are regenerated. To avoid double-counting, client **Lifetime Value** and the Revenue tab exclude the `auto` revenue records (the underlying registrations/live booking rows already represent them).
@@ -1534,7 +1534,6 @@ Records in **Refunds & Cancellations** with `auto: true` (id prefix `cxlexp_`) a
 | View | Description |
 |---|---|
 | Summary | Full analytics dashboard: stats row, category chart, monthly trend, top vendors, profitability panel, CSV import guide |
-| All Expenses | Complete table sorted by date (newest first) with footer total |
 | By Category | Table sorted by category with footer total |
 | Recurring | Filtered to recurring expenses only with footer total |
 | Tax Deductible | Filtered to tax-deductible items only with footer total |
@@ -1687,7 +1686,7 @@ Email address (normalized to lowercase) is the primary deduplication key. On `in
 - **Existing email** → updates name, phone, next session date, status (Lead → Booked)
 
 **Lifetime value:** After each Calendly or Stripe sync (and payment backfill), LTV is recalculated for every client with at least one registration record. The total is the sum of:
-- **Stripe-verified** booking amounts (`paidAmount` minus refunds) when `stripeVerified` is true; otherwise Calendly **session price** (`paymentAmount`) on paid registrations (excludes `pending_verification`, unpaid, failed)
+- **Actual Stripe charge** per booking (`paidAmount` minus refunds) — `registrationPaymentForLtv` recognises only confirmed Stripe amounts, exactly like the Revenue tab. There is **no Calendly list-price fallback**: bookings with no confirmed charge (free/coupon, `pending_verification`, `unmatched`, `unpaid`, `failed`, `refunded`) contribute **$0**
 - Client-linked **Revenue** records (`gross` minus `refunds`)
 - **Offers** with status `Paid` or `Accepted`
 

@@ -149,14 +149,14 @@ Start every working day here. The Today dashboard is designed to answer one ques
 ### Stats Row
 
 Four numbers at the top give you an instant health check:
-- **Gross Revenue MTD** — Total gross session prices for the current month (virtual + studio, before any splits are deducted). Click to open Revenue → **This month**.
+- **Gross Revenue MTD** — Total gross **Stripe revenue** for the current month (virtual + studio, actual charges, before any splits). Bookings with no Stripe charge count as $0. Click to open Revenue → **This month**.
 - **Referral Revenue** — Revenue that came from referrals
 - **Active Clients** — Total number of clients in the system
 - **Active Sequences** — Clients currently in a follow-up sequence
 
 ### B2C vs B2B Split
 
-A side-by-side panel shows your two business lanes at a glance — **studio session booking prices** (B2B) vs **virtual session prices + packages** (B2C), plus pipeline value and active relationships.
+A side-by-side panel shows your two business lanes at a glance — **studio session Stripe revenue** (B2B) vs **virtual session Stripe revenue + packages** (B2C), plus pipeline value and active relationships. Amounts reflect actual Stripe charges; bookings with no charge yet count as $0.
 
 ### Pipeline Snapshot
 
@@ -208,7 +208,7 @@ For **virtual sessions today or tomorrow**, the action clears when the **Virtual
 
 The **All Clients** view is sorted **A–Z by client name** automatically when you open it. The table shows client name, email, phone, status, segment, referral potential, and lifetime value (LTV).
 
-**LTV updates automatically** when Calendly bookings sync in — it adds up each booking’s **session price** (from the event type amount in Calendly), plus any revenue or accepted offers linked to that client. Click the refresh icon on Calendly Bookings if amounts or LTV look stale.
+**LTV updates automatically** when Calendly bookings sync in — it adds up each booking’s **actual Stripe charge** (the same amount the Revenue tab and Stripe page show), plus any revenue or accepted offers linked to that client. Bookings that haven’t been charged yet, and free/coupon bookings, count as **$0** until a payment comes through. Click the refresh icon on Calendly Bookings if amounts or LTV look stale.
 
 ### Adding a New Client
 
@@ -237,9 +237,9 @@ Click any client row to open the record. The main tab is called **Details** — 
 
 Each client record has a **Sessions Attended** tab — a complete list of every session the client has registered for. For each session you'll see:
 - Session name, date, time, and journey used
-- **Amount** — the session price from their Calendly booking (same as Calendly Bookings → All Bookings)
+- **Amount** — the **actual Stripe charge** for that booking, or **Free** when no payment was taken (or hasn't been confirmed yet)
 
-A **Total Revenue** figure at the top shows the sum of session prices across all their bookings (excluding canceled and unpaid).
+A **Total Revenue** figure at the top shows the sum of the actual Stripe charges across all their bookings (excluding canceled), matching how LTV and the Revenue tab are calculated.
 
 ### The Client Timeline
 
@@ -748,7 +748,7 @@ Click **Sync Stripe now** to pull new payments immediately (the CRM also checks 
 
 You don't have to log session revenue or cancellations by hand — the CRM does it for you:
 
-- **Every new booking** (virtual or studio) automatically creates a **revenue record** using the actual amount paid in Stripe (or the Calendly price until Stripe confirms). The record's channel is set to **Virtual session** or **Studio session** to match the booking.
+- **Every new booking** (virtual or studio) automatically creates a **revenue record** set to the **actual amount charged in Stripe** — the same figure you see on the Stripe page. Until a Stripe charge is confirmed, and for **free / coupon** bookings, the amount is **$0** (the Calendly list price is never used), and it updates automatically when the matching payment arrives. The record's channel is set to **Virtual session** or **Studio session** to match the booking.
 - **Every canceled booking** automatically creates an **expense record** in the **Refunds & Cancellations** category for the amount that was paid in Stripe (or **$0** if it was a free/coupon booking). This lowers your operating profit by that amount, so your numbers reflect the cost of the cancellation. (A **reschedule** is not treated as a cancellation — the payment just moves to the new time, so no expense is created.)
 
 These automatic records keep themselves up to date as Stripe payments settle and as bookings are canceled. You can still add your own revenue and expense entries by hand (see below) — those are always kept and never overwritten.
@@ -766,7 +766,7 @@ You can also add revenue that didn't come from a Calendly booking (for example a
 
 ### Reading the Revenue Table
 
-The **Revenue attribution** and **Payment reconciliation** tabs are built from **Stripe-verified booking amounts** (when matched) or **Calendly session prices**, plus **accepted/paid offers**. Bookings still in **Pending verification** do not appear in revenue totals until Stripe confirms payment.
+The **Revenue attribution** and **Payment reconciliation** tabs use each booking's **actual matched Stripe charge** (the same amount shown on the Stripe page); a booking with no charge counts as **$0**. **Accepted/paid offers** are added on top. Bookings still in **Pending verification** do not appear in revenue totals until Stripe confirms payment.
 
 **Revenue Attribution tab (first tab)** gives you a full MTD breakdown:
 - **Gross revenue MTD** — total gross session revenue for the month
@@ -1298,7 +1298,7 @@ Registered Attendees is automatically synced from the actual bookings when you o
 Your browser may be blocking pop-ups. Look for a pop-up blocked notification in the browser address bar, click it, and allow pop-ups from this site. Then try the Download PDF button again.
 
 **The Sessions Attended tab shows a revenue figure — how is it calculated?**
-Each row shows the **session price** from that client’s Calendly booking. The total is the sum of those prices across all non-canceled bookings (unpaid bookings are excluded). This matches how **LTV** is calculated until live payment data comes through from Calendly.
+Each row shows the **actual Stripe charge** for that booking (or **Free** if nothing was charged). The total is the sum of those charges across all non-canceled bookings, which matches how **LTV** and the **Revenue** tab are calculated. Bookings that haven’t been charged yet show as Free/$0 until the Stripe payment comes through.
 
 **I clicked Send Email on a template but nothing was sent. What happened?**
 Check the Admin → Email Logs tab. If the row shows a red "Failed" status, the email service may have rejected the send — this usually means the recipient email address is invalid or the email service configuration needs attention. Contact your system administrator if the issue persists.

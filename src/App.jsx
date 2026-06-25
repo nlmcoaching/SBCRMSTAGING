@@ -1736,28 +1736,26 @@ async function backfillRegistrationPaymentsForRegs(regs, setData) {
     });
   } catch { /* backend unavailable */ }
 }
+// Recognised revenue for a single booking — the ACTUAL Stripe charge only, mirroring the revenue
+// table (buildRegistrationRevenueRows) and the Stripe page. There is no Calendly list-price
+// fallback: a booking with no confirmed Stripe charge (free/coupon, pending, unmatched) is $0, so
+// LTV, session-card revenue, and the dashboard B2B/B2C split all agree with the Revenue tab.
 function registrationPaymentForLtv(reg) {
   if (!reg || reg.status === "canceled" || reg.status === "rescheduled") return 0;
-  // Hard excludes — booking is definitively unpaid or failed
-  if (["unpaid", "failed"].includes(reg.paymentStatus)) return 0;
-  if (reg.paymentStatus === "refunded") return 0;
-  // Stripe-verified: use the actual charged amount (net refunds)
+  if (["unpaid", "failed", "refunded"].includes(reg.paymentStatus)) return 0;
+  // Stripe-verified: the actual charged amount, net of refunds.
   if (reg.stripeVerified && reg.paidAmount != null) {
     const paid = Number(reg.paidAmount);
     const refunded = Number(reg.amountRefunded) || 0;
     if (!Number.isNaN(paid)) return Math.max(0, Math.round((paid - refunded) * 100) / 100);
   }
-  // Explicit $0 paidAmount (coupon/discount code) — don't fall through to list price
-  if (reg.paidAmount != null && Number(reg.paidAmount) === 0) return 0;
-  // Not yet Stripe-verified but explicitly paid (paidAmount recorded)
-  if (reg.paymentStatus === "paid" && !reg.stripeVerified) {
+  // Recorded as paid (or partially refunded) with an explicit Stripe amount, awaiting verification.
+  if ((reg.paymentStatus === "paid" || reg.paymentStatus === "partial_refund") && reg.paidAmount != null) {
     const paid = Number(reg.paidAmount);
-    if (!Number.isNaN(paid) && paid > 0) return paid;
+    const refunded = Number(reg.amountRefunded) || 0;
+    if (!Number.isNaN(paid) && paid > 0) return Math.max(0, Math.round((paid - refunded) * 100) / 100);
   }
-  // pending_verification / unmatched / unknown — use the Calendly list price as the expected amount
-  const amt = registrationSessionAmount(reg);
-  if (amt == null || amt <= 0) return 0;
-  return amt;
+  return 0; // no confirmed Stripe charge → $0
 }
 function sessionBookingRevenue(sessionId, registrations) {
   return (registrations || [])
@@ -1821,23 +1819,6 @@ function buildSessionListPriceMap(registrations) {
   });
   return map;
 }
-function registrationRevenueAmount(reg, listPrices) {
-  if (reg.stripeVerified && reg.paidAmount != null) {
-    const paid = Number(reg.paidAmount);
-    const refunded = Number(reg.amountRefunded) || 0;
-    if (!Number.isNaN(paid)) return Math.max(0, Math.round((paid - refunded) * 100) / 100);
-  }
-  // Explicit $0 paidAmount (e.g. coupon/discount code) — don't fall through to list price.
-  if (reg.paidAmount != null && Number(reg.paidAmount) === 0) return 0;
-  if (reg.paymentStatus === "paid" || reg.paymentStatus === "partial_refund") {
-    const paid = Number(reg.paidAmount);
-    if (!Number.isNaN(paid) && paid > 0) return paid;
-  }
-  const direct = registrationSessionAmount(reg);
-  if (direct != null) return direct;
-  if (reg.sessionId && listPrices?.[reg.sessionId] != null) return listPrices[reg.sessionId];
-  return null;
-}
 function registrationRevenueChannel(session) {
   if (!session) return "Studio session";
   const isVirtual = !session.studioId && (session.locationType === "zoom" || session.locationType === "custom" || !session.locationType);
@@ -1848,18 +1829,48 @@ function offerRevenueChannel(offerType) {
   if (offerType === "Single session" || offerType === "Virtual session") return "Virtual session";
   return "Group package";
 }
+// Index the Stripe payments ledger by the booking each charge paid for. Mirrors how the Stripe
+// reconciliation page links charges to bookings, so revenue can read the same source of truth.
+function buildPaidPaymentsByBooking(payments) {
+  const map = {};
+  (payments || []).forEach(p => {
+    if (p.bookingId && (p.status === "paid" || p.status === "partial_refund")) map[p.bookingId] = p;
+  });
+  return map;
+}
+// A booking's recognised revenue, sourced exactly like the Stripe log: the GROSS amount of its
+// matched Stripe charge, and $0 when there is no charge (free / 100%-off-coupon bookings appear
+// as the $0 "Free" rows on the Stripe page). The list price is never used here, so a free booking
+// of a paid-price session is never over-counted at its expected price.
+function bookingStripeCharge(reg, paidByBooking) {
+  const charge = paidByBooking[reg.id];
+  if (charge) {
+    return {
+      gross: Math.max(0, Number(charge.amountGross) || 0),
+      refunds: Math.max(0, Number(charge.amountRefunded) || 0),
+    };
+  }
+  // Fallback when the ledger isn't loaded but the booking itself carries a verified Stripe amount.
+  if (reg.stripeVerified && reg.paymentStatus !== "refunded" && reg.paidAmount != null) {
+    return {
+      gross: Math.max(0, Number(reg.paidAmount) || 0),
+      refunds: Math.max(0, Number(reg.amountRefunded) || 0),
+    };
+  }
+  return { gross: 0, refunds: 0 }; // no Stripe charge → $0, matching the Stripe log
+}
 function buildRegistrationRevenueRows(data = {}) {
   const sessions = buildSessionMap(data.sessions);
   const clients = Object.fromEntries((data.clients || []).map(c => [c.id, c]));
-  const listPrices = buildSessionListPriceMap(data.registrations);
+  const paidByBooking = buildPaidPaymentsByBooking(data.payments);
   return (data.registrations || [])
     .filter(r => r.status !== "canceled" && r.status !== "rescheduled"
       && !["unpaid", "pending_verification", "unmatched", "failed"].includes(r.paymentStatus))
     .map(r => {
       const session = sessions[r.sessionId];
       const client = clients[r.clientId];
-      const amt = registrationRevenueAmount(r, listPrices);
-      if (amt == null) return null;
+      const { gross, refunds } = bookingStripeCharge(r, paidByBooking);
+      const net = Math.round((gross - refunds) * 100) / 100;
       const date = session?.date || (r.scheduledAt || "").slice(0, 10) || (r.createdAt || "").slice(0, 10);
       if (!date) return null;
       return {
@@ -1874,17 +1885,17 @@ function buildRegistrationRevenueRows(data = {}) {
         sessionId: r.sessionId || "",
         clientId: r.clientId || "",
         client: client ? cleanName(client.name) : "",
-        gross: amt,
+        gross,
         stripeFee: 0,
         studioSplit: 0,
         facilitatorCost: 0,
-        refunds: 0,
-        net: amt,
+        refunds,
+        net,
         costCenter: registrationRevenueChannel(session),
-        notes: "Calendly session price",
+        notes: "Actual Stripe charge",
         registrationId: r.id,
         bookedAt: r.paidAt || r.createdAt || "",
-        isFree: amt === 0,
+        isFree: gross === 0,
         _derived: true,
       };
     })
@@ -5885,23 +5896,6 @@ const VIEWS = {
     views: [
       { name: "Summary",        layout: "expense-summary" },
       {
-        name: "All Expenses", layout: "table",
-        columns: [
-          col("date",          "Date",        r => r.date),
-          col("vendor",        "Vendor",      r => <strong style={{color:C.ink}}>{r.vendor}</strong>),
-          col("description",   "Description", r => r.description),
-          col("category",      "Category",    r => <span style={{fontSize:12,padding:"2px 8px",borderRadius:8,background:hexA(EXPENSE_CATEGORY_COLOR[r.category]||C.ink3,0.12),color:EXPENSE_CATEGORY_COLOR[r.category]||C.ink3,fontWeight:600}}>{r.category}</span>),
-          col("amount",        "Amount",      r => <strong style={{color:C.ink}}>{money(r.amount)}</strong>, {align:"right"}),
-          col("paymentMethod", "Payment",     r => r.paymentMethod),
-          col("taxDeductible", "Tax Ded.",    r => r.taxDeductible ? <span style={{color:"#16A34A",fontWeight:700}}>✓ Yes</span> : <span style={{color:C.ink3}}>No</span>),
-          col("recurring",     "Recurring",   r => r.recurring ? <span style={{fontSize:11,padding:"2px 7px",borderRadius:8,background:C.brandSoft,color:C.brandDeep,fontWeight:600}}>{r.recurringFreq}</span> : ""),
-        ],
-        run: (rows) => ({
-          rows: [...rows].sort((a,b) => (b.date||"").localeCompare(a.date||"")),
-          footer: { amount: rows.reduce((s,r)=>s+(+r.amount||0),0) },
-        }),
-      },
-      {
         name: "By Category", layout: "table",
         columns: [
           col("category",  "Category",      r => <span style={{fontSize:12,padding:"2px 8px",borderRadius:8,background:hexA(EXPENSE_CATEGORY_COLOR[r.category]||C.ink3,0.12),color:EXPENSE_CATEGORY_COLOR[r.category]||C.ink3,fontWeight:600}}>{r.category}</span>),
@@ -8602,8 +8596,8 @@ function ClientSessionsTab({ record, data, onOpenRelated, today }) {
 
   const STATUS_COLOR = { Completed: "#4A8C6F", Planned: C.brand, "Booking open": C.brand, "Follow-up pending": C.gold, Canceled: "#C0573F" };
 
-  // Use actual Stripe paid amount when available, fall back to Calendly list price
-  const sessionRevenue = ({ reg }) => resolveActualBookingAmount(reg, null) ?? registrationPaymentForLtv(reg) ?? 0;
+  // Recognised revenue per booking — actual Stripe charge only (matches LTV and the Revenue tab).
+  const sessionRevenue = ({ reg }) => registrationPaymentForLtv(reg);
   const totalRevenue = sessions.reduce((sum, s) => sum + sessionRevenue(s), 0);
 
   if (!sessions.length) {
@@ -8623,7 +8617,6 @@ function ClientSessionsTab({ record, data, onOpenRelated, today }) {
         const partner = session.studioId ? (data.partners || []).find(p => p.id === session.studioId) : null;
         const statusColor = STATUS_COLOR[session.status] || C.ink3;
         const rev = sessionRevenue(item);
-        const revLabel = formatActualBookingAmount(reg, null) ?? formatRegistrationAmount(reg);
         return (
           <button key={session.id} onClick={() => onOpenRelated({ db: "sessions", record: session })}
             style={{ display: "flex", alignItems: "flex-start", gap: 12, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 10, padding: "12px 14px", textAlign: "left", cursor: "pointer", width: "100%" }}
@@ -8641,12 +8634,7 @@ function ClientSessionsTab({ record, data, onOpenRelated, today }) {
               </div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
-              {revLabel && (
-                <span style={{ fontSize: 13, fontWeight: 700, color: revLabel === "Free" ? C.ink3 : "#4A8C6F" }}>{revLabel}</span>
-              )}
-              {!revLabel && rev > 0 && (
-                <span style={{ fontSize: 13, fontWeight: 700, color: "#4A8C6F" }}>{money(rev)}</span>
-              )}
+              <span style={{ fontSize: 13, fontWeight: 700, color: rev > 0 ? "#4A8C6F" : C.ink3 }}>{rev > 0 ? money(rev) : "Free"}</span>
               <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 8, background: hexA(statusColor, 0.12), color: statusColor }}>
                 {session.status || "Planned"}
               </span>
