@@ -11594,7 +11594,7 @@ function AdminView({ tab, data, setData, secUsers, currentUser, today, crmSettin
     // Revenue
     (data.revenue || []).forEach(r => {
       if (!r.date)               warn("revenue",      r.id, "date",    "Missing revenue date",          "high");
-      if (!r.gross && !r.net)    warn("revenue",      r.id, "gross",   "No gross or net revenue value", "medium");
+      if (r.gross == null && r.net == null) warn("revenue", r.id, "gross", "No gross or net revenue value", "medium");
     });
     // Referrals
     (data.referrals || []).forEach(r => {
