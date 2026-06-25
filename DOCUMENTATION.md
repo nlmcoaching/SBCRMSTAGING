@@ -987,13 +987,11 @@ Manual **Revenue** records (gross, Stripe fee, studio split, etc.) are part of t
 
 ### Views
 
-- **Revenue Attribution** (tab 0) — stat cards and analytics driven directly by the **revenue and expense ledgers**, filtered by **session date** (`r.date`). Same cards and layout as Revenue by Booked Date, but revenue counts in the month the session runs:
+- **Revenue Attribution** (tab 0) — stat cards and analytics driven directly by the **revenue and expense ledgers**, filtered by **booking/payment date** (`r.bookedAt`, falling back to `r.date`). Revenue counts in the month money was actually collected. Layout: `revenue-analytics-booked`, rendered by `<RevenueAttributionView dateMode="booked" />`:
   - Stat cards: **Gross revenue MTD**, **Net revenue MTD**, **YTD Revenue**, **YTD Net Revenue**
   - **Revenue waterfall — month to date**: Gross (sum of `data.revenue` gross) → Studio splits (sum of `data.expenses` where `category = "Studio Split"`) → Processing fees → Refunds (revenue refunds + cancellation expenses) → Net. All figures limited to the current calendar month.
   - **P&L by channel — MTD**: Gross and fees from `data.revenue` grouped by channel; studio split expenses attributed to "Studio session"; cancellation expenses routed to the channel of the linked session. Net = Gross − Fees − Split − Refunds per channel.
   - **Recently Charged Sessions**: Mirrors the Stripe page — every paid Stripe charge **plus** every active booking with no charge (free/coupon) shown as a `$0` **Free** row. Sorted newest-first by charge time. Columns: Booked, Client, Session, Channel, Amount.
-
-- **Revenue by Booked Date** (tab 1) — identical layout to Revenue Attribution but filtered by **booking/payment date** (`r.bookedAt`, falling back to `r.date`). Revenue counts in the month the booking was made rather than the month the session runs. Panel titles include "(by booked date)" to distinguish them. Layout: `revenue-analytics-booked`, rendered by `<RevenueAttributionView dateMode="booked" />`.
 
 - **This month** (tab 2) — rebuilt around the actual ledgers (`revenue-this-month` layout, `RevenueThisMonthView`). It no longer derives figures from registrations or applies a 70/30 split. Instead:
   - **Gross Revenue** = sum of the **Stripe amounts stored on records in the `revenue` table** (`gross`) whose `bookedAt` (booking/payment date, falling back to `date`) falls in the current month — reflects money actually collected. Includes both auto booking records (`regrev_*`) and manually-entered revenue rows.

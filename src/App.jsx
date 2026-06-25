@@ -6467,8 +6467,7 @@ const VIEWS = {
   },
   revenue: {
     views: [
-      { name: "Revenue attribution", layout: "revenue-analytics" },
-      { name: "Revenue by Booked Date", layout: "revenue-analytics-booked" },
+      { name: "Revenue attribution", layout: "revenue-analytics-booked" },
       { name: "This month", layout: "revenue-this-month" },
       { name: "Revenue Table", layout: "record-table", columns: revenueTableCols() },
     ],
@@ -15290,7 +15289,7 @@ function RevenueAttributionView({ data, derived, today, onOpen, dateMode = "sess
       </div>
 
       {/* Revenue waterfall: session prices → net (fees/splits when recorded), MTD only */}
-      <Panel title={`Revenue waterfall — month to date${dateMode === "booked" ? " (by booked date)" : ""}`}>
+      <Panel title="Revenue waterfall — month to date">
         <div style={{ padding: "4px 0 8px" }}>
           {[
             { label: "Session booking revenue", value: totalGross, color: "#2F6FD0", op: "base" },
@@ -15313,7 +15312,7 @@ function RevenueAttributionView({ data, derived, today, onOpen, dateMode = "sess
       </Panel>
 
       {/* Channel P&L table */}
-      <Panel title={`P&L by channel — MTD${dateMode === "booked" ? " (by booked date)" : ""}`}>
+      <Panel title="P&L by channel — MTD">
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
