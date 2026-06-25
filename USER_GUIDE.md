@@ -57,7 +57,7 @@ If more than one person uses the system, you'll see a tile for each user. Tap or
 **Step 2 — Enter your PIN**
 Type your PIN in the box and press Enter (or tap the arrow button).
 
-If your PIN is correct, you'll go straight to the **Today — Command Center** dashboard. This happens every time you log in, so your daily action list is always the first thing you see. If you forget your PIN, an Owner or Admin can reset it for you in User Management.
+If your PIN is correct, you'll go straight to the **Today — Command Center** dashboard. This happens every time you log in, so your daily action list is always the first thing you see. If you forget your PIN, use your **recovery code** (see Your Profile → Security tab) or ask an Owner or Admin to reset it in User Management.
 
 If you see **"Data integrity check failed"**, hard-refresh the page and try again — the app can usually repair missing table structure automatically. If it still fails, restore from a JSON backup (Admin → Storage & Backup → Download Backup).
 
@@ -1230,11 +1230,29 @@ Click your **avatar circle** in the top-right corner of any page, then select **
 
 **Security tab — changing your PIN:**
 1. Enter your **Current PIN**.
-2. Enter a **New PIN** (minimum 4 characters).
+2. Enter a **New PIN** (minimum 6 characters).
 3. Confirm the new PIN.
 4. Click **Save Changes**.
 
-> If you forget your current PIN, you cannot change it yourself. Ask an Owner or Admin to reset it for you in User Management.
+**Security tab — Recovery Code:**
+
+A recovery code lets you reset your PIN if you ever forget it — without losing any of your data.
+
+1. On the **Security** tab, scroll down to **Recovery Code** and click **Generate Recovery Code**.
+2. A 30-character code appears (e.g. `A3K9M-X7QBN-...`). **Copy it and save it somewhere safe** — your password manager, a printed sheet in a secure location, etc. It is shown only once and cannot be retrieved later.
+3. Click **Copy to clipboard** if needed.
+
+> **Important:** Anyone with your recovery code can reset your PIN and access your data. Treat it like a master password.
+
+To regenerate (invalidates the old code) or remove the code entirely, return to the Security tab at any time.
+
+**Using a recovery code to get back in:**
+
+If you are locked out and have a recovery code:
+1. On the lock screen, click **"Forgot your PIN? Use recovery code"** (this link only appears if a recovery code has been set).
+2. Enter your recovery code — dashes and capitalisation don't matter.
+3. If the code is correct, you'll be prompted to set a **new PIN**.
+4. After setting your new PIN you're logged straight in. The used recovery code is cleared — generate a new one from your Security tab.
 
 ---
 

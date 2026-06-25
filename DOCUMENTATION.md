@@ -119,6 +119,23 @@ On load, the decrypted data is validated against the expected schema (all requir
 
 After 5 consecutive failed PIN attempts, the lock screen displays a lockout message and disables further attempts for 5 minutes. The lockout counter is stored in **`localStorage`** with TTL-based expiry — it persists across tabs, page refreshes, and browser restarts until the lockout window expires. Stale entries are pruned automatically on read.
 
+### Recovery Code
+
+Users can generate a **recovery code** from **Profile → Security → Recovery Code**. The code is a cryptographically random 30-character string displayed in 6 groups of 5 (e.g. `A3K9M-...`). It is shown **once** at generation and never stored in plaintext.
+
+**How it works:** The master key is wrapped with a PBKDF2-derived key from the recovery code (100k iterations, random salt) and stored as `recoveryWrappedMasterKey` + `recoverySalt` + `recoveryPbkdf2Iterations` on the user's security record — alongside the PIN-wrapped copy. The underlying master key is the same; only the wrapping differs.
+
+**Recovery flow (lock screen):** If a recovery code has been set, a **"Forgot your PIN? Use recovery code"** link appears on the PIN entry form. Clicking it opens a two-step flow:
+1. Enter the recovery code → verified by attempting to unwrap the master key; data is decrypted and loaded.
+2. Set a new PIN → master key is re-wrapped with the new PIN; the recovery code fields are cleared (code is consumed); the user is logged in.
+
+After recovery, the user should generate a new recovery code from Profile settings. The old code is permanently invalidated.
+
+**Security properties:**
+- The recovery code itself never leaves the browser — only the wrapped master key is stored.
+- Clearing or regenerating the code immediately invalidates the old one.
+- `Sec.generateRecoveryCode()` uses `crypto.getRandomValues` with a 32-character alphabet that excludes visually ambiguous characters (I, O, 0, 1).
+
 ### Legacy Account Upgrade Banner
 
 If the app detects a v1 PIN account (pre-PBKDF2, unsalted SHA-256 hash), a yellow banner is displayed on the lock screen: **"Security upgrade required — please log in to automatically upgrade to enhanced security (PBKDF2)."** Logging in once completes the migration silently; the old hash is permanently removed.

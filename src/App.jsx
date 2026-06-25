@@ -1337,6 +1337,18 @@ const Sec = {
     const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("sb-session-v3:" + token));
     return btoa(String.fromCharCode(...new Uint8Array(buf)));
   },
+  // ── Recovery code (offline PIN reset) ──
+  // Generates a cryptographically random 30-char code in 6×5 groups (e.g. A3K9M-...).
+  // The master key is wrapped with this code the same way it is with the PIN, using its
+  // own salt and a reduced iteration count (100k) since the code itself is already
+  // high-entropy random — no dictionary attack risk.
+  RECOVERY_PBKDF2_ITERATIONS: 100_000,
+  generateRecoveryCode() {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no I/O/0/1 to avoid visual ambiguity
+    const bytes = crypto.getRandomValues(new Uint8Array(30));
+    const raw = Array.from(bytes).map(b => chars[b % chars.length]).join("");
+    return [0,5,10,15,20,25].map(i => raw.slice(i, i + 5)).join("-");
+  },
   sanitize(val) {
     if (typeof val !== "string") return val;
     const t = val.trim();
@@ -2313,16 +2325,24 @@ function FirstRunSetup({ onSetup, error }) {
 
 /* ============================================================ */
 /* ── LOCK SCREEN ── */
-function LockScreen({ onUnlock, error, initialising, users }) {
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [pin, setPin]   = useState("");
-  const [show, setShow] = useState(false);
-  const [busy, setBusy] = useState(false);
+function LockScreen({ onUnlock, error, initialising, users, onRecoveryVerify, onRecoverySetPin }) {
+  const [selectedUser,       setSelectedUser]       = useState(null);
+  const [pin,                setPin]                = useState("");
+  const [show,               setShow]               = useState(false);
+  const [busy,               setBusy]               = useState(false);
+  // Recovery flow state
+  const [recoveryMode,       setRecoveryMode]       = useState("none"); // "none" | "code" | "setPin"
+  const [recoveryCode,       setRecoveryCode]       = useState("");
+  const [recoveryError,      setRecoveryError]      = useState("");
+  const [recoveredKey,       setRecoveredKey]       = useState(null);
+  const [newPinVal,          setNewPinVal]          = useState("");
+  const [confirmPinVal,      setConfirmPinVal]      = useState("");
+  const [newPinError,        setNewPinError]        = useState("");
+  const [showNewPin,         setShowNewPin]         = useState(false);
 
-  // Detect legacy v1 account (unsalted SHA-256) needing upgrade
   const needsV1Upgrade = !initialising && users.some(u => u.id === "v1_migration");
+  const anyHasRecovery = !initialising && users.some(u => u.recoveryWrappedMasterKey);
 
-  // Auto-select if only one user
   useEffect(() => {
     if (!initialising && users.length === 1) setSelectedUser(users[0]);
   }, [initialising, users]);
@@ -2336,123 +2356,183 @@ function LockScreen({ onUnlock, error, initialising, users }) {
     setPin("");
   };
 
+  const submitRecoveryCode = async (e) => {
+    e.preventDefault();
+    if (!recoveryCode.trim() || busy) return;
+    const userId = selectedUser?.id || users.find(u => u.recoveryWrappedMasterKey)?.id;
+    if (!userId) { setRecoveryError("No account with a recovery code found."); return; }
+    setBusy(true); setRecoveryError("");
+    const result = await onRecoveryVerify(userId, recoveryCode.trim());
+    setBusy(false);
+    if (result.success) {
+      setRecoveredKey({ masterKeyRaw: result.masterKeyRaw, userId });
+      setRecoveryMode("setPin");
+    } else {
+      setRecoveryError(result.error || "Invalid recovery code.");
+    }
+  };
+
+  const submitNewPin = async (e) => {
+    e.preventDefault();
+    if (newPinVal.length < 6) { setNewPinError("PIN must be at least 6 characters."); return; }
+    if (newPinVal !== confirmPinVal) { setNewPinError("PINs don't match."); return; }
+    setBusy(true); setNewPinError("");
+    const result = await onRecoverySetPin(recoveredKey.userId, newPinVal, recoveredKey.masterKeyRaw);
+    setBusy(false);
+    if (!result.success) setNewPinError(result.error || "Failed to set new PIN.");
+  };
+
+  const resetRecovery = () => {
+    setRecoveryMode("none"); setRecoveryCode(""); setRecoveryError("");
+    setRecoveredKey(null); setNewPinVal(""); setConfirmPinVal(""); setNewPinError("");
+  };
+
   const initials = (name) => name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
 
-  return (
-    <div style={{
-      minHeight: "100vh", background: C.bg,
-      display: "flex", alignItems: "center", justifyContent: "center",
-      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-    }}>
-      <div style={{
-        background: C.surface, border: `1px solid ${C.line}`, borderRadius: 20,
-        padding: "28px 40px 36px", width: "100%", maxWidth: 400, textAlign: "center",
-        boxShadow: "0 8px 40px rgba(22,33,58,0.10)",
-      }}>
-        <div style={{ width: 162, height: 130, margin: "0 auto 0", display: "flex", alignItems: "flex-end", justifyContent: "center", overflow: "hidden" }}>
-          <img src="/sb-heart-wave.png" alt="Simply Breathe" style={{ width: 162, height: 162, objectFit: "contain", marginBottom: -16 }} />
-        </div>
-        <h1 style={{ fontFamily: FONT.display, fontSize: 21, fontWeight: 700, color: C.ink, margin: "0 0 4px" }}>
-          Simply Breathe OS
-        </h1>
-        <p style={{ fontSize: 13, color: C.ink3, margin: needsV1Upgrade ? "0 0 12px" : "0 0 28px" }}>
-          {initialising ? "Loading…" : selectedUser ? `Welcome back, ${selectedUser.name.split(" ")[0]}` : "Who's accessing today?"}
-        </p>
-        {needsV1Upgrade && (
-          <div style={{
-            margin: "0 0 18px", padding: "10px 14px", borderRadius: 10,
-            background: "#fffbe6", border: "1.5px solid #f5c542",
-            fontSize: 12, color: "#7a5c00", textAlign: "left", lineHeight: 1.5,
-          }}>
-            <strong>Security upgrade required</strong><br />
-            Your account uses an older PIN format. Please log in to automatically upgrade to enhanced security (PBKDF2).
-          </div>
-        )}
+  const cardStyle = {
+    background: C.surface, border: `1px solid ${C.line}`, borderRadius: 20,
+    padding: "28px 40px 36px", width: "100%", maxWidth: 400, textAlign: "center",
+    boxShadow: "0 8px 40px rgba(22,33,58,0.10)",
+  };
+  const inputStyle = (hasErr) => ({
+    width: "100%", padding: "13px 16px",
+    border: `1.5px solid ${hasErr ? "#C0392B" : C.line}`,
+    borderRadius: 10, fontSize: 15, outline: "none",
+    color: C.ink, background: C.surface, boxSizing: "border-box",
+  });
+  const errBox = (msg) => msg ? (
+    <div style={{ fontSize: 12.5, color: "#C0392B", background: hexA("#C0392B", 0.07),
+      borderRadius: 8, padding: "8px 12px", textAlign: "left", display: "flex", gap: 7, alignItems: "flex-start" }}>
+      <AlertCircle size={13} color="#C0392B" style={{ marginTop: 1, flexShrink: 0 }} /> {msg}
+    </div>
+  ) : null;
 
-        {initialising ? (
-          <div style={{ fontSize: 13, color: C.ink3, padding: "20px 0" }}>Initialising security…</div>
-        ) : !selectedUser ? (
-          /* ── User tile grid ── */
-          <div style={{ display: "grid", gridTemplateColumns: users.length > 2 ? "1fr 1fr" : "1fr", gap: 10 }}>
-            {users.map(u => (
-              <button key={u.id} onClick={() => setSelectedUser(u)} style={{
-                display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
-                border: `1.5px solid ${C.line}`, borderRadius: 12, cursor: "pointer",
-                background: C.surfaceAlt, transition: "all .12s", textAlign: "left",
-              }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = u.color || C.brand; e.currentTarget.style.background = hexA(u.color || C.brand, 0.06); }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = C.line; e.currentTarget.style.background = C.surfaceAlt; }}>
-                <div style={{ width: 40, height: 40, borderRadius: "50%", background: u.color || C.brand,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 14, fontWeight: 800, color: "#fff", flexShrink: 0, overflow: "hidden", position: "relative" }}>
-                  {u.avatar
-                    ? <img src={u.avatar} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                    : initials(u.name)
-                  }
-                </div>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 13.5, color: C.ink }}>{u.name}</div>
-                  <div style={{ fontSize: 11, color: USER_ROLE_COLOR[u.role] || C.ink3, fontWeight: 600 }}>{u.role}</div>
-                </div>
-              </button>
-            ))}
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
+
+      {/* ── Recovery: enter code ── */}
+      {recoveryMode === "code" && (
+        <div style={cardStyle}>
+          <div style={{ width: 48, height: 48, borderRadius: "50%", background: C.brandSoft, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+            <Shield size={22} color={C.brand} strokeWidth={1.5} />
           </div>
-        ) : (
-          /* ── PIN entry ── */
-          <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 13 }}>
-            {users.length > 1 && (
-              <button type="button" onClick={() => { setSelectedUser(null); setPin(""); setPinError?.(""); }}
-                style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px",
-                  border: `1px solid ${C.line}`, borderRadius: 10, cursor: "pointer",
-                  background: C.surfaceAlt, width: "100%", marginBottom: 4 }}>
-                <div style={{ width: 32, height: 32, borderRadius: "50%", background: selectedUser.color || C.brand,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 12, fontWeight: 800, color: "#fff", overflow: "hidden", position: "relative" }}>
-                  {selectedUser.avatar
-                    ? <img src={selectedUser.avatar} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                    : initials(selectedUser.name)
-                  }
-                </div>
-                <div style={{ textAlign: "left", flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, color: C.ink }}>{selectedUser.name}</div>
-                  <div style={{ fontSize: 11, color: C.ink3 }}>Change user ↩</div>
-                </div>
-              </button>
-            )}
-            <div style={{ position: "relative" }}>
-              <input type={show ? "text" : "password"} value={pin} onChange={e => setPin(e.target.value)}
-                placeholder="Enter PIN" autoFocus style={{
-                  width: "100%", padding: "13px 44px 13px 16px",
-                  border: `1.5px solid ${error ? "#C0392B" : C.line}`,
-                  borderRadius: 10, fontSize: 16, outline: "none",
-                  fontFamily: "monospace", letterSpacing: show ? ".05em" : ".3em",
-                  color: C.ink, background: C.surface, boxSizing: "border-box",
-                }}
-                onFocus={e => e.target.style.borderColor = C.brand}
-                onBlur={e => e.target.style.borderColor = error ? "#C0392B" : C.line}
-              />
-              <button type="button" onClick={() => setShow(s => !s)} style={{
-                position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
-                background: "none", border: "none", cursor: "pointer", fontSize: 11, color: C.ink3, fontWeight: 600,
-              }}>{show ? "HIDE" : "SHOW"}</button>
-            </div>
-            {error && (
-              <div style={{ fontSize: 12.5, color: "#C0392B", background: hexA("#C0392B", 0.07),
-                borderRadius: 8, padding: "8px 12px", textAlign: "left", display: "flex", gap: 7, alignItems: "center" }}>
-                <AlertCircle size={13} color="#C0392B" /> {error}
-              </div>
-            )}
-            <button type="submit" disabled={busy || !pin.trim()} style={{
-              padding: "13px", background: busy || !pin.trim() ? C.line : selectedUser.color || C.brand,
+          <h1 style={{ fontFamily: FONT.display, fontSize: 20, fontWeight: 700, color: C.ink, margin: "0 0 6px" }}>Account Recovery</h1>
+          <p style={{ fontSize: 13, color: C.ink3, margin: "0 0 22px", lineHeight: 1.6 }}>
+            Enter your recovery code to reset your PIN. The code is case-insensitive — dashes are optional.
+          </p>
+          <form onSubmit={submitRecoveryCode} style={{ display: "flex", flexDirection: "column", gap: 13 }}>
+            <input value={recoveryCode} onChange={e => setRecoveryCode(e.target.value)}
+              placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX" autoFocus
+              style={{ ...inputStyle(!!recoveryError), fontFamily: "monospace", letterSpacing: ".08em", fontSize: 13, textTransform: "uppercase" }} />
+            {errBox(recoveryError)}
+            <button type="submit" disabled={busy || !recoveryCode.trim()} style={{
+              padding: "13px", background: busy || !recoveryCode.trim() ? C.line : C.brand,
               color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700,
-              cursor: busy || !pin.trim() ? "not-allowed" : "pointer", transition: "background .15s",
-            }}>{busy ? "Unlocking…" : "Unlock"}</button>
+              cursor: busy || !recoveryCode.trim() ? "not-allowed" : "pointer",
+            }}>{busy ? "Verifying…" : "Verify Code"}</button>
+            <button type="button" onClick={resetRecovery} style={{ background: "none", border: "none", fontSize: 13, color: C.ink3, cursor: "pointer", marginTop: 2 }}>← Back to login</button>
           </form>
-        )}
-        <p style={{ fontSize: 11, color: C.ink3, marginTop: 22, lineHeight: 1.6 }}>
-          🔒 Data encrypted with AES-256-GCM
-        </p>
-      </div>
+        </div>
+      )}
+
+      {/* ── Recovery: set new PIN ── */}
+      {recoveryMode === "setPin" && (
+        <div style={cardStyle}>
+          <div style={{ width: 48, height: 48, borderRadius: "50%", background: "#eaf4ee", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+            <Check size={22} color="#4A8C6F" strokeWidth={2} />
+          </div>
+          <h1 style={{ fontFamily: FONT.display, fontSize: 20, fontWeight: 700, color: C.ink, margin: "0 0 6px" }}>Set New PIN</h1>
+          <p style={{ fontSize: 13, color: C.ink3, margin: "0 0 22px", lineHeight: 1.6 }}>
+            Recovery code verified. Choose a new PIN — at least 6 characters. Your recovery code has been cleared; generate a new one after logging in.
+          </p>
+          <form onSubmit={submitNewPin} style={{ display: "flex", flexDirection: "column", gap: 13 }}>
+            <div style={{ position: "relative" }}>
+              <input type={showNewPin ? "text" : "password"} value={newPinVal} onChange={e => setNewPinVal(e.target.value)}
+                placeholder="New PIN" autoFocus style={{ ...inputStyle(!!newPinError), paddingRight: 56, fontFamily: "monospace", letterSpacing: ".3em" }} />
+              <button type="button" onClick={() => setShowNewPin(s => !s)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 11, color: C.ink3, fontWeight: 600 }}>{showNewPin ? "HIDE" : "SHOW"}</button>
+            </div>
+            <input type={showNewPin ? "text" : "password"} value={confirmPinVal} onChange={e => setConfirmPinVal(e.target.value)}
+              placeholder="Confirm new PIN" style={{ ...inputStyle(!!newPinError), fontFamily: "monospace", letterSpacing: ".3em" }} />
+            {errBox(newPinError)}
+            <button type="submit" disabled={busy || !newPinVal.trim()} style={{
+              padding: "13px", background: busy || !newPinVal.trim() ? C.line : "#4A8C6F",
+              color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700,
+              cursor: busy || !newPinVal.trim() ? "not-allowed" : "pointer",
+            }}>{busy ? "Saving…" : "Set PIN & Log In"}</button>
+          </form>
+        </div>
+      )}
+
+      {/* ── Normal lock screen ── */}
+      {recoveryMode === "none" && (
+        <div style={cardStyle}>
+          <div style={{ width: 162, height: 130, margin: "0 auto 0", display: "flex", alignItems: "flex-end", justifyContent: "center", overflow: "hidden" }}>
+            <img src="/sb-heart-wave.png" alt="Simply Breathe" style={{ width: 162, height: 162, objectFit: "contain", marginBottom: -16 }} />
+          </div>
+          <h1 style={{ fontFamily: FONT.display, fontSize: 21, fontWeight: 700, color: C.ink, margin: "0 0 4px" }}>Simply Breathe OS</h1>
+          <p style={{ fontSize: 13, color: C.ink3, margin: needsV1Upgrade ? "0 0 12px" : "0 0 28px" }}>
+            {initialising ? "Loading…" : selectedUser ? `Welcome back, ${selectedUser.name.split(" ")[0]}` : "Who's accessing today?"}
+          </p>
+          {needsV1Upgrade && (
+            <div style={{ margin: "0 0 18px", padding: "10px 14px", borderRadius: 10, background: "#fffbe6", border: "1.5px solid #f5c542", fontSize: 12, color: "#7a5c00", textAlign: "left", lineHeight: 1.5 }}>
+              <strong>Security upgrade required</strong><br />
+              Your account uses an older PIN format. Please log in to automatically upgrade to enhanced security (PBKDF2).
+            </div>
+          )}
+
+          {initialising ? (
+            <div style={{ fontSize: 13, color: C.ink3, padding: "20px 0" }}>Initialising security…</div>
+          ) : !selectedUser ? (
+            <div style={{ display: "grid", gridTemplateColumns: users.length > 2 ? "1fr 1fr" : "1fr", gap: 10 }}>
+              {users.map(u => (
+                <button key={u.id} onClick={() => setSelectedUser(u)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", border: `1.5px solid ${C.line}`, borderRadius: 12, cursor: "pointer", background: C.surfaceAlt, transition: "all .12s", textAlign: "left" }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = u.color || C.brand; e.currentTarget.style.background = hexA(u.color || C.brand, 0.06); }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = C.line; e.currentTarget.style.background = C.surfaceAlt; }}>
+                  <div style={{ width: 40, height: 40, borderRadius: "50%", background: u.color || C.brand, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: "#fff", flexShrink: 0, overflow: "hidden", position: "relative" }}>
+                    {u.avatar ? <img src={u.avatar} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : initials(u.name)}
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 13.5, color: C.ink }}>{u.name}</div>
+                    <div style={{ fontSize: 11, color: USER_ROLE_COLOR[u.role] || C.ink3, fontWeight: 600 }}>{u.role}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 13 }}>
+              {users.length > 1 && (
+                <button type="button" onClick={() => { setSelectedUser(null); setPin(""); }}
+                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: `1px solid ${C.line}`, borderRadius: 10, cursor: "pointer", background: C.surfaceAlt, width: "100%", marginBottom: 4 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: "50%", background: selectedUser.color || C.brand, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, color: "#fff", overflow: "hidden", position: "relative" }}>
+                    {selectedUser.avatar ? <img src={selectedUser.avatar} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : initials(selectedUser.name)}
+                  </div>
+                  <div style={{ textAlign: "left", flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, color: C.ink }}>{selectedUser.name}</div>
+                    <div style={{ fontSize: 11, color: C.ink3 }}>Change user ↩</div>
+                  </div>
+                </button>
+              )}
+              <div style={{ position: "relative" }}>
+                <input type={show ? "text" : "password"} value={pin} onChange={e => setPin(e.target.value)}
+                  placeholder="Enter PIN" autoFocus style={{ width: "100%", padding: "13px 44px 13px 16px", border: `1.5px solid ${error ? "#C0392B" : C.line}`, borderRadius: 10, fontSize: 16, outline: "none", fontFamily: "monospace", letterSpacing: show ? ".05em" : ".3em", color: C.ink, background: C.surface, boxSizing: "border-box" }}
+                  onFocus={e => e.target.style.borderColor = C.brand}
+                  onBlur={e => e.target.style.borderColor = error ? "#C0392B" : C.line}
+                />
+                <button type="button" onClick={() => setShow(s => !s)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 11, color: C.ink3, fontWeight: 600 }}>{show ? "HIDE" : "SHOW"}</button>
+              </div>
+              {errBox(error)}
+              <button type="submit" disabled={busy || !pin.trim()} style={{ padding: "13px", background: busy || !pin.trim() ? C.line : selectedUser.color || C.brand, color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: busy || !pin.trim() ? "not-allowed" : "pointer", transition: "background .15s" }}>{busy ? "Unlocking…" : "Unlock"}</button>
+              {anyHasRecovery && (
+                <button type="button" onClick={() => { setRecoveryMode("code"); setRecoveryCode(""); setRecoveryError(""); }}
+                  style={{ background: "none", border: "none", fontSize: 12.5, color: C.ink3, cursor: "pointer", marginTop: 2, textDecoration: "underline" }}>
+                  Forgot your PIN? Use recovery code
+                </button>
+              )}
+            </form>
+          )}
+          <p style={{ fontSize: 11, color: C.ink3, marginTop: 22, lineHeight: 1.6 }}>🔒 Data encrypted with AES-256-GCM</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -2822,6 +2902,83 @@ export default function App() {
       setSection("today"); setView(0);
     } catch (e) {
       if (!e.message?.includes("PIN")) setPinError("Something went wrong. Please try again.");
+    }
+  };
+
+  /* ── Recovery: verify code + decrypt data (step 1 of 2) ── */
+  const handleRecoveryVerify = async (userId, code) => {
+    try {
+      const secRaw = await store.get(SEC_META_KEY);
+      if (!secRaw?.value) return { success: false, error: "No security config found." };
+      const sec = JSON.parse(secRaw.value);
+      const user = (sec.users || []).find(u => u.id === userId && u.active !== false);
+      if (!user?.recoveryWrappedMasterKey) return { success: false, error: "No recovery code has been set for this account." };
+      let mkB64, masterKey;
+      try {
+        const result = await Sec.unwrapKeyForUser(
+          user.recoveryWrappedMasterKey, code.replace(/[-\s]/g, "").toUpperCase(),
+          user.recoverySalt, user.recoveryPbkdf2Iterations ?? Sec.RECOVERY_PBKDF2_ITERATIONS
+        );
+        mkB64 = result.raw;
+        masterKey = result.key;
+      } catch (_) {
+        return { success: false, error: "Recovery code is incorrect. Check for typos and try again." };
+      }
+      // Decrypt and load data — same as normal unlock
+      const encRaw = await store.get(STORE_KEY_ENC);
+      if (encRaw?.value) {
+        try {
+          const dec = normalizeCrmData(await Sec.decrypt(encRaw.value, masterKey));
+          if (Sec.validate(dec)) {
+            setData(healStudioPartnersData(dec));
+            if (dec._settings && typeof dec._settings === "object") {
+              const s = parseCrmSettings(dec._settings);
+              _crmSettings = s;
+              setCrmSettings(s);
+              try { localStorage.setItem(CRM_SETTINGS_KEY, JSON.stringify(s)); } catch {}
+            }
+          }
+        } catch (_) {
+          return { success: false, error: "Data could not be decrypted with this recovery code." };
+        }
+      }
+      return { success: true, masterKeyRaw: mkB64 };
+    } catch (e) {
+      return { success: false, error: "Something went wrong. Please try again." };
+    }
+  };
+
+  /* ── Recovery: set new PIN + unlock (step 2 of 2) ── */
+  const handleRecoverySetPin = async (userId, newPin, masterKeyRaw) => {
+    try {
+      const secRaw = await store.get(SEC_META_KEY);
+      if (!secRaw?.value) return { success: false, error: "Security config not found." };
+      const sec = JSON.parse(secRaw.value);
+      // Re-wrap master key with new PIN, clear recovery code (consumed), mint session token
+      const pinSalt = Sec.newSalt();
+      const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyRaw, newPin, pinSalt, Sec.PBKDF2_ITERATIONS);
+      const _sessionToken = Sec.randomToken();
+      const _sessionTokenHash = await Sec.sessionTokenHash(_sessionToken);
+      const updatedUsers = sec.users.map(u => {
+        if (u.id !== userId) return u;
+        const { pinHash: _d, recoveryWrappedMasterKey: _r, recoverySalt: _s, recoveryPbkdf2Iterations: _i, ...rest } = u;
+        return { ...rest, pinSalt, wrappedMasterKey, pbkdf2Iterations: Sec.PBKDF2_ITERATIONS,
+          lastLogin: todayISO(), sessionTokenHash: _sessionTokenHash };
+      });
+      await store.set(SEC_META_KEY, JSON.stringify({ ...sec, users: updatedUsers }));
+      setSecUsers(updatedUsers.filter(u => u.active !== false));
+      const masterKey = await Sec.importMasterKey(masterKeyRaw);
+      setMasterKeyRaw(masterKeyRaw);
+      setCryptoKey(masterKey);
+      setCurrentUser(updatedUsers.find(u => u.id === userId));
+      setPinAttempts(p => { const n = { ...p }; delete n[userId]; return n; });
+      try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, masterKeyRaw, token: _sessionToken })); } catch (_) {}
+      loaded.current = true;
+      setLocked(false);
+      setSection("today"); setView(0);
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: "Failed to set new PIN. Please try again." };
     }
   };
 
@@ -3728,7 +3885,7 @@ export default function App() {
   }, [data, today]);
 
   if (needsSetup) return <FirstRunSetup onSetup={handleSetupOwner} error={pinError} />;
-  if (locked) return <LockScreen onUnlock={handleUnlock} error={pinError} initialising={initialising} users={secUsers} />;
+  if (locked) return <LockScreen onUnlock={handleUnlock} error={pinError} initialising={initialising} users={secUsers} onRecoveryVerify={handleRecoveryVerify} onRecoverySetPin={handleRecoverySetPin} />;
 
   const update = (db, fn) => setData((d) => ({ ...d, [db]: fn(d[db]) }));
   const can = {
@@ -12023,12 +12180,16 @@ function EditProfileModal({ user, masterKeyRaw, onSave, onClose }) {
   const [color,       setColor]       = useState(user?.color || AVATAR_COLORS[0]);
   const [avatar,      setAvatar]      = useState(user?.avatar || "");
   const [tab,         setTab]         = useState("profile"); // profile | security
-  const [curPin,      setCurPin]      = useState("");
-  const [newPin,      setNewPin]      = useState("");
-  const [confirmPin,  setConfirmPin]  = useState("");
-  const [pinMsg,      setPinMsg]      = useState("");
-  const [saving,      setSaving]      = useState(false);
-  const [msg,         setMsg]         = useState("");
+  const [curPin,        setCurPin]        = useState("");
+  const [newPin,        setNewPin]        = useState("");
+  const [confirmPin,    setConfirmPin]    = useState("");
+  const [pinMsg,        setPinMsg]        = useState("");
+  const [saving,        setSaving]        = useState(false);
+  const [msg,           setMsg]           = useState("");
+  // Recovery code state
+  const [generatingRec, setGeneratingRec] = useState(false);
+  const [generatedCode, setGeneratedCode] = useState(null); // shown once after generation
+  const [recMsg,        setRecMsg]        = useState("");
   const fileRef = useRef();
 
   const initials = (name || user?.name || "?").split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
@@ -12055,6 +12216,36 @@ function EditProfileModal({ user, masterKeyRaw, onSave, onClose }) {
       img.src = ev.target.result;
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleGenerateRecoveryCode = async () => {
+    if (!masterKeyRaw) { setRecMsg("Cannot generate recovery code — master key not available. Please log out and back in."); return; }
+    setGeneratingRec(true); setRecMsg(""); setGeneratedCode(null);
+    try {
+      const code = Sec.generateRecoveryCode();
+      const recoverySalt = Sec.newSalt();
+      const recoveryWrappedMasterKey = await Sec.wrapKeyForUser(
+        masterKeyRaw, code.replace(/-/g, ""), recoverySalt, Sec.RECOVERY_PBKDF2_ITERATIONS
+      );
+      await onSave({ recoveryWrappedMasterKey, recoverySalt, recoveryPbkdf2Iterations: Sec.RECOVERY_PBKDF2_ITERATIONS });
+      setGeneratedCode(code);
+    } catch (e) {
+      setRecMsg("Failed to generate recovery code: " + (e?.message || e));
+    }
+    setGeneratingRec(false);
+  };
+
+  const handleClearRecoveryCode = async () => {
+    if (!window.confirm("Remove your recovery code? You will not be able to recover your account without your PIN until you generate a new code.")) return;
+    setGeneratingRec(true); setRecMsg("");
+    try {
+      await onSave({ recoveryWrappedMasterKey: null, recoverySalt: null, recoveryPbkdf2Iterations: null });
+      setGeneratedCode(null);
+      setRecMsg("Recovery code removed.");
+    } catch (e) {
+      setRecMsg("Failed to remove recovery code: " + (e?.message || e));
+    }
+    setGeneratingRec(false);
   };
 
   const handleSave = async () => {
@@ -12193,6 +12384,7 @@ function EditProfileModal({ user, masterKeyRaw, onSave, onClose }) {
 
           {tab === "security" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {/* Change PIN */}
               <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12 }}>
                 <Shield size={18} color={C.brand} />
                 <div>
@@ -12212,6 +12404,60 @@ function EditProfileModal({ user, masterKeyRaw, onSave, onClose }) {
                 </div>
               ))}
               {pinMsg && <div style={{ fontSize: 12, color: "#EF4444", padding: "8px 12px", background: "#FEF2F2", borderRadius: 8 }}>{pinMsg}</div>}
+
+              {/* Recovery Code */}
+              <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: "50%", background: C.brandSoft, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <KeyRound size={15} color={C.brand} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>Recovery Code</div>
+                    <div style={{ fontSize: 12, color: C.ink3, marginTop: 1 }}>
+                      {user?.recoveryWrappedMasterKey
+                        ? "A recovery code is active. Keep it somewhere safe — it lets you reset your PIN if you forget it."
+                        : "No recovery code set. Generate one to protect against being locked out."}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Show generated code once */}
+                {generatedCode && (
+                  <div style={{ background: "#f0fdf4", border: "1.5px solid #86efac", borderRadius: 10, padding: "14px 16px" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#166534", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 8 }}>
+                      ✓ Recovery code generated — save this now
+                    </div>
+                    <div style={{ fontFamily: "monospace", fontSize: 16, fontWeight: 700, color: "#15803d", letterSpacing: ".12em", marginBottom: 10, wordBreak: "break-all" }}>
+                      {generatedCode}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: "#166534", lineHeight: 1.6, marginBottom: 10 }}>
+                      This code will not be shown again. Store it in your password manager, print it, or save it somewhere safe. Anyone with this code can reset your PIN and access your data.
+                    </div>
+                    <button onClick={() => { navigator.clipboard?.writeText(generatedCode); }}
+                      style={{ fontSize: 12, fontWeight: 600, color: "#166534", background: "#dcfce7", border: "1px solid #86efac", borderRadius: 7, padding: "6px 14px", cursor: "pointer" }}>
+                      Copy to clipboard
+                    </button>
+                  </div>
+                )}
+
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button onClick={handleGenerateRecoveryCode} disabled={generatingRec}
+                    style={{ flex: 1, padding: "9px 14px", borderRadius: 9, border: `1px solid ${C.brand}`, background: C.brandSoft, color: C.brandDeep, fontSize: 13, fontWeight: 600, cursor: generatingRec ? "not-allowed" : "pointer", opacity: generatingRec ? 0.6 : 1 }}>
+                    {generatingRec ? "Generating…" : user?.recoveryWrappedMasterKey ? "Regenerate Code" : "Generate Recovery Code"}
+                  </button>
+                  {user?.recoveryWrappedMasterKey && !generatedCode && (
+                    <button onClick={handleClearRecoveryCode} disabled={generatingRec}
+                      style={{ padding: "9px 14px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", color: "#C0392B", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                      Remove
+                    </button>
+                  )}
+                </div>
+                {recMsg && (
+                  <div style={{ fontSize: 12, color: recMsg.startsWith("Failed") ? "#EF4444" : "#166534", padding: "8px 12px", background: recMsg.startsWith("Failed") ? "#FEF2F2" : "#f0fdf4", borderRadius: 8 }}>
+                    {recMsg}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
