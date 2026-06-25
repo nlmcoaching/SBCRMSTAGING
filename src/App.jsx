@@ -393,7 +393,7 @@ function suggestEmailTemplatesForAction(action, templates) {
 const EXPENSE_CATEGORY = [
   "Equipment & Supplies","Software & Subscriptions","Marketing & Advertising",
   "Travel & Transport","Education & Training","Professional Services",
-  "Insurance","Administrative","Studio & Venue","Other",
+  "Insurance","Administrative","Studio & Venue","Refunds & Cancellations","Other",
 ];
 const EXPENSE_CATEGORY_COLOR = {
   "Equipment & Supplies":    "#2E6FB0",
@@ -405,6 +405,7 @@ const EXPENSE_CATEGORY_COLOR = {
   "Insurance":               "#C0392B",
   "Administrative":          "#55627B",
   "Studio & Venue":          "#16A085",
+  "Refunds & Cancellations": "#B0413E",
   "Other":                   "#8A96AC",
 };
 const EXPENSE_PAYMENT_METHOD = ["Credit Card","Bank Transfer","Cash","Check","Other"];
@@ -692,20 +693,7 @@ const SEED = {
     { id: "o11", name: "Past lead / 3-pack",              clientId: "",   offerType: "3-pack",                    price: 105, status: "Expired",        dateOffered: "2026-05-01", expireDate: "2026-05-15", followUpDate: "",           probability: "0%",  source: "Instagram",       notes: "",                                 reasonLost: "No response" },
     { id: "o12", name: "Priya / Private session",         clientId: "c4", offerType: "Private session",           price: 150, status: "Accepted",       dateOffered: "2026-06-05", expireDate: "",           followUpDate: "",           probability: "90%", source: "Post-session",    notes: "Requested after group session",    reasonLost: "" },
   ],
-  revenue: [
-    { id: "rv1",  name: "YogaSix Thursday Reset 6/11",      date: "2026-06-11", channel: "Studio session",   source: "Studio partner",  campaign: "",              sessionId: "s3", clientId: "",  gross: 350,  stripeFee: 10.50, studioSplit: 105,  facilitatorCost: 0,   refunds: 0,  costCenter: "Studio sessions",   notes: "8 paid × $43.75" },
-    { id: "rv2",  name: "Lotus & Pine New Moon 6/9",         date: "2026-06-09", channel: "Studio session",   source: "Studio partner",  campaign: "",              sessionId: "s2", clientId: "",  gross: 280,  stripeFee: 8.40,  studioSplit: 84,   facilitatorCost: 0,   refunds: 0,  costCenter: "Studio sessions",   notes: "7 paid × $40" },
-    { id: "rv3",  name: "Virtual Sunday Session 6/8",        date: "2026-06-08", channel: "Virtual session",  source: "Email list",      campaign: "June newsletter",sessionId: "",   clientId: "",  gross: 420,  stripeFee: 12.60, studioSplit: 0,    facilitatorCost: 0,   refunds: 0,  costCenter: "Virtual sessions",  notes: "12 paid × $35" },
-    { id: "rv4",  name: "Priya private session 6/5",         date: "2026-06-05", channel: "Private client",   source: "Post-session",    campaign: "",              sessionId: "",   clientId: "c4",gross: 150,  stripeFee: 4.50,  studioSplit: 0,    facilitatorCost: 0,   refunds: 0,  costCenter: "Private sessions",  notes: "" },
-    { id: "rv5",  name: "Dana 6-pack 5/28",                  date: "2026-05-28", channel: "Group package",    source: "Studio partner",  campaign: "",              sessionId: "",   clientId: "c6",gross: 195,  stripeFee: 5.85,  studioSplit: 0,    facilitatorCost: 0,   refunds: 0,  costCenter: "Packages",          notes: "" },
-    { id: "rv6",  name: "CorePower Berkeley pilot 6/1",      date: "2026-06-01", channel: "Studio session",   source: "Direct outreach", campaign: "",              sessionId: "s1", clientId: "",  gross: 300,  stripeFee: 9.00,  studioSplit: 90,   facilitatorCost: 0,   refunds: 0,  costCenter: "Studio sessions",   notes: "Pilot, 6 attendees" },
-    { id: "rv7",  name: "Sam 6-pack 4/22",                   date: "2026-04-22", channel: "Group package",    source: "Referral",        campaign: "",              sessionId: "",   clientId: "c5",gross: 195,  stripeFee: 5.85,  studioSplit: 0,    facilitatorCost: 0,   refunds: 0,  costCenter: "Packages",          notes: "" },
-    { id: "rv8",  name: "Lotus & Pine monthly agreement 5/15",date: "2026-05-15", channel: "Studio partner",  source: "Studio partner",  campaign: "",              sessionId: "",   clientId: "",  gross: 600,  stripeFee: 18.00, studioSplit: 180,  facilitatorCost: 0,   refunds: 0,  costCenter: "Studio sessions",   notes: "Monthly partner fee" },
-    { id: "rv9",  name: "Virtual Sunday Session refund 6/8", date: "2026-06-08", channel: "Virtual session",  source: "Direct outreach", campaign: "",              sessionId: "",   clientId: "c1",gross: 0,    stripeFee: 0,     studioSplit: 0,    facilitatorCost: 0,   refunds: 35, costCenter: "Virtual sessions",  notes: "Jordan requested refund" },
-    { id: "rv10", name: "Priya 3-pack 5/10",                 date: "2026-05-10", channel: "Group package",    source: "Post-session",    campaign: "",              sessionId: "",   clientId: "c4",gross: 105,  stripeFee: 3.15,  studioSplit: 0,    facilitatorCost: 0,   refunds: 0,  costCenter: "Packages",          notes: "" },
-    { id: "rv11", name: "Corporate wellness event 6/20",     date: "2026-06-20", channel: "Corporate event",  source: "LinkedIn",        campaign: "Corp outreach", sessionId: "",   clientId: "",  gross: 450,  stripeFee: 13.50, studioSplit: 0,    facilitatorCost: 100, refunds: 0,  costCenter: "Corporate",         notes: "Guest facilitator paid $100" },
-    { id: "rv12", name: "Virtual session IG promo 5/25",     date: "2026-05-25", channel: "Virtual session",  source: "Organic Instagram",campaign: "May reel",      sessionId: "",   clientId: "",  gross: 315,  stripeFee: 9.45,  studioSplit: 0,    facilitatorCost: 0,   refunds: 0,  costCenter: "Virtual sessions",  notes: "9 paid × $35 — came from reel" },
-  ],
+  revenue: [],
   content: [
     { id: "ct1",  name: "Maya's burnout-to-calm transformation",           category: "Client transformation",      status: "Published", platform: "Instagram", scheduledDate: "2026-06-02", datePosted: "2026-06-02", body: "3 months ago Maya could barely slow down. Last night she stayed in savasana for 10 minutes. That's the work. ✨ #breathwork #transformation", cta: "DM me", sessionId: "s1", partnerId: "", reused: false, reach: 1840, likes: 312, comments: 28, shares: 18, saves: 41, engagement: 420, leads: 3, booked: 1, revenue: 35,  notes: "Best organic reach in June" },
     { id: "ct2",  name: "What is box breathing (60s explainer)",            category: "Breathwork education",       status: "Published", platform: "TikTok",    scheduledDate: "2026-06-05", datePosted: "2026-06-05", body: "4 seconds in. Hold 4. Out 4. Hold 4. Your nervous system NEEDS this. Try it right now.", cta: "Save this", sessionId: "", partnerId: "", reused: false, reach: 8400, likes: 920, comments: 62, shares: 310, saves: 205, engagement: 1850, leads: 5, booked: 2, revenue: 70,  notes: "Went semi-viral. Repurpose to IG Reel" },
@@ -1306,12 +1294,21 @@ const CRM_ARRAY_KEYS = [
   "sequences", "outreach", "testimonials", "templates", "expenses", "emailLog", "fuTemplates",
 ];
 
-/** Ensure CRM tables exist as arrays (repairs partial saves). */
+// Sample/seed revenue records that shipped with early builds. They are stripped from any
+// existing dataset so reports reflect only real bookings, offers, and user-entered revenue.
+const SAMPLE_SEED_REVENUE_IDS = new Set(
+  Array.from({ length: 12 }, (_, i) => `rv${i + 1}`),
+);
+
+/** Ensure CRM tables exist as arrays (repairs partial saves) and purge legacy sample data. */
 function normalizeCrmData(d) {
   if (!d || typeof d !== "object") return null;
   const out = { ...d };
   for (const k of CRM_ARRAY_KEYS) {
     if (!Array.isArray(out[k])) out[k] = [];
+  }
+  if (out.revenue.some(r => SAMPLE_SEED_REVENUE_IDS.has(r?.id))) {
+    out.revenue = out.revenue.filter(r => !SAMPLE_SEED_REVENUE_IDS.has(r?.id));
   }
   return out;
 }
@@ -1925,8 +1922,93 @@ function buildOfferRevenueRows(data = {}) {
     })
     .filter(Boolean);
 }
+// ── Auto-maintained financial ledgers ──────────────────────────────────────
+// Every active virtual/studio booking is materialised as a revenue-table record, and every
+// canceled booking as an expense-table record (for the actual Stripe amount, $0 for free/coupon
+// bookings). These carry `auto: true` and a deterministic id so they can be regenerated from the
+// current bookings on every change without disturbing manually-entered revenue/expense rows.
+// syncBookingLedgers is run from an effect whenever bookings change (see the App component).
+const AUTO_REV_ID_PREFIX = "regrev_";      // revenue record per active booking
+const AUTO_CXL_EXP_ID_PREFIX = "cxlexp_";  // expense record per canceled booking
+const isAutoRevenueRecord = (r) => !!r?.auto || String(r?.id || "").startsWith(AUTO_REV_ID_PREFIX);
+const isAutoExpenseRecord = (e) => !!e?.auto || String(e?.id || "").startsWith(AUTO_CXL_EXP_ID_PREFIX);
+
+function buildBookingLedgerRecords(data = {}) {
+  const sessions = buildSessionMap(data.sessions);
+  const clients = Object.fromEntries((data.clients || []).map(c => [c.id, c]));
+  const listPrices = buildSessionListPriceMap(data.registrations);
+
+  // Revenue: reuse the exact per-booking rows the reports derive (channel = session type,
+  // gross = resolved Stripe amount), flagged as auto-generated for the persisted ledger.
+  const revenue = buildRegistrationRevenueRows(data).map(row => ({
+    ...row,
+    notes: "Auto-recorded from Calendly booking",
+    auto: true,
+  }));
+
+  // Expenses: one record per CANCELED booking. Reschedules are skipped — no money moves, the
+  // payment simply follows the booking to its new time.
+  const expenses = (data.registrations || [])
+    .filter(r => r.status === "canceled")
+    .map(r => {
+      const session = sessions[r.sessionId];
+      const client = clients[r.clientId];
+      const sessName = cleanName(session?.name || r.eventName || "Session");
+      const amt = resolveActualBookingAmount(r, listPrices[r.sessionId]) ?? 0;
+      return {
+        id: AUTO_CXL_EXP_ID_PREFIX + r.id,
+        date: (r.canceledAt || r.scheduledAt || r.createdAt || "").slice(0, 10),
+        vendor: client ? cleanName(client.name) : (r.eventName || "Canceled booking"),
+        description: `Canceled session — ${sessName}`,
+        amount: Math.max(0, Math.round((Number(amt) || 0) * 100) / 100),
+        category: "Refunds & Cancellations",
+        paymentMethod: "Stripe",
+        taxDeductible: false,
+        recurring: false,
+        recurringFreq: "One-time",
+        linkedSession: r.sessionId || "",
+        linkedPartner: session?.studioId || "",
+        receiptUrl: "",
+        notes: r.cancelReason ? `Reason: ${r.cancelReason}` : "Auto-recorded when the Calendly booking was canceled.",
+        clientId: r.clientId || "",
+        registrationId: r.id,
+        auto: true,
+      };
+    });
+
+  return { revenue, expenses };
+}
+
+// Merge manually-entered revenue/expense rows with freshly-rebuilt auto booking records.
+// Returns `changed: false` when nothing materially differs, so callers can skip a state update.
+function syncBookingLedgers(data = {}) {
+  const { revenue: autoRev, expenses: autoExp } = buildBookingLedgerRecords(data);
+  const manualRev = (data.revenue || []).filter(r => !isAutoRevenueRecord(r));
+  const manualExp = (data.expenses || []).filter(e => !isAutoExpenseRecord(e));
+  const nextRevenue = [...manualRev, ...autoRev];
+  const nextExpenses = [...manualExp, ...autoExp];
+  const sig = (arr, amtKey) => arr.map(x => `${x.id}|${x[amtKey] ?? ""}|${x.date ?? ""}`).sort().join(";");
+  const changed =
+    sig(nextRevenue, "gross") !== sig(data.revenue || [], "gross") ||
+    sig(nextExpenses, "amount") !== sig(data.expenses || [], "amount");
+  return { revenue: nextRevenue, expenses: nextExpenses, changed };
+}
+
 function buildRevenueViewRows(data = {}) {
-  return [...buildRegistrationRevenueRows(data), ...buildOfferRevenueRows(data)]
+  const clientsById = Object.fromEntries((data.clients || []).map(c => [c.id, c]));
+  // Manually-entered revenue records (partner agreements, corporate events, packages, etc.) are
+  // part of the revenue ledger and count toward reports. Auto booking records are excluded here
+  // because the live per-booking rows below already represent them (avoids double-counting).
+  const manualRev = (data.revenue || [])
+    .filter(r => !isAutoRevenueRecord(r))
+    .map(rec => ({
+      ...rec,
+      client: rec.clientId ? cleanName(clientsById[rec.clientId]?.name || rec.client || "") : (rec.client || ""),
+      net: rec.net != null ? rec.net : Math.round(calcNet(rec) * 100) / 100,
+      bookedAt: rec.bookedAt || rec.date || "",
+      isFree: rec.isFree ?? ((Number(rec.gross) || 0) === 0 && (Number(rec.refunds) || 0) === 0),
+    }));
+  return [...buildRegistrationRevenueRows(data), ...manualRev, ...buildOfferRevenueRows(data)]
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 }
 const STUDIO_REV_SHARE_STUDIO = 0.30; // studio partner share (30%)
@@ -1959,7 +2041,8 @@ function computeClientLifetimeValue(clientId, data = {}) {
     .filter(r => r.clientId === clientId)
     .reduce((sum, r) => sum + registrationPaymentForLtv(r), 0);
   const revTotal = revenue
-    .filter(r => r.clientId === clientId)
+    // Auto booking records mirror registrations (already summed above) — exclude to avoid double-counting.
+    .filter(r => r.clientId === clientId && !isAutoRevenueRecord(r))
     .reduce((sum, r) => sum + Math.max(0, (Number(r.gross) || 0) - (Number(r.refunds) || 0)), 0);
   const offerTotal = offers
     .filter(o => o.clientId === clientId && LTV_OFFER_STATUSES.has(o.status))
@@ -3366,6 +3449,17 @@ export default function App() {
     })();
     return () => { alive = false; };
   }, [data, cryptoKey]);
+
+  /* ── Keep the revenue + expense ledgers in sync with bookings ──
+     Materialises a revenue record per active booking and an expense record per canceled booking.
+     Depends only on bookings (not on revenue/expenses) so updating the ledgers never re-triggers it. */
+  useEffect(() => {
+    if (!loaded.current) return;
+    setData(prev => {
+      const { revenue, expenses, changed } = syncBookingLedgers(prev);
+      return changed ? { ...prev, revenue, expenses } : prev;
+    });
+  }, [data.registrations, data.sessions, data.clients]);
 
   /* ── Migrate legacy inline agreement blobs to separate encrypted storage ── */
   useEffect(() => {

@@ -744,9 +744,18 @@ Click **Sync Stripe now** to pull new payments immediately (the CRM also checks 
 
 **Administrator setup:** In Stripe Dashboard → Developers → Webhooks, add endpoint `https://YOUR-BACKEND-URL/api/webhooks/stripe` and subscribe to: `checkout.session.completed`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.refund.updated`. Copy the signing secret into `STRIPE_WEBHOOK_SECRET` in `backend/.env`. For production, also set `FRONTEND_SECRET` and `TRUST_PROXY=1` when the backend sits behind ngrok or your reverse proxy.
 
+### Revenue and expenses are recorded automatically
+
+You don't have to log session revenue or cancellations by hand — the CRM does it for you:
+
+- **Every new booking** (virtual or studio) automatically creates a **revenue record** using the actual amount paid in Stripe (or the Calendly price until Stripe confirms). The record's channel is set to **Virtual session** or **Studio session** to match the booking.
+- **Every canceled booking** automatically creates an **expense record** in the **Refunds & Cancellations** category for the amount that was paid in Stripe (or **$0** if it was a free/coupon booking). This lowers your operating profit by that amount, so your numbers reflect the cost of the cancellation. (A **reschedule** is not treated as a cancellation — the payment just moves to the new time, so no expense is created.)
+
+These automatic records keep themselves up to date as Stripe payments settle and as bookings are canceled. You can still add your own revenue and expense entries by hand (see below) — those are always kept and never overwritten.
+
 ### Adding a Revenue Entry
 
-Every session or payment should have a revenue record. Click **New** and enter:
+You can also add revenue that didn't come from a Calendly booking (for example a corporate event, a studio partner agreement, or a package). Click **New** and enter:
 - **Date** of the transaction
 - **Client** name (who paid)
 - **Channel** — where this revenue came from (Studio session, Private client, Virtual session, etc.)
@@ -1068,6 +1077,7 @@ This is the fastest way to add expenses — export from your bank or accounting 
 | Insurance | General liability and professional indemnity |
 | Administrative | Website hosting, domain name, bank fees |
 | Studio & Venue | Room hire, venue deposits (separate from revenue splits) |
+| Refunds & Cancellations | Added automatically when a booking is canceled (the amount that was paid in Stripe). You don't need to enter these yourself. |
 | Other | Anything that doesn't fit above |
 
 ### How Expenses Affect Your Numbers

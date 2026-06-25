@@ -918,8 +918,18 @@ Each Stripe sync calls `GET /api/stripe/ledger` to reload processed webhook even
 |---|---|
 | Calendly bookings | One row per paid/verified registration — amount = Stripe `paidAmount` when verified, else session price |
 | Offers | One row per Accepted/Paid offer — amount = offer price |
+| Manual revenue records | Any row in the **Revenue** table that isn't an auto booking record (e.g. partner agreements, corporate events, packages) now also counts toward Revenue reports |
 
 Dates use the linked **session date** (bookings) or **close/offered date** (offers).
+
+### Automatic revenue & expense ledgers
+
+The **Revenue** and **Expense** tables are kept in sync with bookings automatically (no manual entry needed for sessions):
+
+- **Revenue table** — every **active** virtual or studio booking is materialised as a revenue record (`id` prefixed `regrev_`, `auto: true`, `channel` = `Virtual session` / `Studio session`, `gross` = resolved Stripe amount). Records regenerate from the current bookings on every change, so amounts track Stripe reconciliation and canceled/rescheduled bookings drop out automatically.
+- **Expense table** — every **canceled** booking is materialised as an expense record (`id` prefixed `cxlexp_`, `auto: true`, `category` = `Refunds & Cancellations`, `amount` = the booking's Stripe amount, `$0` for free/coupon bookings). Reschedules are **not** expensed (the payment simply follows the booking to its new time). These records feed Expenses MTD / Operating Profit, so each cancellation reduces profit by its Stripe amount.
+
+Manually-entered revenue/expense rows are always preserved; only the `auto` records are regenerated. To avoid double-counting, client **Lifetime Value** and the Revenue tab exclude the `auto` revenue records (the underlying registrations/live booking rows already represent them).
 
 ### Revenue Channels Tracked
 
@@ -929,7 +939,7 @@ Studio session · Virtual session · Private client · Group package · Corporat
 
 Each derived booking row shows: Booked Date & Time · client + session name · session date · channel (Studio session / Virtual session) · gross = session price · net (after studio split for studio sessions). Facilitator and Source columns are not shown in this view.
 
-Manual **Revenue** records (gross, Stripe fee, studio split, etc.) remain in the data model for future reconciliation but are not listed in Revenue tab views.
+Manual **Revenue** records (gross, Stripe fee, studio split, etc.) are part of the revenue ledger and are listed in Revenue tab views alongside the auto booking rows. Auto booking records (`regrev_*`) are stored in the table for backup/audit but are not shown a second time in the views, since the live per-booking rows already represent them.
 
 ### Analytics Views
 
@@ -1489,7 +1499,10 @@ Track all business-related expenditures, import them in bulk via CSV, and have t
 | Insurance | General liability, professional indemnity |
 | Administrative | Website hosting, domain, banking fees |
 | Studio & Venue | Room hire fees, venue deposits (separate from revenue splits) |
+| Refunds & Cancellations | Auto-recorded when a Calendly booking is canceled — amount = the booking's Stripe payment ($0 for free/coupon bookings) |
 | Other | Miscellaneous business costs |
+
+Records in **Refunds & Cancellations** with `auto: true` (id prefix `cxlexp_`) are generated automatically from canceled bookings and regenerate on every change; do not edit them by hand. Manually-entered expenses are always preserved.
 
 ### Fields Tracked
 | Field | Type | Description |
