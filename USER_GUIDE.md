@@ -775,7 +775,7 @@ The **Revenue attribution** and **Payment reconciliation** tabs use each booking
 - **Total Net Session Revenue** — all-time net after splits
 - **Revenue waterfall — month to date**: shows how gross revenue flows down through fees, studio splits, and refunds to arrive at net.
 - **P&L by channel — MTD**: gross, fees, splits, and net broken down by session type for the current month.
-- **Recently Charged Sessions**: shows all Stripe charges processed, sorted newest first — this mirrors the Stripe page.
+- **Recently Charged Sessions**: shows your latest sessions newest-first — every paid Stripe charge plus any **free/coupon** booking (shown as **Free**), mirroring the Stripe page so it always reflects recent activity.
 
 ### This month tab — gross revenue minus expenses
 

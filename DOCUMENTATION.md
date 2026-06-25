@@ -954,7 +954,7 @@ Manual **Revenue** records (gross, Stripe fee, studio split, etc.) are part of t
   - Stat cards: **Gross revenue MTD**, **Net revenue MTD**, **Total Session Revenue** (all-time gross), **Total Net Session Revenue** (all-time net after splits)
   - **Revenue waterfall — month to date**: Gross → Processing fees → Studio splits → Refunds → Net. All figures limited to the current calendar month.
   - **P&L by channel — MTD**: Gross, fees, splits, net by session type/source. Data is limited to the current month.
-  - **Recently Charged Sessions**: Mirrors the Stripe page — all Stripe charges sorted by `paidAt` (newest first). Columns: Booked Date & Time, Description, Stripe amount, Status.
+  - **Recently Charged Sessions**: Mirrors the Stripe page — every paid Stripe charge **plus** every active booking with no charge (free/coupon) shown as a `$0` **Free** row, so the card always reflects the latest activity. Sorted newest-first by charge time (free rows fall back to booked time). Columns: Charged, Booked, Client, Session, Channel, Amount.
 
 - **This month** (tab 1) — rebuilt around the actual ledgers (`revenue-this-month` layout, `RevenueThisMonthView`). It no longer derives figures from registrations or applies a 70/30 split. Instead:
   - **Gross Revenue** = sum of the **Stripe amounts stored on records in the `revenue` table** (`gross`) dated in the current month. This includes both auto booking records (`regrev_*`) and manually-entered revenue rows.

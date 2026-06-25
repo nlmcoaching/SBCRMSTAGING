@@ -14826,7 +14826,10 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
 
   // ── Recently charged sessions — mirrors Stripe page, sorted by paidAt newest first ──
   const tsOf = (s) => { const t = Date.parse(s || ""); return Number.isNaN(t) ? 0 : t; };
-  const recent = (data.payments || [])
+  // Mirror the Stripe reconciliation page: one row per paid Stripe charge, plus every active
+  // booking that has no Stripe charge (free / coupon) as a $0 row, so the card always reflects the
+  // latest activity instead of appearing stuck once recent bookings are free.
+  const chargeRows = (data.payments || [])
     .filter(p => p.status === "paid")
     .map(p => {
       const booking = (data.registrations || []).find(r => r.id === p.bookingId);
@@ -14841,10 +14844,30 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
         paidAt: p.paidAt || p.createdAt || "",
         bookedAt: booking ? (booking.createdAt || "") : (p.paidAt || ""),
         gross: Number(p.amountGross) || 0,
+        free: false,
         source: client?.source || "—",
       };
-    })
-    .sort((a, b) => tsOf(b.paidAt) - tsOf(a.paidAt));
+    });
+  const freeRows = (data.registrations || [])
+    .filter(r => r.status !== "canceled" && r.status !== "rescheduled" && !r.stripeVerified)
+    .filter(r => !(data.payments || []).some(p => p.bookingId === r.id && p.status === "paid"))
+    .map(r => {
+      const client = (data.clients || []).find(c => c.id === r.clientId);
+      const meta = registrationSessionMeta(r, data);
+      return {
+        id: `free-${r.id}`,
+        name: cleanName(client?.name || "—"),
+        sessionName: meta?.sessionName || cleanName(r.eventName || "Session"),
+        channel: meta?.channel || "—",
+        paidAt: "",
+        bookedAt: r.createdAt || "",
+        gross: 0,
+        free: true,
+        source: client?.source || "—",
+      };
+    });
+  const recent = [...chargeRows, ...freeRows]
+    .sort((a, b) => tsOf(b.paidAt || b.bookedAt) - tsOf(a.paidAt || a.bookedAt));
 
   const marginColor = (m) => m >= 70 ? "#4A8C6F" : m >= 45 ? C.gold : "#C0573F";
   const thS = { fontSize: 11.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 600, padding: "10px 12px", borderBottom: `1px solid ${C.line}`, textAlign: "left", whiteSpace: "nowrap" };
@@ -14988,7 +15011,7 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
       {/* Recently charged sessions — mirrors Stripe page */}
       <Panel title="Recently Charged Sessions">
         {!recent.length
-          ? <Empty pad>No Stripe charges found — click Sync Stripe on the Stripe page to load charges.</Empty>
+          ? <Empty pad>No sessions yet — click Sync Stripe on the Stripe page to load charges.</Empty>
           : <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
@@ -15008,7 +15031,7 @@ function RevenueAttributionView({ data, derived, today, onOpen }) {
                   <td style={{ ...tdS, fontWeight: 600 }}>{r.name}</td>
                   <td style={{ ...tdS, maxWidth: 200 }}>{r.sessionName}</td>
                   <td style={tdS}>{r.channel !== "—" ? <Tag color={REV_CHANNEL_COLOR[r.channel] || C.ink3} soft>{r.channel}</Tag> : "—"}</td>
-                  <td style={{ ...tdR, fontWeight: 700, color: "#4A8C6F" }}>{money(r.gross)}</td>
+                  <td style={{ ...tdR, fontWeight: 700, color: r.free ? C.ink3 : "#4A8C6F" }}>{r.free ? "Free" : money(r.gross)}</td>
                 </tr>
               ))}
             </tbody>
