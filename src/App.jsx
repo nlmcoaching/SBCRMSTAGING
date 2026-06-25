@@ -1872,7 +1872,9 @@ function buildRegistrationRevenueRows(data = {}) {
       const client = clients[r.clientId];
       const { gross, refunds } = bookingStripeCharge(r, paidByBooking);
       const net = Math.round((gross - refunds) * 100) / 100;
-      const date = session?.date || (r.scheduledAt || "").slice(0, 10) || (r.createdAt || "").slice(0, 10);
+      // Date = when the booking was made (booked/scheduled), matching the Command Center revenue
+      // trend and the Revenue → This month tab. Falls back to the session date if neither is set.
+      const date = (r.createdAt || r.scheduledAt || session?.date || "").slice(0, 10);
       if (!date) return null;
       return {
         id: "regrev_" + r.id,

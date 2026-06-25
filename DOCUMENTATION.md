@@ -924,7 +924,7 @@ Each Stripe sync calls `GET /api/stripe/ledger` to reload processed webhook even
 | Offers | One row per Accepted/Paid offer — amount = offer price |
 | Manual revenue records | Any row in the **Revenue** table that isn't an auto booking record (e.g. partner agreements, corporate events, packages) now also counts toward Revenue reports |
 
-Dates use the linked **session date** (bookings) or **close/offered date** (offers).
+Dates use the **booked date** for bookings — the registration's `createdAt` ("Scheduled On"), falling back to `scheduledAt`, then the session date — so revenue is recognised in the month the booking was made (matching the Command Center revenue trend and the Revenue → This month tab). Offers use their **close/offered date**.
 
 ### Automatic revenue & expense ledgers
 
@@ -961,7 +961,7 @@ Manual **Revenue** records (gross, Stripe fee, studio split, etc.) are part of t
   - **Recently Charged Sessions**: Mirrors the Stripe page — every paid Stripe charge **plus** every active booking with no charge (free/coupon) shown as a `$0` **Free** row, so the card always reflects the latest activity. Sorted newest-first by charge time (free rows fall back to booked time). Columns: Charged, Booked, Client, Session, Channel, Amount.
 
 - **This month** (tab 1) — rebuilt around the actual ledgers (`revenue-this-month` layout, `RevenueThisMonthView`). It no longer derives figures from registrations or applies a 70/30 split. Instead:
-  - **Gross Revenue** = sum of the **Stripe amounts stored on records in the `revenue` table** (`gross`) dated in the current month. This includes both auto booking records (`regrev_*`) and manually-entered revenue rows.
+  - **Gross Revenue** = sum of the **Stripe amounts stored on records in the `revenue` table** (`gross`) whose `date` falls in the current month. For auto booking records `date` is the **booked date** (`createdAt`, falling back to `scheduledAt`/session date), so revenue counts in the month the booking was made. Includes both auto booking records (`regrev_*`) and manually-entered revenue rows.
   - **Expenses** = sum of `amount` across records in the `expenses` table dated in the current month (auto cancellation records + manual expenses).
   - **Net Revenue** = Gross Revenue − revenue refunds − Expenses. Margin % = Net ÷ Gross.
   - Three stat cards (Gross Revenue, Expenses, Net Revenue) each show a **% change vs the previous month** (the Expenses card inverts the favourable colour, since a rise in expenses is unfavourable).
