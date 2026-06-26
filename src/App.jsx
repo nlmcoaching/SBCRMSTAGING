@@ -8267,21 +8267,16 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
             ? <div>
                 <div style={{ display: "flex", justifyContent: "flex-end", padding: "0 4px 10px" }}>
                   <button
-                    onClick={async () => {
-                      if (!onSync) return;
-                      setPerfSyncing(true);
-                      await onSync();
-                      setTimeout(() => setPerfSyncing(false), 800);
-                    }}
-                    disabled={!onSync || perfSyncing}
-                    title="Sync latest bookings & recalculate"
-                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, color: perfSyncing ? "#6b7a99" : "#2E6FB0", background: "transparent", border: `1px solid ${perfSyncing ? "#d1d5db" : "#2E6FB0"}`, borderRadius: 8, cursor: onSync && !perfSyncing ? "pointer" : "default", transition: "all 0.15s" }}>
+                    onClick={() => { setPerfSyncing(true); setTimeout(() => setPerfSyncing(false), 600); }}
+                    disabled={perfSyncing}
+                    title="Recalculate from current values"
+                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, color: perfSyncing ? "#6b7a99" : "#2E6FB0", background: "transparent", border: `1px solid ${perfSyncing ? "#d1d5db" : "#2E6FB0"}`, borderRadius: 8, cursor: perfSyncing ? "default" : "pointer", transition: "all 0.15s" }}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
                       style={{ animation: perfSyncing ? "spin 1s linear infinite" : "none" }}>
                       <polyline points="1 4 1 10 7 10" /><polyline points="23 20 23 14 17 14" />
                       <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 0 1 3.51 15" />
                     </svg>
-                    {perfSyncing ? "Syncing…" : "Refresh"}
+                    {perfSyncing ? "Refreshing…" : "Refresh"}
                   </button>
                 </div>
                 <SessionPerformance record={draft} derived={derived} data={data} />
@@ -9901,7 +9896,7 @@ function SessionPerformance({ record: r, derived, data }) {
       ["Capacity",        r.capacity || "—"],
       ["Registered",      r.registered || "—"],
       ["Attended",        `${r.attendance || 0}${capUtil !== null ? ` (${capUtil}% full)` : ""}`],
-      ["Paid Attendees",  r.paidAttendees || r.attendance || 0],
+      ["Paid Attendees",  typeof r.paidAttendees === "number" ? r.paidAttendees : (r.attendance || 0)],
       ["Waivers",         r.waivers || 0],
       ["No-shows",        r.noShows || 0],
       ["Gross Revenue",   `$${Number(gross).toFixed(2)}`],
@@ -10010,7 +10005,7 @@ function SessionPerformance({ record: r, derived, data }) {
     { label: "Capacity",        val: r.capacity || "—" },
     { label: "Registered",      val: r.registered || "—" },
     { label: "Attended",        val: `${r.attendance || 0}${capUtil !== null ? ` (${capUtil}% full)` : ""}`, accent: capUtil !== null && capUtil < 60 ? C.gold : capUtil >= 90 ? "#4A8C6F" : null },
-    { label: "Paid attendees",  val: r.paidAttendees || r.attendance || 0 },
+    { label: "Paid attendees",  val: typeof r.paidAttendees === "number" ? r.paidAttendees : (r.attendance || 0) },
     { label: "Waivers",         val: r.waivers || 0 },
     { label: "No-shows",        val: r.noShows || 0, accent: (r.noShows || 0) > 2 ? C.gold : null },
     ...(r.studioId ? [
