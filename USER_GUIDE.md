@@ -409,6 +409,8 @@ That's it. The app then:
 
 You'll see **Price/seat** (for reference), **Gross**, **Studio split**, and **Net profit** on the session's **Performance** tab, in the **Revenue Leaderboard**, and on the studio partner's **Sessions** tab — all kept in sync automatically.
 
+If you make a change — such as updating paid attendees, price per seat, or the studio's revenue share % — and the Performance tab numbers don't immediately reflect it, click the **Recalculate** button (the circular arrow icon next to the "Performance" tab label) to force an immediate refresh of all metrics.
+
 ### Equipment Checklist
 
 Before every session, open the **Equipment** tab. You'll find a checklist organized into three phases:
@@ -1272,6 +1274,8 @@ After logging out, the login screen is shown and your data is locked until the c
 
 **Start your computer session by double-clicking `start.bat`.**
 This launches the backend, frontend, and ngrok tunnel all at once. Everything the CRM needs will be running before you open your browser.
+
+> **Services stay running after you close the terminal.** `start.bat` / `start.ps1` launch the backend and frontend as independent background processes — closing the PowerShell window or Cursor IDE will not stop them. They keep running until you restart your computer or manually kill the processes. If you need a clean restart, just run `start.bat` again — it automatically stops any existing services on ports 3001 and 5173 before starting fresh.
 
 **Start every day on the Today dashboard.**
 The Next Best Actions list is ranked automatically. Work through it top to bottom and your most important business tasks are handled.

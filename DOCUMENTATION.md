@@ -646,6 +646,11 @@ Equipment setup and run checklist items are combined into a single **Session Che
 - Attendance rate vs capacity
 - Net vs gross comparison (Net profit = Gross − Studio split, where Gross = actual Stripe revenue received for the session)
 - Conversion rate (attended → purchased follow-on offer)
+- A **Recalculate** button (circular arrow icon) in the tab header recalculates all performance metrics on demand — useful after editing attendee counts, paid attendees, price per seat, or the studio's revenue share %
+
+#### Paid Attendees Display
+
+`paidAttendees` is stored as an explicit number on the session record. When it is set to `0`, the Performance tab and PDF export display `0` (not the attendance figure). The display logic uses a strict `typeof r.paidAttendees === "number"` check so that an intentional zero is never confused with a missing value.
 
 #### PDF Export — Studio Session Performance
 
@@ -1930,6 +1935,8 @@ Both scripts:
 5. Create `backend/data/` directory if missing
 6. Open three labelled terminal windows: `SB Backend :3001`, `SB Frontend :5173`, `SB ngrok tunnel`
 7. Print all local URLs and remind you to register the ngrok URL in Calendly
+
+> **Process persistence (`start.ps1`):** `start.ps1` uses PowerShell's `Start-Process` (not `Start-Job`) so the backend, frontend, and ngrok processes are independent OS-level processes. They continue running even if the PowerShell terminal or Cursor IDE window is closed. Each run kills any process already holding ports 3001 and 5173 before starting fresh. Output is logged to `backend/backend.log` and `frontend/frontend.log` in the project root.
 
 ### Setup Requirements
 1. Double-click `start.bat` (or run `.\start.ps1`)
