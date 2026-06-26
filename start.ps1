@@ -1,6 +1,6 @@
 # Simply Breathe OS -- Dev Startup Script
 # Starts: backend (Node/Express), frontend (Vite), ngrok tunnel
-# All processes run in the background in this terminal window.
+# Uses Start-Process so services survive after this shell closes.
 # Usage: .\start.ps1
 
 $ROOT = $PSScriptRoot
@@ -50,40 +50,51 @@ if (-not (Test-Path (Join-Path $ROOT "backend\node_modules"))) {
 $dataDir = Join-Path $ROOT "backend\data"
 if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Path $dataDir | Out-Null }
 
-# 6. Start backend as background job
+# 6. Kill any stale processes already bound to these ports (clean restart)
+$ports = @(3001, 5173)
+foreach ($port in $ports) {
+    $pids = netstat -ano 2>$null | Select-String ":$port\s" | ForEach-Object {
+        ($_ -split '\s+')[-1]
+    } | Where-Object { $_ -match '^\d+$' } | Select-Object -Unique
+    foreach ($p in $pids) {
+        try { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue } catch {}
+    }
+}
+Start-Sleep -Seconds 1
+
+# 7. Start backend as an independent process (survives shell close)
 Write-Host "  [1/3] Starting backend on port 3001..." -ForegroundColor Green
-$backendJob = Start-Job -Name "SB-Backend" -ScriptBlock {
-    param($root)
-    Set-Location "$root\backend"
-    npm run dev 2>&1
-} -ArgumentList $ROOT
+$backendLog = Join-Path $ROOT "backend\backend.log"
+Start-Process -FilePath "cmd.exe" `
+    -ArgumentList "/c cd /d `"$ROOT\backend`" && npm run dev > `"$backendLog`" 2>&1" `
+    -WindowStyle Hidden
 
 Start-Sleep -Seconds 2
 
-# 7. Start frontend as background job
+# 8. Start frontend as an independent process
 Write-Host "  [2/3] Starting frontend (Vite) on port 5173..." -ForegroundColor Green
-$frontendJob = Start-Job -Name "SB-Frontend" -ScriptBlock {
-    param($root)
-    Set-Location $root
-    npm run dev 2>&1
-} -ArgumentList $ROOT
+$frontendLog = Join-Path $ROOT "frontend.log"
+Start-Process -FilePath "cmd.exe" `
+    -ArgumentList "/c cd /d `"$ROOT`" && npm run dev > `"$frontendLog`" 2>&1" `
+    -WindowStyle Hidden
 
 Start-Sleep -Seconds 3
 
-# 8. Start ngrok as background job
+# 9. Start ngrok as an independent process
 if (-not $skipNgrok) {
     Write-Host "  [3/3] Starting ngrok tunnel to localhost:3001..." -ForegroundColor Green
-    $ngrokJob = Start-Job -Name "SB-Ngrok" -ScriptBlock {
-        ngrok http 3001 2>&1
-    }
-    Start-Sleep -Seconds 3
+    Start-Process -FilePath "cmd.exe" `
+        -ArgumentList "/c ngrok http 3001" `
+        -WindowStyle Hidden
+    Start-Sleep -Seconds 2
 } else {
     Write-Host "  [3/3] Skipping ngrok (not installed)." -ForegroundColor Yellow
 }
 
 # Done
 Write-Host ""
-Write-Host "  [OK] All services running in the background." -ForegroundColor Green
+Write-Host "  [OK] All services running as independent processes." -ForegroundColor Green
+Write-Host "       They will keep running even after this shell closes." -ForegroundColor Green
 Write-Host ""
 Write-Host "  App      :  http://localhost:5173" -ForegroundColor Cyan
 Write-Host "  Backend  :  http://localhost:3001/health" -ForegroundColor Cyan
@@ -91,12 +102,10 @@ if (-not $skipNgrok) {
     Write-Host "  ngrok UI :  http://127.0.0.1:4040  (find your public webhook URL here)" -ForegroundColor Cyan
 }
 Write-Host ""
-Write-Host "  Useful commands:" -ForegroundColor Gray
-Write-Host "    Get-Job              -- list running jobs" -ForegroundColor Gray
-Write-Host "    Receive-Job -Name SB-Backend -Keep   -- view backend output" -ForegroundColor Gray
-Write-Host "    Receive-Job -Name SB-Frontend -Keep  -- view frontend output" -ForegroundColor Gray
-Write-Host "    Stop-Job -Name SB-Backend,SB-Frontend,SB-Ngrok  -- stop all" -ForegroundColor Gray
+Write-Host "  Log files:" -ForegroundColor Gray
+Write-Host "    Backend  : $backendLog" -ForegroundColor Gray
+Write-Host "    Frontend : $frontendLog" -ForegroundColor Gray
 Write-Host ""
-Write-Host "  Press Ctrl+C to stop watching (services keep running). To stop all:" -ForegroundColor Yellow
-Write-Host "    Stop-Job -Name SB-Backend,SB-Frontend,SB-Ngrok" -ForegroundColor Yellow
+Write-Host "  To stop all services:" -ForegroundColor Yellow
+Write-Host "    Stop-Process -Name node -Force   (stops backend + frontend)" -ForegroundColor Yellow
 Write-Host ""
