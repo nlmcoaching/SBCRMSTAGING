@@ -4465,6 +4465,7 @@ export default function App() {
             actionContact={open.actionContact}
             setData={setData}
             cryptoKey={cryptoKey}
+            onSync={async () => { await Promise.all([syncCalendly(), syncStripe()]); }}
             onClose={() => setOpen(null)} onSave={can.edit ? (rec) => { saveRecord(open.db, rec); setOpen(null); } : null}
             onDelete={can.delete ? (id) => setConfirm({
               message: `Delete this record? This action cannot be undone.`,
@@ -7847,7 +7848,7 @@ function resolveDrawerTab(preferred, { db, isNew, hasTimeline, hasSessionTabs, h
   return "details";
 }
 
-function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, onSave, onDelete, onOpenRelated, sequences, onStartSequence, initialTab, setData, cryptoKey, actionContact }) {
+function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, onSave, onDelete, onOpenRelated, sequences, onStartSequence, initialTab, setData, cryptoKey, actionContact, onSync }) {
   const isNew = !(data[db] || []).some((r) => r.id === record.id);
   const hasTimeline = (db === "clients" || db === "partners") && !isNew;
   const hasChecklist = db === "partners" && !isNew;
@@ -7857,6 +7858,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
 
   const [draft, setDraft] = useState(record);
   const [tab, setTab] = useState(() => pickTab(initialTab));
+  const [perfSyncing, setPerfSyncing] = useState(false);
   const [showJourneyDesc, setShowJourneyDesc]       = useState(false);
   const [showCalendlyDesc, setShowCalendlyDesc]     = useState(false);
   const [fetchedCalendlyDesc, setFetchedCalendlyDesc] = useState(null); // null = not yet fetched
@@ -8262,7 +8264,28 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                   status={draft.status}
                 />
             : hasSessionTabs && tab === "performance"
-            ? <SessionPerformance record={draft} derived={derived} data={data} />
+            ? <div>
+                <div style={{ display: "flex", justifyContent: "flex-end", padding: "0 4px 10px" }}>
+                  <button
+                    onClick={async () => {
+                      if (!onSync) return;
+                      setPerfSyncing(true);
+                      await onSync();
+                      setTimeout(() => setPerfSyncing(false), 800);
+                    }}
+                    disabled={!onSync || perfSyncing}
+                    title="Sync latest bookings & recalculate"
+                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, color: perfSyncing ? "#6b7a99" : "#2E6FB0", background: "transparent", border: `1px solid ${perfSyncing ? "#d1d5db" : "#2E6FB0"}`, borderRadius: 8, cursor: onSync && !perfSyncing ? "pointer" : "default", transition: "all 0.15s" }}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                      style={{ animation: perfSyncing ? "spin 1s linear infinite" : "none" }}>
+                      <polyline points="1 4 1 10 7 10" /><polyline points="23 20 23 14 17 14" />
+                      <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 0 1 3.51 15" />
+                    </svg>
+                    {perfSyncing ? "Syncing…" : "Refresh"}
+                  </button>
+                </div>
+                <SessionPerformance record={draft} derived={derived} data={data} />
+              </div>
             : (
               <>
                 {(() => {
