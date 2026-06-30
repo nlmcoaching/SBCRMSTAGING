@@ -284,18 +284,23 @@ Every studio goes through a set of stages from first awareness to long-term part
 
 The stages are:
 
-> Target Identified → Researched → Initial Outreach Sent → Follow-Up Needed → Discovery Call Booked → Demo Session Offered → Demo Completed → Pilot Proposed → Agreement Sent → Agreement Signed → First Session Scheduled → Pilot Completed → **Recurring Partner**
+> Target Identified → Researched → Initial Outreach Sent → Follow-Up Needed → Discovery Call Booked → Demo Session Offered → Demo Completed → Pilot Proposed → Agreement Sent → Agreement Signed → First Session Scheduled → Pilot Completed → **Recurring Partner** → Lost / Not a Fit → **Nurture Later**
 
 Move a studio to the next stage by opening their record and updating the **Stage** field.
+
+**Nurture Later** is for studios that are a good fit but not ready right now — put them here instead of marking them lost so they stay visible for future follow-up.
 
 ### Adding a New Studio
 
 1. Click **New**.
 2. Enter the studio name, owner/manager name, contact details, and location.
 3. Set the **Stage** to where you are in the relationship.
-4. Add your **Revenue Potential** estimate and **Probability** of closing.
-5. Note any **Insurance Requirements** or **Promotion Commitments** upfront.
-6. Click **Save**.
+4. Select the **Lead Source** — how you found them (Instagram DM, Referral, Cold outreach, etc.).
+5. Note their **Pain Point** — what problem they're trying to solve.
+6. Enter the **Proposed Package** — what you're offering them.
+7. Add your **Revenue Potential** estimate and **Probability** of closing.
+8. Note any **Insurance Requirements** or **Promotion Commitments** upfront.
+9. Click **Save**.
 
 ### The Studio Launch Checklist
 

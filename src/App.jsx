@@ -85,6 +85,7 @@ const STAGE = [
   "Discovery call booked", "Demo session offered", "Demo completed",
   "Pilot proposed", "Agreement sent", "Agreement signed",
   "First session scheduled", "Pilot completed", "Recurring partner", "Lost / not a fit",
+  "Nurture later",
 ];
 const STAGE_COLOR = {
   "Target identified":       "#C5D5E8",
@@ -101,6 +102,7 @@ const STAGE_COLOR = {
   "Pilot completed":         "#16429A",
   "Recurring partner":       "#13245C",
   "Lost / not a fit":        "#9FB2CC",
+  "Nurture later":           "#B0A0CC",
 };
 const STUDIO_TYPE = ["Yoga", "Gym", "Pilates", "Meditation", "Wellness", "Corporate", "CrossFit", "Dance", "Other"];
 // studioType may be a legacy string or a new array — always display as a string
@@ -7643,6 +7645,9 @@ const FIELDS = {
     f("contact", "Contact name", "text"),
     f("role", "Role", "dropdown", { options: ["Owner", "Manager", "Director", "GM", "Instructor"] }),
     f("email", "Email", "email"), f("phone", "Phone", "phone"),
+    f("source", "Lead source", "select", { options: OUTREACH_SOURCE }),
+    f("painPoint", "Pain point", "textarea"),
+    f("proposedPackage", "Proposed package", "text"),
     f("estimatedCommunitySize", "Est. community size", "number"),
     f("bestFitJourney", "Best-fit journey", "text"),
     f("revenuePotential", "Revenue potential", "currency"),
@@ -7748,6 +7753,8 @@ const FIELDS = {
     f("phone",            "Phone",                "text"),
     f("location",         "Location",             "text"),
     f("source",           "How found",            "select",   { options: OUTREACH_SOURCE }),
+    f("painPoint",        "Pain point",           "textarea"),
+    f("proposedPackage",  "Proposed package",     "text"),
     f("warmth",           "Relationship warmth",  "select",   { options: OUTREACH_WARMTH }),
     f("priority",         "Priority",             "select",   { options: OUTREACH_PRIORITY }),
     f("status",           "Contact status",       "select",   { options: OUTREACH_STATUS }),

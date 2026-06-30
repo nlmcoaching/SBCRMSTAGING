@@ -488,11 +488,11 @@ Client records include a **Sessions Attended** tab (badge shows the count). It l
 
 ### Pipeline Stages
 
-Target Identified → Researched → Initial Outreach Sent → Follow-Up Needed → Discovery Call Booked → Demo Session Offered → Demo Completed → Pilot Proposed → Agreement Sent → Agreement Signed → First Session Scheduled → Pilot Completed → Recurring Partner → Lost / Not a Fit
+Target Identified → Researched → Initial Outreach Sent → Follow-Up Needed → Discovery Call Booked → Demo Session Offered → Demo Completed → Pilot Proposed → Agreement Sent → Agreement Signed → First Session Scheduled → Pilot Completed → Recurring Partner → Lost / Not a Fit → Nurture Later
 
 ### Fields Tracked
 
-Studio name · Owner/Manager name · Email · Phone · Location · Type (yoga, gym, meditation, wellness, Pilates, corporate, etc.) · Estimated community size · Best-fit journey · Revenue potential · **Studio revenue share % (`studioSharePct`)** — the studio's cut, used to compute each studio session's split · Last touch date · Next action · Probability of closing · Notes · Contract status · Insurance requirements · Promotion commitments
+Studio name · Owner/Manager name · Email · Phone · Location · Type (yoga, gym, meditation, wellness, Pilates, corporate, etc.) · **Lead source (`source`)** — how the studio was found (Instagram DM, Referral, Cold outreach, etc.) · **Pain point (`painPoint`)** — the studio's key challenge or need · **Proposed package (`proposedPackage`)** — the offer or programme proposed · Estimated community size · Best-fit journey · Revenue potential · **Studio revenue share % (`studioSharePct`)** — the studio's cut, used to compute each studio session's split · Last touch date · Next action · Probability of closing · Notes · Contract status · Insurance requirements · Promotion commitments
 
 > The legacy free-text "Revenue share model" field has been replaced by the numeric **Studio revenue share %** (`studioSharePct`). Partner lists, the partner PDF, and the `{{revSplit}}` email token now show this percentage.
 
