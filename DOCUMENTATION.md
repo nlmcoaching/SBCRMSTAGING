@@ -1396,6 +1396,21 @@ When a save error occurs a full-width red banner appears below the navigation ba
 
 ---
 
+### Tab 1b — Settings
+
+Configures dropdown options used throughout the CRM (lead sources, client types, package types, etc.) and the Calendly sync behaviour.
+
+#### Calendly Sync Cutoff Date
+
+| Field | Key | Default | Description |
+|---|---|---|---|
+| `calendlySyncFromDate` | `crmSettings.calendlySyncFromDate` | `"2026-07-01T00:00:00.000Z"` | ISO timestamp. Calendly events whose `createdAt` (booking creation date) is before this value are skipped during sync and acknowledged so they never re-queue. Leave blank to sync all events. |
+
+**Behaviour:**
+- Filtering is applied on the **booking creation date** (`evt.createdAt`), not the session scheduled date.
+- `backend/api/calendly/pull-recent` `daysBack` is also capped to the number of days since the cutoff (max 90), so stale events are not re-fetched from the Calendly API.
+- Old events that pass the filter check are acknowledged immediately so they do not re-appear on the next sync.
+
 ### Tab 2 — Schema Browser
 
 A full, interactive reference for every database table and field in the CRM. No external tool or documentation file is needed.

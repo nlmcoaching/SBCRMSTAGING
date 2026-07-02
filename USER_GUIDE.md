@@ -1194,6 +1194,15 @@ The Admin section has several tabs. Here are the ones you'll use most often:
 
 System-wide options for Owners and Admins. (The Breathwork Journeys list is no longer managed here — see Journey Descriptions below.)
 
+#### Calendly Sync Cutoff Date
+
+Controls which Calendly bookings the CRM will import during a sync. Any booking whose **creation date** (the date the client booked, not the session date) falls before the cutoff is ignored and will never appear in the CRM.
+
+- **Default:** July 1, 2026 — set when the production reset was performed to prevent old test bookings from re-appearing.
+- To change it, pick a new date from the date picker and click **Save Changes**.
+- To remove the filter and sync all bookings regardless of age, click **Clear** next to the date, then save.
+- This setting is saved and encrypted with the rest of your CRM data.
+
 ### Email Logs Tab
 
 **Navigate to:** Sidebar → Admin → Email Logs tab

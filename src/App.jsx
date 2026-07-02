@@ -6,7 +6,7 @@ import {
   RefreshCw, Plus, X, Search, Upload, Download, Trash2, ChevronLeft,
   ChevronRight, ChevronDown, Menu, Phone, Mail, Link2, Wind, ArrowUpRight, Check,
   Zap, Copy, Clock, TrendingUp, BarChart2, AlertCircle, Activity, Send, Info, BellRing, Milestone,
-  LogOut, UserCircle, Shield, KeyRound, Receipt, ClipboardList, FileSignature, CalendarCheck, CheckCircle, Save, Scale,
+  LogOut, UserCircle, Shield, KeyRound, Receipt, ClipboardList, FileSignature, CalendarCheck, CheckCircle, Save, Scale, Lock,
 } from "lucide-react";
 import {
   amountsMatch,
@@ -196,10 +196,17 @@ const DEFAULT_CRM_SETTINGS = {
     { id: "jd8", name: "Breakthrough Session",    description: "" },
   ],
   clientStatuses:["Lead", "Booked", "Attended 1x", "Engaged (2-3x)", "Member (4+)", "Advocate", "Inactive"],
+  // ISO timestamp — Calendly events whose createdAt is before this date are ignored during sync.
+  // Set to the date of your production reset to prevent old test bookings from re-appearing.
+  calendlySyncFromDate: "2026-07-01T00:00:00.000Z",
 };
 function parseCrmSettings(parsed) {
   if (!parsed || typeof parsed !== "object") return JSON.parse(JSON.stringify(DEFAULT_CRM_SETTINGS));
-  const merged = Object.fromEntries(Object.keys(DEFAULT_CRM_SETTINGS).map(k => [k, parsed[k] || DEFAULT_CRM_SETTINGS[k]]));
+  const merged = Object.fromEntries(Object.keys(DEFAULT_CRM_SETTINGS).map(k => {
+    // calendlySyncFromDate is a string (not array) — use nullish coalescing so empty string is preserved.
+    if (k === "calendlySyncFromDate") return [k, parsed[k] != null ? parsed[k] : DEFAULT_CRM_SETTINGS[k]];
+    return [k, parsed[k] || DEFAULT_CRM_SETTINGS[k]];
+  }));
   if (!Array.isArray(merged.journeyDescriptions) || (merged.journeyDescriptions.length > 0 && typeof merged.journeyDescriptions[0] === "string")) {
     merged.journeyDescriptions = JSON.parse(JSON.stringify(DEFAULT_CRM_SETTINGS.journeyDescriptions));
   }
@@ -3094,10 +3101,16 @@ export default function App() {
       // Pull from Calendly API first — catches bookings when webhooks were missed (ngrok down, etc.).
       // Bounded by a timeout: the API scan can take ~30s; if it's slow we proceed with already-queued
       // events rather than hanging the whole sync (newly pulled events appear on the next sync).
+      // Compute how many days back to pull from Calendly, anchored to the sync-from-date
+      // so we never fetch events older than the configured cutoff.
+      const _syncFromDate = crmSettings?.calendlySyncFromDate || "";
+      const _daysBack = _syncFromDate
+        ? Math.max(1, Math.min(Math.ceil((Date.now() - new Date(_syncFromDate).getTime()) / 86400000), 90))
+        : 30;
       await fetchWithTimeout(calendlyApiUrl("/api/calendly/pull-recent"), {
         method: "POST",
         headers: { "Content-Type": "application/json", ..._calendlyHeaders() },
-        body: JSON.stringify({ daysBack: 30 }),
+        body: JSON.stringify({ daysBack: _daysBack }),
       }, 12000).catch(() => {});
 
       // Read the queue. Retry once on a transient network error (e.g. backend mid-restart) before
@@ -3231,6 +3244,19 @@ export default function App() {
             cancelReason:    san(rawEvt.cancelReason),
             // locationJoinUrl validated separately by https:// check before use
           };
+
+          // ── Sync-from-date filter ──
+          // Ignore events whose Calendly creation date is before the configured cutoff.
+          // Uses the booking creation timestamp (when the client booked), NOT the session date.
+          // Old events are acknowledged so they never re-queue.
+          const _syncFrom = crmSettings?.calendlySyncFromDate || "";
+          if (_syncFrom) {
+            const _evtTs = evt.createdAt || evt.receivedAt || "";
+            if (_evtTs && _evtTs < _syncFrom) {
+              ids.push(evt.id);
+              return; // skip without processing
+            }
+          }
 
           if (evt.eventType === "invitee.created") {
             // ── RULE: CRM cancellations/reschedules always win over a re-delivered booking ──
@@ -12824,6 +12850,33 @@ function CrmSettingsView({ settings, onSave }) {
         <button onClick={handleSave} style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 20px", background: saved ? "#4A8C6F" : C.brand, color: "#fff", border: "none", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 700, transition: "background 0.2s" }}>
           {saved ? <><Check size={14} /> Saved</> : <><Save size={14} /> Save Changes</>}
         </button>
+      </div>
+
+      {/* Calendly sync-from date — custom scalar field, not a string-array dropdown */}
+      <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "18px 20px" }}>
+        <div style={{ fontWeight: 700, fontSize: 13.5, color: C.ink, marginBottom: 4 }}>Calendly Sync Cutoff Date</div>
+        <div style={{ fontSize: 12, color: C.ink3, marginBottom: 14, lineHeight: 1.6 }}>
+          Calendly bookings created <strong>before</strong> this date are ignored during sync — based on when the client booked, not the session date. Use this to prevent old test bookings from re-appearing after a production reset. Leave blank to sync all events.
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <input
+            type="date"
+            value={draft.calendlySyncFromDate ? draft.calendlySyncFromDate.slice(0, 10) : ""}
+            onChange={e => setDraft(d => ({ ...d, calendlySyncFromDate: e.target.value ? e.target.value + "T00:00:00.000Z" : "" }))}
+            style={{ padding: "7px 12px", border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, color: C.ink, background: C.surface }}
+          />
+          {draft.calendlySyncFromDate && (
+            <span style={{ fontSize: 12, color: C.ink3 }}>
+              Ignoring bookings created before {new Date(draft.calendlySyncFromDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} (midnight UTC)
+            </span>
+          )}
+          {draft.calendlySyncFromDate && (
+            <button onClick={() => setDraft(d => ({ ...d, calendlySyncFromDate: "" }))}
+              style={{ fontSize: 11.5, color: C.ink3, background: "transparent", border: `1px solid ${C.line}`, borderRadius: 6, padding: "3px 8px", cursor: "pointer" }}>
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
