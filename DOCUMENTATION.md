@@ -1041,7 +1041,7 @@ Manual **Revenue** records (gross, Stripe fee, studio split, etc.) are part of t
   - Three stat cards (Gross Revenue, Expenses, Net Revenue) each show a **% change vs the previous month** (the Expenses card inverts the favourable colour, since a rise in expenses is unfavourable).
   - Below the cards, two sortable/expandable `RecordTableView` listings show the month's **revenue records** (with Stripe amounts) and **expense records**. The page **search box** filters both listings (the `query` is passed through to each `RecordTableView`); the summary cards continue to reflect the full month.
 
-- **Refunds** (tab 2) — the Stripe refund queue and audit trail (`refunds` layout, `RefundsView`). See **Stripe Refunds for Canceled Bookings** below for the full policy matrix and flow. Three lists:
+- **Refunds** (tab 4, Calendly Bookings section) — the Stripe refund queue and audit trail (`refunds` layout, `RefundsView`). Moved here from Revenue so it sits alongside the Cancellations and Reschedules tab where the underlying canceled bookings live. See **Stripe Refunds for Canceled Bookings** in the Revenue Attribution section for the full policy matrix and flow. Three lists:
   - **Refunds due** — canceled bookings that pass the `refundEligibility` policy matrix. Columns: Client, Session, Session time, Canceled on, Canceled by, Paid, Policy check, and a **Refund $X** button (Edit permission required; viewers see "View only"). Eligible-but-uncertain rows (unknown initiator or missing timing data) show a ⚠ caution under the policy check. Clicking a row opens the registration record; clicking Refund opens a confirm dialog before anything is sent to Stripe. A banner above the lists shows the count of refunds due.
   - **No refund due** — canceled bookings that do **not** qualify (late cancel, free booking, no Stripe payment on file), each with the reason. Already-refunded bookings are not repeated here — they live in Refund history.
   - **Refund history** — the auto `Refunds & Cancellations` expense records that carry a `stripeRefundId`. Columns: Date, Client, Description, Refunded amount, Stripe refund ID; footer shows the total refunded.
@@ -1054,7 +1054,7 @@ Manual **Revenue** records (gross, Stripe fee, studio split, etc.) are part of t
 
 ### Stripe Refunds for Canceled Bookings
 
-**Navigation:** Sidebar → P&L → Revenue → **Refunds** tab
+**Navigation:** Sidebar → Calendly Bookings → **Refunds** tab (after Cancellations and Reschedules)
 
 Refunds are **one-click approved**: the CRM evaluates the cancellation policy automatically, but a human always clicks **Refund** (and confirms) before any money moves. Nothing is refunded silently.
 

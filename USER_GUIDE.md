@@ -825,7 +825,7 @@ Each of the three cards shows how it compares to **last month** (for the Expense
 
 ### Issuing Refunds — the Refunds tab
 
-**Navigate to:** Sidebar → Revenue → **Refunds** tab
+**Navigate to:** Sidebar → Calendly Bookings → **Refunds** tab (after Cancellations and Reschedules)
 
 When a session is canceled, the CRM works out whether the client is owed their money back — but **it never sends a refund on its own**. You always review and click the button yourself.
 

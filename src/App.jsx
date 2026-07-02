@@ -6720,6 +6720,7 @@ const VIEWS = {
         }),
         expandRow: registrationExpandRow,
       },
+      { name: "Refunds", layout: "refunds" },
     ],
   },
   clients: {
@@ -6925,7 +6926,6 @@ const VIEWS = {
     views: [
       { name: "Revenue attribution", layout: "revenue-analytics-booked" },
       { name: "This month", layout: "revenue-this-month" },
-      { name: "Refunds", layout: "refunds" },
       { name: "Revenue Table", layout: "record-table", columns: revenueTableCols() },
     ],
   },
