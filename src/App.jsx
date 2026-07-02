@@ -2582,8 +2582,9 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
   const [showProfile, setShowProfile] = useState(false);
-  const [showAlerts,  setShowAlerts]  = useState(false);
-  const [showOrphans, setShowOrphans] = useState(false);
+  const [showAlerts,      setShowAlerts]      = useState(false);
+  const [showOrphans,     setShowOrphans]     = useState(false);
+  const [refundSessionToken, setRefundSessionToken] = useState(null);
   const [crmSettings, setCrmSettings] = useState(() => loadCrmSettings());
   const [dismissedAlerts, setDismissedAlerts] = useState(() => {
     try {
@@ -2707,6 +2708,7 @@ export default function App() {
                     loaded.current = true;
                     dataLoadedAtRef.current = parseInt(localStorage.getItem(SAVE_TS_KEY) || "0") || Date.now();
                     setLocked(false);
+                    mintRefundToken();
                     // Restore the section/view the user was on before refresh
                     try {
                       const nav = JSON.parse(sessionStorage.getItem("sb:nav:v1") || "{}");
@@ -2923,6 +2925,7 @@ export default function App() {
       loaded.current = true;
       setLocked(false);
       setSection("today"); setView(0);
+      mintRefundToken();
     } catch (e) {
       if (!e.message?.includes("PIN")) setPinError("Something went wrong. Please try again.");
     }
@@ -3046,12 +3049,32 @@ export default function App() {
   };
 
   /* ── Logout ── */
+  // Mint a short-lived backend session token immediately after PIN unlock.
+  // Stored only in React state (memory), never persisted. Required by
+  // POST /api/stripe/refund so that the endpoint cannot be called without
+  // a live authenticated CRM session.
+  const mintRefundToken = async () => {
+    try {
+      const res = await fetchWithTimeout(calendlyApiUrl("/api/auth/session"), {
+        method: "POST",
+        headers: apiHeaders(),
+      }, 5000);
+      if (res.ok) {
+        const j = await res.json().catch(() => ({}));
+        if (j.token) setRefundSessionToken(j.token);
+      }
+    } catch (_) {
+      // Non-fatal — backend may not be running; refund will surface a clear error.
+    }
+  };
+
   const handleLogout = () => {
     setLocked(true);
     setCryptoKey(null);
     setMasterKeyRaw(null);
     setCurrentUser(null);
     setData({}); // clear decrypted data from memory
+    setRefundSessionToken(null); // invalidate backend refund session
     try { sessionStorage.removeItem("sb:session:v1"); sessionStorage.removeItem("sb:nav:v1"); } catch (_) {}
     setOpen(null);
     loaded.current = false;
@@ -4477,7 +4500,7 @@ export default function App() {
               ? <FollowUpEngine data={data} setData={setData} today={today} onOpen={setOpen} canEdit={can.edit} />
               :               <Section section={section} data={data} derived={derived} today={today}
                   view={view} setView={setView} query={query} onOpen={setOpen}
-                  currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} setSecUsers={setSecUsers} setData={setData} canEdit={can.edit} setConfirm={setConfirm} crmSettings={crmSettings} saveCrmSettings={saveCrmSettings} syncStripe={syncStripe} stripeStatus={stripeStatus} />}
+                  currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} setSecUsers={setSecUsers} setData={setData} canEdit={can.edit} setConfirm={setConfirm} crmSettings={crmSettings} saveCrmSettings={saveCrmSettings} syncStripe={syncStripe} stripeStatus={stripeStatus} refundToken={refundSessionToken} />}
           </div>
         </main>
       </div>
@@ -6187,7 +6210,7 @@ function RevenueThisMonthView({ data, today, query, onOpen, canEdit }) {
 // Refund queue + audit trail. "Refunds due" lists canceled bookings that pass the
 // refundEligibility policy matrix, each with a one-click (human-approved) Stripe refund.
 // "Refund history" lists the auto cancellation expenses tied to an actual Stripe refund.
-function RefundsView({ data, setData, canEdit, setConfirm, onOpen }) {
+function RefundsView({ data, setData, canEdit, setConfirm, onOpen, refundToken }) {
   const [busyId, setBusyId] = useState("");
   const [errMsg, setErrMsg] = useState("");
 
@@ -6218,7 +6241,7 @@ function RefundsView({ data, setData, canEdit, setConfirm, onOpen }) {
         setBusyId(reg.id);
         setErrMsg("");
         try {
-          await issueStripeRefund(reg, setData);
+          await issueStripeRefund(reg, setData, refundToken);
         } catch (err) {
           setErrMsg(err.message || "Refund failed");
         }
@@ -6439,7 +6462,7 @@ function RefundsView({ data, setData, canEdit, setConfirm, onOpen }) {
 /* ============================================================
    SECTION (per database, with views)
    ============================================================ */
-function Section({ section, data, derived, today, view, setView, query, onOpen, currentUser, secUsers, masterKeyRaw, setSecUsers, setData, canEdit, setConfirm, crmSettings, saveCrmSettings, syncStripe, stripeStatus }) {
+function Section({ section, data, derived, today, view, setView, query, onOpen, currentUser, secUsers, masterKeyRaw, setSecUsers, setData, canEdit, setConfirm, crmSettings, saveCrmSettings, syncStripe, stripeStatus, refundToken }) {
   const cfg = VIEWS[section];
   const v = cfg.views[Math.min(view, cfg.views.length - 1)];
   let rows = data[section] || [];
@@ -6574,11 +6597,11 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         : v.layout === "revenue-this-month"
         ? <RevenueThisMonthView data={data} today={today} query={query} onOpen={onOpen} canEdit={canEdit} />
         : v.layout === "refunds"
-        ? <RefundsView data={data} setData={setData} canEdit={canEdit} setConfirm={setConfirm} onOpen={onOpen} />
+        ? <RefundsView data={data} setData={setData} canEdit={canEdit} setConfirm={setConfirm} onOpen={onOpen} refundToken={refundToken} />
         : <>
           <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => (
               section === "revenue" ? openRevenueViewRow(r, data, onOpen) : onOpen({ db: section, record: r })
-            )} ctx={{ data, derived, today, setData, section, setConfirm, canEdit }}
+            )}             ctx={{ data, derived, today, setData, section, setConfirm, canEdit, refundToken }}
             maxHeight={(section === "registrations" || section === "clients" || section === "revenue" || section === "sessions") ? "calc(100vh - 240px)" : undefined}
             expandRow={v.expandRow ? (r, ctx) => v.expandRow(r, ctx) : undefined} />
           </>}
@@ -6732,10 +6755,11 @@ function refundEligibility(reg, data) {
 // registration and its linked payment record. The auto cancellation expense
 // (cxlexp_) picks up the refund on the next ledger sync, and the eventual
 // charge.refunded webhook confirms the same state through the normal pipeline.
-async function issueStripeRefund(reg, setData) {
+async function issueStripeRefund(reg, setData, sessionToken) {
+  if (!sessionToken) throw new Error("Not authorised — please log out and log back in before issuing a refund.");
   const res = await fetchWithTimeout(calendlyApiUrl("/api/stripe/refund"), {
     method: "POST",
-    headers: apiHeaders(),
+    headers: { ...apiHeaders(), "x-session-token": sessionToken },
     body: JSON.stringify({
       paymentIntentId: reg.stripePaymentIntentId || "",
       chargeId: reg.stripeChargeId || "",
@@ -6859,7 +6883,7 @@ function registrationExpandRow(r, ctx) {
                     message: `Refund ${money(Number(r.paidAmount) || 0)} to ${who} via Stripe? The full charge is refunded and this cannot be undone. (You can also do this later from Revenue → Refunds.)`,
                     okLabel: "Issue refund", danger: true,
                     onOk: () => {
-                      issueStripeRefund(canceledReg, ctx.setData)
+                      issueStripeRefund(canceledReg, ctx.setData, ctx.refundToken)
                         .catch(err => alert(`Refund failed: ${err.message || err}`));
                     },
                   }), 0);
@@ -12204,6 +12228,43 @@ function AdminView({ tab, data, setData, secUsers, currentUser, today, crmSettin
   const [exportMsg,    setExportMsg]            = useState("");
   const [expandedField, setExpandedField]       = useState(null);
   const [exportConfirm, setExportConfirm]       = useState(false);
+  const [restorePreview, setRestorePreview]     = useState(null);
+  const [restoreMsg,    setRestoreMsg]          = useState("");
+  const [restoreError,  setRestoreError]        = useState("");
+  const [restoreConfirm, setRestoreConfirm]     = useState(false);
+  const restoreFileRef = useRef(null);
+
+  const handleRestoreFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setRestoreMsg(""); setRestoreError(""); setRestorePreview(null);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const raw = JSON.parse(ev.target.result);
+        const normalized = normalizeCrmData(raw);
+        if (!Sec.validate(normalized)) {
+          setRestoreError("This file does not appear to be a valid SBCRM backup.");
+          return;
+        }
+        setRestorePreview(normalized);
+      } catch (err) {
+        setRestoreError("Could not read file: " + (err.message || "invalid JSON"));
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const applyRestore = () => {
+    if (!restorePreview) return;
+    const total = CRM_ARRAY_KEYS.reduce((s, k) => s + (restorePreview[k]?.length || 0), 0);
+    setData(restorePreview);
+    setRestorePreview(null);
+    setRestoreConfirm(false);
+    setRestoreMsg(`✓ Restored — ${total} records loaded`);
+    setTimeout(() => setRestoreMsg(""), 10000);
+  };
 
   // ── record counts + sizes ──
   const tables = DB_SCHEMA.map(t => {
@@ -12550,9 +12611,77 @@ function AdminView({ tab, data, setData, secUsers, currentUser, today, crmSettin
               {exportMsg && <div style={{ marginTop: 10, fontSize: 13, color: "#16A34A", fontWeight: 600 }}>{exportMsg}</div>}
             </div>
 
-            {/* Storage details */}
+            {/* Restore */}
             <div style={{ background: C.surface, borderRadius: 16, border: `1px solid ${C.line}`, padding: "22px 24px" }}>
-              <div style={{ fontWeight: 700, fontSize: 15, color: C.ink, marginBottom: 14 }}>Storage Details</div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: C.ink, marginBottom: 6 }}>Restore from Backup</div>
+              <div style={{ fontSize: 13, color: C.ink3, marginBottom: 12, lineHeight: 1.6 }}>
+                Load a previously exported <code>.json</code> backup file. All current data will be replaced.
+              </div>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, background: "#FFF2F0", border: "1px solid #F5C4BC", borderRadius: 8, padding: "10px 12px", marginBottom: 18 }}>
+                <span style={{ fontSize: 15, lineHeight: 1 }}>🔴</span>
+                <div style={{ fontSize: 12, color: "#7A2E1E", lineHeight: 1.5 }}>
+                  <strong>This replaces everything.</strong> All current records will be overwritten by the backup. This cannot be undone — export a backup of the current data first if needed.
+                </div>
+              </div>
+
+              {currentUser?.role === "Owner" ? (
+                <>
+                  <input
+                    ref={restoreFileRef}
+                    type="file"
+                    accept=".json,application/json"
+                    style={{ display: "none" }}
+                    onChange={handleRestoreFile}
+                  />
+                  <button
+                    onClick={() => { setRestorePreview(null); setRestoreMsg(""); setRestoreError(""); restoreFileRef.current?.click(); }}
+                    style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", borderRadius: 10, border: `1px solid ${C.line}`, background: C.surfaceAlt, color: C.ink, fontSize: 13, fontWeight: 600, cursor: "pointer", marginBottom: restorePreview ? 14 : 0 }}>
+                    <Upload size={14} /> Choose backup file…
+                  </button>
+
+                  {restoreError && (
+                    <div style={{ marginTop: 12, fontSize: 13, color: "#B03030", background: "#FDECEC", border: "1px solid #F2C2C2", borderRadius: 8, padding: "10px 12px" }}>
+                      {restoreError}
+                    </div>
+                  )}
+
+                  {restorePreview && (
+                    <div style={{ marginTop: 12, background: C.surfaceAlt, borderRadius: 10, border: `1px solid ${C.line}`, padding: "14px 16px" }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: C.ink, marginBottom: 10 }}>Backup preview</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px", marginBottom: 14 }}>
+                        {CRM_ARRAY_KEYS.map(k => {
+                          const backupCount = restorePreview[k]?.length || 0;
+                          const currentCount = (data[k] || []).length;
+                          return (
+                            <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "3px 0", borderBottom: `1px solid ${C.lineSoft}` }}>
+                              <span style={{ color: C.ink2, textTransform: "capitalize" }}>{k}</span>
+                              <span style={{ fontWeight: 600, color: backupCount !== currentCount ? "#9B7A2E" : C.ink }}>
+                                {backupCount} <span style={{ color: C.ink3, fontWeight: 400 }}>({currentCount} now)</span>
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <button
+                        onClick={() => setRestoreConfirm(true)}
+                        style={{ width: "100%", padding: "10px", borderRadius: 9, border: "none", background: "#C0573F", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                        Restore this backup
+                      </button>
+                    </div>
+                  )}
+
+                  {restoreMsg && <div style={{ marginTop: 12, fontSize: 13, color: "#16A34A", fontWeight: 600 }}>{restoreMsg}</div>}
+                </>
+              ) : (
+                <div style={{ fontSize: 12, color: C.ink3, padding: "8px 0" }}>Only the Owner account can restore data.</div>
+              )}
+            </div>
+          </div>
+
+          {/* Storage details */}
+          <div style={{ marginTop: 18, background: C.surface, borderRadius: 14, border: `1px solid ${C.line}`, padding: "18px 20px" }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: C.ink, marginBottom: 14 }}>Storage Details</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "4px 24px" }}>
               {[
                 { label: "Encrypted store size",  value: storageUsedKB + " KB" },
                 { label: "Uncompressed data size", value: totalKB + " KB" },
@@ -12561,7 +12690,7 @@ function AdminView({ tab, data, setData, secUsers, currentUser, today, crmSettin
                 { label: "Logged in as",           value: currentUser?.name || "—" },
                 { label: "Current role",           value: currentUser?.role || "—" },
               ].map(r => (
-                <div key={r.label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${C.line}`, fontSize: 13 }}>
+                <div key={r.label} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 }}>
                   <span style={{ color: C.ink3 }}>{r.label}</span>
                   <span style={{ fontWeight: 600, color: C.ink }}>{r.value}</span>
                 </div>
@@ -12587,6 +12716,28 @@ function AdminView({ tab, data, setData, secUsers, currentUser, today, crmSettin
               );
             })}
           </div>
+
+          {/* Restore confirmation modal */}
+          {restoreConfirm && (
+            <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 4000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+              <div style={{ background: C.surface, borderRadius: 16, boxShadow: "0 8px 40px rgba(0,0,0,.2)", width: "100%", maxWidth: 440, padding: "28px 28px 24px" }}>
+                <div style={{ fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 10 }}>Restore this backup?</div>
+                <div style={{ fontSize: 13.5, color: C.ink2, lineHeight: 1.6, marginBottom: 20 }}>
+                  This will <strong>permanently replace all current CRM data</strong> with the backup. There is no undo. Make sure you have exported a copy of the current data if you might need it.
+                </div>
+                <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                  <button onClick={() => setRestoreConfirm(false)}
+                    style={{ padding: "9px 20px", borderRadius: 9, border: `1px solid ${C.line}`, background: "none", fontSize: 13.5, cursor: "pointer", color: C.ink2 }}>
+                    Cancel
+                  </button>
+                  <button onClick={applyRestore}
+                    style={{ padding: "9px 22px", borderRadius: 9, border: "none", background: "#C0573F", color: "#fff", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>
+                    Yes, restore backup
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
 

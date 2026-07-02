@@ -1044,6 +1044,16 @@ async function pullRecentCalendlyBookings(daysBack = 30) {
   return { added, skipped, scanned };
 }
 
+// ── Per-session refund tokens (minted after CRM PIN unlock; required for money-moving endpoints) ──
+const _refundSessions = new Map(); // token → expiry (ms)
+const REFUND_SESSION_TTL = 8 * 60 * 60 * 1000; // 8 hours
+setInterval(() => {
+  const now = Date.now();
+  for (const [tok, exp] of _refundSessions.entries()) {
+    if (exp < now) _refundSessions.delete(tok);
+  }
+}, 60 * 60 * 1000);
+
 // ── Frontend secret guard (for CRM-facing endpoints) ──
 function requireFrontendSecret(req, res, next) {
   const secret = process.env.FRONTEND_SECRET;
@@ -1059,6 +1069,24 @@ function requireFrontendSecret(req, res, next) {
   }
   next();
 }
+
+function requireSessionToken(req, res, next) {
+  const tok = req.headers["x-session-token"];
+  if (!tok || !_refundSessions.has(tok) || _refundSessions.get(tok) < Date.now()) {
+    if (tok) _refundSessions.delete(tok); // purge expired
+    return res.status(401).json({ error: "Session token required or expired — please log in to the CRM." });
+  }
+  next();
+}
+
+// POST /api/auth/session — mint a short-lived refund session token after CRM PIN unlock.
+// Requires x-frontend-secret (same-origin guard). The token must be sent as
+// x-session-token on money-moving endpoints (e.g. /api/stripe/refund).
+app.post("/api/auth/session", requireFrontendSecret, (req, res) => {
+  const token = crypto.randomBytes(32).toString("hex");
+  _refundSessions.set(token, Date.now() + REFUND_SESSION_TTL);
+  res.json({ token });
+});
 
 // ────────────────────────────────────────────────────────────────
 // POST /api/calendly/pull-recent
@@ -1225,7 +1253,7 @@ app.post("/api/stripe/acknowledge", requireFrontendSecret, async (req, res) => {
 // Omitting `amount` in the Stripe request makes Stripe refund the full charge —
 // no cents conversion needed on the way in.
 // ────────────────────────────────────────────────────────────────
-app.post("/api/stripe/refund", requireFrontendSecret, async (req, res) => {
+app.post("/api/stripe/refund", requireFrontendSecret, requireSessionToken, async (req, res) => {
   res.set("Cache-Control", "no-store");
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) {

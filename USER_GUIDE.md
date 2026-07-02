@@ -1353,7 +1353,7 @@ This means your last change could not be written to browser storage (most often 
 1. Click **Go to Admin** in the red banner (or navigate to Admin → Storage & Backup).
 2. Click **Download Backup** to save a JSON copy of all your data.
 3. Reload the page. Your data will reload from the last successfully saved point.
-4. Restore the backup via Admin → Storage & Backup → Restore if the reload lost recent changes.
+4. Restore the backup via **Admin → Storage & Backup → Choose backup file…** if the reload lost recent changes (Owner only — choose the file, review the preview, then click **Restore this backup** and confirm).
 5. If the error keeps happening, your browser storage may be full — try clearing cached files for other sites, or switch to a different browser profile.
 
 **The header shows "Saving…" — is that normal?**

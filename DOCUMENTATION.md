@@ -1507,6 +1507,17 @@ Downloads a full JSON backup of all CRM data to the local machine.
 
 > **Security note:** The exported file is unencrypted. Store it securely.
 
+#### Restore from Backup
+
+Loads a previously exported `.json` backup file and replaces all current CRM data.
+
+- Owner-only. Non-owner users see a "View only" message.
+- Clicking **Choose backup file…** opens a file picker filtered to `.json`.
+- The file is parsed and validated client-side (`normalizeCrmData` + `Sec.validate`). If the file is not a valid SBCRM backup, an error is shown and nothing is changed.
+- A **backup preview** is displayed showing the record count per collection in the backup vs. the current live count, highlighted in amber where they differ.
+- Clicking **Restore this backup** opens a confirmation modal. Confirming calls `setData(normalized)`, which triggers the persist effect to re-encrypt and save to IndexedDB automatically.
+- The restore is irreversible. Users are advised to export a backup of the current data before restoring.
+
 #### Storage Details Panel
 
 Live read of current storage state:
