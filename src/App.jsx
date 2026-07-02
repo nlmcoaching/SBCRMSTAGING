@@ -2105,20 +2105,28 @@ function buildBookingLedgerRecords(data = {}) {
   }));
 
   // Expenses: one record per CANCELED booking. Reschedules are skipped — no money moves, the
-  // payment simply follows the booking to its new time.
+  // payment simply follows the booking to its new time. The amount reflects money that actually
+  // left via Stripe (amountRefunded) — a late cancel or free booking books a $0 expense so the
+  // cancellation stays visible without distorting the P&L.
   const expenses = (data.registrations || [])
     .filter(r => r.status === "canceled")
     .map(r => {
       const session = sessions[r.sessionId];
       const client = clients[r.clientId];
       const sessName = cleanName(session?.name || r.eventName || "Session");
-      const amt = resolveActualBookingAmount(r, listPrices[r.sessionId]) ?? 0;
+      const refunded = Math.max(0, Number(r.amountRefunded) || 0);
+      const listAmt = resolveActualBookingAmount(r, listPrices[r.sessionId]) ?? 0;
+      const noteParts = [];
+      if (r.stripeRefundId) noteParts.push(`Stripe refund ${r.stripeRefundId}`);
+      else if (refunded > 0) noteParts.push("Refunded via Stripe");
+      else if ((Number(r.paidAmount) || 0) > 0 || listAmt > 0) noteParts.push("No refund issued");
+      if (r.cancelReason) noteParts.push(`Reason: ${r.cancelReason}`);
       return {
         id: AUTO_CXL_EXP_ID_PREFIX + r.id,
-        date: (r.canceledAt || r.scheduledAt || r.createdAt || "").slice(0, 10),
+        date: (r.refundedAt || r.canceledAt || r.scheduledAt || r.createdAt || "").slice(0, 10),
         vendor: client ? cleanName(client.name) : (r.eventName || "Canceled booking"),
         description: `Canceled session — ${sessName}`,
-        amount: Math.max(0, Math.round((Number(amt) || 0) * 100) / 100),
+        amount: Math.round(refunded * 100) / 100,
         category: "Refunds & Cancellations",
         paymentMethod: "Stripe",
         taxDeductible: false,
@@ -2127,7 +2135,9 @@ function buildBookingLedgerRecords(data = {}) {
         linkedSession: r.sessionId || "",
         linkedPartner: session?.studioId || "",
         receiptUrl: "",
-        notes: r.cancelReason ? `Reason: ${r.cancelReason}` : "Auto-recorded when the Calendly booking was canceled.",
+        stripeRefundId: r.stripeRefundId || "",
+        refundedAt: r.refundedAt || "",
+        notes: noteParts.join(" — ") || "Auto-recorded when the Calendly booking was canceled.",
         clientId: r.clientId || "",
         registrationId: r.id,
         auto: true,
@@ -2190,7 +2200,7 @@ function syncBookingLedgers(data = {}) {
 
   const nextRevenue = [...manualRev, ...autoRev];
   const nextExpenses = [...manualExp, ...autoExp, ...preservedSplitExp];
-  const sig = (arr, amtKey) => arr.map(x => `${x.id}|${x[amtKey] ?? ""}|${x.date ?? ""}`).sort().join(";");
+  const sig = (arr, amtKey) => arr.map(x => `${x.id}|${x[amtKey] ?? ""}|${x.date ?? ""}|${x.stripeRefundId ?? ""}`).sort().join(";");
   const changed =
     sig(nextRevenue, "gross") !== sig(data.revenue || [], "gross") ||
     sig(nextExpenses, "amount") !== sig(data.expenses || [], "amount");
@@ -4516,7 +4526,7 @@ function newRecord(db) {
     testimonials: { name: "", clientId: "", sessionId: "", status: "Breakthrough noted", type: "Written", content: "", bestQuote: "", beforeSummary: "", afterSummary: "", themes: [], permissionReceived: false, useOnWebsite: false, useOnSocial: false, firstNameOnly: false, videoUrl: "", dateReceived: "", datePublished: "", notes: "" },
     templates:    { name: "", category: "Post-Session", channel: "Email", subject: "", body: "", variables: "", linkedTo: "clients", usageCount: 0, notes: "" },
     expenses:     { date: "", vendor: "", description: "", amount: 0, category: "Equipment & Supplies", paymentMethod: "Credit Card", taxDeductible: true, recurring: false, recurringFreq: "One-time", linkedSession: "", linkedPartner: "", receiptUrl: "", notes: "" },
-    registrations: { clientId: "", sessionId: "", calendlyInviteeUri: "", calendlyEventUri: "", calendlyEventTypeUri: "", eventName: "", status: "booked", paymentAmount: null, paidAmount: null, paymentStatus: "unknown", stripeVerified: false, stripePaymentIntentId: "", stripeChargeId: "", paymentId: "", paidAt: "", amountRefunded: 0, waiverStatus: "pending", createdAt: new Date().toISOString(), scheduledAt: "", timezone: "", locationType: "", locationJoinUrl: "", locationAddress: "", attendanceType: "", checkedIn: false, attended: false, noShow: false, doneBreathworkBefore: "", howHeard: "", referredBy: "", concerns: "", reviewedContraindications: "", notes: "" },
+    registrations: { clientId: "", sessionId: "", calendlyInviteeUri: "", calendlyEventUri: "", calendlyEventTypeUri: "", eventName: "", status: "booked", paymentAmount: null, paidAmount: null, paymentStatus: "unknown", stripeVerified: false, stripePaymentIntentId: "", stripeChargeId: "", paymentId: "", paidAt: "", amountRefunded: 0, stripeRefundId: "", refundedAt: "", waiverStatus: "pending", createdAt: new Date().toISOString(), scheduledAt: "", timezone: "", locationType: "", locationJoinUrl: "", locationAddress: "", attendanceType: "", checkedIn: false, attended: false, noShow: false, doneBreathworkBefore: "", howHeard: "", referredBy: "", concerns: "", reviewedContraindications: "", notes: "" },
   };
   return { ...base, ...m[db] };
 }
@@ -6007,6 +6017,129 @@ function RevenueThisMonthView({ data, today, query, onOpen, canEdit }) {
   );
 }
 
+/* ── Refunds — Revenue tab ── */
+// Refund queue + audit trail. "Refunds due" lists canceled bookings that pass the
+// refundEligibility policy matrix, each with a one-click (human-approved) Stripe refund.
+// "Refund history" lists the auto cancellation expenses tied to an actual Stripe refund.
+function RefundsView({ data, setData, canEdit, setConfirm, onOpen }) {
+  const [busyId, setBusyId] = useState("");
+  const [errMsg, setErrMsg] = useState("");
+
+  const clientsById = Object.fromEntries((data.clients || []).map(c => [c.id, c]));
+  const sessionsById = Object.fromEntries((data.sessions || []).map(s => [s.id, s]));
+  const regClientName = (r) => clientsById[r.clientId] ? cleanName(clientsById[r.clientId].name) : "—";
+  const regSessionName = (r) => cleanName(sessionsById[r.sessionId]?.name || r.eventName || "—");
+
+  const canceled = sortRegistrationsBySessionTime(
+    (data.registrations || []).filter(r => r.status === "canceled"), data,
+  ).map(r => ({ ...r, _elig: refundEligibility(r, data) }));
+  const dueRows = canceled.filter(r => r._elig.eligible);
+  // "Already refunded" rows live in Refund history below — don't repeat them here.
+  const ineligibleRows = canceled.filter(r => !r._elig.eligible && r._elig.reason !== "Already refunded");
+
+  const history = [...(data.expenses || [])]
+    .filter(e => e.category === "Refunds & Cancellations" && e.stripeRefundId)
+    .sort((a, b) => String(b.refundedAt || b.date || "").localeCompare(String(a.refundedAt || a.date || "")));
+
+  const startRefund = (reg) => {
+    const who = clientsById[reg.clientId] ? cleanName(clientsById[reg.clientId].name) : (reg.eventName || "this client");
+    setConfirm({
+      message: `Refund ${money(reg._elig.amount)} to ${who} via Stripe? The full charge is refunded and this cannot be undone.`,
+      okLabel: "Issue refund", danger: true,
+      onOk: async () => {
+        setBusyId(reg.id);
+        setErrMsg("");
+        try {
+          await issueStripeRefund(reg, setData);
+        } catch (err) {
+          setErrMsg(err.message || "Refund failed");
+        }
+        setBusyId("");
+      },
+    });
+  };
+
+  const openReg = (r) => {
+    const { _elig, ...record } = r;
+    onOpen({ db: "registrations", record });
+  };
+
+  const baseCols = [
+    col("client", "Client", (r) => <strong style={{ color: C.ink }}>{regClientName(r)}</strong>),
+    col("session", "Session", (r) => regSessionName(r)),
+    col("scheduledAt", "Session time", (r) => formatRegistrationDateTime(r.scheduledAt)),
+    col("canceledAt", "Canceled on", (r) => formatRegistrationDateTime(r.canceledAt)),
+    col("cancelerType", "Canceled by", (r) => r.cancelerType
+      ? <Tag color={String(r.cancelerType).toLowerCase() === "host" ? "#5B6ECC" : "#D9892B"} soft>{String(r.cancelerType).replace(/_/g, " ")}</Tag>
+      : <span style={{ color: C.ink3 }}>unknown</span>),
+    col("paidAmount", "Paid", (r) => money(Number(r.paidAmount) || 0), { align: "right" }),
+  ];
+  const dueCols = [
+    ...baseCols,
+    col("policy", "Policy check", (r) => (
+      <div>
+        <div style={{ fontSize: 12.5 }}>{r._elig.reason}</div>
+        {r._elig.flag && <div style={{ fontSize: 11.5, color: "#B45309", marginTop: 2 }}>⚠ {r._elig.flag}</div>}
+      </div>
+    )),
+    col("action", "", (r) => canEdit ? (
+      <button
+        disabled={busyId === r.id}
+        onClick={(e) => { e.stopPropagation(); startRefund(r); }}
+        style={{ background: busyId === r.id ? C.ink3 : "#C0573F", color: "#fff", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 12.5, padding: "7px 14px", cursor: busyId === r.id ? "default" : "pointer", whiteSpace: "nowrap" }}>
+        {busyId === r.id ? "Refunding…" : `Refund ${money(r._elig.amount)}`}
+      </button>
+    ) : <span style={{ color: C.ink3, fontSize: 12 }}>View only</span>, { align: "right" }),
+  ];
+  const ineligibleCols = [
+    ...baseCols,
+    col("policy", "Why no refund", (r) => <span style={{ color: C.ink3, fontSize: 12.5 }}>{r._elig.reason}</span>),
+  ];
+  const historyCols = [
+    col("date", "Date", (e) => e.refundedAt ? formatRegistrationDateTime(e.refundedAt) : fmtDate(e.date), { sortVal: (e) => e.refundedAt || e.date || "" }),
+    col("vendor", "Client", (e) => <strong style={{ color: C.ink }}>{e.vendor || "—"}</strong>),
+    col("description", "Description", (e) => e.description || "—"),
+    col("amount", "Refunded", (e) => <strong style={{ color: "#C0573F" }}>{money(e.amount)}</strong>, { align: "right", sum: "amount" }),
+    col("stripeRefundId", "Stripe refund ID", (e) => <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11.5 }}>{e.stripeRefundId}</span>),
+  ];
+
+  const heading = (text) => (
+    <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink2, margin: "20px 2px 8px", textTransform: "uppercase", letterSpacing: ".05em" }}>{text}</div>
+  );
+
+  return (
+    <div>
+      {dueRows.length > 0 && (
+        <div style={{ background: "#FEF3EC", border: "1px solid #F5D3BC", borderRadius: 12, padding: "14px 18px", marginBottom: 16, fontSize: 13, color: "#9A4B2E" }}>
+          <strong>{dueRows.length} refund{dueRows.length !== 1 ? "s" : ""} due.</strong>{" "}
+          These canceled bookings qualify for a full refund under the cancellation policy (host cancels any time; client cancels more than {REFUND_POLICY_HOURS} hours before the session). Review each one and click Refund to issue it through Stripe.
+        </div>
+      )}
+      {errMsg && (
+        <div style={{ background: "#FDECEC", border: "1px solid #F2C2C2", borderRadius: 12, padding: "12px 18px", marginBottom: 16, fontSize: 13, color: "#B03030" }}>
+          Refund failed: {errMsg}
+        </div>
+      )}
+
+      {heading(`Refunds due (${dueRows.length})`)}
+      {dueRows.length
+        ? <TableView columns={dueCols} rows={dueRows} onOpen={openReg} ctx={{ data }} />
+        : <Empty>No refunds due. Canceled bookings that qualify for a refund will appear here.</Empty>}
+
+      {heading(`No refund due (${ineligibleRows.length})`)}
+      {ineligibleRows.length
+        ? <TableView columns={ineligibleCols} rows={ineligibleRows} onOpen={openReg} ctx={{ data }} />
+        : <Empty>No canceled bookings outside the refund policy.</Empty>}
+
+      {heading(`Refund history (${history.length})`)}
+      {history.length
+        ? <TableView columns={historyCols} rows={history} onOpen={(e) => onOpen({ db: "expenses", record: e })} ctx={{ data }}
+            footer={{ label: "Total refunded", amount: money(sum(history, "amount")) }} />
+        : <Empty>No Stripe refunds issued yet. Refunds appear here with their Stripe refund ID once processed.</Empty>}
+    </div>
+  );
+}
+
 /* ============================================================
    SECTION (per database, with views)
    ============================================================ */
@@ -6144,6 +6277,8 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         ? <RecordTableView records={data[section] || []} columns={v.columns} query={query} section={section} ctx={{ data, derived, today }} onOpen={onOpen} canEdit={canEdit} maxHeight="calc(100vh - 240px)" />
         : v.layout === "revenue-this-month"
         ? <RevenueThisMonthView data={data} today={today} query={query} onOpen={onOpen} canEdit={canEdit} />
+        : v.layout === "refunds"
+        ? <RefundsView data={data} setData={setData} canEdit={canEdit} setConfirm={setConfirm} onOpen={onOpen} />
         : <>
           <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => (
               section === "revenue" ? openRevenueViewRow(r, data, onOpen) : onOpen({ db: section, record: r })
@@ -6253,6 +6388,93 @@ function cancelRegistrationManually(setData, regId) {
   });
 }
 
+/* ── Stripe refunds for canceled bookings ── */
+const REFUND_POLICY_HOURS = 24;
+
+// Refund policy matrix for a canceled booking:
+//   Host cancels    → full refund at any time.
+//   Client cancels  → full refund only when canceled more than REFUND_POLICY_HOURS
+//                     before the session start (late cancels keep the charge).
+//   $0 / no Stripe payment / already refunded → nothing to refund.
+// Returns { eligible, amount, reason, flag } — `flag` is a caution shown even when
+// eligible (e.g. unknown initiator), since a human approves every refund.
+function refundEligibility(reg, data) {
+  if (!reg || reg.status !== "canceled") return { eligible: false, amount: 0, reason: "Not canceled" };
+  const amount = Number(reg.paidAmount) || 0;
+  if (reg.stripeRefundId || reg.paymentStatus === "refunded" || (Number(reg.amountRefunded) || 0) > 0) {
+    return { eligible: false, amount: 0, reason: "Already refunded" };
+  }
+  if (amount <= 0) return { eligible: false, amount: 0, reason: "Free booking — nothing to refund" };
+  if (!reg.stripePaymentIntentId && !reg.stripeChargeId) {
+    return { eligible: false, amount, reason: "No Stripe payment on file" };
+  }
+
+  const canceler = String(reg.cancelerType || "").toLowerCase();
+  if (canceler === "host") {
+    return { eligible: true, amount, reason: "Canceled by host — full refund due" };
+  }
+
+  // Client (invitee) cancel — apply the 24-hour window. Unknown initiators are treated
+  // like client cancels but flagged for review before the human approves.
+  const flag = canceler && canceler !== "invitee"
+    ? `Canceled by "${reg.cancelerType}" — review before refunding`
+    : (!canceler ? "Initiator unknown — review before refunding" : "");
+  const sessionTs = registrationSessionTimestamp(reg, data);
+  const canceledTs = Date.parse(reg.canceledAt || "");
+  if (!sessionTs || Number.isNaN(canceledTs)) {
+    return { eligible: true, amount, reason: "Client canceled", flag: flag || "Cancellation timing unknown — verify the 24-hour policy before refunding" };
+  }
+  const hoursBefore = (sessionTs - canceledTs) / 3600000;
+  if (hoursBefore > REFUND_POLICY_HOURS) {
+    return { eligible: true, amount, reason: `Client canceled ${Math.floor(hoursBefore)}h before session`, flag };
+  }
+  return { eligible: false, amount, reason: `Late cancel (\u2264${REFUND_POLICY_HOURS}h before session) — no refund per policy` };
+}
+
+// Issues a FULL Stripe refund via the backend, then stamps the refund on the
+// registration and its linked payment record. The auto cancellation expense
+// (cxlexp_) picks up the refund on the next ledger sync, and the eventual
+// charge.refunded webhook confirms the same state through the normal pipeline.
+async function issueStripeRefund(reg, setData) {
+  const res = await fetchWithTimeout(calendlyApiUrl("/api/stripe/refund"), {
+    method: "POST",
+    headers: apiHeaders(),
+    body: JSON.stringify({
+      paymentIntentId: reg.stripePaymentIntentId || "",
+      chargeId: reg.stripeChargeId || "",
+      registrationId: reg.id || "",
+      reason: "requested_by_customer",
+    }),
+  }, 20000);
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.error || `Refund request failed (${res.status})`);
+
+  const refundedAt = j.createdAt || new Date().toISOString();
+  setData(prev => {
+    const registrations = (prev.registrations || []).map(r => r.id === reg.id ? {
+      ...r,
+      paymentStatus: "refunded",
+      amountRefunded: j.amount ?? (Number(r.paidAmount) || 0),
+      stripeRefundId: j.refundId || "",
+      refundedAt,
+    } : r);
+    const payments = (prev.payments || []).map(p => {
+      const match = (reg.paymentId && p.id === reg.paymentId)
+        || (reg.stripePaymentIntentId && p.stripePaymentIntentId === reg.stripePaymentIntentId)
+        || (reg.stripeChargeId && p.stripeChargeId === reg.stripeChargeId);
+      return match ? {
+        ...p,
+        status: "refunded",
+        amountRefunded: j.amount ?? (Number(p.amountGross) || 0),
+        stripeRefundId: j.refundId || "",
+        refundedAt,
+      } : p;
+    });
+    return { ...prev, registrations, payments };
+  });
+  return j;
+}
+
 // Shared expanded-row detail panel for registration tables (All Bookings + Cancellations).
 function registrationExpandRow(r, ctx) {
   const client = (ctx.data.clients||[]).find(x => x.id === r.clientId);
@@ -6295,6 +6517,8 @@ function registrationExpandRow(r, ctx) {
         {field("Stripe charge ID", r.stripeChargeId, mono)}
         {field("Stripe payment intent", r.stripePaymentIntentId, mono)}
         {field("Amount refunded", r.amountRefunded > 0 ? money(r.amountRefunded) : null)}
+        {field("Stripe refund ID", r.stripeRefundId, mono)}
+        {field("Refunded at", r.refundedAt ? formatRegistrationDateTime(r.refundedAt) : null)}
         {field("Waiver", r.waiverStatus)}
         {field("Checked in", r.checkedIn ? "✓ Yes" : null)}
         {field("Attended", r.attended ? "✓ Yes" : null)}
@@ -6322,8 +6546,28 @@ function registrationExpandRow(r, ctx) {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              const doCancel = () => cancelRegistrationManually(ctx.setData, r.id);
               const who = client ? cleanName(client.name) : (r.eventName || "this booking");
+              // Host cancels are always refund-eligible when Stripe money was collected —
+              // offer the refund right after the cancel so it isn't forgotten.
+              const refundable = (Number(r.paidAmount) || 0) > 0
+                && (r.stripePaymentIntentId || r.stripeChargeId)
+                && !r.stripeRefundId && r.paymentStatus !== "refunded"
+                && !((Number(r.amountRefunded) || 0) > 0);
+              const doCancel = () => {
+                cancelRegistrationManually(ctx.setData, r.id);
+                if (refundable && ctx.setConfirm) {
+                  const canceledReg = { ...r, status: "canceled", cancelerType: "host" };
+                  // Deferred so it opens after the cancel dialog closes (onOk → setConfirm(null)).
+                  setTimeout(() => ctx.setConfirm({
+                    message: `Refund ${money(Number(r.paidAmount) || 0)} to ${who} via Stripe? The full charge is refunded and this cannot be undone. (You can also do this later from Revenue → Refunds.)`,
+                    okLabel: "Issue refund", danger: true,
+                    onOk: () => {
+                      issueStripeRefund(canceledReg, ctx.setData)
+                        .catch(err => alert(`Refund failed: ${err.message || err}`));
+                    },
+                  }), 0);
+                }
+              };
               if (ctx.setConfirm) {
                 ctx.setConfirm({
                   message: `Cancel ${who}'s booking? It will move to Cancellations and Reschedules, free up the spot, and future Calendly syncs will not bring it back.`,
@@ -6681,6 +6925,7 @@ const VIEWS = {
     views: [
       { name: "Revenue attribution", layout: "revenue-analytics-booked" },
       { name: "This month", layout: "revenue-this-month" },
+      { name: "Refunds", layout: "refunds" },
       { name: "Revenue Table", layout: "record-table", columns: revenueTableCols() },
     ],
   },
@@ -7809,6 +8054,7 @@ const FIELDS = {
     f("linkedSession", "Linked Session",   "text"),
     f("linkedPartner", "Linked Studio",    "text"),
     f("receiptUrl",    "Receipt URL",      "text"),
+    f("stripeRefundId","Stripe Refund ID", "text"),
     f("notes",         "Notes",            "textarea"),
   ],
   registrations: [
@@ -7824,6 +8070,8 @@ const FIELDS = {
     f("stripeChargeId", "Stripe Charge ID",            "text"),
     f("paymentId",      "Linked Payment Record",       "text"),
     f("amountRefunded", "Amount Refunded ($)",         "number"),
+    f("stripeRefundId", "Stripe Refund ID",            "text"),
+    f("refundedAt",     "Refunded At",                 "text"),
     f("waiverStatus",   "Waiver Status",               "select",   { options: ["pending", "signed"] }),
     f("createdAt",      "Scheduled On",                "text"),
     f("scheduledAt",    "Session Date/Time",           "text"),
@@ -11087,6 +11335,8 @@ const DB_SCHEMA = [
       { name: "linkedSession",   type: "string",   required: false, description: "Linked session ID (if tied to a session)" },
       { name: "linkedPartner",   type: "string",   required: false, description: "Linked studio partner ID (if tied to a partner)" },
       { name: "receiptUrl",      type: "string",   required: false, description: "Link to a receipt or supporting document" },
+      { name: "stripeRefundId",  type: "string",   required: false, description: "Stripe refund ID (re_...) when the expense reflects an actual Stripe refund" },
+      { name: "refundedAt",      type: "date",     required: false, description: "When the Stripe refund was issued (ISO 8601)" },
       { name: "auto",            type: "boolean",  required: false, description: "True for auto-generated rows (studio split / canceled booking) — read-only in the UI" },
       { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
     ],

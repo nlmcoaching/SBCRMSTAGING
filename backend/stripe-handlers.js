@@ -195,4 +195,5 @@ module.exports = {
   SUPPORTED_EVENTS,
   extractStripePayment,
   verifyStripeSignature,
+  centsToDollars,
 };

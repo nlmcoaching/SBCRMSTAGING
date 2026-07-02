@@ -977,7 +977,7 @@ Dates use the **booked date** for bookings — the registration's `createdAt` ("
 The **Revenue** and **Expense** tables are kept in sync with bookings automatically (no manual entry needed for sessions):
 
 - **Revenue table** — every **active** virtual or studio booking is materialised as a revenue record (`id` prefixed `regrev_`, `auto: true`, `channel` = `Virtual session` / `Studio session`). The record's `gross` is the booking's **actual matched Stripe charge** (`amountGross`), with `refunds` = `amountRefunded` and `net` = gross − refunds; a booking with **no Stripe charge** (free / coupon) is `$0` — the Calendly list price is never used, so these values match the Stripe page row-for-row. Records regenerate from the current bookings on every change, so amounts track Stripe reconciliation and canceled/rescheduled bookings drop out automatically.
-- **Expense table** — every **canceled** booking is materialised as an expense record (`id` prefixed `cxlexp_`, `auto: true`, `category` = `Refunds & Cancellations`, `amount` = the booking's Stripe amount, `$0` for free/coupon bookings). Reschedules are **not** expensed (the payment simply follows the booking to its new time). These records feed Expenses MTD / Operating Profit, so each cancellation reduces profit by its Stripe amount.
+- **Expense table** — every **canceled** booking is materialised as an expense record (`id` prefixed `cxlexp_`, `auto: true`, `category` = `Refunds & Cancellations`). The `amount` is the money that **actually left via Stripe** — the registration's `amountRefunded` — so a late cancel, free/coupon booking, or not-yet-refunded cancellation books a **$0** expense (the cancellation stays visible without distorting the P&L). When a Stripe refund has been issued, the record also carries `stripeRefundId` and `refundedAt`, and its `date` becomes the refund date. Reschedules are **not** expensed (the payment simply follows the booking to its new time). These records feed Expenses MTD / Operating Profit, so each refunded cancellation reduces profit by its refunded amount.
 - **Studio split expenses** — every **studio session** that owes its partner a revenue share is materialised as one expense record (`id` prefixed `studiosplit_`, `auto: true`, `category` = `Studio Split`, `vendor` = the studio partner name, `linkedSession` / `linkedPartner` set). The `amount` is computed (`studioSessionFinance`) as the **sum of actual Stripe charges received for that session** (from the matching `regrev_*` revenue rows, gross minus refunds) **× the partner's revenue share %**. The split updates automatically whenever payments come in, refunds occur, or the partner's share % changes — no manual entry needed. See *Studio split tracking* below. **Preservation rule:** if a previously-recorded positive-amount studio split expense would recompute to $0 (e.g. no paid bookings yet), the record is retained rather than silently deleted. The user must manually delete stale records if needed.
 
 Manually-entered revenue/expense rows are always preserved; only the `auto` records are regenerated. To avoid double-counting, client **Lifetime Value** and the Revenue tab exclude the `auto` revenue records (the underlying registrations/live booking rows already represent them).
@@ -1034,18 +1034,59 @@ Manual **Revenue** records (gross, Stripe fee, studio split, etc.) are part of t
   - **P&L by channel — MTD**: Gross and fees from `data.revenue` grouped by channel; studio split expenses attributed to "Studio session"; cancellation expenses routed to the channel of the linked session. Net = Gross − Fees − Split − Refunds per channel.
   - **Recently Charged Sessions**: Mirrors the Stripe page — every paid Stripe charge **plus** every active booking with no charge (free/coupon) shown as a `$0` **Free** row. Sorted newest-first by charge time. Columns: Booked, Client, Session, Channel, Amount.
 
-- **This month** (tab 2) — rebuilt around the actual ledgers (`revenue-this-month` layout, `RevenueThisMonthView`). It no longer derives figures from registrations or applies a 70/30 split. Instead:
+- **This month** (tab 1) — rebuilt around the actual ledgers (`revenue-this-month` layout, `RevenueThisMonthView`). It no longer derives figures from registrations or applies a 70/30 split. Instead:
   - **Gross Revenue** = sum of the **Stripe amounts stored on records in the `revenue` table** (`gross`) whose `bookedAt` (booking/payment date, falling back to `date`) falls in the current month — reflects money actually collected. Includes both auto booking records (`regrev_*`) and manually-entered revenue rows.
   - **Expenses** = sum of `amount` across records in the `expenses` table dated in the current month (auto cancellation records + manual expenses).
   - **Net Revenue** = Gross Revenue − revenue refunds − Expenses. Margin % = Net ÷ Gross.
   - Three stat cards (Gross Revenue, Expenses, Net Revenue) each show a **% change vs the previous month** (the Expenses card inverts the favourable colour, since a rise in expenses is unfavourable).
   - Below the cards, two sortable/expandable `RecordTableView` listings show the month's **revenue records** (with Stripe amounts) and **expense records**. The page **search box** filters both listings (the `query` is passed through to each `RecordTableView`); the summary cards continue to reflect the full month.
 
+- **Refunds** (tab 2) — the Stripe refund queue and audit trail (`refunds` layout, `RefundsView`). See **Stripe Refunds for Canceled Bookings** below for the full policy matrix and flow. Three lists:
+  - **Refunds due** — canceled bookings that pass the `refundEligibility` policy matrix. Columns: Client, Session, Session time, Canceled on, Canceled by, Paid, Policy check, and a **Refund $X** button (Edit permission required; viewers see "View only"). Eligible-but-uncertain rows (unknown initiator or missing timing data) show a ⚠ caution under the policy check. Clicking a row opens the registration record; clicking Refund opens a confirm dialog before anything is sent to Stripe. A banner above the lists shows the count of refunds due.
+  - **No refund due** — canceled bookings that do **not** qualify (late cancel, free booking, no Stripe payment on file), each with the reason. Already-refunded bookings are not repeated here — they live in Refund history.
+  - **Refund history** — the auto `Refunds & Cancellations` expense records that carry a `stripeRefundId`. Columns: Date, Client, Description, Refunded amount, Stripe refund ID; footer shows the total refunded.
+
 - **Revenue Table** (tab 3) — a raw listing of **every record stored in the `revenue` table** (including auto booking records `regrev_*` and manually-entered rows), rendered with the `record-table` layout (`RecordTableView`). Unlike the derived views above, this reads `data.revenue` directly and does not apply the studio split. Behaviour:
   - **Sortable column headings** — click any header (Date, Description, Channel, Source, Gross, Refunds, Net, Type) to sort; click again to toggle ascending/descending. The active column shows a ▲/▼ indicator. Sort columns are defined by `revenueTableCols()` (each column carries a `sortVal` accessor). The **Date** column displays the record's **booked-at date** (`bookedAt`, falling back to `date`) rather than the session date. Full ISO timestamps are formatted as date **and** time via `formatRegistrationDateTime` (e.g. `Jun 23, 2026, 03:14 PM`); bare `YYYY-MM-DD` values show the date only.
   - **Expandable rows** — click a row (or its chevron) to expand an inline panel listing **all fields** stored on that record as label/value pairs (keys humanised, money fields formatted, booleans shown as Yes/No). Editors see an **Edit record** button in the expanded panel.
   - **Type column** distinguishes **Auto** (booking-generated, `auto: true`) from **Manual** records.
   - Footer shows the record count and column totals for Gross and Net.
+
+### Stripe Refunds for Canceled Bookings
+
+**Navigation:** Sidebar → P&L → Revenue → **Refunds** tab
+
+Refunds are **one-click approved**: the CRM evaluates the cancellation policy automatically, but a human always clicks **Refund** (and confirms) before any money moves. Nothing is refunded silently.
+
+#### Eligibility policy matrix (`refundEligibility(reg, data)`)
+
+| Initiator (`cancelerType`) | Time window | Stripe amount | Result |
+|---|---|---|---|
+| `host` (Calendly host cancel or CRM **Cancel booking** button) | Any time | > $0 | **Refund due** — full refund |
+| `invitee` (client canceled in Calendly) | More than **24 hours** before `scheduledAt` | > $0 | **Refund due** — full refund |
+| `invitee` | **24 hours or less** before `scheduledAt` | Any | No refund (late-cancel policy) |
+| Any | Any time | $0 / no Stripe payment on file | No refund — nothing to refund |
+| Unknown / missing | Treated like a client cancel | > $0 | Listed with a ⚠ "review before refunding" caution |
+
+Additional guards: a booking whose `stripeRefundId` is set, whose `paymentStatus` is `refunded`, or whose `amountRefunded` > 0 is never offered again ("Already refunded"). The 24-hour window compares `scheduledAt` (falling back to the linked session's date + time via `registrationSessionTimestamp`) against `canceledAt`; if either timestamp is missing, the row is still offered but flagged for manual review. The window is defined by the `REFUND_POLICY_HOURS` constant (24).
+
+#### Refund flow
+
+1. User clicks **Refund $X** (Refunds tab) or accepts the refund prompt offered immediately after a manual **Cancel booking** (see below), then confirms in a dialog.
+2. Frontend `issueStripeRefund(reg, setData)` calls `POST /api/stripe/refund` on the backend with the booking's `stripePaymentIntentId` (or `stripeChargeId`) and `registrationId`.
+3. The backend (guarded by `requireFrontendSecret`) calls Stripe's `POST /v1/refunds` directly (no SDK) with basic auth using `STRIPE_SECRET_KEY`. The `amount` parameter is **omitted**, so Stripe issues a **full refund**; `reason` is `requested_by_customer` and `metadata[registrationId]` is set for auditing. Stripe errors (e.g. charge already refunded) surface as readable messages in the UI.
+4. On success the registration is stamped with `paymentStatus: "refunded"`, `amountRefunded`, `stripeRefundId` (`re_...`), and `refundedAt`; the linked `payments` record is updated the same way.
+5. The next booking-ledger sync regenerates the booking's auto cancellation expense (`cxlexp_*`) with the refunded amount, the Stripe refund ID, and the refund date — this is what the **Refund history** list shows.
+6. Stripe later sends the `charge.refunded` webhook, which flows through the existing webhook queue and reconciliation as confirmation (idempotent — the records are already marked refunded).
+
+**Host-cancel prompt:** after confirming the red **Cancel booking** button in a bookings list (All Bookings / Cancellations expanded panel), if the booking has a Stripe payment and has not been refunded, a second confirm dialog immediately offers the full refund — host cancels always qualify. Declining is safe; the booking remains in **Revenue → Refunds → Refunds due**.
+
+| Requirement | Detail |
+|---|---|
+| Backend endpoint | `POST /api/stripe/refund` (`backend/server.js`), `requireFrontendSecret` guard |
+| Env var | `STRIPE_SECRET_KEY` in `backend/.env` (Stripe secret API key `sk_live_...` / `sk_test_...`). Without it the endpoint returns 503 — the webhook signing secret alone cannot create refunds |
+| Frontend helpers | `refundEligibility`, `issueStripeRefund`, `REFUND_POLICY_HOURS`, `RefundsView` (all inline in `App.jsx`) |
+| Permissions | Issuing a refund requires **Edit** permission (`canEdit`) |
 
 ### Table Footer Totals
 
@@ -1603,7 +1644,7 @@ Track all business-related expenditures, import them in bulk via CSV, and have t
 | Administrative | Website hosting, domain, banking fees |
 | Studio & Venue | Room hire fees, venue deposits (separate from revenue splits) |
 | Studio Split | Auto-recorded studio revenue share — amount = sum of actual Stripe payments received for the session (gross − refunds) × the partner's revenue share %. Updates automatically as payments come in or refunds occur. One linked record per studio session |
-| Refunds & Cancellations | Auto-recorded when a Calendly booking is canceled — amount = the booking's Stripe payment ($0 for free/coupon bookings) |
+| Refunds & Cancellations | Auto-recorded when a Calendly booking is canceled — amount = the amount **actually refunded via Stripe** (`amountRefunded`; $0 for late cancels, free/coupon bookings, or cancellations with no refund issued). Carries `stripeRefundId` / `refundedAt` when a Stripe refund was issued from the Revenue → Refunds tab |
 | Other | Miscellaneous business costs |
 
 Auto-recorded expense records (id prefix `cxlexp_` for cancellations, `studiosplit_` for studio splits, both `auto: true`) are generated automatically and regenerate on every change; do not edit them by hand. Manually-entered expenses are always preserved.
@@ -1623,6 +1664,8 @@ Auto-recorded expense records (id prefix `cxlexp_` for cancellations, `studiospl
 | linkedSession | Text | Session ID if attributable to a specific event |
 | linkedPartner | Text | Studio partner ID if attributable to a studio |
 | receiptUrl | Text | URL or reference to receipt/invoice |
+| stripeRefundId | Text | Stripe refund ID (`re_...`) when the expense reflects an actual Stripe refund (auto cancellation records only) |
+| refundedAt | Text | ISO timestamp of the Stripe refund (auto cancellation records only) |
 | notes | Textarea | Additional context |
 
 ### Views Available
@@ -1728,6 +1771,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 | `/api/webhooks/stripe` | POST | Receives Stripe payment events; verifies HMAC-SHA256 signature if `STRIPE_WEBHOOK_SECRET` is configured |
 | `/api/stripe/pending` | GET | Returns unprocessed Stripe payment events for the CRM to consume |
 | `/api/stripe/acknowledge` | POST | Marks Stripe queue event IDs as processed |
+| `/api/stripe/refund` | POST | Issues a **full Stripe refund** (`POST /v1/refunds`, `amount` omitted) for a canceled booking. Body: `paymentIntentId` (`pi_...`) or `chargeId` (`ch_...`), plus `registrationId` (stored as Stripe metadata) and optional `reason`. Requires `x-frontend-secret` and `STRIPE_SECRET_KEY`; returns the refund ID, amount (dollars), status, and timestamp |
 | `/api/integration/clear-queues` | POST | Clears Calendly and Stripe pending webhook queues (Reset to Production; requires `x-frontend-secret`) |
 | `/api/calendly/events` | GET | All events (debug/admin) |
 | `/api/calendly/events` | DELETE | Clear Calendly queue (admin) |
@@ -1745,6 +1789,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 - `QUEUE_ENCRYPTION_KEY` — 32-byte hex key for AES-256-GCM encryption of `pending-events.json` at rest. Generate with `openssl rand -hex 32`. **Required in production** (server refuses to start without it); if blank in dev, queue is stored as plaintext with a loud warning.
 - `CALENDLY_API_TOKEN` — Calendly Personal Access Token (from Calendly → Integrations → API & Webhooks). Required for event type description fetching and payment amount backfill. See `backend/.env.example`.
 - `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret (`whsec_...`) from Stripe Dashboard → Developers → Webhooks. **Required in production** (server exits if missing).
+- `STRIPE_SECRET_KEY` — Stripe secret API key (`sk_live_...` / `sk_test_...`) from Stripe Dashboard → Developers → API keys. Used by `POST /api/stripe/refund` to issue refunds. Optional — without it the refund endpoint returns 503 and the CRM's Refund buttons report that refunds are not configured.
 - `TRUST_PROXY` — Set to `1` when behind ngrok/nginx/Caddy so rate limiting uses the real client IP. Omit when binding directly to port 3001 on a public interface.
 - `RESEND_API_KEY` — Resend API key for direct email sending. Server logs a warning at startup if missing and returns 503 on any send attempt.
 - `RESEND_FROM` — Sender address (default: `jeff@simplybreathe.ai`). Must be a verified Resend domain.
@@ -1806,7 +1851,9 @@ Each individual Calendly booking is stored as a `registration` record:
 | `stripeChargeId` | Stripe Charge ID (`ch_...`) when matched |
 | `paymentId` | Links to a record in the `payments` table |
 | `paidAt` | ISO timestamp from Stripe when payment succeeded |
-| `amountRefunded` | Refunded amount from Stripe refund webhooks |
+| `amountRefunded` | Refunded amount — from Stripe refund webhooks, or set immediately when a refund is issued from the CRM |
+| `stripeRefundId` | Stripe refund ID (`re_...`) when a refund was issued from the CRM (Revenue → Refunds) |
+| `refundedAt` | ISO timestamp when the CRM-issued Stripe refund was created |
 | `lastAmountMismatch` | When Stripe paid ≠ Calendly expected price: `{ expectedAmount, stripeAmount, correctedAt }` — `paymentAmount` is updated to Stripe |
 | `waiverStatus` | `pending` · `signed` |
 | `createdAt` | ISO 8601 timestamp when the booking was created (from Calendly `created_at`, webhook receipt time, or manual entry) |
@@ -1859,7 +1906,7 @@ Multiple candidates with equal score → **needs review**. Otherwise → **unmat
 
 Unit tests: `npm run test:stripe-match`
 
-Refund events (`charge.refunded`, `charge.refund.updated`) update linked payment and registration refund fields.
+Refund events (`charge.refunded`, `charge.refund.updated`) update linked payment and registration refund fields. Refunds issued **from** the CRM (Revenue → Refunds tab, or the prompt after a manual host cancel) go through `POST /api/stripe/refund` and stamp the records immediately; the subsequent `charge.refunded` webhook is an idempotent confirmation. See **Stripe Refunds for Canceled Bookings** in the Revenue Attribution section.
 
 ### Event Type Description Fetching
 
@@ -1888,7 +1935,7 @@ The description is surfaced in the studio session drawer as **Studio Event Descr
 **Navigation:** Sidebar → Calendly Bookings
 
 Views (all sorted by session date/time, newest first; uses `scheduledAt`, falling back to linked session date/time when empty — except **All Bookings**, which sorts by `createdAt`, newest first):
-- **All Bookings** — Scrollable list of all registrations (most recent first). Columns: **Calendly Amount**, Client, Session, Session Date/Time, Status, Payment Status. **Click any row to expand** a detail panel showing: client email, session type, journey, location, booking source, intake answers, payment status, Calendly amount, raw payment notes, event URI, invitee URI, and created date. The Waiver and Booked Amount columns have been removed from this view. For **canceled / rescheduled** rows the panel also shows Cancelled on, Cancelled by, and Cancel reason; **rescheduled** rows additionally show **Original session time** and **Rescheduled to** (the new time, resolved from Calendly's `new_invitee` link — see Reschedule Linking below). For **active** bookings (status `booked`/`attended`/`no_show`), the expanded panel shows a red **Cancel booking** button (Edit permission required); it opens a styled confirm, then marks the registration `canceled` (`cancelerType: "host"`, `canceledAt` = now), frees the session spot (deletes a now-empty virtual session or decrements a studio session's registered count), and moves the row to Cancellations and Reschedules. Because the booking is then canceled in the CRM, future Calendly syncs leave it alone (see Cancellation protection). Expanded-panel text wraps cleanly (the expanded cell overrides the table's `white-space: nowrap`).
+- **All Bookings** — Scrollable list of all registrations (most recent first). Columns: **Calendly Amount**, Client, Session, Session Date/Time, Status, Payment Status. **Click any row to expand** a detail panel showing: client email, session type, journey, location, booking source, intake answers, payment status, Calendly amount, raw payment notes, event URI, invitee URI, and created date. The Waiver and Booked Amount columns have been removed from this view. For **canceled / rescheduled** rows the panel also shows Cancelled on, Cancelled by, and Cancel reason; **rescheduled** rows additionally show **Original session time** and **Rescheduled to** (the new time, resolved from Calendly's `new_invitee` link — see Reschedule Linking below). For **active** bookings (status `booked`/`attended`/`no_show`), the expanded panel shows a red **Cancel booking** button (Edit permission required); it opens a styled confirm, then marks the registration `canceled` (`cancelerType: "host"`, `canceledAt` = now), frees the session spot (deletes a now-empty virtual session or decrements a studio session's registered count), and moves the row to Cancellations and Reschedules. Because the booking is then canceled in the CRM, future Calendly syncs leave it alone (see Cancellation protection). If the booking has an unrefunded Stripe payment, a second confirm dialog immediately offers the **full Stripe refund** (host cancels always qualify — see Stripe Refunds for Canceled Bookings in the Revenue Attribution section); declining leaves it available in Revenue → Refunds. The expanded panel also shows **Stripe refund ID** and **Refunded at** once a refund has been issued. Expanded-panel text wraps cleanly (the expanded cell overrides the table's `white-space: nowrap`).
 - **Pending Waivers** — active registrations where waiver is not yet signed
 - **Unpaid** — active registrations with unpaid status
 - **Cancellations and Reschedules** — canceled and rescheduled registrations. **Rows are expandable** and use the same detail panel as All Bookings, surfacing the cancellation/reschedule details (Cancelled on, Cancelled by, Cancel reason, and for reschedules the Original session time and Rescheduled to).

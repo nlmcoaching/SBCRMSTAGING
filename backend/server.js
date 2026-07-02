@@ -11,7 +11,7 @@
 //      Events: invitee.created, invitee.canceled, invitee_no_show.created
 
 require("dotenv").config();
-const { SUPPORTED_EVENTS, extractStripePayment, verifyStripeSignature } = require("./stripe-handlers");
+const { SUPPORTED_EVENTS, extractStripePayment, verifyStripeSignature, centsToDollars } = require("./stripe-handlers");
 const express    = require("express");
 const crypto     = require("crypto");
 const cors       = require("cors");
@@ -60,6 +60,11 @@ const path       = require("path");
       key: "STRIPE_WEBHOOK_SECRET",
       desc: "Stripe webhook signing secret (whsec_...) — without this ALL incoming Stripe webhooks are accepted without verification",
       critical: true,
+    },
+    {
+      key: "STRIPE_SECRET_KEY",
+      desc: "Stripe secret API key (sk_...) — without this the refund endpoint (/api/stripe/refund) returns 503",
+      critical: false,
     },
     {
       key: "ALLOWED_ORIGINS",
@@ -1210,6 +1215,69 @@ app.post("/api/stripe/acknowledge", requireFrontendSecret, async (req, res) => {
 
   console.log(`[OK] Acknowledged ${ids.length} Stripe event(s)`);
   res.json({ acknowledged: ids.length });
+});
+
+// ────────────────────────────────────────────────────────────────
+// POST /api/stripe/refund
+// Issues a FULL refund for a payment via the Stripe API (POST /v1/refunds).
+// Called by the CRM after a human approves a refund for a canceled booking.
+// Body: { paymentIntentId?: "pi_...", chargeId?: "ch_...", registrationId?: string, reason?: string }
+// Omitting `amount` in the Stripe request makes Stripe refund the full charge —
+// no cents conversion needed on the way in.
+// ────────────────────────────────────────────────────────────────
+app.post("/api/stripe/refund", requireFrontendSecret, async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) {
+    return res.status(503).json({ error: "STRIPE_SECRET_KEY not configured — refunds cannot be issued from the CRM" });
+  }
+
+  const { paymentIntentId, chargeId, registrationId, reason } = req.body || {};
+  const validId = (v, prefix) => typeof v === "string" && v.startsWith(prefix) && v.length <= 100 && /^[\w]+$/.test(v);
+  const pi = validId(paymentIntentId, "pi_") ? paymentIntentId : "";
+  const ch = validId(chargeId, "ch_") ? chargeId : "";
+  if (!pi && !ch) {
+    return res.status(400).json({ error: "A valid paymentIntentId (pi_...) or chargeId (ch_...) is required" });
+  }
+
+  const params = new URLSearchParams();
+  if (pi) params.set("payment_intent", pi);
+  else params.set("charge", ch);
+  const allowedReasons = new Set(["duplicate", "fraudulent", "requested_by_customer"]);
+  params.set("reason", allowedReasons.has(reason) ? reason : "requested_by_customer");
+  if (typeof registrationId === "string" && registrationId && registrationId.length <= 100) {
+    params.set("metadata[registrationId]", registrationId);
+  }
+
+  try {
+    const resp = await fetch("https://api.stripe.com/v1/refunds", {
+      method: "POST",
+      headers: {
+        "Authorization": `Basic ${Buffer.from(`${key}:`).toString("base64")}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: params.toString(),
+    });
+    const j = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      const msg = j?.error?.message || `Stripe refund failed (HTTP ${resp.status})`;
+      console.error(`[ERROR] Stripe refund failed: ${msg}`);
+      return res.status(resp.status >= 500 ? 502 : 400).json({ error: msg, code: j?.error?.code || "" });
+    }
+    console.log(`[OK] Stripe refund created: ${j.id} — ${j.amount} ${String(j.currency || "").toUpperCase()}`);
+    res.json({
+      refundId: j.id || "",
+      amount: centsToDollars(j.amount),
+      currency: String(j.currency || "usd").toLowerCase(),
+      status: j.status || "",
+      paymentIntentId: typeof j.payment_intent === "string" ? j.payment_intent : j.payment_intent?.id || "",
+      chargeId: typeof j.charge === "string" ? j.charge : j.charge?.id || "",
+      createdAt: j.created ? new Date(j.created * 1000).toISOString() : new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error("[ERROR] Stripe refund request failed:", err.message);
+    res.status(502).json({ error: "Could not reach Stripe — the refund was NOT issued. Try again." });
+  }
 });
 
 // ────────────────────────────────────────────────────────────────

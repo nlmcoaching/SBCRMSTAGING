@@ -588,6 +588,8 @@ To cancel someone's booking manually (for example, they emailed you to cancel in
 3. At the bottom of the expanded details, click the red **Cancel booking** button and confirm.
 
 The booking moves to the **Cancellations and Reschedules** tab, the spot is freed (for a studio class the registered count drops; for a one-on-one virtual session it's removed from the calendar), and future Calendly syncs will not bring it back. Note: this is **different** from the Lead/Booked/Attended buttons on the *client* record — those describe the client's overall stage, not a single booking.
+
+**If the client paid through Stripe**, a second confirmation pops up right after the cancel, offering to **refund the full amount** to the client — when you cancel on a client, they always qualify for their money back. Click **Issue refund** to send it through Stripe, or close the dialog to decide later — the booking will wait for you in **Revenue → Refunds** (see *Issuing Refunds* under Tracking Revenue).
 | Pending Waivers | Manually-created registrations without a signed waiver, newest session first |
 | Unpaid | Clients who haven't paid, newest session first |
 | Cancellations and Reschedules | Canceled and rescheduled bookings, newest session first. **Click any row to expand** it for full details — when it was cancelled, by whom, the reason, and (for reschedules) the original and new session times. |
@@ -782,7 +784,7 @@ Click **Sync Stripe now** to pull new payments immediately (the CRM also checks 
 You don't have to log session revenue or cancellations by hand — the CRM does it for you:
 
 - **Every new booking** (virtual or studio) automatically creates a **revenue record** set to the **actual amount charged in Stripe** — the same figure you see on the Stripe page. Until a Stripe charge is confirmed, and for **free / coupon** bookings, the amount is **$0** (the Calendly list price is never used), and it updates automatically when the matching payment arrives. The record's channel is set to **Virtual session** or **Studio session** to match the booking.
-- **Every canceled booking** automatically creates an **expense record** in the **Refunds & Cancellations** category for the amount that was paid in Stripe (or **$0** if it was a free/coupon booking). This lowers your operating profit by that amount, so your numbers reflect the cost of the cancellation. (A **reschedule** is not treated as a cancellation — the payment just moves to the new time, so no expense is created.)
+- **Every canceled booking** automatically creates an **expense record** in the **Refunds & Cancellations** category for the amount that was **actually refunded to the client through Stripe**. If no refund was issued (a late cancel, a free/coupon booking, or a refund you haven't sent yet), the record shows **$0** — so your profit numbers only drop when money really left your account. Once you issue the refund from the **Refunds** tab, the record updates to the refunded amount and keeps the Stripe refund reference for your records. (A **reschedule** is not treated as a cancellation — the payment just moves to the new time, so no expense is created.)
 - **Every studio session with a studio split** automatically creates an **expense record** in the **Studio Split** category for the amount owed to that studio — calculated as the total Stripe payments actually received for that session (minus any refunds) × the studio's revenue share % (see *Studio Split — Paying the Studio Their Share* under Sessions). It's linked to the session and updates automatically as payments arrive or refunds occur.
 
 These automatic records keep themselves up to date as Stripe payments settle, as bookings are canceled, and as studio attendance is recorded. You can still add your own revenue and expense entries by hand (see below) — those are always kept and never overwritten.
@@ -820,6 +822,38 @@ The **This month** tab gives you a simple, real-money picture for the current ca
 - **Net Revenue** = Gross Revenue − refunds − Expenses. The card also shows your **margin** (net as a percentage of gross).
 
 Each of the three cards shows how it compares to **last month** (for the Expenses card, going up is shown in red because higher expenses are worse). Below the cards you'll see two listings — your **revenue records** and **expense records** for the month — which you can sort by any column and expand to see full details. The **search box** at the top filters both listings so you can quickly find a specific entry; the three summary cards always show the full month's totals.
+
+### Issuing Refunds — the Refunds tab
+
+**Navigate to:** Sidebar → Revenue → **Refunds** tab
+
+When a session is canceled, the CRM works out whether the client is owed their money back — but **it never sends a refund on its own**. You always review and click the button yourself.
+
+**The refund policy the CRM applies:**
+
+| Who canceled | When | Refund? |
+|---|---|---|
+| **You** (the host) — in Calendly or with the CRM's Cancel booking button | Any time | **Yes — full refund** |
+| **The client** — in Calendly | **More than 24 hours** before the session | **Yes — full refund** |
+| **The client** — in Calendly | **24 hours or less** before the session | **No** — late-cancel policy, they keep the charge |
+| Anyone | Any time, but the booking was **free** or has no Stripe payment | **No** — there's nothing to refund |
+
+**To issue a refund:**
+
+1. Go to **Revenue → Refunds**. If any refunds are waiting, a banner at the top tells you how many.
+2. Look through the **Refunds due** list. Each row shows the client, the session, when it was canceled and by whom, the amount paid, and why the policy says a refund is due. A ⚠ warning appears if the CRM couldn't fully verify the situation (for example it doesn't know who canceled) — double-check those before refunding.
+3. Click **Refund $X** on the row and confirm. The full amount is sent back to the client's card through Stripe. **This cannot be undone**, so read the confirmation carefully.
+4. The row moves to **Refund history**, which keeps the date, amount, and the Stripe refund reference for every refund you've issued. The matching expense record updates automatically so your profit numbers stay accurate.
+
+The **No refund due** list shows canceled bookings that don't qualify (late cancels, free bookings) and the reason — nothing to do there, it's just so you can see the CRM's reasoning.
+
+**Good to know:**
+
+- Refunds are always for the **full amount** the client paid.
+- Card refunds typically take **5–10 business days** to appear on the client's statement.
+- Stripe does **not** return its processing fee from the original charge.
+- You need **Edit** permission to issue refunds; others can view the lists but not click Refund.
+- **Administrator setup:** refunds require your Stripe secret API key in `STRIPE_SECRET_KEY` in `backend/.env` (Stripe Dashboard → Developers → API keys). Without it, the Refund buttons will say refunds are not configured.
 
 ### Revenue Table tab — see every stored record
 
@@ -1126,7 +1160,7 @@ This is the fastest way to add expenses — export from your bank or accounting 
 | Administrative | Website hosting, domain name, bank fees |
 | Studio & Venue | Room hire, venue deposits (separate from revenue splits) |
 | Studio Split | Added automatically for each studio session's revenue share owed to the studio. Calculated from the actual Stripe payments received for that session × the studio's revenue share %. Updates automatically as payments come in or refunds occur. You don't need to enter these yourself. |
-| Refunds & Cancellations | Added automatically when a booking is canceled (the amount that was paid in Stripe). You don't need to enter these yourself. |
+| Refunds & Cancellations | Added automatically when a booking is canceled. The amount is what was **actually refunded through Stripe** — $0 until a refund is issued (or when none is due, e.g. a late cancel or free booking). Records with a real refund also carry the Stripe refund reference. You don't need to enter these yourself. |
 | Other | Anything that doesn't fit above |
 
 ### Expense Table tab — see every stored expense
