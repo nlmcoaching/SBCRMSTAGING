@@ -2583,6 +2583,7 @@ export default function App() {
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
   const [showProfile, setShowProfile] = useState(false);
   const [showAlerts,  setShowAlerts]  = useState(false);
+  const [showOrphans, setShowOrphans] = useState(false);
   const [crmSettings, setCrmSettings] = useState(() => loadCrmSettings());
   const [dismissedAlerts, setDismissedAlerts] = useState(() => {
     try {
@@ -4332,6 +4333,19 @@ export default function App() {
                     <RefreshCw size={16} strokeWidth={2} style={{ animation: calendlyStatus?.syncing ? "spin 1s linear infinite" : "none" }} />
                   </button>
                 )}
+                {section === "clients" && (() => {
+                  const orphanCount = Object.keys(findOrphanedGroups(data)).length;
+                  return orphanCount > 0 ? (
+                    <button
+                      type="button"
+                      className="sb-ghost"
+                      onClick={() => setShowOrphans(true)}
+                      title="Re-link records from deleted clients"
+                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", color: "#9B7A2E", border: "1px solid #F5E4A8", background: "#FFFBF0", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+                      <Link2 size={14} /> Re-link {orphanCount} orphaned {orphanCount === 1 ? "client" : "clients"}
+                    </button>
+                  ) : null;
+                })()}
                 {can.edit && !["users","admin","workflows","stripe"].includes(section) && !(section === "expenses" && view === 0) && (
                   <button className="sb-primary" onClick={() => setOpen({ db: section, record: newRecord(section) })}>
                     <Plus size={16} /> New
@@ -4489,6 +4503,7 @@ export default function App() {
         </DrawerErrorBoundary>
       )}
 
+      {showOrphans && <OrphanedRecordsModal data={data} setData={setData} onClose={() => setShowOrphans(false)} />}
       {importing && <ImportModal data={data} setData={setData} onClose={() => setImporting(false)} />}
       {showEditProfile && (
         <EditProfileModal
@@ -4526,7 +4541,7 @@ function newRecord(db) {
     testimonials: { name: "", clientId: "", sessionId: "", status: "Breakthrough noted", type: "Written", content: "", bestQuote: "", beforeSummary: "", afterSummary: "", themes: [], permissionReceived: false, useOnWebsite: false, useOnSocial: false, firstNameOnly: false, videoUrl: "", dateReceived: "", datePublished: "", notes: "" },
     templates:    { name: "", category: "Post-Session", channel: "Email", subject: "", body: "", variables: "", linkedTo: "clients", usageCount: 0, notes: "" },
     expenses:     { date: "", vendor: "", description: "", amount: 0, category: "Equipment & Supplies", paymentMethod: "Credit Card", taxDeductible: true, recurring: false, recurringFreq: "One-time", linkedSession: "", linkedPartner: "", receiptUrl: "", notes: "" },
-    registrations: { clientId: "", sessionId: "", calendlyInviteeUri: "", calendlyEventUri: "", calendlyEventTypeUri: "", eventName: "", status: "booked", paymentAmount: null, paidAmount: null, paymentStatus: "unknown", stripeVerified: false, stripePaymentIntentId: "", stripeChargeId: "", paymentId: "", paidAt: "", amountRefunded: 0, stripeRefundId: "", refundedAt: "", waiverStatus: "pending", createdAt: new Date().toISOString(), scheduledAt: "", timezone: "", locationType: "", locationJoinUrl: "", locationAddress: "", attendanceType: "", checkedIn: false, attended: false, noShow: false, doneBreathworkBefore: "", howHeard: "", referredBy: "", concerns: "", reviewedContraindications: "", notes: "" },
+    registrations: { clientId: "", sessionId: "", calendlyInviteeUri: "", calendlyEventUri: "", calendlyEventTypeUri: "", eventName: "", status: "booked", paymentAmount: null, paidAmount: null, paymentStatus: "unknown", stripeVerified: false, stripePaymentIntentId: "", stripeChargeId: "", paymentId: "", paidAt: "", amountRefunded: 0, stripeRefundId: "", refundedAt: "", refundWaived: false, refundWaivedAt: "", waiverStatus: "pending", createdAt: new Date().toISOString(), scheduledAt: "", timezone: "", locationType: "", locationJoinUrl: "", locationAddress: "", attendanceType: "", checkedIn: false, attended: false, noShow: false, doneBreathworkBefore: "", howHeard: "", referredBy: "", concerns: "", reviewedContraindications: "", notes: "" },
   };
   return { ...base, ...m[db] };
 }
@@ -5106,6 +5121,137 @@ function buildAlerts(data, today) {
 
   const order = { critical: 0, warning: 1, info: 2 };
   return alerts.sort((a, b) => order[a.severity] - order[b.severity]);
+}
+
+// Collections that carry a clientId on each record.
+const CLIENT_ID_COLLECTIONS = ["registrations", "offers", "followups", "revenue", "testimonials", "payments", "expenses"];
+
+function findOrphanedGroups(data) {
+  const clientIds = new Set((data.clients || []).map(c => c.id));
+  const groups = {};
+  CLIENT_ID_COLLECTIONS.forEach(col => {
+    (data[col] || []).forEach(rec => {
+      if (rec.clientId && !clientIds.has(rec.clientId)) {
+        if (!groups[rec.clientId]) groups[rec.clientId] = [];
+        groups[rec.clientId].push({ col, rec });
+      }
+    });
+  });
+  return groups; // { [orphanedClientId]: [{ col, rec }, …] }
+}
+
+function OrphanedRecordsModal({ data, setData, onClose }) {
+  const groups = findOrphanedGroups(data);
+  const orphanIds = Object.keys(groups);
+  // assignments: { [orphanedClientId]: newClientId }
+  const [assignments, setAssignments] = useState(() => Object.fromEntries(orphanIds.map(id => [id, ""])));
+  const [done, setDone] = useState(false);
+
+  const clientsSorted = [...(data.clients || [])].sort((a, b) => cleanName(a.name).localeCompare(cleanName(b.name)));
+
+  const assign = (orphanId, newClientId) => setAssignments(p => ({ ...p, [orphanId]: newClientId }));
+
+  const apply = () => {
+    setData(prev => {
+      let next = { ...prev };
+      CLIENT_ID_COLLECTIONS.forEach(col => {
+        if (!next[col]) return;
+        next[col] = next[col].map(rec => {
+          const newId = rec.clientId && assignments[rec.clientId];
+          return newId ? { ...rec, clientId: newId } : rec;
+        });
+      });
+      return next;
+    });
+    setDone(true);
+  };
+
+  const colLabel = { registrations: "Booking", offers: "Offer", followups: "Follow-up", revenue: "Revenue row", testimonials: "Testimonial", payments: "Payment", expenses: "Expense" };
+  const recSummary = ({ col, rec }) => {
+    const parts = [];
+    if (rec.eventName) parts.push(rec.eventName);
+    if (rec.name) parts.push(cleanName(rec.name));
+    if (rec.description) parts.push(rec.description);
+    if (rec.date) parts.push(fmtDate(rec.date));
+    if (rec.scheduledAt) parts.push(fmtDate(rec.scheduledAt?.slice(0, 10)));
+    return `${colLabel[col] || col}${parts.length ? " — " + parts.join(", ") : ""}`;
+  };
+
+  const anyAssigned = orphanIds.some(id => assignments[id]);
+
+  const ovl = { position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 };
+  const box = { background: C.surface, borderRadius: 16, boxShadow: "0 8px 40px rgba(0,0,0,.18)", width: "100%", maxWidth: 640, maxHeight: "80vh", display: "flex", flexDirection: "column", overflow: "hidden" };
+  const hdr = { padding: "20px 24px 16px", borderBottom: `1px solid ${C.lineSoft}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start" };
+  const body = { padding: "20px 24px", overflowY: "auto", flex: 1 };
+  const ftr = { padding: "14px 24px", borderTop: `1px solid ${C.lineSoft}`, display: "flex", justifyContent: "flex-end", gap: 10 };
+
+  return (
+    <div style={ovl} onClick={onClose}>
+      <div style={box} onClick={e => e.stopPropagation()}>
+        <div style={hdr}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 16, color: C.ink }}>Re-link orphaned records</div>
+            <div style={{ fontSize: 13, color: C.ink2, marginTop: 4 }}>
+              {orphanIds.length === 0 ? "No orphaned records found." : `${orphanIds.length} deleted client${orphanIds.length !== 1 ? "s" : ""} found with linked records. Assign each group to a new client.`}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.ink3, lineHeight: 1 }}>×</button>
+        </div>
+
+        <div style={body}>
+          {orphanIds.length === 0 && (
+            <div style={{ color: C.ink2, fontSize: 14 }}>All records are linked to existing clients. Nothing to fix.</div>
+          )}
+          {done && (
+            <div style={{ background: "#EDF7ED", border: "1px solid #A8D5A8", borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#2E6B2E" }}>
+              Records re-linked successfully. You can close this panel.
+            </div>
+          )}
+          {orphanIds.map(orphanId => {
+            const items = groups[orphanId];
+            return (
+              <div key={orphanId} style={{ marginBottom: 24, paddingBottom: 20, borderBottom: `1px solid ${C.lineSoft}` }}>
+                <div style={{ fontSize: 11.5, color: C.ink3, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", marginBottom: 6 }}>
+                  Deleted client ID: {orphanId}
+                </div>
+                <ul style={{ margin: "0 0 10px 16px", padding: 0, fontSize: 13, color: C.ink2 }}>
+                  {items.map(({ col, rec }, i) => (
+                    <li key={i}>{recSummary({ col, rec })}</li>
+                  ))}
+                </ul>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <label style={{ fontSize: 12.5, color: C.ink2, whiteSpace: "nowrap" }}>Assign to:</label>
+                  <select
+                    value={assignments[orphanId]}
+                    onChange={e => assign(orphanId, e.target.value)}
+                    style={{ flex: 1, padding: "7px 10px", borderRadius: 8, border: `1px solid ${C.line}`, fontSize: 13, background: C.surface, color: C.ink }}>
+                    <option value="">— select a client —</option>
+                    {clientsSorted.map(c => (
+                      <option key={c.id} value={c.id}>{cleanName(c.name)}{c.email ? ` (${c.email})` : ""}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={ftr}>
+          <button onClick={onClose} style={{ background: "none", border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 18px", fontSize: 13.5, cursor: "pointer", color: C.ink2 }}>
+            Close
+          </button>
+          {orphanIds.length > 0 && !done && (
+            <button
+              onClick={apply}
+              disabled={!anyAssigned}
+              style={{ background: anyAssigned ? C.brand : C.ink3, color: "#fff", border: "none", borderRadius: 8, padding: "8px 20px", fontSize: 13.5, fontWeight: 600, cursor: anyAssigned ? "pointer" : "default" }}>
+              Re-link records
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function AlertsPanel({ data, today, onOpen, compact, dismissed: dismissedProp, setDismissed: setDismissedProp }) {
@@ -6053,9 +6199,11 @@ function RefundsView({ data, setData, canEdit, setConfirm, onOpen }) {
   const canceled = sortRegistrationsBySessionTime(
     (data.registrations || []).filter(r => r.status === "canceled"), data,
   ).map(r => ({ ...r, _elig: refundEligibility(r, data) }));
-  const dueRows = canceled.filter(r => r._elig.eligible);
+  const dueRows = canceled.filter(r => r._elig.eligible)
+    .sort((a, b) => new Date(b.canceledAt || 0) - new Date(a.canceledAt || 0));
   // "Already refunded" rows live in Refund history below — don't repeat them here.
-  const ineligibleRows = canceled.filter(r => !r._elig.eligible && r._elig.reason !== "Already refunded");
+  const ineligibleRows = canceled.filter(r => !r._elig.eligible && r._elig.reason !== "Already refunded")
+    .sort((a, b) => new Date(b.canceledAt || 0) - new Date(a.canceledAt || 0));
 
   const history = [...(data.expenses || [])]
     .filter(e => e.category === "Refunds & Cancellations" && e.stripeRefundId)
@@ -6127,6 +6275,134 @@ function RefundsView({ data, setData, canEdit, setConfirm, onOpen }) {
     <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink2, margin: "20px 2px 8px", textTransform: "uppercase", letterSpacing: ".05em" }}>{text}</div>
   );
 
+  const dl  = { fontSize: 10.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 600, marginBottom: 2 };
+  const dv  = { fontSize: 13, color: C.ink, wordBreak: "break-word" };
+  const mono = { ...dv, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11.5 };
+  const field = (l, v, style) => v != null && v !== "" && v !== false ? (
+    <div key={l}><div style={dl}>{l}</div><div style={style || dv}>{v}</div></div>
+  ) : null;
+  const gridWrap = (children, actions) => (
+    <div style={{ padding: "10px 4px 6px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: "12px 24px" }}>
+        {children}
+      </div>
+      {actions && <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.lineSoft}`, display: "flex", gap: 10, flexWrap: "wrap" }}>{actions}</div>}
+    </div>
+  );
+
+  const waiveRefund = (r) => {
+    const who = clientsById[r.clientId] ? cleanName(clientsById[r.clientId].name) : (r.eventName || "this client");
+    setConfirm({
+      message: `Override and waive the refund for ${who}? No money will be sent to Stripe. This can be undone by opening the booking record.`,
+      okLabel: "Waive refund",
+      onOk: () => {
+        setData(prev => {
+          const regs = prev.registrations || [];
+          const idx = regs.findIndex(x => x.id === r.id);
+          if (idx < 0) return prev;
+          const updated = [...regs];
+          updated[idx] = { ...updated[idx], refundWaived: true, refundWaivedAt: new Date().toISOString() };
+          return { ...prev, registrations: updated };
+        });
+      },
+    });
+  };
+
+  const expandDue = (r) => {
+    const client = clientsById[r.clientId];
+    const session = sessionsById[r.sessionId];
+    return gridWrap(
+      <>
+        {field("Email", client?.email)}
+        {field("Phone", client?.phone)}
+        {field("Session", session ? cleanName(session.name) : (r.eventName || null))}
+        {field("Session date/time", formatRegistrationDateTime(r.scheduledAt))}
+        {field("Cancel reason", r.cancelReason || null)}
+        {field("Payment status", r.paymentStatus)}
+        {field("Stripe payment intent", r.stripePaymentIntentId, mono)}
+        {field("Stripe charge ID", r.stripeChargeId, mono)}
+        {r._elig.flag && field("Review note", <span style={{ color: "#B45309" }}>⚠ {r._elig.flag}</span>)}
+      </>,
+      <>
+        {canEdit && (
+          <button
+            disabled={busyId === r.id}
+            onClick={(e) => { e.stopPropagation(); startRefund(r); }}
+            style={{ background: busyId === r.id ? C.ink3 : "#C0573F", color: "#fff", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 12.5, padding: "7px 14px", cursor: busyId === r.id ? "default" : "pointer" }}>
+            {busyId === r.id ? "Refunding…" : `Refund ${money(r._elig.amount)}`}
+          </button>
+        )}
+        {canEdit && (
+          <button onClick={(e) => { e.stopPropagation(); waiveRefund(r); }}
+            style={{ background: "none", border: `1px solid #D9892B`, borderRadius: 8, fontWeight: 500, fontSize: 12.5, padding: "7px 14px", cursor: "pointer", color: "#9A5A10" }}>
+            Don't refund (waive)
+          </button>
+        )}
+        <button onClick={(e) => { e.stopPropagation(); openReg(r); }}
+          style={{ background: "none", border: `1px solid ${C.line}`, borderRadius: 8, fontWeight: 500, fontSize: 12.5, padding: "7px 14px", cursor: "pointer", color: C.ink2 }}>
+          Open full record
+        </button>
+      </>
+    );
+  };
+
+  const expandHistory = (e) => {
+    const reg = (data.registrations || []).find(r => r.stripeRefundId === e.stripeRefundId);
+    const client = reg ? clientsById[reg.clientId] : null;
+    const session = reg ? sessionsById[reg.sessionId] : null;
+    return gridWrap(
+      <>
+        {field("Refunded at", e.refundedAt ? formatRegistrationDateTime(e.refundedAt) : (e.date ? fmtDate(e.date) : null))}
+        {field("Stripe refund ID", e.stripeRefundId, mono)}
+        {field("Description", e.description || null)}
+        {client && field("Client email", client.email)}
+        {client && field("Client phone", client.phone)}
+        {session && field("Session", cleanName(session.name))}
+        {reg && field("Session date/time", formatRegistrationDateTime(reg.scheduledAt))}
+        {reg && field("Canceled by", reg.cancelerType ? reg.cancelerType.replace(/_/g, " ") : null)}
+        {reg && field("Cancel reason", reg.cancelReason || null)}
+        {reg && field("Original paid", reg.paidAmount != null ? money(reg.paidAmount) : null)}
+      </>,
+      <>
+        <button onClick={(ev) => { ev.stopPropagation(); onOpen({ db: "expenses", record: e }); }}
+          style={{ background: "none", border: `1px solid ${C.line}`, borderRadius: 8, fontWeight: 500, fontSize: 12.5, padding: "7px 14px", cursor: "pointer", color: C.ink2 }}>
+          Open expense record
+        </button>
+        {reg && (
+          <button onClick={(ev) => { ev.stopPropagation(); openReg(reg); }}
+            style={{ background: "none", border: `1px solid ${C.line}`, borderRadius: 8, fontWeight: 500, fontSize: 12.5, padding: "7px 14px", cursor: "pointer", color: C.ink2 }}>
+            Open booking record
+          </button>
+        )}
+      </>
+    );
+  };
+
+  const expandIneligible = (r) => {
+    const client = clientsById[r.clientId];
+    const session = sessionsById[r.sessionId];
+    return gridWrap(
+      <>
+        {field("Email", client?.email)}
+        {field("Phone", client?.phone)}
+        {field("Session", session ? cleanName(session.name) : (r.eventName || null))}
+        {field("Session date/time", formatRegistrationDateTime(r.scheduledAt))}
+        {field("Cancel reason", r.cancelReason || null)}
+        {field("Payment status", r.paymentStatus)}
+        {field("Paid amount", r.paidAmount != null ? money(r.paidAmount) : null)}
+        {r.stripeRefundId && field("Stripe refund ID", r.stripeRefundId, mono)}
+        {(Number(r.amountRefunded) || 0) > 0 && field("Amount refunded", money(r.amountRefunded))}
+        {field("Why no refund", r._elig.reason)}
+      </>,
+      <>
+        <button onClick={(e) => { e.stopPropagation(); openReg(r); }}
+          style={{ background: "none", border: `1px solid ${C.line}`, borderRadius: 8, fontWeight: 500, fontSize: 12.5, padding: "7px 14px", cursor: "pointer", color: C.ink2 }}>
+          Open full record
+        </button>
+      </>
+    );
+  };
+
   return (
     <div>
       {dueRows.length > 0 && (
@@ -6143,19 +6419,19 @@ function RefundsView({ data, setData, canEdit, setConfirm, onOpen }) {
 
       {heading(`Refunds due (${dueRows.length})`)}
       {dueRows.length
-        ? <TableView columns={dueCols} rows={dueRows} onOpen={openReg} ctx={{ data }} />
+        ? <TableView columns={dueCols} rows={dueRows} expandRow={expandDue} ctx={{ data }} />
         : <Empty>No refunds due. Canceled bookings that qualify for a refund will appear here.</Empty>}
-
-      {heading(`No refund due (${ineligibleRows.length})`)}
-      {ineligibleRows.length
-        ? <TableView columns={ineligibleCols} rows={ineligibleRows} onOpen={openReg} ctx={{ data }} />
-        : <Empty>No canceled bookings outside the refund policy.</Empty>}
 
       {heading(`Refund history (${history.length})`)}
       {history.length
-        ? <TableView columns={historyCols} rows={history} onOpen={(e) => onOpen({ db: "expenses", record: e })} ctx={{ data }}
+        ? <TableView columns={historyCols} rows={history} expandRow={expandHistory} ctx={{ data }}
             footer={{ label: "Total refunded", amount: money(sum(history, "amount")) }} />
         : <Empty>No Stripe refunds issued yet. Refunds appear here with their Stripe refund ID once processed.</Empty>}
+
+      {heading(`No refund due (${ineligibleRows.length})`)}
+      {ineligibleRows.length
+        ? <TableView columns={ineligibleCols} rows={ineligibleRows} expandRow={expandIneligible} ctx={{ data }} />
+        : <Empty>No canceled bookings outside the refund policy.</Empty>}
     </div>
   );
 }
@@ -6424,6 +6700,7 @@ function refundEligibility(reg, data) {
   if (reg.stripeRefundId || reg.paymentStatus === "refunded" || (Number(reg.amountRefunded) || 0) > 0) {
     return { eligible: false, amount: 0, reason: "Already refunded" };
   }
+  if (reg.refundWaived) return { eligible: false, amount, reason: "Refund waived" };
   if (amount <= 0) return { eligible: false, amount: 0, reason: "Free booking — nothing to refund" };
   if (!reg.stripePaymentIntentId && !reg.stripeChargeId) {
     return { eligible: false, amount, reason: "No Stripe payment on file" };
