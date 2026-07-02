@@ -4930,11 +4930,12 @@ function buildAlerts(data, today) {
   const daysAway = (d) => (!d) ? 999 : Math.round((new Date(d) - new Date(today)) / 86400000);
   const weekAgo  = (() => { const d = new Date(today); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10); })();
 
-  const sessions  = data.sessions  || [];
-  const offers    = data.offers    || [];
-  const partners  = data.partners  || [];
-  const clients   = data.clients   || [];
-  const followups = data.followups || [];
+  const sessions      = data.sessions      || [];
+  const offers        = data.offers        || [];
+  const partners      = data.partners      || [];
+  const clients       = data.clients       || [];
+  const followups     = data.followups     || [];
+  const registrations = data.registrations || [];
 
   // 1 — Expired offers still open
   offers.filter(o => OPEN_STATUSES.includes(o.status) && o.expireDate && o.expireDate < today)
@@ -5082,6 +5083,25 @@ function buildAlerts(data, today) {
         title: `Studio Partner Agreement missing — ${cleanName(p.name)}`,
         detail: "Please update the studio partner agreement.",
         db: "partners", record: p });
+    });
+
+  // 14 — Canceled booking eligible for a Stripe refund, not yet refunded
+  registrations
+    .filter(r => r.status === "canceled" && !r.stripeRefundId && (Number(r.amountRefunded) || 0) === 0)
+    .forEach(r => {
+      const elig = refundEligibility(r, data);
+      if (!elig.eligible) return;
+      const c = clients.find(x => x.id === r.clientId);
+      const name = cleanName(c?.name || r.inviteeName || r.name || "");
+      alerts.push({
+        id: "refund_" + r.id,
+        severity: "warning",
+        category: "revenue",
+        title: `Refund due — ${name}`,
+        detail: `${elig.reason}${elig.flag ? " · " + elig.flag : ""} · ${money(elig.amount)}`,
+        db: "registrations",
+        record: r,
+      });
     });
 
   const order = { critical: 0, warning: 1, info: 2 };

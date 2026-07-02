@@ -190,6 +190,7 @@ Examples of alerts:
 - A session was completed but no follow-up was sent
 - A session is coming up in 72 hours with low registration
 - No outreach activity this week
+- **Refund due** — a canceled booking qualifies for a Stripe refund and hasn't been processed yet. Click **View** to open the booking record, then go to the **Refunds** tab in Calendly Bookings to issue the refund.
 
 Each alert shows a severity level and a **View** link to jump straight to the relevant record. Click the **× button** on any alert to dismiss it — dismissed alerts won't appear again (even after a page refresh). The badge count updates immediately.
 

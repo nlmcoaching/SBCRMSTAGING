@@ -375,6 +375,7 @@ Automatically generated warnings when something is slipping. Alerts are accessed
 | No outreach this week | No outreach activity logged in the past 7 days |
 | Referral thank-you overdue | Referral received >3 days ago with no thank-you sent |
 | Testimonial not requested | Session with "Breakthrough Noted" >5 days ago, no testimonial request sent |
+| **Refund due** | Canceled booking that passes the refund-eligibility matrix (host-canceled anytime; client-canceled >24 h before session) with a Stripe payment on file and no refund yet issued. Severity: **warning**. "View" opens the registration record. |
 
 ### Next Best Actions
 
