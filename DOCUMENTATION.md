@@ -646,7 +646,7 @@ Equipment setup and run checklist items are combined into a single **Session Che
 - Attendance rate vs capacity
 - Net vs gross comparison (Net profit = Gross − Studio split, where Gross = actual Stripe revenue received for the session)
 - Conversion rate (attended → purchased follow-on offer)
-- A **Recalculate** button (circular arrow icon) in the tab header recalculates all performance metrics on demand — useful after editing attendee counts, paid attendees, price per seat, or the studio's revenue share %
+- A **Refresh** button (circular arrow icon) in the tab header pulls the latest Calendly bookings and Stripe payments (same as a full sync) and re-renders every metric from the **live stored session record** — so Gross, Studio split, Net, attendance, paid attendees, and waivers all update in place without closing and reopening the drawer. Useful after a new payment comes in or after editing attendee counts, price per seat, or the studio's revenue share %
 
 #### Paid Attendees Display
 

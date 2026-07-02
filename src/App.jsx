@@ -8522,9 +8522,42 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
             ? <div>
                 <div style={{ display: "flex", justifyContent: "flex-end", padding: "0 4px 10px" }}>
                   <button
-                    onClick={() => { setPerfSyncing(true); setTimeout(() => setPerfSyncing(false), 600); }}
+                    onClick={async () => {
+                      setPerfSyncing(true);
+                      try {
+                        // Pull the latest Calendly bookings + Stripe payments.
+                        if (onSync) await onSync();
+                      } catch { /* sync errors surface via the sidebar sync status */ }
+                      // For studio sessions: write the Stripe-computed revenue/split/net back
+                      // to the stored session record and the drawer draft so that Session Details
+                      // stays consistent with what the Performance tab shows.
+                      if (draft.studioId && setData) {
+                        let computed = null;
+                        setData(prev => {
+                          const idx = (prev.sessions || []).findIndex(s => s.id === draft.id);
+                          if (idx < 0) return prev;
+                          const sess = prev.sessions[idx];
+                          const fin = studioSessionFinance(sess, prev, { revenueRows: buildRegistrationRevenueRows(prev) });
+                          computed = { revenue: fin.gross, studioSplit: fin.studioSplit, netRevenue: fin.net };
+                          // Skip the write when nothing changed to avoid a spurious save.
+                          if (Math.abs((Number(sess.revenue) || 0) - fin.gross) < 0.005
+                            && Math.abs((Number(sess.studioSplit) || 0) - fin.studioSplit) < 0.005
+                            && Math.abs((Number(sess.netRevenue) || 0) - fin.net) < 0.005) {
+                            return prev;
+                          }
+                          const sessions = [...prev.sessions];
+                          sessions[idx] = { ...sess, ...computed };
+                          return { ...prev, sessions };
+                        });
+                        // React's functional-update callback runs synchronously, so `computed`
+                        // is guaranteed to be set here. Sync it into draft so Session Details
+                        // shows the updated figures without the drawer needing to be reopened.
+                        if (computed) setDraft(d => ({ ...d, ...computed }));
+                      }
+                      setPerfSyncing(false);
+                    }}
                     disabled={perfSyncing}
-                    title="Recalculate from current values"
+                    title="Pull latest Calendly & Stripe data and recalculate"
                     style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, color: perfSyncing ? "#6b7a99" : "#2E6FB0", background: "transparent", border: `1px solid ${perfSyncing ? "#d1d5db" : "#2E6FB0"}`, borderRadius: 8, cursor: perfSyncing ? "default" : "pointer", transition: "all 0.15s" }}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
                       style={{ animation: perfSyncing ? "spin 1s linear infinite" : "none" }}>
@@ -8534,7 +8567,12 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                     {perfSyncing ? "Refreshing…" : "Refresh"}
                   </button>
                 </div>
-                <SessionPerformance record={draft} derived={derived} data={data} />
+                {/* Render the LIVE stored session (not the drawer's draft snapshot) so every
+                    metric — attendance, paid attendees, waivers, revenue — reflects the data
+                    that just synced, without requiring the drawer to be closed and reopened. */}
+                <SessionPerformance
+                  record={(data.sessions || []).find(s => s.id === draft.id) || draft}
+                  derived={derived} data={data} />
               </div>
             : (
               <>

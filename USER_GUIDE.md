@@ -414,7 +414,7 @@ That's it. The app then:
 
 You'll see **Price/seat** (for reference), **Gross**, **Studio split**, and **Net profit** on the session's **Performance** tab, in the **Revenue Leaderboard**, and on the studio partner's **Sessions** tab — all kept in sync automatically.
 
-If you make a change — such as updating paid attendees, price per seat, or the studio's revenue share % — and the Performance tab numbers don't immediately reflect it, click the **Recalculate** button (the circular arrow icon next to the "Performance" tab label) to force an immediate refresh of all metrics.
+If the Performance tab numbers look out of date — for example a client just paid, or you changed paid attendees, price per seat, or the studio's revenue share % — click the **Refresh** button (the circular arrow at the top of the tab). It pulls the latest bookings and payments from Calendly and Stripe and updates **every** figure on the tab (Gross, Studio split, Net profit, attendance, and the rest) right away, without needing to close and reopen the session.
 
 ### Equipment Checklist
 
