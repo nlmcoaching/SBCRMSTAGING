@@ -16330,50 +16330,6 @@ function RevenueAttributionView({ data, derived, today, onOpen, dateMode = "sess
     .map(([id, d]) => ({ id, name: cleanName(derived.clientName[id] || id), ...d }))
     .sort((a, b) => b.net - a.net);
 
-  // ── Recently charged sessions — mirrors Stripe page, sorted by paidAt newest first ──
-  const tsOf = (s) => { const t = Date.parse(s || ""); return Number.isNaN(t) ? 0 : t; };
-  // Mirror the Stripe reconciliation page: one row per paid Stripe charge, plus every active
-  // booking that has no Stripe charge (free / coupon) as a $0 row, so the card always reflects the
-  // latest activity instead of appearing stuck once recent bookings are free.
-  const chargeRows = (data.payments || [])
-    .filter(p => p.status === "paid")
-    .map(p => {
-      const booking = (data.registrations || []).find(r => r.id === p.bookingId);
-      const client = (booking && (data.clients || []).find(c => c.id === booking.clientId))
-        || (data.clients || []).find(c => normalizeEmail(c.email) === normalizeEmail(p.customerEmail));
-      const meta = booking ? registrationSessionMeta(booking, data) : null;
-      return {
-        id: p.id,
-        name: cleanName(client?.name || p.customerEmail || "—"),
-        sessionName: meta?.sessionName || (booking ? cleanName(booking.eventName || "Session") : p.description || "—"),
-        channel: meta?.channel || "—",
-        paidAt: p.paidAt || p.createdAt || "",
-        bookedAt: booking ? (booking.createdAt || "") : (p.paidAt || ""),
-        gross: Number(p.amountGross) || 0,
-        free: false,
-        source: client?.source || "—",
-      };
-    });
-  const freeRows = (data.registrations || [])
-    .filter(r => r.status !== "canceled" && r.status !== "rescheduled" && !r.stripeVerified)
-    .filter(r => !(data.payments || []).some(p => p.bookingId === r.id && p.status === "paid"))
-    .map(r => {
-      const client = (data.clients || []).find(c => c.id === r.clientId);
-      const meta = registrationSessionMeta(r, data);
-      return {
-        id: `free-${r.id}`,
-        name: cleanName(client?.name || "—"),
-        sessionName: meta?.sessionName || cleanName(r.eventName || "Session"),
-        channel: meta?.channel || "—",
-        paidAt: "",
-        bookedAt: r.createdAt || "",
-        gross: 0,
-        free: true,
-        source: client?.source || "—",
-      };
-    });
-  const recent = [...chargeRows, ...freeRows]
-    .sort((a, b) => tsOf(b.paidAt || b.bookedAt) - tsOf(a.paidAt || a.bookedAt));
 
   // ── Monthly Jan–Dec chart data (current year) ───────────────
   const year = today.slice(0, 4);
@@ -16530,34 +16486,7 @@ function RevenueAttributionView({ data, derived, today, onOpen, dateMode = "sess
         </Panel>
       </div>
 
-      {/* Recently charged sessions — mirrors Stripe page */}
-      <Panel title="Recently Charged Sessions">
-        {!recent.length
-          ? <Empty pad>No sessions yet — click Sync Stripe on the Stripe page to load charges.</Empty>
-          : <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={thS}>Booked</th>
-                <th style={thS}>Client</th>
-                <th style={thS}>Session</th>
-                <th style={thS}>Channel</th>
-                <th style={{ ...thS, textAlign: "right" }}>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recent.map(r => (
-                <tr key={r.id} style={{ cursor: "default" }} className="sb-trow">
-                  <td style={tdS}>{r.bookedAt ? formatRegistrationDateTime(r.bookedAt) : "—"}</td>
-                  <td style={{ ...tdS, fontWeight: 600 }}>{r.name}</td>
-                  <td style={{ ...tdS, maxWidth: 200 }}>{r.sessionName}</td>
-                  <td style={tdS}>{r.channel !== "—" ? <Tag color={REV_CHANNEL_COLOR[r.channel] || C.ink3} soft>{r.channel}</Tag> : "—"}</td>
-                  <td style={{ ...tdR, fontWeight: 700, color: r.free ? C.ink3 : "#4A8C6F" }}>{r.free ? "Free" : money(r.gross)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        }
-      </Panel>
+
     </div>
   );
 }
