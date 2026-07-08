@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, Fragment } from "react";
 import Papa from "papaparse";
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, ComposedChart, Bar, Line, Legend } from "recharts";
 import {
   LayoutGrid, Users, Building2, CalendarDays, DollarSign, Megaphone,
   RefreshCw, Plus, X, Search, Upload, Download, Trash2, ChevronLeft,
@@ -4290,7 +4290,6 @@ export default function App() {
                 </span>
               </div>
             )}
-            {can.edit && <button className="sb-ghost" onClick={() => setImporting(true)}><Upload size={15} /> Import CSVs</button>}
           </div>
         </aside>
         {navOpen && <div className="sb-scrim" onClick={() => setNavOpen(false)} />}
@@ -16376,6 +16375,23 @@ function RevenueAttributionView({ data, derived, today, onOpen, dateMode = "sess
   const recent = [...chargeRows, ...freeRows]
     .sort((a, b) => tsOf(b.paidAt || b.bookedAt) - tsOf(a.paidAt || a.bookedAt));
 
+  // ── Monthly Jan–Dec chart data (current year) ───────────────
+  const year = today.slice(0, 4);
+  const MONTH_LABELS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const monthlyNetData = MONTH_LABELS.map((label, i) => {
+    const mm = String(i + 1).padStart(2, "0");
+    const prefix = `${year}-${mm}`;
+    const mRows = rows.filter(r => dateKey(r).startsWith(prefix));
+    const mExp  = allExpenses.filter(e => (e.date || "").startsWith(prefix));
+    const gross    = sum(mRows, "gross");
+    const fees     = sum(mRows, "stripeFee") + sum(mRows, "facilitatorCost");
+    const splits   = mExp.filter(e => e.category === "Studio Split").reduce((a, e) => a + (Number(e.amount) || 0), 0);
+    const refunds  = sum(mRows, "refunds") + mExp.filter(e => e.category === "Refunds & Cancellations").reduce((a, e) => a + (Number(e.amount) || 0), 0);
+    const expenses = fees + splits + refunds;
+    const net      = gross - expenses;
+    return { label, gross: Math.round(gross), expenses: Math.round(expenses), net: Math.round(net) };
+  });
+
   const marginColor = (m) => m >= 70 ? "#4A8C6F" : m >= 45 ? C.gold : "#C0573F";
   const thS = { fontSize: 11.5, textTransform: "uppercase", letterSpacing: ".06em", color: C.ink3, fontWeight: 600, padding: "10px 12px", borderBottom: `1px solid ${C.line}`, textAlign: "left", whiteSpace: "nowrap" };
   const tdS = { padding: "11px 12px", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 };
@@ -16400,26 +16416,25 @@ function RevenueAttributionView({ data, derived, today, onOpen, dateMode = "sess
         <Stat label="YTD Net Revenue" value={money(rows.filter(r => dateKey(r).startsWith(today.slice(0,4))).reduce((a, r) => a + calcNet(r), 0))} accent={C.gold} hint="net session revenue this year after splits, fees & refunds" />
       </div>
 
-      {/* Revenue waterfall: session prices → net (fees/splits when recorded), MTD only */}
-      <Panel title="Revenue waterfall — month to date">
-        <div style={{ padding: "4px 0 8px" }}>
-          {[
-            { label: "Session booking revenue", value: totalGross, color: "#2F6FD0", op: "base" },
-            { label: "Studio splits",      value: -totalSplit,  color: C.gold,    op: "minus" },
-            { label: "Processing fees",    value: -totalFees,   color: "#9FB2CC", op: "minus" },
-            { label: "Refunds",            value: -totalRef,    color: "#C0573F", op: "minus" },
-            { label: "Net revenue",        value: totalNet,   color: "#4A8C6F", op: "result" },
-          ].map(({ label, value, color, op }) => (
-            <div key={label} style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 0", borderBottom: op === "result" ? "none" : `1px solid ${C.lineSoft}` }}>
-              <div style={{ width: 180, fontSize: op === "result" ? 13.5 : 13, fontWeight: op === "result" ? 700 : 500, color: op === "result" ? color : C.ink2 }}>{label}</div>
-              <div style={{ flex: 1, height: op === "result" ? 10 : 7, background: C.line, borderRadius: 6, overflow: "hidden" }}>
-                <div style={{ height: "100%", width: Math.abs(totalGross) > 0 ? Math.abs(value) / totalGross * 100 + "%" : "0%", background: color, borderRadius: 6 }} />
-              </div>
-              <div style={{ width: 90, textAlign: "right", fontSize: op === "result" ? 15 : 13, fontWeight: op === "result" ? 700 : 500, color: color }}>
-                {op === "minus" ? `-${money(Math.abs(value))}` : money(value)}
-              </div>
-            </div>
-          ))}
+      {/* Net revenue chart Jan–Dec */}
+      <Panel title={`Net revenue ${year} — gross, expenses & net by month`}>
+        <div style={{ padding: "8px 0 4px" }}>
+          <ResponsiveContainer width="100%" height={260}>
+            <ComposedChart data={monthlyNetData} margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.lineSoft} vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 12, fill: C.ink3 }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => `$${v >= 1000 ? (v/1000).toFixed(0)+"k" : v}`} tick={{ fontSize: 11, fill: C.ink3 }} axisLine={false} tickLine={false} width={52} />
+              <Tooltip
+                formatter={(value, name) => [money(value), name === "gross" ? "Gross Revenue" : name === "expenses" ? "Expenses" : "Net Revenue"]}
+                contentStyle={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13 }}
+                labelStyle={{ fontWeight: 700, color: C.ink }}
+              />
+              <Legend formatter={name => name === "gross" ? "Gross Revenue" : name === "expenses" ? "Expenses" : "Net Revenue"} iconType="square" wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+              <Bar dataKey="gross" fill="#2F6FD0" radius={[3,3,0,0]} maxBarSize={32} />
+              <Bar dataKey="expenses" fill={C.gold} radius={[3,3,0,0]} maxBarSize={32} />
+              <Line dataKey="net" type="monotone" stroke="#4A8C6F" strokeWidth={2.5} dot={{ r: 3, fill: "#4A8C6F" }} activeDot={{ r: 5 }} />
+            </ComposedChart>
+          </ResponsiveContainer>
         </div>
       </Panel>
 
