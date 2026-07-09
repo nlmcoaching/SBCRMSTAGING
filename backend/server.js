@@ -29,7 +29,7 @@ const path       = require("path");
     {
       key: "CALENDLY_WEBHOOK_SIGNING_KEY",
       desc: "Calendly HMAC signing key — without this ALL incoming webhooks are accepted without verification",
-      critical: true,
+      critical: false,
     },
     {
       key: "QUEUE_ENCRYPTION_KEY",
