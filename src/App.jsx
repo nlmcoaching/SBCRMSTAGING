@@ -4020,6 +4020,9 @@ export default function App() {
   }, [cryptoKey, data]);
 
   /* ── Lock gate ── */
+  // Memoized alerts list — used by both the bell badge count and AlertsPanel.
+  const allAlerts = useMemo(() => buildAlerts(data, today), [data, today]);
+
   // Derived rollups — must be called unconditionally (Rules of Hooks)
   const derived = useMemo(() => {
     const partnerName = Object.fromEntries((data.partners || []).map((p) => [p.id, p.name]));
@@ -4462,7 +4465,7 @@ export default function App() {
 
             {/* Alerts bell */}
             {(() => {
-              const alertList = buildAlerts(data, today).filter(a => !dismissedAlerts.has(a.id));
+              const alertList = allAlerts.filter(a => !dismissedAlerts.has(a.id));
               const criticalCount = alertList.filter(a => a.severity === "critical").length;
               const warningCount  = alertList.filter(a => a.severity === "warning").length;
               const totalCount    = alertList.length;
@@ -4948,9 +4951,14 @@ function LaneSplitPanel({ data, today }) {
   const registrations = data.registrations || [];
   const mo            = today.slice(0, 7);
 
+  // Built once, shared by all three uses below (Operating profit tile ×2 + lane rows).
+  const allRevRows    = useMemo(() => buildRevenueViewRows(data), [data]);
+
   // ── Shared MTD revenue rows (same source of truth as Revenue This Month tab) ──
-  const allRevRowsMTD = buildRevenueViewRows(data)
-    .filter(r => ((r.bookedAt || r.date) || "").startsWith(mo));
+  const allRevRowsMTD = useMemo(
+    () => allRevRows.filter(r => ((r.bookedAt || r.date) || "").startsWith(mo)),
+    [allRevRows, mo],
+  );
 
   // ── B2C metrics ──
   const b2cOfferTypes = ["Single session","3-pack","6-pack","12-pack","Private session","Virtual session","Group package"];
@@ -5371,7 +5379,8 @@ function AlertsPanel({ data, today, onOpen, compact, dismissed: dismissedProp, s
   const setDismissed = setDismissedProp ?? setLocalDismissed;
   const [expanded, setExpanded] = useState(false);
 
-  const all     = buildAlerts(data, today).filter(a => !dismissed.has(a.id));
+  const alerts  = useMemo(() => buildAlerts(data, today), [data, today]);
+  const all     = alerts.filter(a => !dismissed.has(a.id));
   const critical = all.filter(a => a.severity === "critical").length;
   const warning  = all.filter(a => a.severity === "warning").length;
   const SHOW_MAX = expanded ? all.length : (compact ? all.length : 5);
@@ -5502,13 +5511,13 @@ function PipelineSnapshot({ data, today }) {
       label: "Operating profit MTD",
       value: (() => {
         const exp = (data.expenses||[]).filter(e=>(e.date||"").startsWith(mo)).reduce((s,e)=>s+(+e.amount||0),0);
-        const net = buildRevenueViewRows(data).filter(r=>((r.bookedAt||r.date)||"").startsWith(mo)).map(applyStudioSessionSplit(data)).reduce((s,r)=>s+calcNet(r),0);
+        const net = allRevRowsMTD.map(applyStudioSessionSplit(data)).reduce((s,r)=>s+calcNet(r),0);
         return money(net - exp);
       })(),
       sub: "net session revenue minus expenses",
       accent: (() => {
         const exp = (data.expenses||[]).filter(e=>(e.date||"").startsWith(mo)).reduce((s,e)=>s+(+e.amount||0),0);
-        const net = buildRevenueViewRows(data).filter(r=>((r.bookedAt||r.date)||"").startsWith(mo)).map(applyStudioSessionSplit(data)).reduce((s,r)=>s+calcNet(r),0);
+        const net = allRevRowsMTD.map(applyStudioSessionSplit(data)).reduce((s,r)=>s+calcNet(r),0);
         return (net-exp) >= 0 ? "#16A34A" : "#E05454";
       })(),
       Icon: TrendingUp,
@@ -5936,7 +5945,8 @@ function Today({ data, derived, today, onOpen, onGo, setData, currentUser, canEd
     return next;
   });
 
-  const actions = buildActions(data, derived, today).filter(a => !dismissedActions.has(a.id));
+  const allActions = useMemo(() => buildActions(data, derived, today), [data, derived, today]);
+  const actions = allActions.filter(a => !dismissedActions.has(a.id));
   const byCategory = {
     revenue:      actions.filter(a => a.category === "revenue"),
     relationship: actions.filter(a => a.category === "relationship"),
@@ -6547,8 +6557,9 @@ function RefundsView({ data, setData, canEdit, setConfirm, onOpen, refundToken }
 function Section({ section, data, derived, today, view, setView, query, onOpen, currentUser, secUsers, masterKeyRaw, setSecUsers, setData, canEdit, setConfirm, crmSettings, saveCrmSettings, syncStripe, stripeStatus, refundToken }) {
   const cfg = VIEWS[section];
   const v = cfg.views[Math.min(view, cfg.views.length - 1)];
+  const revenueRows = useMemo(() => buildRevenueViewRows(data), [data]);
   let rows = data[section] || [];
-  if (section === "revenue") rows = buildRevenueViewRows(data);
+  if (section === "revenue") rows = revenueRows;
 
   // search — matches a row's own fields PLUS the human names behind its relation ids
   // (client, session, studio/partner), so searching by name works on every list, not just Sessions.
@@ -8081,19 +8092,35 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
   const startDow = first.getDay();
   const daysIn = new Date(y, m, 0).getDate();
 
-  // Build client name map before filtering
-  const sessionClientNames = {};
-  const sessionAmounts = {};
-  (data?.registrations || []).forEach(reg => {
-    if (reg.sessionId) {
-      const client = (data?.clients || []).find(c => c.id === reg.clientId);
-      if (client) (sessionClientNames[reg.sessionId] ||= []).push(cleanName(client.name));
-      if (reg.status !== "canceled" && sessionAmounts[reg.sessionId] == null) {
+  // O(1) client lookups while building session→client-names and session→amount maps.
+  const clientById = useMemo(
+    () => new Map((data?.clients || []).map(c => [c.id, c])),
+    [data?.clients],
+  );
+  // Partner name lookup by lower-cased cleaned name — used by the fallback studio resolver.
+  const partnerByName = useMemo(
+    () => new Map((data?.partners || []).map(p => [
+      (p.name || "").replace(/^sample\s*-\s*/i, "").toLowerCase(), p,
+    ])),
+    [data?.partners],
+  );
+
+  const sessionClientNames = useMemo(() => {
+    const map = {};
+    const amounts = {};
+    (data?.registrations || []).forEach(reg => {
+      if (!reg.sessionId) return;
+      const client = clientById.get(reg.clientId);
+      if (client) (map[reg.sessionId] ||= []).push(cleanName(client.name));
+      if (reg.status !== "canceled" && amounts[reg.sessionId] == null) {
         const amt = registrationSessionAmount(reg);
-        if (amt != null) sessionAmounts[reg.sessionId] = amt;
+        if (amt != null) amounts[reg.sessionId] = amt;
       }
-    }
-  });
+    });
+    return { names: map, amounts };
+  }, [data?.registrations, clientById]);
+  const sessionClientNamesMap = sessionClientNames.names;
+  const sessionAmounts = sessionClientNames.amounts;
 
   // Filter rows by calendar search (name, studio, journey, client)
   const filteredRows = calSearch.trim()
@@ -8102,7 +8129,7 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
         const studioName = derived.partnerName[s.studioId] ? norm(cleanName(derived.partnerName[s.studioId])) : "";
         const journey    = norm(s.journey || s.name || "");
         const sesName    = norm(s.name || "");
-        const clients    = (sessionClientNames[s.id] || []).map(n => norm(n)).join(" ");
+        const clients    = (sessionClientNamesMap[s.id] || []).map(n => norm(n)).join(" ");
         return studioName.includes(q) || journey.includes(q) || sesName.includes(q) || clients.includes(q);
       })
     : rows;
@@ -8117,25 +8144,23 @@ function CalendarView({ rows, today, derived, data, onOpen }) {
 
   // sessionClientName: first client name per session (for pill labels)
   const sessionClientName = {};
-  Object.entries(sessionClientNames).forEach(([sid, names]) => { sessionClientName[sid] = names[0]; });
+  Object.entries(sessionClientNamesMap).forEach(([sid, names]) => { sessionClientName[sid] = names[0]; });
 
   // Resolve the studio partner for a session. Prefer studioId, but fall back to matching a
   // partner by name in the session name / location address when studioId is missing or points
   // to a deleted/re-created partner. Keeps studio bookings styled correctly even when the
   // studioId backfill hasn't run yet. Virtual (zoom/custom or "virtual" in the name) is excluded.
-  const partnersList = data?.partners || [];
   const looksVirtual = (s) =>
     s.locationType === "zoom" || s.locationType === "custom" || /\b(virtual|zoom|online)\b/i.test(s.name || "");
+  // O(k) scan over partner names once per session instead of a fresh .find() call each time.
   const resolveStudioName = (s) => {
     if (s.studioId && derived.partnerName[s.studioId]) return cleanName(derived.partnerName[s.studioId]);
     if (looksVirtual(s)) return "";
     const hay = `${s.name || ""} ${s.locationAddress || ""}`.toLowerCase();
-    const match = partnersList.find(p => {
-      if (!p.name) return false;
-      const pName = p.name.replace(/^sample\s*-\s*/i, "").toLowerCase();
-      return pName.length > 2 && hay.includes(pName);
-    });
-    return match ? cleanName(match.name) : "";
+    for (const [pName, p] of partnerByName) {
+      if (pName.length > 2 && hay.includes(pName)) return cleanName(p.name);
+    }
+    return "";
   };
   const isStudio = (s) => !!resolveStudioName(s);
 
@@ -11515,9 +11540,11 @@ function ExpenseSummaryView({ data, today, onOpen, onImportExpenses, canEdit = t
   const maxMonth = Math.max(...monthlyData.map(m=>m.total), 1);
 
   // Revenue context for margin — use same pipeline as Revenue Attribution so studio splits are deducted
-  const revRowsMTD = buildRevenueViewRows(data)
-    .filter(r => ((r.bookedAt || r.date) || "").startsWith(mo))
-    .map(applyStudioSessionSplit(data));
+  const revRowsMTD = useMemo(() =>
+    buildRevenueViewRows(data)
+      .filter(r => ((r.bookedAt || r.date) || "").startsWith(mo))
+      .map(applyStudioSessionSplit(data)),
+  [data, mo]);
   const grossRevMTD = sum(revRowsMTD, "gross");
   const studioSplitsMTD = sum(revRowsMTD, "studioSplit");
   const netRevMTD = revRowsMTD.reduce((s, r) => s + calcNet(r), 0);
@@ -12384,14 +12411,20 @@ function AdminView({ tab, data, setData, secUsers, currentUser, today, crmSettin
     setTimeout(() => setRestoreMsg(""), 10000);
   };
 
-  // ── record counts + sizes ──
-  const tables = DB_SCHEMA.map(t => {
-    const rows   = data[t.table] || [];
-    const bytes  = new TextEncoder().encode(JSON.stringify(rows)).length;
-    return { ...t, count: rows.length, sizeKB: (bytes / 1024).toFixed(1) };
-  });
-  const totalRecords = tables.reduce((s, t) => s + t.count, 0);
-  const totalKB      = tables.reduce((s, t) => s + parseFloat(t.sizeKB), 0).toFixed(1);
+  // ── record counts + sizes (memoized — JSON serialisation is expensive) ──
+  const { tables, totalRecords, totalKB } = useMemo(() => {
+    const enc = new TextEncoder();
+    const tbls = DB_SCHEMA.map(t => {
+      const rows  = data[t.table] || [];
+      const bytes = enc.encode(JSON.stringify(rows)).length;
+      return { ...t, count: rows.length, sizeKB: (bytes / 1024).toFixed(1) };
+    });
+    return {
+      tables: tbls,
+      totalRecords: tbls.reduce((s, t) => s + t.count, 0),
+      totalKB:      tbls.reduce((s, t) => s + parseFloat(t.sizeKB), 0).toFixed(1),
+    };
+  }, [data]);
   const storageUsedKB = (() => {
     try {
       const raw = localStorage.getItem("simplybreathe:data:v5:enc") || "";
@@ -16063,15 +16096,41 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
   // $0.00 "Free session" row so the page is a complete record of every booking. These are
   // display-only and self-correct: if a charge arrives later, the booking matches and the row
   // becomes a normal charge automatically.
+  const sessions = data.sessions || [];
   const stripeCharges = useMemo(() => {
+    // Build O(1) lookup maps once — avoids O(n×m) .find()/.some() per payment/booking.
+    const regById      = new Map(registrations.map(r => [r.id, r]));
+    const clientById   = new Map(clients.map(c => [c.id, c]));
+    const clientByEmail = new Map(
+      clients.filter(c => c.email).map(c => [normalizeEmail(c.email), c]),
+    );
+    const sessionById  = new Map(sessions.map(s => [s.id, s]));
+    // paymentsByBookingId: one payment can match one booking; track which statuses link them.
+    const paymentsByBookingId = new Map();
+    payments.forEach(p => {
+      if (p.bookingId) {
+        if (!paymentsByBookingId.has(p.bookingId)) paymentsByBookingId.set(p.bookingId, []);
+        paymentsByBookingId.get(p.bookingId).push(p);
+      }
+    });
+
+    const regSessionMeta = (reg) => {
+      const session = sessionById.get(reg.sessionId);
+      const channel = registrationRevenueChannel(session);
+      let sessionDate = "—";
+      if (reg.scheduledAt) sessionDate = formatRegistrationDateTime(reg.scheduledAt);
+      else if (session?.date) sessionDate = `${fmtDate(session.date, true)}${session.time ? ` · ${session.time}` : ""}`;
+      return { session, channel, sessionDate, sessionName: cleanName(session?.name || reg.eventName || "Session") };
+    };
+
     const ts = (s) => { const t = Date.parse(s || ""); return Number.isNaN(t) ? 0 : t; };
     const chargeRows = payments
       .filter(p => p.status === "paid")
       .map(p => {
-        const booking = registrations.find(r => r.id === p.bookingId);
-        const client = (booking && clients.find(c => c.id === booking.clientId))
-          || clients.find(c => normalizeEmail(c.email) === normalizeEmail(p.customerEmail));
-        const meta = booking ? registrationSessionMeta(booking, data) : null;
+        const booking = regById.get(p.bookingId);
+        const client = (booking && clientById.get(booking.clientId))
+          || clientByEmail.get(normalizeEmail(p.customerEmail));
+        const meta = booking ? regSessionMeta(booking) : null;
         const expected = booking
           ? (booking.lastAmountMismatch?.expectedAmount ?? booking.paymentAmount ?? registrationSessionAmount(booking))
           : null;
@@ -16116,7 +16175,7 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
     const noChargeCandidates = registrations
       .filter(r => r.status !== "canceled" && r.status !== "rescheduled"
         && !r.stripeVerified && r.paymentStatus !== "pending_verification")
-      .filter(r => !payments.some(p => p.bookingId === r.id && _linkedStatuses.has(p.status)));
+      .filter(r => !(paymentsByBookingId.get(r.id) || []).some(p => _linkedStatuses.has(p.status)));
 
     // A booking is a payment exception when it carries evidence that money WAS expected/attempted
     // (status "paid", "failed", or "unmatched") but no Stripe charge exists. Auto-forgiving these
@@ -16130,8 +16189,8 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
     const freeRows = noChargeCandidates
       .filter(r => !isPaymentException(r))
       .map(r => {
-        const client = clients.find(c => c.id === r.clientId);
-        const meta = registrationSessionMeta(r, data);
+        const client = clientById.get(r.clientId);
+        const meta = regSessionMeta(r);
         const expected = r.lastAmountMismatch?.expectedAmount ?? r.paymentAmount ?? registrationSessionAmount(r);
         return {
           id: `free-${r.id}`,
@@ -16172,8 +16231,8 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
     const exceptionRows = noChargeCandidates
       .filter(r => isPaymentException(r))
       .map(r => {
-        const client = clients.find(c => c.id === r.clientId);
-        const meta = registrationSessionMeta(r, data);
+        const client = clientById.get(r.clientId);
+        const meta = regSessionMeta(r);
         const expected = r.lastAmountMismatch?.expectedAmount ?? r.paymentAmount ?? registrationSessionAmount(r);
         const expectedAmt = expected != null ? Number(expected) : null;
         const isFailed = r.paymentStatus === "failed";
@@ -16216,7 +16275,7 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
       });
 
     return [...chargeRows, ...freeRows, ...exceptionRows].sort((a, b) => b.sortTs - a.sortTs);
-  }, [payments, registrations, clients, data, stripeStatus?.reconciledAt, stripeStatus?.at]);
+  }, [payments, registrations, clients, sessions, stripeStatus?.reconciledAt, stripeStatus?.at]);
   // Header search box: filter every list on the page by name, email, session, or description.
   const q = norm(query);
   const chargeMatches = (c) => !q
