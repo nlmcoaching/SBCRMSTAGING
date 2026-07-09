@@ -12344,7 +12344,6 @@ function AdminView({ tab, data, setData, secUsers, currentUser, today, crmSettin
     a.download = `sbcrm-backup-${today}.json`; a.click();
     URL.revokeObjectURL(url);
     try { localStorage.setItem(LAST_BACKUP_KEY, new Date().toISOString()); } catch {}
-    setBackupBannerDismissed(true);
     setExportMsg("✓ Backup downloaded — store it securely");
     setTimeout(() => setExportMsg(""), 5000);
   };
