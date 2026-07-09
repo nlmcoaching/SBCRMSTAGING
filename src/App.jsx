@@ -1504,6 +1504,24 @@ const todayISO = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
+// Safe day-offset on a local YYYY-MM-DD string.
+// Avoids the toISOString() UTC-vs-local mismatch: "2026-07-09" parsed by new Date() is
+// UTC midnight, so in UTC-7 getDate() returns 8 (the previous day), making +1 give today.
+// Using the local Date constructor (new Date(y, m-1, d+n)) stays in wall-clock time.
+function addDaysISO(dateStr, n) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, m - 1, d + n);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+}
+// Safe month-offset on a YYYY-MM string.
+// Avoids setMonth() day-overflow (e.g. Jan 31 → setMonth(-1) → Mar 2 in some engines).
+function addMonthsISO(yyyyMM, n) {
+  const [y, m] = yyyyMM.split("-").map(Number);
+  const total = y * 12 + (m - 1) + n;
+  const ny = Math.floor(total / 12);
+  const nm = (total % 12) + 1;
+  return `${ny}-${String(nm).padStart(2, "0")}`;
+}
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function fmtDate(iso, withYear) {
   if (!iso) return "—";
@@ -3167,7 +3185,7 @@ export default function App() {
         const followups     = [...(next.followups     || [])];
         const partners      = [...(next.partners      || [])];
 
-        const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x.toISOString().slice(0,10); };
+        const addDays = (d, n) => addDaysISO(d, n);
 
         // Always retroactively fix Calendly-synced sessions missing a studioId or with wrong capacity
         sessions.forEach((s, i) => {
@@ -4713,7 +4731,7 @@ const NBA_SECTION_FOR_DB = {
 
 function buildActions(data, derived, today) {
   const daysBetween = (a, b) => (!a || !b) ? 0 : Math.round((new Date(b) - new Date(a)) / 86400000);
-  const tomorrowISO = (() => { const d = new Date(today); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
+  const tomorrowISO = addDaysISO(today, 1);
   const actions = [];
   const followups = data.followups || [];
   const clients = data.clients || [];
@@ -4998,7 +5016,7 @@ function buildAlerts(data, today) {
   const alerts = [];
   const daysAgo  = (d) => (!d) ? 0 : Math.round((new Date(today) - new Date(d)) / 86400000);
   const daysAway = (d) => (!d) ? 999 : Math.round((new Date(d) - new Date(today)) / 86400000);
-  const weekAgo  = (() => { const d = new Date(today); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10); })();
+  const weekAgo  = addDaysISO(today, -7);
 
   const sessions      = data.sessions      || [];
   const offers        = data.offers        || [];
@@ -6157,11 +6175,7 @@ function SourceBreakdown({ data }) {
 // total expenses pulled from the Expense table (data.expenses → `amount`) for the same month.
 function RevenueThisMonthView({ data, today, query, onOpen, canEdit }) {
   const monthStr = String(today || new Date().toISOString().slice(0, 10)).slice(0, 7); // "YYYY-MM"
-  const prevMonthStr = (() => {
-    const d = new Date(monthStr + "-01T00:00:00");
-    d.setMonth(d.getMonth() - 1);
-    return d.toISOString().slice(0, 7);
-  })();
+  const prevMonthStr = addMonthsISO(monthStr, -1);
   const monthLabel = new Date(monthStr + "-01T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" });
   const inMonth = (dateStr, m) => String(dateStr || "").startsWith(m);
 
@@ -11452,12 +11466,8 @@ function ExpenseSummaryView({ data, today, onOpen, onImportExpenses, canEdit = t
     ytd.reduce((acc, e) => { acc[e.vendor] = (acc[e.vendor]||0) + (+e.amount||0); return acc; }, {})
   ).map(([vendor, total]) => ({ vendor, total })).sort((a,b) => b.total - a.total).slice(0,8);
 
-  // Monthly trend (last 6 months)
-  const months = Array.from({length:6}, (_,i) => {
-    const d = new Date(today);
-    d.setMonth(d.getMonth() - (5-i));
-    return d.toISOString().slice(0,7);
-  });
+  // Monthly trend (last 6 months) — use addMonthsISO to avoid setMonth/toISOString UTC mismatch.
+  const months = Array.from({length:6}, (_,i) => addMonthsISO(today.slice(0,7), i - 5));
   const monthlyData = months.map(m => ({
     label: new Date(m+"-01").toLocaleDateString("en-US",{month:"short"}),
     total: expenses.filter(e=>(e.date||"").startsWith(m)).reduce((s,e)=>s+(+e.amount||0),0),
@@ -12902,7 +12912,7 @@ function CrmSettingsView({ settings, onSave }) {
           />
           {draft.calendlySyncFromDate && (
             <span style={{ fontSize: 12, color: C.ink3 }}>
-              Ignoring bookings created before {new Date(draft.calendlySyncFromDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} (midnight UTC)
+              Ignoring bookings created before {new Date(draft.calendlySyncFromDate).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })} (midnight UTC)
             </span>
           )}
           {draft.calendlySyncFromDate && (
