@@ -1095,22 +1095,12 @@ const STORE_KEY_ENC = "simplybreathe:data:v5:enc";       // encrypted storage
 const AGREEMENT_BLOB_PREFIX = "sb:agreement:v1:";      // per-file encrypted blobs (kept out of main CRM payload)
 const SEC_META_KEY  = "sb:security:v1";                  // { users: [...] }
 
-// Centralized API headers — the Vite proxy (dev) and production reverse proxy both inject
-// x-frontend-secret server-side so it never needs to be in the browser bundle.
-// VITE_FRONTEND_SECRET is kept as a fallback only for deployments without a secret-injecting proxy.
-// SECURITY: warn loudly in production if the secret is baked into the bundle, because
-// any visitor can read VITE_* variables from the compiled JS.
-if (import.meta.env.PROD && import.meta.env.VITE_FRONTEND_SECRET) {
-  console.warn(
-    "[SECURITY] VITE_FRONTEND_SECRET is set and will be visible in the compiled JS bundle. " +
-    "In production, inject x-frontend-secret via your reverse proxy (Nginx/Caddy) instead of VITE_FRONTEND_SECRET."
-  );
-}
+// Centralized API headers — x-frontend-secret is injected server-side by the Vite proxy
+// (dev) or a production reverse proxy. It must never appear in the browser bundle;
+// VITE_FRONTEND_SECRET fallback removed to prevent accidental secret exposure.
 const apiHeaders = (json = true) => {
   const h = {};
   if (json) h["Content-Type"] = "application/json";
-  const s = import.meta.env.VITE_FRONTEND_SECRET;
-  if (s) h["x-frontend-secret"] = s;
   return h;
 };
 const CALENDLY_BACKEND = import.meta.env.VITE_CALENDLY_BACKEND || "";
