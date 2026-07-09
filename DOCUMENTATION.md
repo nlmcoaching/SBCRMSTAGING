@@ -1755,7 +1755,7 @@ Expenses feed into two places:
 1. **Pipeline Snapshot** (Dashboard) — two new tiles: "Expenses MTD" and "Operating Profit MTD"
 2. **`derived` computed values** — `expensesMTD`, `expensesYTD`, `netRevMTD`, `opProfit`, `opMargin` available throughout the app
 
-`netRevMTD` is calculated using `buildRevenueViewRows` → `applyStudioSessionSplit` → `calcNet` for the current calendar month. This deducts the 30% studio split on studio sessions before computing net. The **Profitability Panel** on the Expenses Summary tab uses this same pipeline: Gross Revenue (session prices MTD) − Studio Splits − Total Expenses = Operating Profit. Operating Profit MTD will be negative when expenses exceed net revenue.
+`netRevMTD` is calculated using `buildRevenueViewRows` → `applyStudioSessionSplit(data)` → `calcNet` for the current calendar month. `applyStudioSessionSplit` is now a curried function: it receives `data` once and returns a row-mapper that looks up the real `studioSharePct` on the matched partner record, rather than using a hardcoded 70/30 constant. Revenue rows carry `studioId` (propagated from `buildRegistrationRevenueRows`) for the lookup. The **Profitability Panel** on the Expenses Summary tab uses this same pipeline: Gross Revenue (session prices MTD) − Studio Splits − Total Expenses = Operating Profit. Operating Profit MTD will be negative when expenses exceed net revenue.
 
 ### Requirements
 | Item | Detail |
@@ -1918,8 +1918,9 @@ Each Stripe payment event processed by the CRM is stored as a `payment` record:
 | `stripeCheckoutSessionId` | Stripe Checkout Session ID (when applicable) |
 | `stripeEventId` | Stripe webhook event ID |
 | `customerEmail` | Payer email from Stripe |
-| `amountGross` | Amount paid (USD dollars) |
-| `amountRefunded` | Cumulative refunded amount |
+| `amountGross` | Amount paid. **New records (after the integer-cents migration):** integer cents (e.g. `1050` = $10.50), flag `_centsFormat: true`. **Legacy records:** USD dollar float. Use `readAmt(record, "amountGross")` in the frontend to handle both. |
+| `amountRefunded` | Cumulative refunded amount (same dual-format as `amountGross`). |
+| `_centsFormat` | `true` on records extracted after the 2026-07 migration; absent on legacy dollar-float records. |
 | `currency` | ISO currency code (default `usd`) |
 | `status` | `paid` · `failed` · `refunded` · `partial_refund` |
 | `matchStatus` | `auto` · `manual` · `needs_review` · `unmatched` |
@@ -2221,6 +2222,19 @@ simply-breathe-app/
 ├── DOCUMENTATION.md
 └── USER_GUIDE.md
 ```
+
+### Money Arithmetic
+
+All dollar amounts in the frontend are accumulated using **integer-cents math** to prevent IEEE-754 floating-point drift (e.g. `0.1 + 0.2 ≠ 0.3`).
+
+| Helper | Location | Description |
+|---|---|---|
+| `_c(v)` | `App.jsx` top-level | Converts a dollar float to integer cents: `Math.round(v * 100)`. Used as a building block everywhere amounts are summed. |
+| `calcNet(r)` | `App.jsx` top-level | Computes net for a revenue row in cents, then divides by 100: `(_c(gross) − _c(fee) − _c(split) − _c(cost) − _c(refunds)) / 100`. |
+| `sum(rows, k)` | `App.jsx` top-level | Sums a dollar field across an array in cents then divides: `rows.reduce((a,r) => a + _c(r[k]), 0) / 100`. |
+| `readAmt(rec, field)` | `App.jsx` top-level | Reads `amountGross` / `amountRefunded` from a Stripe payment record. Divides by 100 when `rec._centsFormat` is `true` (new integer-cents records); passes through dollar floats on legacy records. |
+
+**Stripe payment record format migration (2026-07):** `backend/stripe-handlers.js` `extractStripePayment` now stores `amountGross` and `amountRefunded` as **integer cents** (e.g. `1050` for $10.50) and sets `_centsFormat: true`. Older records already in the encrypted store remain as dollar floats. The `readAmt()` helper in the frontend handles both transparently; no re-migration of existing records is needed.
 
 ### Key Constants
 

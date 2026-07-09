@@ -171,7 +171,7 @@ An area chart showing your revenue month by month. Each booking is counted by th
 
 Key business metrics (tiles appear in this order):
 1. Operating profit MTD — net revenue minus expenses for the month
-2. Expected 30-day revenue — open offers probability-weighted
+2. Expected 30-day revenue — open offers weighted by their probability % (set on the offer)
 3. Booked, not delivered — upcoming session value
 4. Avg client value — average lifetime value of active clients
 5. Avg session net revenue — average net per session
@@ -813,7 +813,7 @@ The **Revenue attribution** and **Payment reconciliation** tabs use each booking
 - **YTD Revenue** — gross revenue so far this year
 - **YTD Net Revenue** — net revenue so far this year
 - **Revenue waterfall — month to date**: shows how gross revenue flows down through studio splits (using your actual partner percentages from the Expense table), fees, and refunds to arrive at net.
-- **P&L by channel — MTD**: gross, studio splits, fees, and net broken down by session type for the current month — studio split amounts come from the Studio Split expense records, not an estimated percentage.
+- **P&L by channel — MTD**: gross, studio splits, fees, and net broken down by session type for the current month. Studio splits use the exact revenue share % from each partner's record, so a 60/40 studio will show a different split from a 70/30 studio. The **Txns** column and footer count shows only month-to-date transactions (matching the other columns).
 - **Recently Charged Sessions**: shows your latest sessions newest-first — every paid Stripe charge plus any **free/coupon** booking (shown as **Free**), mirroring the Stripe page so it always reflects recent activity.
 
 ### This month tab — gross revenue minus expenses
