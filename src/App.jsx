@@ -2634,24 +2634,14 @@ export default function App() {
   const [currentUser,  setCurrentUser]  = useState(null); // logged-in user object
   const [pinError,     setPinError]    = useState("");
   const SESSION_KEY = "sb:session:v1"; // sessionStorage — cleared when tab/window closes
-  const PIN_LOCKOUT_KEY = "sb:pin-lockout:v1";
   // Cross-tab coordination: written to localStorage on every successful IndexedDB save so other
   // tabs can detect that a newer version exists and abort their stale writes.
   const SAVE_TS_KEY = "sb:data:v5:save-ts";
-  const [pinAttempts,  setPinAttempts]  = useState(() => {
-    // localStorage: persists across tabs and page refreshes (cross-tab lockout enforcement).
-    // Stale entries (expired lockout, no pending attempts) are pruned on read.
-    try {
-      const raw = JSON.parse(localStorage.getItem("sb:pin-lockout:v1") || "{}");
-      const now = Date.now();
-      return Object.fromEntries(
-        Object.entries(raw).filter(([, v]) => v.count > 0 || v.lockedUntil > now)
-      );
-    } catch { return {}; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem(PIN_LOCKOUT_KEY, JSON.stringify(pinAttempts)); } catch {}
-  }, [pinAttempts]);
+  // PIN lockout — source of truth is IndexedDB key "sb:pin-lockout:v2" (unlike localStorage it
+  // cannot be silently cleared by a user typing localStorage.clear() in DevTools).
+  // This React state mirrors it only for UI re-renders; handleUnlock reads IDB directly.
+  // eslint-disable-next-line no-unused-vars
+  const [_pinAttempts, setPinAttempts] = useState({});
   const [initialising, setInitialising] = useState(true);
   const [secUsers,     setSecUsers]    = useState([]);    // loaded from SEC_META_KEY
 
@@ -2723,14 +2713,48 @@ export default function App() {
   const handleUnlock = async (userId, pin) => {
     setPinError("");
 
-    // ── Brute-force lockout check ──
+    // ── Brute-force lockout — IndexedDB primary (survives localStorage.clear()); server secondary ──
     const now = Date.now();
-    const rec = pinAttempts[userId] || { count: 0, lockedUntil: 0 };
+    let _idbLockData = {};
+    try {
+      const _lockRaw = await _idbGet("sb:pin-lockout:v2");
+      _idbLockData = _lockRaw ? JSON.parse(_lockRaw) : {};
+    } catch {}
+    const rec = _idbLockData[userId] || { count: 0, lockedUntil: 0 };
+
+    // Server-side check: blocks brute-force even if IDB is cleared via DevTools
+    try {
+      const _srvRes = await fetch(`/api/auth/pin-status?userId=${encodeURIComponent(userId)}`, { headers: apiHeaders(false) });
+      if (_srvRes.ok) {
+        const _srv = await _srvRes.json();
+        if (_srv.locked) {
+          const remaining = Math.ceil(Math.max(0, _srv.lockedUntil - now) / 60000);
+          setPinError(`Too many failed attempts. Try again in ${remaining || 1} minute${remaining !== 1 ? "s" : ""}.`);
+          return;
+        }
+      }
+    } catch {}
+
     if (rec.lockedUntil > now) {
       const remaining = Math.ceil((rec.lockedUntil - now) / 60000);
       setPinError(`Too many failed attempts. Try again in ${remaining} minute${remaining !== 1 ? "s" : ""}.`);
       return;
     }
+
+    // Helpers shared by v1 and v2 paths
+    const _recordFail = async () => {
+      const newCount = (rec.count || 0) + 1;
+      const lockedUntil = newCount >= PIN_MAX_ATTEMPTS ? Date.now() + PIN_LOCKOUT_MS : 0;
+      const updated = { ..._idbLockData, [userId]: { count: newCount, lockedUntil } };
+      try { await _idbSet("sb:pin-lockout:v2", JSON.stringify(updated)); } catch {}
+      fetch("/api/auth/pin-attempt", { method: "POST", headers: apiHeaders(), body: JSON.stringify({ userId, failed: true }) }).catch(() => {});
+      return { newCount, lockedUntil };
+    };
+    const _clearLockout = () => {
+      const { [userId]: _rm, ...rest } = _idbLockData;
+      _idbSet("sb:pin-lockout:v2", JSON.stringify(rest)).catch(() => {});
+      fetch("/api/auth/pin-attempt", { method: "POST", headers: apiHeaders(), body: JSON.stringify({ userId, failed: false }) }).catch(() => {});
+    };
     try {
       const secRaw = await store.get(SEC_META_KEY);
       if (!secRaw?.value) throw new Error("No security config");
@@ -2740,9 +2764,7 @@ export default function App() {
       if (!sec.version || sec.version < 2) {
         const hash = await Sec.hashPin(pin);
         if (hash !== sec.pinHash) {
-          const newCount = (rec.count || 0) + 1;
-          const lockedUntil = newCount >= PIN_MAX_ATTEMPTS ? Date.now() + PIN_LOCKOUT_MS : 0;
-          setPinAttempts(p => ({ ...p, [userId]: { count: newCount, lockedUntil } }));
+          const { newCount, lockedUntil } = await _recordFail();
           setPinError(lockedUntil ? `Too many failed attempts. Try again in 5 minutes.` : `Incorrect PIN. ${PIN_MAX_ATTEMPTS - newCount} attempt${PIN_MAX_ATTEMPTS - newCount !== 1 ? "s" : ""} remaining.`);
           return;
         }
@@ -2783,6 +2805,7 @@ export default function App() {
             }
           } catch (_) {}
         }
+        _clearLockout();
         setMasterKeyRaw(masterKeyB64);
         setCryptoKey(masterKey);
         setCurrentUser(owner);
@@ -2805,9 +2828,7 @@ export default function App() {
         mkB64 = result.raw;
         masterKey = result.key;
       } catch (_) {
-        const newCount = (rec.count || 0) + 1;
-        const lockedUntil = newCount >= PIN_MAX_ATTEMPTS ? Date.now() + PIN_LOCKOUT_MS : 0;
-        setPinAttempts(p => ({ ...p, [userId]: { count: newCount, lockedUntil } }));
+        const { newCount, lockedUntil } = await _recordFail();
         setPinError(lockedUntil ? `Too many failed attempts. Try again in 5 minutes.` : `Incorrect PIN. ${PIN_MAX_ATTEMPTS - newCount} attempt${PIN_MAX_ATTEMPTS - newCount !== 1 ? "s" : ""} remaining.`);
         return;
       }
@@ -2883,7 +2904,7 @@ export default function App() {
       setMasterKeyRaw(mkB64);
       setCryptoKey(masterKey);
       setCurrentUser(updatedUsers.find(u => u.id === userId) ?? user);
-      setPinAttempts(p => { const n = { ...p }; delete n[userId]; return n; }); // reset on success
+      _clearLockout();
       // Clean up legacy unencrypted storage
       try { localStorage.removeItem(STORE_KEY); } catch (_) {}
       try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, token: _sessionToken })); } catch (_) {}
@@ -2963,7 +2984,14 @@ export default function App() {
       setMasterKeyRaw(masterKeyRaw);
       setCryptoKey(masterKey);
       setCurrentUser(updatedUsers.find(u => u.id === userId));
-      setPinAttempts(p => { const n = { ...p }; delete n[userId]; return n; });
+      // Clear lockout counter for this user in IDB + server (recovery proves identity)
+      try {
+        const _lRaw = await _idbGet("sb:pin-lockout:v2");
+        const _lData = _lRaw ? JSON.parse(_lRaw) : {};
+        const { [userId]: _rm, ...rest } = _lData;
+        await _idbSet("sb:pin-lockout:v2", JSON.stringify(rest));
+      } catch {}
+      fetch("/api/auth/pin-attempt", { method: "POST", headers: apiHeaders(), body: JSON.stringify({ userId, failed: false }) }).catch(() => {});
       try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, token: _sessionToken })); } catch (_) {}
       loaded.current = true;
       setLocked(false);

@@ -63,6 +63,8 @@ If you see **"Data integrity check failed"**, hard-refresh the page and try agai
 
 > **Note:** Your PIN protects your data. Don't share it with others.
 
+> **Too many wrong PINs:** After 5 failed attempts the login screen locks for 5 minutes. This counter is stored securely and cannot be reset by clearing browser data — wait for the lockout to expire before trying again.
+
 > **Stay logged in on refresh:** If you hit the browser refresh button, the app will restore your session automatically — you won't need to re-enter your PIN. It will also return you to the exact page you were on. This session is tied to the browser tab; opening a new tab or a new browser window will require PIN entry again.
 
 > **Important — use only one browser tab at a time:** The CRM saves data to your browser's local storage. If you have the app open in two tabs or two windows simultaneously and both tabs try to save, the app will detect the conflict. The tab that is out of date will show a yellow **"Another window has newer data"** warning banner at the top of the page. Click **Refresh Now** on the banner to reload that window with the latest data before continuing to edit. Editing in multiple tabs without refreshing can cause one tab to overwrite the other's changes.

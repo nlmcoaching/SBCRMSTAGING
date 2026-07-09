@@ -117,7 +117,14 @@ On load, the decrypted data is validated against the expected schema (all requir
 
 ### PIN Lockout
 
-After 5 consecutive failed PIN attempts, the lock screen displays a lockout message and disables further attempts for 5 minutes. The lockout counter is stored in **`localStorage`** with TTL-based expiry — it persists across tabs, page refreshes, and browser restarts until the lockout window expires. Stale entries are pruned automatically on read.
+After 5 consecutive failed PIN attempts, the lock screen displays a lockout message and disables further attempts for 5 minutes. The lockout is enforced on two independent layers:
+
+| Layer | Storage | Survives |
+|---|---|---|
+| Client-side | **IndexedDB** (`sb:pin-lockout:v2`) | Page refresh, tab close, `localStorage.clear()` |
+| Server-side | In-memory Map in `backend/server.js` | XSS-based JS injection, DevTools IDB deletion |
+
+`handleUnlock` reads the IDB counter and calls `GET /api/auth/pin-status` **before** attempting PIN verification. A failure is recorded in both stores via `POST /api/auth/pin-attempt`. The server counter resets on server restart (acceptable for local deployment); the IDB counter persists until the 5-minute TTL expires. Stale entries are pruned automatically on IDB read.
 
 ### Recovery Code
 

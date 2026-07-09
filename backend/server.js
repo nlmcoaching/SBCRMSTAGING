@@ -1089,6 +1089,56 @@ app.post("/api/auth/session", requireFrontendSecret, (req, res) => {
 });
 
 // ────────────────────────────────────────────────────────────────
+// Server-side PIN attempt tracking
+// In-memory only — resets on server restart (acceptable for local use).
+// Provides defence-in-depth against XSS-based brute-force; the client
+// cannot clear this counter by calling localStorage.clear() or DevTools.
+// ────────────────────────────────────────────────────────────────
+const _pinAttempts = new Map(); // userId -> { count, lockedUntil }
+const SRV_PIN_MAX = 5;
+const SRV_PIN_LOCKOUT_MS = 5 * 60 * 1000;
+
+function _pinStatus(userId) {
+  const now = Date.now();
+  const rec = _pinAttempts.get(userId) || { count: 0, lockedUntil: 0 };
+  const locked = rec.lockedUntil > now;
+  return {
+    locked,
+    lockedUntil: locked ? rec.lockedUntil : 0,
+    attemptsLeft: Math.max(0, SRV_PIN_MAX - rec.count),
+    attemptsMax: SRV_PIN_MAX,
+  };
+}
+
+// GET /api/auth/pin-status?userId=<id>
+app.get("/api/auth/pin-status", requireFrontendSecret, (req, res) => {
+  const { userId } = req.query;
+  if (!userId || typeof userId !== "string") return res.status(400).json({ error: "userId required" });
+  res.json(_pinStatus(userId));
+});
+
+// POST /api/auth/pin-attempt — { userId, failed: boolean }
+app.post("/api/auth/pin-attempt", requireFrontendSecret, (req, res) => {
+  const { userId, failed } = req.body ?? {};
+  if (!userId || typeof userId !== "string") return res.status(400).json({ error: "userId required" });
+  if (!failed) {
+    _pinAttempts.delete(userId);
+    return res.json({ locked: false, lockedUntil: 0, attemptsLeft: SRV_PIN_MAX, attemptsMax: SRV_PIN_MAX });
+  }
+  const now = Date.now();
+  const rec = _pinAttempts.get(userId) || { count: 0, lockedUntil: 0 };
+  // Already locked — don't double-count; let the TTL expire naturally
+  if (rec.lockedUntil > now) return res.json(_pinStatus(userId));
+  const newCount = rec.count + 1;
+  const lockedUntil = newCount >= SRV_PIN_MAX ? now + SRV_PIN_LOCKOUT_MS : 0;
+  _pinAttempts.set(userId, { count: newCount, lockedUntil });
+  if (lockedUntil) {
+    console.warn(`[AUTH] PIN lockout triggered for user ${userId} at ${new Date().toISOString()}`);
+  }
+  res.json(_pinStatus(userId));
+});
+
+// ────────────────────────────────────────────────────────────────
 // POST /api/calendly/pull-recent
 // Fetches recent bookings from Calendly API and queues any missing invitees
 // Body: { daysBack?: number }  (default 30, max 90)
