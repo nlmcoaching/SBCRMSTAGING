@@ -12060,31 +12060,46 @@ function ResetToProductionView({ data, setData, currentUser }) {
       queueCleared = res.ok;
     } catch { /* backend offline — CRM wipe still proceeds */ }
 
+    // Delete each agreement blob individually — a single IDB failure must not abort the rest
+    let blobFailures = 0;
     for (const p of data.partners || []) {
       for (const a of p.agreements || []) {
-        await deleteAgreementBlob(a.id);
+        try { await deleteAgreementBlob(a.id); } catch { blobFailures++; }
       }
     }
 
+    // Table wipe is the critical step — any failure here is reported to the caller
     const wipeKeys = RESET_WIPE_TABLES.map(t => t.key);
     setData(prev => {
       const clean = { ...prev };
       wipeKeys.forEach(t => { clean[t] = []; });
       return clean;
     });
-    setDone({ queueCleared });
+    setDone({ queueCleared, blobFailures });
   };
 
   const handleVerifyPin = async () => {
     if (!pinValue) { setPinErr("Enter your PIN."); return; }
     setVerifying(true); setPinErr("");
+
+    // Phase 1 — verify PIN only; wrong PIN must not reach the reset logic
     try {
       const storedIter = currentUser?.pbkdf2Iterations ?? 100_000;
       await Sec.unwrapKeyForUser(currentUser.wrappedMasterKey, pinValue, currentUser.pinSalt, storedIter);
-      await executeReset();
     } catch {
       setPinErr("Incorrect PIN. Try again.");
-    } finally { setVerifying(false); }
+      setVerifying(false);
+      return;
+    }
+
+    // Phase 2 — execute reset; failures here are reset errors, not PIN errors
+    try {
+      await executeReset();
+    } catch (e) {
+      setPinErr(`Reset failed: ${e?.message || "unexpected error"}. The reset may be partially complete — review CRM data before retrying.`);
+    } finally {
+      setVerifying(false);
+    }
   };
 
   if (done) return (
@@ -12102,6 +12117,11 @@ function ResetToProductionView({ data, setData, currentUser }) {
       ) : (
         <div style={{ marginTop: 20, padding: "12px 18px", background: hexA("#D9892B", 0.1), border: `1px solid ${hexA("#D9892B", 0.3)}`, borderRadius: 10, display: "inline-block", fontSize: 13, color: "#9A5D10", fontWeight: 600 }}>
           Backend was unreachable — clear webhook queues manually: <code style={{ background: "#fff", padding: "1px 6px", borderRadius: 4, fontFamily: "monospace" }}>POST /api/integration/clear-queues</code> (or restart the backend with empty queue files) before syncing Calendly or Stripe.
+        </div>
+      )}
+      {done.blobFailures > 0 && (
+        <div style={{ marginTop: 12, padding: "12px 18px", background: hexA("#D9892B", 0.1), border: `1px solid ${hexA("#D9892B", 0.3)}`, borderRadius: 10, display: "inline-block", fontSize: 13, color: "#9A5D10", fontWeight: 600 }}>
+          {done.blobFailures} agreement file{done.blobFailures !== 1 ? "s" : ""} could not be removed from local storage (IDB error). All CRM records were wiped. Reload the app and check Admin → Storage & Backup if storage space is a concern.
         </div>
       )}
     </div>
