@@ -1509,7 +1509,14 @@ const ROLE_PERMISSIONS = {
   Editor: { view: true,  edit: true,  delete: false, manage: false },
   Viewer: { view: true,  edit: false, delete: false, manage: false },
 };
-const uid = (p) => p + "_" + Math.random().toString(36).slice(2, 9);
+// 96 bits of cryptographic randomness (24 hex chars) — replaces the old 7-char
+// Math.random() base-36 (~36 bits) which had a non-trivial birthday-collision
+// probability across thousands of CRM records. Collisions silently merged records.
+const uid = (p) => {
+  const buf = new Uint8Array(12);
+  (globalThis.crypto ?? window.crypto).getRandomValues(buf);
+  return `${p}_${Array.from(buf, b => b.toString(16).padStart(2, "0")).join("")}`;
+};
 const todayISO = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -6756,13 +6763,11 @@ function cancelRegistrationManually(setData, regId) {
     const sessIdx = sessions.findIndex(s => s.id === reg.sessionId);
     if (sessIdx >= 0) {
       const sess = sessions[sessIdx];
-      const isVirtual = !sess.studioId;
-      const remainingActive = registrations.filter(
-        x => x.sessionId === sess.id && x.status !== "canceled" && x.status !== "rescheduled"
-      ).length;
-      if (isVirtual && remainingActive === 0) {
-        sessions.splice(sessIdx, 1);
-      } else if (sess.registered > 0) {
+      // Only decrement the count — never delete the session record. Deleting on
+      // last-booking cancel would orphan any revenue rows, offers, or manual notes
+      // tied to this sessionId. Calendly sync (invitee.canceled) is the authoritative
+      // source for session lifecycle; CRM manual cancels only affect bookings.
+      if (sess.registered > 0) {
         sessions[sessIdx] = { ...sess, registered: sess.registered - 1 };
       }
     }
@@ -8503,34 +8508,35 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
   const [fetchedCalendlyDesc, setFetchedCalendlyDesc] = useState(null); // null = not yet fetched
   const [fetchingCalendlyDesc, setFetchingCalendlyDesc] = useState(false);
   const [calendlyDescFetchError, setCalendlyDescFetchError] = useState("");
+  // Derived counts computed from live registrations — read-only display values,
+  // never written back to draft after the initial open (see reset effect below).
+  const isStudioSession = db === "sessions" && !!record.studioId;
+  const actualRegistered = isStudioSession
+    ? (data.registrations || []).filter(r => r.sessionId === record.id && r.status !== "canceled").length
+    : null;
+  const actualSessionsAttended = db === "clients"
+    ? (data.registrations || []).filter(r => r.clientId === record.id && r.status !== "canceled").length
+    : null;
+
   useEffect(() => {
-    setDraft(record);
+    // Seed computed-from-registrations fields at open time so the drawer shows
+    // accurate counts. NOT in the dep array — we must NOT re-run when registrations
+    // change mid-edit or a Calendly sync mid-edit would overwrite what the user typed.
+    setDraft({
+      ...record,
+      ...(isStudioSession && actualRegistered != null ? { registered: actualRegistered } : {}),
+      ...(db === "clients" && actualSessionsAttended != null ? { sessionsAttended: actualSessionsAttended } : {}),
+    });
     setTab(pickTab(initialTab));
     setShowJourneyDesc(false);
     setShowCalendlyDesc(false);
     setFetchedCalendlyDesc(null);
     setFetchingCalendlyDesc(false);
     setCalendlyDescFetchError("");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [record, initialTab, db, isNew]);
+
   const isVirtualDrawer = db === "sessions" && !record.studioId && (record.locationType === "zoom" || record.locationType === "custom" || !record.locationType);
-
-  // For studio sessions keep "Registered Attendees" in sync with the actual
-  // registration records — this is the authoritative count, not the Calendly field.
-  const isStudioSession = db === "sessions" && !!record.studioId;
-  const actualRegistered = isStudioSession
-    ? (data.registrations || []).filter(r => r.sessionId === record.id && r.status !== "canceled").length
-    : null;
-  useEffect(() => {
-    if (isStudioSession) setDraft(d => ({ ...d, registered: actualRegistered }));
-  }, [actualRegistered, isStudioSession]);
-
-  // For clients keep "Sessions Attended" in sync with actual registration records
-  const actualSessionsAttended = db === "clients"
-    ? (data.registrations || []).filter(r => r.clientId === record.id && r.status !== "canceled").length
-    : null;
-  useEffect(() => {
-    if (db === "clients") setDraft(d => ({ ...d, sessionsAttended: actualSessionsAttended }));
-  }, [actualSessionsAttended, db]);
 
   // Always fetch the full event-type description when the panel opens.
   useEffect(() => {
@@ -8554,7 +8560,10 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
           const merged = resolveCalendlyDescription(d.calendlyDescription, desc);
           return merged === d.calendlyDescription ? d : { ...d, calendlyDescription: merged };
         });
-        if (setData && onSave) applyCalendlyDescriptionToSessions(setData, draft.id, desc, onSave);
+        // NOTE: do NOT call applyCalendlyDescriptionToSessions here — it would
+        // persist the description to global data (and trigger a save) while the
+        // user still has unsaved edits in the drawer.  The description is merged
+        // into draft above and will be persisted when the user clicks Save.
       })
       .catch(err => {
         if (cancelled) return;
@@ -15924,6 +15933,11 @@ function ReferralTreeView({ data, derived, today, query, onOpen }) {
    PAYMENT RECONCILIATION VIEW
    ============================================================ */
 
+// Module-level flag so the one-time payment repair survives component remounts.
+// A useRef would reset to false each time the component mounts (navigating away
+// and back), causing applyPaymentReconciliation to re-run on every visit.
+let _paymentRepairRanOnce = false;
+
 function paymentStatusLabel(status) {
   const map = {
     paid: { text: "Paid", color: "#2D6A50" },
@@ -15997,14 +16011,14 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
   const payments = data.payments || [];
   const registrations = data.registrations || [];
   const clients = data.clients || [];
-  const repaired = useRef(false);
   const [expandedCharges, setExpandedCharges] = useState({});
   const toggleCharge = (id) => setExpandedCharges(prev => ({ ...prev, [id]: !prev[id] }));
 
   // One-time repair: undo stale "unmatched" booking labels and re-run FIFO matching.
+  // Guard is a module-level variable (not useRef) so it persists across remounts.
   useEffect(() => {
-    if (!setData || repaired.current) return;
-    repaired.current = true;
+    if (!setData || _paymentRepairRanOnce) return;
+    _paymentRepairRanOnce = true;
     setData(prev => applyPaymentReconciliation(prev));
   }, [setData]);
 
