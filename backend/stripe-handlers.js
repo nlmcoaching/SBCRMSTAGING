@@ -11,6 +11,16 @@ const SUPPORTED_EVENTS = new Set([
   "charge.refund.updated",
 ]);
 
+// Keep Stripe's integer cents as-is so the frontend can accumulate without IEEE-754 drift.
+// Records produced here carry _centsFormat:true; older records in the store have dollar floats.
+// The frontend readAmt() helper handles both.
+function ensureCents(v) {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  if (Number.isNaN(n)) return null;
+  return Math.round(n); // integer cents
+}
+// Kept for the one remaining call-site in server.js that formats the refund response amount.
 function centsToDollars(cents) {
   if (cents == null || cents === "") return null;
   const n = Number(cents);
@@ -45,10 +55,11 @@ function extractStripePayment(event) {
     stripeEventId: event.id || "",
     currency: String(obj.currency || "usd").toLowerCase(),
     rawEventType: type,
+    _centsFormat: true, // amountGross/amountRefunded are integer cents; use readAmt() in frontend
   };
 
   if (type === "checkout.session.completed") {
-    const gross = centsToDollars(obj.amount_total);
+    const gross = ensureCents(obj.amount_total);
     return {
       ...base,
       status: gross != null && gross > 0 ? "paid" : "paid",
@@ -72,7 +83,7 @@ function extractStripePayment(event) {
   }
 
   if (type === "payment_intent.succeeded") {
-    const gross = centsToDollars(obj.amount_received ?? obj.amount);
+    const gross = ensureCents(obj.amount_received ?? obj.amount);
     const charge = obj.charges?.data?.[0] || {};
     return {
       ...base,
@@ -104,7 +115,7 @@ function extractStripePayment(event) {
   }
 
   if (type === "payment_intent.payment_failed") {
-    const gross = centsToDollars(obj.amount);
+    const gross = ensureCents(obj.amount);
     return {
       ...base,
       status: "failed",
@@ -119,9 +130,9 @@ function extractStripePayment(event) {
   }
 
   if (type === "charge.refunded" || type === "charge.refund.updated") {
-    const gross = centsToDollars(obj.amount);
-    const refunded = centsToDollars(obj.amount_refunded);
-    const fullyRefunded = gross != null && refunded != null && refunded >= gross - 0.01;
+    const gross    = ensureCents(obj.amount);
+    const refunded = ensureCents(obj.amount_refunded);
+    const fullyRefunded = gross != null && refunded != null && refunded >= gross - 1; // 1 cent tolerance
     return {
       ...base,
       status: fullyRefunded ? "refunded" : "partial_refund",

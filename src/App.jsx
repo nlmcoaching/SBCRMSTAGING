@@ -454,9 +454,17 @@ const COST_CENTER = [
   "Studio sessions", "Virtual sessions", "Private sessions",
   "Packages", "Corporate", "Referral", "Marketing",
 ];
+// Convert a dollar float to the nearest integer cent to avoid IEEE-754 drift when accumulating.
+const _c = (v) => Math.round((Number(v) || 0) * 100);
+// Read amountGross / amountRefunded from a Stripe payment record.
+// Records with _centsFormat:true store integer cents (new format from backend);
+// older records already stored as dollar floats are handled transparently.
+const readAmt = (rec, field) => {
+  const raw = Number(rec?.[field]) || 0;
+  return rec?._centsFormat ? raw / 100 : raw;
+};
 const calcNet = (r) =>
-  Number(r.gross || 0) - Number(r.stripeFee || 0) - Number(r.studioSplit || 0) -
-  Number(r.facilitatorCost || 0) - Number(r.refunds || 0);
+  (_c(r.gross) - _c(r.stripeFee) - _c(r.studioSplit) - _c(r.facilitatorCost) - _c(r.refunds)) / 100;
 const CONTENT_TYPE = ["Transformation", "Education", "Invite", "Testimonial"]; // legacy compat
 const PLATFORM = ["Instagram","TikTok","Email","YouTube","LinkedIn","Facebook","Threads","Other"];
 const PLATFORM_COLOR = { Instagram:"#E1306C", TikTok:"#010101", Email:"#D9892B", YouTube:"#FF0000", LinkedIn:"#0077B5", Facebook:"#1877F2", Threads:"#000000", Other: C.ink3 };
@@ -1555,8 +1563,8 @@ function buildStripePaymentRecord(stripeEvt, extra = {}) {
     stripeQueueId: stripeEvt.id || "",
     customerEmail: stripeEvt.customerEmail || "",
     description: stripeEvt.description || "",
-    amountGross: stripeEvt.amountGross,
-    amountRefunded: stripeEvt.amountRefunded || 0,
+    amountGross: readAmt(stripeEvt, "amountGross"),
+    amountRefunded: readAmt(stripeEvt, "amountRefunded"),
     currency: stripeEvt.currency || "usd",
     status: extra.status || stripeEvt.status || "paid",
     matchScore: extra.matchScore ?? null,
@@ -1571,7 +1579,7 @@ function buildStripePaymentRecord(stripeEvt, extra = {}) {
   };
 }
 function applyStripePaymentToRegistration(reg, stripeEvt, paymentId) {
-  const gross = Number(stripeEvt.amountGross) || 0;
+  const gross = readAmt(stripeEvt, "amountGross");
   let paymentStatus = "paid";
   if (stripeEvt.status === "failed") paymentStatus = "failed";
   else if (stripeEvt.status === "refunded") paymentStatus = "refunded";
@@ -1683,7 +1691,7 @@ function processStripeWebhookEvents(prevData, events) {
         ...payments[piIdx],
         customerEmail: payments[piIdx].customerEmail || stripeEvt.customerEmail || "",
         description: payments[piIdx].description || stripeEvt.description || "",
-        amountGross: stripeEvt.amountGross ?? payments[piIdx].amountGross,
+        amountGross: readAmt(stripeEvt, "amountGross") || payments[piIdx].amountGross,
         stripeChargeId: payments[piIdx].stripeChargeId || stripeEvt.stripeChargeId || "",
         receiptUrl: payments[piIdx].receiptUrl || stripeEvt.receiptUrl || "",
       };
@@ -1699,7 +1707,7 @@ function processStripeWebhookEvents(prevData, events) {
         payments[payIdx] = {
           ...payments[payIdx],
           status: stripeEvt.status,
-          amountRefunded: stripeEvt.amountRefunded || payments[payIdx].amountRefunded,
+          amountRefunded: readAmt(stripeEvt, "amountRefunded") || payments[payIdx].amountRefunded,
           refundedAt: stripeEvt.paidAt || new Date().toISOString(),
         };
         if (payments[payIdx].bookingId) {
@@ -1982,14 +1990,14 @@ function bookingStripeCharge(reg, paidByBooking) {
   const charge = paidByBooking[reg.id];
   if (charge) {
     return {
-      gross: Math.max(0, Number(charge.amountGross) || 0),
-      refunds: Math.max(0, Number(charge.amountRefunded) || 0),
+      gross:   Math.max(0, readAmt(charge, "amountGross")),
+      refunds: Math.max(0, readAmt(charge, "amountRefunded")),
     };
   }
   // Fallback when the ledger isn't loaded but the booking itself carries a verified Stripe amount.
   if (reg.stripeVerified && reg.paymentStatus !== "refunded" && reg.paidAmount != null) {
     return {
-      gross: Math.max(0, Number(reg.paidAmount) || 0),
+      gross:   Math.max(0, Number(reg.paidAmount) || 0),
       refunds: Math.max(0, Number(reg.amountRefunded) || 0),
     };
   }
@@ -2021,6 +2029,7 @@ function buildRegistrationRevenueRows(data = {}) {
         source: client?.source || "Calendly",
         campaign: "",
         sessionId: r.sessionId || "",
+        studioId: session?.studioId || null,
         clientId: r.clientId || "",
         client: client ? cleanName(client.name) : "",
         gross,
@@ -2221,17 +2230,24 @@ function buildRevenueViewRows(data = {}) {
   return [...buildRegistrationRevenueRows(data), ...manualRev, ...buildOfferRevenueRows(data)]
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 }
-const STUDIO_REV_SHARE_STUDIO = 0.30; // studio partner share (30%)
-const STUDIO_REV_SHARE_US = 0.70;     // Simply Breathe share (70%)
-function applyStudioSessionSplit(row) {
-  if (row.channel !== "Studio session") return row;
-  const gross = Number(row.gross) || 0;
-  const studioSplit = Math.round(gross * STUDIO_REV_SHARE_STUDIO * 100) / 100;
-  return {
-    ...row,
-    studioSplit,
-    net: Math.round(gross * STUDIO_REV_SHARE_US * 100) / 100,
-    notes: row.notes ? `${row.notes} · 70/30 split` : "Calendly session price · 70/30 split",
+// Returns a mapper that applies the actual per-partner studio split to each revenue row.
+// Previously used a hardcoded 70/30 constant (STUDIO_REV_SHARE_STUDIO/US) which disagreed
+// with studioSessionFinance (line 1879+) that reads the real studioSharePct from the partner.
+// Arithmetic is done in cents to avoid float-subtraction drift.
+function applyStudioSessionSplit(data) {
+  const partnersById = Object.fromEntries((data.partners || []).map(p => [p.id, p]));
+  return (row) => {
+    if (row.channel !== "Studio session") return row;
+    const studioPct = Math.min(100, Math.max(0, Number(partnersById[row.studioId]?.studioSharePct) || 30));
+    const usPct = 100 - studioPct;
+    const grossCents  = Math.round((Number(row.gross) || 0) * 100);
+    const splitCents  = Math.round(grossCents * studioPct / 100);
+    return {
+      ...row,
+      studioSplit: splitCents / 100,
+      net: (grossCents - splitCents) / 100,
+      notes: row.notes ? `${row.notes} · ${usPct}/${studioPct} split` : `${usPct}/${studioPct} split`,
+    };
   };
 }
 function openRevenueViewRow(r, data, onOpen) {
@@ -3972,7 +3988,7 @@ export default function App() {
     // Revenue MTD: filter by booking/payment date (bookedAt), matching the Revenue This Month tab.
     const mtdRows = buildRevenueViewRows(data)
       .filter(r => ((r.bookedAt || r.date) || "").startsWith(mo))
-      .map(applyStudioSessionSplit);
+      .map(applyStudioSessionSplit(data));
     const grossRevMTD = mtdRows.reduce((s, r) => s + (r.gross || 0), 0);
     const netRevMTD   = mtdRows.reduce((s, r) => s + calcNet(r), 0);
     const opProfit    = netRevMTD - expensesMTD;
@@ -5387,8 +5403,9 @@ function PipelineSnapshot({ data, today }) {
   // Open offer pipeline
   const openOffers      = offers.filter(o => OPEN_STATUSES.includes(o.status));
   const openPipelineVal = openOffers.reduce((a, o) => a + (Number(o.price) || 0), 0);
+  // OFFER_PROB stores strings like "70%" — Number("70%") → NaN; parseFloat strips the % correctly.
   const openPipelineWt  = openOffers.reduce((a, o) =>
-    a + (Number(o.price) || 0) * ((Number(o.probability) || 50) / 100), 0);
+    a + (Number(o.price) || 0) * ((parseFloat(o.probability) || 50) / 100), 0);
 
   // Studio pipeline — non-lost partners, sum revenuePotential
   const lostStage       = "Lost / not a fit";
@@ -5434,13 +5451,13 @@ function PipelineSnapshot({ data, today }) {
       label: "Operating profit MTD",
       value: (() => {
         const exp = (data.expenses||[]).filter(e=>(e.date||"").startsWith(mo)).reduce((s,e)=>s+(+e.amount||0),0);
-        const net = buildRevenueViewRows(data).filter(r=>((r.bookedAt||r.date)||"").startsWith(mo)).map(applyStudioSessionSplit).reduce((s,r)=>s+calcNet(r),0);
+        const net = buildRevenueViewRows(data).filter(r=>((r.bookedAt||r.date)||"").startsWith(mo)).map(applyStudioSessionSplit(data)).reduce((s,r)=>s+calcNet(r),0);
         return money(net - exp);
       })(),
       sub: "net session revenue minus expenses",
       accent: (() => {
         const exp = (data.expenses||[]).filter(e=>(e.date||"").startsWith(mo)).reduce((s,e)=>s+(+e.amount||0),0);
-        const net = buildRevenueViewRows(data).filter(r=>((r.bookedAt||r.date)||"").startsWith(mo)).map(applyStudioSessionSplit).reduce((s,r)=>s+calcNet(r),0);
+        const net = buildRevenueViewRows(data).filter(r=>((r.bookedAt||r.date)||"").startsWith(mo)).map(applyStudioSessionSplit(data)).reduce((s,r)=>s+calcNet(r),0);
         return (net-exp) >= 0 ? "#16A34A" : "#E05454";
       })(),
       Icon: TrendingUp,
@@ -6155,15 +6172,16 @@ function RevenueThisMonthView({ data, today, query, onOpen, canEdit }) {
   const revPrev = allRev.filter(r => inMonth(r.bookedAt || r.date, prevMonthStr));
   const expPrev = allExp.filter(e => inMonth(e.date, prevMonthStr));
 
-  const sumGross   = (rs) => rs.reduce((s, r) => s + (Number(r.gross)   || 0), 0);
-  const sumRefunds = (rs) => rs.reduce((s, r) => s + (Number(r.refunds) || 0), 0);
-  const sumAmount  = (es) => es.reduce((s, e) => s + (Number(e.amount)  || 0), 0);
+  // Accumulate in integer cents then divide once — prevents 0.1 + 0.2 ≠ 0.3 drift.
+  const sumGross   = (rs) => rs.reduce((s, r) => s + _c(r.gross),   0) / 100;
+  const sumRefunds = (rs) => rs.reduce((s, r) => s + _c(r.refunds), 0) / 100;
+  const sumAmount  = (es) => es.reduce((s, e) => s + _c(e.amount),  0) / 100;
 
   const figures = (rs, es) => {
-    const gross = sumGross(rs);
-    const refunds = sumRefunds(rs);
+    const gross    = sumGross(rs);
+    const refunds  = sumRefunds(rs);
     const expenses = sumAmount(es);
-    const net = gross - refunds - expenses;
+    const net      = (_c(gross) - _c(refunds) - _c(expenses)) / 100;
     return { gross, refunds, expenses, net, pct: gross > 0 ? Math.round((net / gross) * 100) : 0 };
   };
   const curr = figures(revThis, expThis);
@@ -6802,7 +6820,7 @@ async function issueStripeRefund(reg, setData, sessionToken) {
       return match ? {
         ...p,
         status: "refunded",
-        amountRefunded: j.amount ?? (Number(p.amountGross) || 0),
+        amountRefunded: j.amount ?? readAmt(p, "amountGross"),
         stripeRefundId: j.refundId || "",
         refundedAt,
       } : p;
@@ -7611,7 +7629,8 @@ function contentCols() {
     col("revenue",   "Revenue",   (r) => money(r.revenue), { align: "right" }),
   ];
 }
-const sum = (rows, k) => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
+// Sum a dollar field in integer cents then divide once to avoid accumulation drift.
+const sum = (rows, k) => rows.reduce((a, r) => a + _c(r[k]), 0) / 100;
 
 /* ============================================================
    TABLE
@@ -11448,7 +11467,7 @@ function ExpenseSummaryView({ data, today, onOpen, onImportExpenses, canEdit = t
   // Revenue context for margin — use same pipeline as Revenue Attribution so studio splits are deducted
   const revRowsMTD = buildRevenueViewRows(data)
     .filter(r => ((r.bookedAt || r.date) || "").startsWith(mo))
-    .map(applyStudioSessionSplit);
+    .map(applyStudioSessionSplit(data));
   const grossRevMTD = sum(revRowsMTD, "gross");
   const studioSplitsMTD = sum(revRowsMTD, "studioSplit");
   const netRevMTD = revRowsMTD.reduce((s, r) => s + calcNet(r), 0);
@@ -15982,7 +16001,7 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
         const expected = booking
           ? (booking.lastAmountMismatch?.expectedAmount ?? booking.paymentAmount ?? registrationSessionAmount(booking))
           : null;
-        const amt = Number(p.amountGross) || 0;
+        const amt = readAmt(p, "amountGross");
         return {
           id: p.id,
           name: cleanName(client?.name || p.customerEmail || "—"),
@@ -16003,7 +16022,7 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
             currency: (p.currency || "usd").toUpperCase(),
             paidAt: formatRegistrationDateTime(p.paidAt) || "—",
             paymentMethodType: p.paymentMethodType || "",
-            amountRefunded: Number(p.amountRefunded) || 0,
+            amountRefunded: readAmt(p, "amountRefunded"),
             stripeChargeId: p.stripeChargeId || "",
             stripePaymentIntentId: p.stripePaymentIntentId || "",
             stripeCheckoutSessionId: p.stripeCheckoutSessionId || "",
@@ -16440,11 +16459,13 @@ function RevenueAttributionView({ data, derived, today, onOpen, dateMode = "sess
     byChannel[ch].refunds += Number(e.amount || 0);
   });
   const channelRows = Object.entries(byChannel)
-    .map(([ch, d]) => ({
-      ch, ...d,
-      net: d.gross - d.fees - d.split - d.refunds,
-      margin: d.gross > 0 ? Math.round(((d.gross - d.fees - d.split - d.refunds) / d.gross) * 100) : 0,
-    }))
+    .map(([ch, d]) => {
+      const net = (_c(d.gross) - _c(d.fees) - _c(d.split) - _c(d.refunds)) / 100;
+      return {
+        ch, ...d, net,
+        margin: d.gross > 0 ? Math.round((net / d.gross) * 100) : 0,
+      };
+    })
     .sort((a, b) => b.net - a.net);
 
   // ── By source (MTD) ─────────────────────────────────────────
@@ -16574,7 +16595,7 @@ function RevenueAttributionView({ data, derived, today, onOpen, dateMode = "sess
           <tfoot>
             <tr style={{ background: C.surfaceAlt }}>
               <td style={{ ...tdS, fontWeight: 700 }}>Total</td>
-              <td style={tdR}>{rows.length}</td>
+              <td style={tdR}>{mtdRows.length}</td>
               <td style={{ ...tdR, fontWeight: 700 }}>{money(totalGross)}</td>
               <td style={{ ...tdR, color: C.gold, fontWeight: 600 }}>{money(totalSplit)}</td>
               <td style={{ ...tdR, color: C.ink2 }}>{money(totalFees)}</td>
