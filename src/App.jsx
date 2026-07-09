@@ -3123,8 +3123,10 @@ export default function App() {
       const syncedItems = []; // summary rows shown in the sync detail modal
       const sessionsNeedingDesc = [];
       const paymentLookupUris = [];
-      setData(prev => {
-        let next = { ...prev };
+      // Compute new state once, outside React updater, so ids/processed/syncedItems
+      // are populated exactly once and acknowledge is never called on a discarded render.
+      const _nextCalendlyState = (() => {
+        let next = { ...data };
         const clients       = [...(next.clients       || [])];
         const registrations = [...(next.registrations || [])];
         const sessions      = [...(next.sessions      || [])];
@@ -3591,7 +3593,8 @@ export default function App() {
         const refreshedSessions = refreshCalendlySessionRevenue(sessions, registrations);
         const ltvData = { registrations, revenue: next.revenue || [], offers: next.offers || [] };
         return { ...next, clients: applyRegistrationLifetimeValues(clients, ltvData), registrations, sessions: refreshedSessions, followups, partners };
-      });
+      })();
+      setData(_nextCalendlyState);
 
       // Acknowledge processed events
       if (ids.length) {
@@ -3715,10 +3718,11 @@ export default function App() {
       });
       let processed = 0;
       let ackIds = [];
-      setData(prev => {
-        let next = prev;
+      // Compute new state once outside React updater — see Calendly sync comment above.
+      const _nextStripeState = (() => {
+        let next = data;
         if (events?.length) {
-          const result = processStripeWebhookEvents(prev, events);
+          const result = processStripeWebhookEvents(data, events);
           processed = pendingEvents?.length || 0;
           ackIds = result.ackIds.filter(id => (pendingEvents || []).some(e => e.id === id));
           next = {
@@ -3746,7 +3750,8 @@ export default function App() {
           sessions: amountFix.sessions,
           clients: amountFix.clients,
         };
-      });
+      })();
+      setData(_nextStripeState);
       if (ackIds.length) {
         await fetch(calendlyApiUrl("/api/stripe/acknowledge"), {
           method: "POST",
