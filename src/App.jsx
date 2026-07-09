@@ -16036,10 +16036,13 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
 
     // Bookings with no paid Stripe charge: split into genuine-free rows and payment exceptions.
     // pending_verification is excluded here — it has its own "Bookings awaiting a charge" panel.
+    // Also exclude bookings whose linked payment was refunded: they are already covered by the
+    // "Refunded payments" panel and should not reappear here as a phantom "Free session".
+    const _linkedStatuses = new Set(["paid", "partial_refund", "refunded"]);
     const noChargeCandidates = registrations
       .filter(r => r.status !== "canceled" && r.status !== "rescheduled"
         && !r.stripeVerified && r.paymentStatus !== "pending_verification")
-      .filter(r => !payments.some(p => p.bookingId === r.id && p.status === "paid"));
+      .filter(r => !payments.some(p => p.bookingId === r.id && _linkedStatuses.has(p.status)));
 
     // A booking is a payment exception when it carries evidence that money WAS expected/attempted
     // (status "paid", "failed", or "unmatched") but no Stripe charge exists. Auto-forgiving these
