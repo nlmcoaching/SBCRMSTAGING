@@ -1124,6 +1124,16 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
     clearTimeout(timer);
   }
 }
+// Parse a fetch Response body safely regardless of Content-Type.
+// Always call this AFTER you have the Response object — never call res.json()
+// directly before checking res.ok, because a 502 HTML page throws
+// "Unexpected token '<'" and hides the real status code.
+async function safeResJSON(res) {
+  const ct = res.headers.get("content-type") || "";
+  if (ct.includes("application/json")) return res.json().catch(() => ({}));
+  const text = await res.text().catch(() => "");
+  return { error: (text.trim().slice(0, 300)) || `HTTP ${res.status}` };
+}
 
 function isTruncatedPreview(text) {
   const t = String(text || "").trim();
@@ -4591,7 +4601,7 @@ export default function App() {
           message={confirm.message}
           okLabel={confirm.okLabel || "OK"}
           danger={confirm.danger}
-          onOk={() => { confirm.onOk(); setConfirm(null); }}
+          onOk={async () => { await confirm.onOk(); setConfirm(null); }}
           onCancel={() => setConfirm(null)} />
       )}
     </div>
@@ -5667,8 +5677,8 @@ function ActionEmailModal({ action, data, setData, currentUser, onClose, onSent 
           body: finalBody,
         }),
       });
+      if (!res.ok) { const e = await safeResJSON(res); throw new Error(e.error || `Send failed (${res.status}).`); }
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Send failed.");
 
       const logEntry = {
         id: `em_${Date.now()}`,
@@ -6550,7 +6560,12 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
     if (file.size > 10 * 1024 * 1024) { alert("CSV file must be under 10 MB."); return; }
     Papa.parse(file, {
       header: true, skipEmptyLines: true,
+      error: (err) => { alert(`Could not read CSV file: ${err.message || err}`); },
       complete: (res) => {
+        if (res.errors.length) {
+          const msgs = res.errors.slice(0, 3).map(e => e.message).join("; ");
+          alert(`CSV parse warning — some rows may be skipped: ${msgs}`);
+        }
         const spec = IMPORT_MAP.expenses;
         const rows = res.data.map((raw) => {
           const rec = { id: uid("exp") };
@@ -6930,10 +6945,9 @@ function registrationExpandRow(r, ctx) {
                   setTimeout(() => ctx.setConfirm({
                     message: `Refund ${money(Number(r.paidAmount) || 0)} to ${who} via Stripe? The full charge is refunded and this cannot be undone. (You can also do this later from Revenue → Refunds.)`,
                     okLabel: "Issue refund", danger: true,
-                    onOk: () => {
-                      issueStripeRefund(canceledReg, ctx.setData, ctx.refundToken)
-                        .catch(err => alert(`Refund failed: ${err.message || err}`));
-                    },
+                    // Return the Promise so ConfirmModal's busy guard covers the full fetch.
+                    onOk: () => issueStripeRefund(canceledReg, ctx.setData, ctx.refundToken)
+                      .catch(err => alert(`Refund failed: ${err.message || err}`)),
                   }), 0);
                 }
               };
@@ -11871,14 +11885,19 @@ function EmailLogsView({ data, setData }) {
   const [checking, setChecking] = useState({});
   const [expanded, setExpanded] = useState(null);
   const [clearConfirm, setClearConfirm] = useState(false);
+  const mountedRef = useRef(true);
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
 
   const checkStatus = async (entry) => {
     if (!entry.resendId || checking[entry.id]) return;
+    if (!mountedRef.current) return;
     setChecking(c => ({ ...c, [entry.id]: true }));
     try {
-      const res  = await fetch(`/api/email-status/${entry.resendId}`, { headers: apiHeaders(false) });
-      const json = await res.json();
-      if (res.ok && json.status) {
+      // encodeURIComponent guards against any special characters in the Resend ID.
+      const res  = await fetch(`/api/email-status/${encodeURIComponent(entry.resendId)}`, { headers: apiHeaders(false) });
+      // Check res.ok before res.json() — a 502 HTML page otherwise throws "Unexpected token '<'".
+      const json = await safeResJSON(res);
+      if (mountedRef.current && res.ok && json.status) {
         setData(d => ({
           ...d,
           emailLog: (d.emailLog || []).map(e =>
@@ -11887,13 +11906,14 @@ function EmailLogsView({ data, setData }) {
         }));
       }
     } catch (_) {}
-    setChecking(c => ({ ...c, [entry.id]: false }));
+    if (mountedRef.current) setChecking(c => ({ ...c, [entry.id]: false }));
   };
 
-  // Auto-check unchecked sent emails when the tab loads
+  // Auto-check unchecked sent emails sequentially when the tab loads.
+  // Sequential (not parallel forEach) to avoid flooding the backend with N simultaneous fetches.
   useEffect(() => {
     const unchecked = (data.emailLog || []).filter(e => e.resendId && e.sendStatus === "sent" && !e.deliveryStatus);
-    unchecked.forEach(entry => checkStatus(entry));
+    (async () => { for (const entry of unchecked) { if (!mountedRef.current) break; await checkStatus(entry); } })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -13389,6 +13409,13 @@ function EditProfileModal({ user, masterKeyRaw, onSave, onClose }) {
 }
 
 function ConfirmModal({ message, okLabel = "OK", danger = false, onOk, onCancel }) {
+  // Busy guard: prevents double-submit on money actions (e.g. refund) where onOk is async.
+  const [busy, setBusy] = useState(false);
+  const handleOk = async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await onOk(); } finally { setBusy(false); }
+  };
   return (
     <div className="sb-drawerwrap" onMouseDown={onCancel} style={{ zIndex: 80 }}>
       <div onMouseDown={e => e.stopPropagation()} style={{
@@ -13408,16 +13435,17 @@ function ConfirmModal({ message, okLabel = "OK", danger = false, onOk, onCancel 
         </div>
         <div style={{ fontSize: 14, color: C.ink3, lineHeight: 1.6, marginBottom: 28, fontWeight: 700 }}>{message}</div>
         <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-          <button onClick={onCancel} className="sb-ghost" style={{ minWidth: 100, justifyContent: "center" }}>
+          <button onClick={onCancel} disabled={busy} className="sb-ghost" style={{ minWidth: 100, justifyContent: "center" }}>
             Cancel
           </button>
-          <button onClick={onOk} style={{
-            minWidth: 120, padding: "9px 20px", borderRadius: 10, border: "none", cursor: "pointer",
+          <button onClick={handleOk} disabled={busy} style={{
+            minWidth: 120, padding: "9px 20px", borderRadius: 10, border: "none",
+            cursor: busy ? "default" : "pointer",
             fontWeight: 700, fontSize: 14, justifyContent: "center",
-            background: C.brand, color: "#fff",
+            background: busy ? C.ink3 : C.brand, color: "#fff",
             boxShadow: `0 2px 8px ${hexA(C.brand, 0.35)}`,
           }}>
-            {okLabel}
+            {busy ? "…" : okLabel}
           </button>
         </div>
       </div>
@@ -13433,7 +13461,12 @@ function ImportModal({ data, setData, onClose }) {
     if (file.size > 10 * 1024 * 1024) { alert("CSV file must be under 10 MB."); return; }
     Papa.parse(file, {
       header: true, skipEmptyLines: true,
+      error: (err) => { alert(`Could not read CSV file: ${err.message || err}`); },
       complete: (res) => {
+        if (res.errors.length) {
+          const msgs = res.errors.slice(0, 3).map(e => e.message).join("; ");
+          alert(`CSV parse warning — some rows may be skipped: ${msgs}`);
+        }
         const spec = IMPORT_MAP[db];
         const rows = res.data.map((raw) => {
           const rec = { id: uid(db) };
@@ -13670,8 +13703,8 @@ function FollowUpSendButton({ r, data, setData, today }) {
         method: "POST", headers: apiHeaders(),
         body: JSON.stringify({ to: client.email, recipientName: (client.name||"").split(" ")[0], subject, body }),
       });
+      if (!res.ok) { const e = await safeResJSON(res); throw new Error(e.error || `Send failed (${res.status}).`); }
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Send failed.");
       const tmpl = allOptions.find(t => t.id === selectedId);
       const logEntry = { id: `em_${Date.now()}`, date: new Date().toISOString(), templateId: tmpl?.id || "followup", templateName: tmpl?.name || r.name, category: tmpl?.category || "Follow-Up", to: client.email, recipientName: cleanName(client.name||""), recipientType: "client", subject, body, resendId: json.id || null, sendStatus: "sent" };
       setData(d => ({
@@ -15007,8 +15040,8 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser, query }) {
           body:          emailBodyOverride ?? emailPopulatedBody,
         }),
       });
+      if (!res.ok) { const e = await safeResJSON(res); throw new Error(e.error || `Send failed (${res.status}).`); }
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Send failed.");
 
       // ── Workflow updates after successful send ──
       const tmpl     = emailPreview.template;
@@ -17036,8 +17069,8 @@ function MessageQueue({ overdue, todayItems, upcoming, today, markSent, onOpenCl
           body:          state.body,
         }),
       });
+      if (!res.ok) { const e = await safeResJSON(res); throw new Error(e.error || `Send failed (${res.status}).`); }
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Send failed.");
 
       // Write to global email log
       const selectedTmpl = state.selectedTemplateId && state.selectedTemplateId !== "__followup__"
@@ -17392,8 +17425,8 @@ function FUTemplateEmailModal({ templateBody, templateName, data, setData, onClo
         method: "POST", headers: apiHeaders(),
         body: JSON.stringify({ to: recipientEmail, recipientName: recipient?._type === "partner" ? (recipient.contact || recipient.name) : cleanName(recipient?.name || ""), subject, body }),
       });
+      if (!res.ok) { const e = await safeResJSON(res); throw new Error(e.error || `Send failed (${res.status}).`); }
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Send failed.");
       const logEntry = { id: `em_${Date.now()}`, date: new Date().toISOString(), templateId: "fu_custom", templateName, category: "Follow-Up", to: recipientEmail, recipientName: recipient?._type === "partner" ? (recipient.contact || recipient.name) : cleanName(recipient?.name || ""), recipientType: recipient?._type, subject, body, resendId: json.id || null, sendStatus: "sent" };
       setData(d => ({
         ...d,
