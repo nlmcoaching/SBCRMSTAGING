@@ -16015,11 +16015,24 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
         };
       });
 
-    // Free sessions: any active booking with no paid Stripe charge tied to it (e.g. booked with a
-    // free coupon code, which never goes to Stripe). Shown at any age so the page is complete.
-    const freeRows = registrations
-      .filter(r => r.status !== "canceled" && r.status !== "rescheduled" && !r.stripeVerified)
-      .filter(r => !payments.some(p => p.bookingId === r.id && p.status === "paid"))
+    // Bookings with no paid Stripe charge: split into genuine-free rows and payment exceptions.
+    // pending_verification is excluded here — it has its own "Bookings awaiting a charge" panel.
+    const noChargeCandidates = registrations
+      .filter(r => r.status !== "canceled" && r.status !== "rescheduled"
+        && !r.stripeVerified && r.paymentStatus !== "pending_verification")
+      .filter(r => !payments.some(p => p.bookingId === r.id && p.status === "paid"));
+
+    // A booking is a payment exception when it carries evidence that money WAS expected/attempted
+    // (status "paid", "failed", or "unmatched") but no Stripe charge exists. Auto-forgiving these
+    // as free would silently absorb failed or missing charges as comped sessions.
+    const isPaymentException = (r) => {
+      if (r.paymentStatus === "failed") return true;
+      const expAmt = r.lastAmountMismatch?.expectedAmount ?? r.paymentAmount ?? registrationSessionAmount(r);
+      return (r.paymentStatus === "paid" || r.paymentStatus === "unmatched") && Number(expAmt) > 0;
+    };
+
+    const freeRows = noChargeCandidates
+      .filter(r => !isPaymentException(r))
       .map(r => {
         const client = clients.find(c => c.id === r.clientId);
         const meta = registrationSessionMeta(r, data);
@@ -16032,6 +16045,7 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
           channel: meta?.channel || null,
           matched: true,
           free: true,
+          paymentException: false,
           description: "Free session — no Stripe charge",
           paidDisplay: "—",
           bookedDisplay: formatRegistrationDateTime(r.createdAt),
@@ -16057,13 +16071,63 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
         };
       });
 
-    return [...chargeRows, ...freeRows].sort((a, b) => b.sortTs - a.sortTs);
+    // Payment exceptions: bookings where a charge was expected/attempted but cannot be found in
+    // Stripe. Surfaced separately so operators can investigate rather than treating them as free.
+    const exceptionRows = noChargeCandidates
+      .filter(r => isPaymentException(r))
+      .map(r => {
+        const client = clients.find(c => c.id === r.clientId);
+        const meta = registrationSessionMeta(r, data);
+        const expected = r.lastAmountMismatch?.expectedAmount ?? r.paymentAmount ?? registrationSessionAmount(r);
+        const expectedAmt = expected != null ? Number(expected) : null;
+        const isFailed = r.paymentStatus === "failed";
+        return {
+          id: `exc-${r.id}`,
+          bookingId: r.id,
+          name: cleanName(client?.name || "—"),
+          email: client?.email || "",
+          sessionName: meta?.sessionName || cleanName(r.eventName || "Session"),
+          channel: meta?.channel || null,
+          matched: true,
+          free: false,
+          paymentException: true,
+          paymentStatus: r.paymentStatus,
+          description: isFailed
+            ? "Charge failed — no payment collected"
+            : `No Stripe charge found (booking status: ${r.paymentStatus})`,
+          paidDisplay: "—",
+          bookedDisplay: formatRegistrationDateTime(r.createdAt),
+          sortTs: registrationCreatedTimestamp(r),
+          expected,
+          stripeAmount: 0,
+          sessionAmount: 0,
+          details: {
+            sessionDateTime: formatRegistrationDateTime(r.scheduledAt) || "—",
+            status: isFailed ? "charge failed" : r.paymentStatus,
+            currency: "USD",
+            paidAt: "—",
+            paymentMethodType: "",
+            amountRefunded: 0,
+            stripeChargeId: "",
+            stripePaymentIntentId: "",
+            stripeCheckoutSessionId: "",
+            stripeEventId: "",
+            receiptUrl: "",
+            matchStatus: "missing_charge",
+            notes: `Payment was expected (status: ${r.paymentStatus}${expectedAmt > 0 ? `, expected ${money(expectedAmt)}` : ""}) but no Stripe charge could be found. Not auto-forgiven as free — reconcile or mark manually.`,
+          },
+        };
+      });
+
+    return [...chargeRows, ...freeRows, ...exceptionRows].sort((a, b) => b.sortTs - a.sortTs);
   }, [payments, registrations, clients, data, stripeStatus?.reconciledAt, stripeStatus?.at]);
   // Header search box: filter every list on the page by name, email, session, or description.
   const q = norm(query);
   const chargeMatches = (c) => !q
     || [c.name, c.email, c.sessionName, c.description, c.channel].some(v => norm(v).includes(q));
-  const matchedCharges = stripeCharges.filter(c => c.matched).filter(chargeMatches);
+  // Exception rows are kept separate so they never silently absorb into the normal charge list.
+  const exceptionCharges = stripeCharges.filter(c => c.paymentException).filter(chargeMatches);
+  const matchedCharges   = stripeCharges.filter(c => c.matched && !c.paymentException).filter(chargeMatches);
   const unmatchedCharges = stripeCharges.filter(c => !c.matched).filter(chargeMatches);
   const refundedPayments = payments
     .filter(p => p.status === "refunded" || p.status === "partial_refund")
@@ -16103,6 +16167,68 @@ function PaymentReconciliationView({ data, derived, setData, onOpen, syncStripe,
           <strong>No Stripe payments in the CRM yet.</strong> Click <strong>Sync Stripe now</strong> to load charges from the backend ledger and tie them to bookings.
           If this persists, confirm Stripe webhooks reach your backend URL → <code>/api/webhooks/stripe</code> (check ngrok at http://127.0.0.1:4040).
         </div>
+      )}
+
+      {exceptionCharges.length > 0 && (
+        <Panel title={`Payment exceptions — charge expected but not found (${exceptionCharges.length})`}>
+          <div style={{ fontSize: 12, color: "#8B3A2F", marginBottom: 12, lineHeight: 1.55, background: hexA("#C0573F", 0.07), border: `1px solid ${hexA("#C0573F", 0.22)}`, borderRadius: 8, padding: "10px 14px" }}>
+            <strong>These bookings were not auto-forgiven as free sessions.</strong> Each one was recorded as paid, failed, or unmatched in Calendly but has no corresponding Stripe charge. A failed or missing charge can look identical to a comped session if silently zeroed. Review each booking — mark the payment status manually or open the booking to reconcile.
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={{ ...thS, width: 28 }}></th>
+                <th style={thS}>Booked</th>
+                <th style={thS}>Name</th>
+                <th style={thS}>Session</th>
+                <th style={{ ...thS, textAlign: "right" }}>Expected</th>
+                <th style={thS}>Booking status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {exceptionCharges.map(row => {
+                const open = !!expandedCharges[row.id];
+                return (
+                  <Fragment key={row.id}>
+                    <tr onClick={() => toggleCharge(row.id)} style={{ cursor: "pointer", background: open ? hexA("#C0573F", 0.06) : hexA("#C0573F", 0.02) }}>
+                      <td style={{ ...tdS, textAlign: "center", color: C.ink3 }}>
+                        <ChevronRight size={14} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }} />
+                      </td>
+                      <td style={tdS}>{row.bookedDisplay}</td>
+                      <td style={tdS}>
+                        <strong>{row.name}</strong>
+                        {row.email && <div style={{ fontSize: 11, color: C.ink3 }}>{row.email}</div>}
+                      </td>
+                      <td style={tdS}>{row.sessionName}</td>
+                      <td style={{ ...tdS, textAlign: "right", fontWeight: 600, color: "#C0573F" }}>
+                        {row.expected != null && Number(row.expected) > 0 ? money(row.expected) : "—"}
+                      </td>
+                      <td style={tdS}>
+                        <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: hexA("#C0573F", 0.12), color: "#8B3A2F", textTransform: "uppercase", letterSpacing: ".04em" }}>
+                          {row.paymentStatus || "unknown"}
+                        </span>
+                      </td>
+                    </tr>
+                    {open && (
+                      <tr>
+                        <td></td>
+                        <td colSpan={5} style={{ padding: "4px 12px 16px", borderBottom: `1px solid ${C.lineSoft}`, background: hexA("#C0573F", 0.04) }}>
+                          <ChargeDetails row={row} />
+                          {row.bookingId && onOpen && (
+                            <button type="button" onClick={() => { const r = registrations.find(x => x.id === row.bookingId); if (r) onOpen({ db: "registrations", record: r }); }}
+                              style={{ marginTop: 10, padding: "5px 12px", fontSize: 12, background: C.surfaceAlt, border: `1px solid ${C.line}`, borderRadius: 7, cursor: "pointer" }}>
+                              Open booking
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </Panel>
       )}
 
       {unmatchedCharges.length > 0 && (
