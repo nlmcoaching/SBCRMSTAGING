@@ -17,7 +17,10 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: 'http://localhost:3001',
           changeOrigin: true,
-          headers: frontendSecret ? { 'x-frontend-secret': frontendSecret } : {},
+          headers: {
+            'Origin': 'http://localhost:5173',
+            ...(frontendSecret ? { 'x-frontend-secret': frontendSecret } : {}),
+          },
         },
       },
       headers: {
