@@ -2690,42 +2690,10 @@ export default function App() {
                 const tokenValid = (session.token && restoredUser?.sessionTokenHash)
                   ? (await Sec.sessionTokenHash(session.token)) === restoredUser.sessionTokenHash
                   : false; // reject legacy/unsigned tokens — forces one PIN entry after upgrade
-                if (restoredUser && session.masterKeyRaw && tokenValid) {
-                  const masterKey = await Sec.importMasterKey(session.masterKeyRaw);
-                  // Decrypt and load data (same as normal unlock)
-                  const encRaw = await store.get(STORE_KEY_ENC);
-                  if (encRaw?.value) {
-                    const dec = normalizeCrmData(await Sec.decrypt(encRaw.value, masterKey));
-                    if (Sec.validate(dec)) {
-                      if (alive) setData(healStudioPartnersData(dec));
-                      if (dec._settings && typeof dec._settings === "object") {
-                        const s = parseCrmSettings(dec._settings);
-                        _crmSettings = s;
-                        if (alive) setCrmSettings(s);
-                        try { localStorage.setItem(CRM_SETTINGS_KEY, JSON.stringify(s)); } catch {}
-                      }
-                    } else {
-                      throw new Error("integrity");
-                    }
-                  }
-                  if (alive) {
-                    setMasterKeyRaw(session.masterKeyRaw);
-                    setCryptoKey(masterKey);
-                    setCurrentUser(restoredUser);
-                    loaded.current = true;
-                    dataLoadedAtRef.current = parseInt(localStorage.getItem(SAVE_TS_KEY) || "0") || Date.now();
-                    setLocked(false);
-                    mintRefundToken();
-                    // Restore the section/view the user was on before refresh
-                    try {
-                      const nav = JSON.parse(sessionStorage.getItem("sb:nav:v1") || "{}");
-                      setSection(nav.section || "today");
-                      setView(typeof nav.view === "number" ? nav.view : 0);
-                    } catch { setSection("today"); setView(0); }
-                  }
-                } else {
-                  sessionStorage.removeItem("sb:session:v1");
-                }
+                // masterKeyRaw is no longer persisted to sessionStorage (key-in-memory-only policy).
+                // A valid token confirms identity but the PIN must be re-entered to re-derive the
+                // master key — sessionStorage holds only userId + token for user-tile pre-selection.
+                sessionStorage.removeItem("sb:session:v1");
               }
             } catch (_) {
               sessionStorage.removeItem("sb:session:v1");
@@ -2828,7 +2796,7 @@ export default function App() {
         setMasterKeyRaw(masterKeyB64);
         setCryptoKey(masterKey);
         setCurrentUser(owner);
-        try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, masterKeyRaw: masterKeyB64, token: _migToken })); } catch (_) {}
+        try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, token: _migToken })); } catch (_) {}
         loaded.current = true;
         setLocked(false);
         setSection("today"); setView(0);
@@ -2928,7 +2896,7 @@ export default function App() {
       setPinAttempts(p => { const n = { ...p }; delete n[userId]; return n; }); // reset on success
       // Clean up legacy unencrypted storage
       try { localStorage.removeItem(STORE_KEY); } catch (_) {}
-      try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, masterKeyRaw: mkB64, token: _sessionToken })); } catch (_) {}
+      try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, token: _sessionToken })); } catch (_) {}
       loaded.current = true;
       setLocked(false);
       setSection("today"); setView(0);
@@ -3006,7 +2974,7 @@ export default function App() {
       setCryptoKey(masterKey);
       setCurrentUser(updatedUsers.find(u => u.id === userId));
       setPinAttempts(p => { const n = { ...p }; delete n[userId]; return n; });
-      try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, masterKeyRaw, token: _sessionToken })); } catch (_) {}
+      try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, token: _sessionToken })); } catch (_) {}
       loaded.current = true;
       setLocked(false);
       setSection("today"); setView(0);
@@ -3045,7 +3013,7 @@ export default function App() {
       setCryptoKey(masterKey);
       setCurrentUser(owner);
       setData(SEED);
-      try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId: owner.id, masterKeyRaw: masterKeyB64, token: _setupToken })); } catch (_) {}
+      try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId: owner.id, token: _setupToken })); } catch (_) {}
       loaded.current = true;
       setNeedsSetup(false);
       setLocked(false);
