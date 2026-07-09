@@ -1135,6 +1135,22 @@ async function safeResJSON(res) {
   return { error: (text.trim().slice(0, 300)) || `HTTP ${res.status}` };
 }
 
+// ── Email log helpers ─────────────────────────────────────────────────────────
+// Cap the global audit log so it never eats unbounded IndexedDB/localStorage space.
+const EMAIL_LOG_CAP = 200;
+
+// Per-record emailHistory only needs what the timeline renders. Storing the full
+// body + subject on every client/partner doubles the PII footprint for every send.
+function slimHistEntry(e) {
+  return { id: e.id, date: e.date, templateName: e.templateName, to: e.to };
+}
+
+// Append a new entry and trim the oldest when the cap is exceeded.
+function cappedLog(existing, newEntry) {
+  const next = [...(existing || []), newEntry];
+  return next.length > EMAIL_LOG_CAP ? next.slice(-EMAIL_LOG_CAP) : next;
+}
+
 function isTruncatedPreview(text) {
   const t = String(text || "").trim();
   return t.endsWith("...") || t.endsWith("…");
@@ -5705,17 +5721,18 @@ function ActionEmailModal({ action, data, setData, currentUser, onClose, onSent 
       };
 
       setData(d => {
-        let next = { ...d, emailLog: [...(d.emailLog || []), logEntry] };
+        const slim = slimHistEntry(logEntry);
+        let next = { ...d, emailLog: cappedLog(d.emailLog, logEntry) };
         next.templates = (next.templates || []).map(t =>
           t.id === template.id ? { ...t, usageCount: (Number(t.usageCount) || 0) + 1 } : t
         );
         if (recipient._type === "partner") {
           next.partners = (next.partners || []).map(p => p.id === recipient.id
-            ? { ...p, lastTouch: today, emailHistory: [...(p.emailHistory || []), logEntry] }
+            ? { ...p, lastTouch: today, emailHistory: [...(p.emailHistory || []), slim] }
             : p);
         } else if (recipient._type === "client" && !recipient._pseudo) {
           next.clients = (next.clients || []).map(c => c.id === recipient.id
-            ? { ...c, emailHistory: [...(c.emailHistory || []), logEntry] }
+            ? { ...c, emailHistory: [...(c.emailHistory || []), slim] }
             : c);
         }
         if (action.id.startsWith("rty_")) {
@@ -5749,7 +5766,7 @@ function ActionEmailModal({ action, data, setData, currentUser, onClose, onSent 
         subject: finalSubject, body: finalBody,
         resendId: null, sendStatus: "failed", errorMsg: err.message,
       };
-      setData(d => ({ ...d, emailLog: [...(d.emailLog || []), failEntry] }));
+      setData(d => ({ ...d, emailLog: cappedLog(d.emailLog, failEntry) }));
       setError(err.message);
     }
     setSending(false);
@@ -13718,8 +13735,8 @@ function FollowUpSendButton({ r, data, setData, today }) {
       const logEntry = { id: `em_${Date.now()}`, date: new Date().toISOString(), templateId: tmpl?.id || "followup", templateName: tmpl?.name || r.name, category: tmpl?.category || "Follow-Up", to: client.email, recipientName: cleanName(client.name||""), recipientType: "client", subject, body, resendId: json.id || null, sendStatus: "sent" };
       setData(d => ({
         ...d,
-        emailLog: [...(d.emailLog||[]), logEntry],
-        clients: (d.clients||[]).map(c => c.id === client.id ? { ...c, emailHistory: [...(c.emailHistory||[]), logEntry] } : c),
+        emailLog: cappedLog(d.emailLog, logEntry),
+        clients: (d.clients||[]).map(c => c.id === client.id ? { ...c, emailHistory: [...(c.emailHistory||[]), slimHistEntry(logEntry)] } : c),
         followups: (d.followups||[]).map(f => f.id === r.id ? { ...f, outcome: "Email sent", lastContact: today } : f),
       }));
       setSent(true);
@@ -13735,7 +13752,7 @@ function FollowUpSendButton({ r, data, setData, today }) {
         recipientType: "client", subject, body,
         resendId: null, sendStatus: "failed", errorMsg: err.message,
       };
-      setData(d => ({ ...d, emailLog: [...(d.emailLog || []), failEntry] }));
+      setData(d => ({ ...d, emailLog: cappedLog(d.emailLog, failEntry) }));
       setError(err.message);
     }
     setSending(false);
@@ -15073,15 +15090,15 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser, query }) {
         sendStatus:    "sent",
       };
 
-      // ── Write to global email log ──
-      setData(d => ({ ...d, emailLog: [...(d.emailLog || []), logEntry] }));
-
+      // ── Write to global email log (capped); slim reference to per-record history ──
+      setData(d => ({ ...d, emailLog: cappedLog(d.emailLog, logEntry) }));
+      const slim3 = slimHistEntry(logEntry);
       if (recip._type === "partner") {
-        // Update lastTouch on partner + append to emailHistory
-        onUpdate("partners", recip.id, p => ({ ...p, lastTouch: today, emailHistory: [...(p.emailHistory || []), logEntry] }));
+        // Update lastTouch on partner + append slim ref to emailHistory
+        onUpdate("partners", recip.id, p => ({ ...p, lastTouch: today, emailHistory: [...(p.emailHistory || []), slim3] }));
       } else if (recip._type === "client") {
-        // Log send on client record
-        onUpdate("clients", recip.id, c => ({ ...c, emailHistory: [...(c.emailHistory || []), logEntry] }));
+        // Log slim send ref on client record
+        onUpdate("clients", recip.id, c => ({ ...c, emailHistory: [...(c.emailHistory || []), slim3] }));
         // If Post-Session or Operations template, also mark followUpSent on most-recent unactioned session for this client
         if (["Post-Session", "Operations"].includes(tmpl.category)) {
           const sessions = data.sessions || [];
@@ -15113,7 +15130,7 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser, query }) {
           sendStatus:    "failed",
           errorMsg:      err.message,
         };
-        setData(d => ({ ...d, emailLog: [...(d.emailLog || []), failEntry] }));
+        setData(d => ({ ...d, emailLog: cappedLog(d.emailLog, failEntry) }));
       }
       setEmailError(err.message || "Failed to send. Please try again.");
     } finally {
@@ -17105,9 +17122,9 @@ function MessageQueue({ overdue, todayItems, upcoming, today, markSent, onOpenCl
       };
       setData(d => ({
         ...d,
-        emailLog: [...(d.emailLog || []), logEntry],
+        emailLog: cappedLog(d.emailLog, logEntry),
         clients: (d.clients || []).map(c =>
-          c.id === item.clientId ? { ...c, emailHistory: [...(c.emailHistory || []), logEntry] } : c
+          c.id === item.clientId ? { ...c, emailHistory: [...(c.emailHistory || []), slimHistEntry(logEntry)] } : c
         ),
       }));
 
@@ -17125,7 +17142,7 @@ function MessageQueue({ overdue, todayItems, upcoming, today, markSent, onOpenCl
         recipientType: "client", subject: state?.subject || "", body: state?.body || "",
         resendId: null, sendStatus: "failed", errorMsg: err.message,
       };
-      setData(d => ({ ...d, emailLog: [...(d.emailLog || []), failEntry] }));
+      setData(d => ({ ...d, emailLog: cappedLog(d.emailLog, failEntry) }));
       setEmailState(s => ({ ...s, [key]: { ...s[key], sending: false, error: err.message || "Send failed." } }));
     }
   };
@@ -17442,11 +17459,12 @@ function FUTemplateEmailModal({ templateBody, templateName, data, setData, onClo
       if (!res.ok) { const e = await safeResJSON(res); throw new Error(e.error || `Send failed (${res.status}).`); }
       const json = await res.json();
       const logEntry = { id: `em_${Date.now()}`, date: new Date().toISOString(), templateId: "fu_custom", templateName, category: "Follow-Up", to: recipientEmail, recipientName: recipient?._type === "partner" ? (recipient.contact || recipient.name) : cleanName(recipient?.name || ""), recipientType: recipient?._type, subject, body, resendId: json.id || null, sendStatus: "sent" };
+      const slim5 = slimHistEntry(logEntry);
       setData(d => ({
         ...d,
-        emailLog: [...(d.emailLog || []), logEntry],
-        clients:  recipient?._type === "client"  ? (d.clients  || []).map(c => c.id === recipient.id ? { ...c, emailHistory: [...(c.emailHistory||[]), logEntry] } : c) : (d.clients  || []),
-        partners: recipient?._type === "partner" ? (d.partners || []).map(p => p.id === recipient.id ? { ...p, lastTouch: new Date().toISOString().slice(0,10), emailHistory: [...(p.emailHistory||[]), logEntry] } : p) : (d.partners || []),
+        emailLog: cappedLog(d.emailLog, logEntry),
+        clients:  recipient?._type === "client"  ? (d.clients  || []).map(c => c.id === recipient.id ? { ...c, emailHistory: [...(c.emailHistory||[]), slim5] } : c) : (d.clients  || []),
+        partners: recipient?._type === "partner" ? (d.partners || []).map(p => p.id === recipient.id ? { ...p, lastTouch: new Date().toISOString().slice(0,10), emailHistory: [...(p.emailHistory||[]), slim5] } : p) : (d.partners || []),
       }));
       setSent(true);
       setTimeout(() => { setSent(false); onClose(); }, 1500);
@@ -17459,7 +17477,7 @@ function FUTemplateEmailModal({ templateBody, templateName, data, setData, onClo
         recipientType: recipient?._type, subject, body,
         resendId: null, sendStatus: "failed", errorMsg: err.message,
       };
-      setData(d => ({ ...d, emailLog: [...(d.emailLog || []), failEntry] }));
+      setData(d => ({ ...d, emailLog: cappedLog(d.emailLog, failEntry) }));
       setError(err.message);
     }
     setSending(false);
