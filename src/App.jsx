@@ -8993,8 +8993,8 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                       {visibleFields.map((fld) => {
                         if (isStudioSession && (fld.key === "date" || fld.key === "time" || fld.key === "durationMins")) return null;
                         return (
-                        <>
-                          <FieldInput key={fld.key} fld={fld} value={draft[fld.key]} onChange={(v) => set(fld.key, v)} data={data} />
+                        <React.Fragment key={fld.key}>
+                          <FieldInput fld={fld} value={draft[fld.key]} onChange={(v) => set(fld.key, v)} data={data} />
                           {isStudioSession && fld.key === "locationAddress" && (() => {
                             const partner = (data.partners || []).find(p => p.id === draft.studioId);
                             const contactCard = partner && (partner.contact || partner.email || partner.phone) ? (
@@ -9072,7 +9072,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
                               </div>
                             </>
                           )}
-                        </>
+                        </React.Fragment>
                         );
                       })}
                     </div>
@@ -11236,6 +11236,53 @@ function ContactTimeline({ db, record, data, derived, today, onOpenRelated }) {
   );
 }
 
+// Standalone component so useState/useRef/useEffect are always called unconditionally.
+// FieldInput previously called these hooks inside an `else if (type === "tagselector")`
+// branch, violating the Rules of Hooks and risking state corruption on type change.
+function TagSelectorInput({ fld, value, onChange }) {
+  const resolvedOptions = typeof fld.options === "function" ? fld.options() : (fld.options || []);
+  const selected  = Array.isArray(value) ? value : (value ? [value] : []);
+  const available = resolvedOptions.filter(o => !selected.includes(o));
+  const [open, setOpen] = useState(false);
+  const ref = useRef();
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+      {selected.map(tag => (
+        <span key={tag} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px 4px 12px", borderRadius: 20, background: C.brandSoft, color: C.brandDeep, fontSize: 12.5, fontWeight: 600, border: `1px solid ${C.brand}` }}>
+          {tag}
+          <button onClick={() => onChange(selected.filter(t => t !== tag))} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 1, color: C.brand, fontSize: 13, marginLeft: 2 }}>×</button>
+        </span>
+      ))}
+      {available.length > 0 && (
+        <div ref={ref} style={{ position: "relative" }}>
+          <button onClick={() => setOpen(o => !o)} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 20, background: C.surface, color: C.ink2, fontSize: 12.5, fontWeight: 600, border: `1px solid ${C.line}`, cursor: "pointer" }}>
+            <Plus size={12} /> Add type
+          </button>
+          {open && (
+            <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 4px 16px rgba(0,0,0,.10)", zIndex: 999, minWidth: 150, padding: "4px 0", overflow: "hidden" }}>
+              {available.map(opt => (
+                <button key={opt} onClick={() => { onChange([...selected, opt]); setOpen(false); }}
+                  style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 13, color: C.ink }}
+                  onMouseEnter={e => e.currentTarget.style.background = C.brandSoft}
+                  onMouseLeave={e => e.currentTarget.style.background = "none"}>
+                  {opt}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {selected.length === 0 && available.length === 0 && <span style={{ fontSize: 12.5, color: C.ink3 }}>—</span>}
+    </div>
+  );
+}
+
 function FieldInput({ fld, value, onChange, data }) {
   const { type } = fld;
   const resolvedOptions = typeof fld.options === "function" ? fld.options() : (fld.options || []);
@@ -11289,47 +11336,7 @@ function FieldInput({ fld, value, onChange, data }) {
       </div>
     );
   } else if (type === "tagselector") {
-    // Normalize: legacy string → array
-    const selected = Array.isArray(value) ? value : (value ? [value] : []);
-    const available = resolvedOptions.filter(o => !selected.includes(o));
-    const [open, setOpen] = useState(false);
-    const ref = useRef();
-    useEffect(() => {
-      if (!open) return;
-      const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-      document.addEventListener("mousedown", handler);
-      return () => document.removeEventListener("mousedown", handler);
-    }, [open]);
-    control = (
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-        {selected.map(tag => (
-          <span key={tag} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px 4px 12px", borderRadius: 20, background: C.brandSoft, color: C.brandDeep, fontSize: 12.5, fontWeight: 600, border: `1px solid ${C.brand}` }}>
-            {tag}
-            <button onClick={() => onChange(selected.filter(t => t !== tag))} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 1, color: C.brand, fontSize: 13, marginLeft: 2 }}>×</button>
-          </span>
-        ))}
-        {available.length > 0 && (
-          <div ref={ref} style={{ position: "relative" }}>
-            <button onClick={() => setOpen(o => !o)} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 20, background: C.surface, color: C.ink2, fontSize: 12.5, fontWeight: 600, border: `1px solid ${C.line}`, cursor: "pointer" }}>
-              <Plus size={12} /> Add type
-            </button>
-            {open && (
-              <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 10, boxShadow: "0 4px 16px rgba(0,0,0,.10)", zIndex: 999, minWidth: 150, padding: "4px 0", overflow: "hidden" }}>
-                {available.map(opt => (
-                  <button key={opt} onClick={() => { onChange([...selected, opt]); setOpen(false); }}
-                    style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 14px", background: "none", border: "none", cursor: "pointer", fontSize: 13, color: C.ink }}
-                    onMouseEnter={e => e.currentTarget.style.background = C.brandSoft}
-                    onMouseLeave={e => e.currentTarget.style.background = "none"}>
-                    {opt}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        {selected.length === 0 && available.length === 0 && <span style={{ fontSize: 12.5, color: C.ink3 }}>—</span>}
-      </div>
-    );
+    control = <TagSelectorInput fld={fld} value={value} onChange={onChange} />;
   } else if (type === "relation") {
     control = (
       <select className="sb-input" value={value || ""} onChange={(e) => onChange(e.target.value)}>
