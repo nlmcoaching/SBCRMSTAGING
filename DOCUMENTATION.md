@@ -210,6 +210,8 @@ Set `TRUST_PROXY=1` in `backend/.env` only when the Express app sits behind ngro
 
 All string fields extracted from incoming Calendly webhook payloads are passed through `Sec.sanitize()` before being written to the queue or applied to CRM records. This strips HTML tags and formula-injection characters (`=`, `+`, `-`, `@` at the start of a value).
 
+**Invitee name isolation:** Queue `name` is resolved only from registration/billing invitee form data — prefer `payload.invitee.name` (or `first_name` + `last_name`) when nested; otherwise the invitee resource fields on `payload` (Calendly’s standard webhook shape). It is **never** taken from `scheduled_event.name`, `scheduled_event.description`, or other calendar-sync metadata. If a candidate name equals the event title or description, it is rejected as contamination. The CRM sync applies the same guard before writing `clients[].name` (no fallback to `eventName`).
+
 ### Frontend Secret — Proxy Injection and `apiHeaders()` Helper
 
 `FRONTEND_SECRET` is injected as an HTTP header server-side by the Vite proxy (dev) or a reverse proxy such as Nginx (production). It is never compiled into the browser JS bundle when deployed correctly.
@@ -1885,6 +1887,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 Email address (normalized to lowercase) is the primary deduplication key. On `invitee.created`:
 - **New email** → creates client with `source: "Calendly"`, `status: "Booked"`
 - **Existing email** → updates name, phone, next session date, status (Lead → Booked)
+- **Client `name`** → only from invitee registration/billing form data (`payload.invitee.name` or invitee resource `name`); never from `eventName` / calendar title. Contaminated values matching the event title are ignored (existing client name is kept).
 
 **Lifetime value:** After each Calendly or Stripe sync (and payment backfill), LTV is recalculated for every client with at least one registration record. The total is the sum of:
 - **Actual Stripe charge** per booking (`paidAmount` minus refunds) — `registrationPaymentForLtv` recognises only confirmed Stripe amounts, exactly like the Revenue tab. There is **no Calendly list-price fallback**: bookings with no confirmed charge (free/coupon, `pending_verification`, `unmatched`, `unpaid`, `failed`, `refunded`) contribute **$0**

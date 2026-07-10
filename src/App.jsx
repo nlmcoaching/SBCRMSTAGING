@@ -831,6 +831,18 @@ export default function App() {
             // locationJoinUrl validated separately by https:// check before use
           };
 
+          // Invitee/client name: registration form only. Never fall back to event title,
+          // description, or other calendar-sync fields (those stay on evt.eventName).
+          const inviteeFormName = (() => {
+            const n = String(evt.name || "").trim();
+            if (!n) return "";
+            const eventTitle = String(evt.eventName || "").trim();
+            const eventDesc = String(evt.description || "").trim();
+            if (eventTitle && n.toLowerCase() === eventTitle.toLowerCase()) return "";
+            if (eventDesc && n.toLowerCase() === eventDesc.toLowerCase()) return "";
+            return n;
+          })();
+
           // Ignore synthetic signature-test payloads (…/scheduled_events/TEST/…).
           const _uri = String(evt.calendlyInviteeUri || evt.calendlyEventUri || "");
           if (/\/scheduled_events\/TEST\b/i.test(_uri) || /\/invitees\/TEST\b/i.test(_uri)) {
@@ -877,7 +889,7 @@ export default function App() {
 
             if (!client) {
               client = {
-                id: uid("c"), name: evt.name, email: emailNorm,
+                id: uid("c"), name: inviteeFormName, email: emailNorm,
                 phone: evt.phone || "", source: "Calendly", status: "Booked",
                 clientType: "First-time attendee", tags: [],
                 firstSession: sessionDate, sessionsAttended: 0,
@@ -891,7 +903,7 @@ export default function App() {
               const idx = clients.indexOf(client);
               clients[idx] = {
                 ...client,
-                name: evt.name || client.name,
+                name: inviteeFormName || client.name,
                 phone: evt.phone || client.phone,
                 status: client.status === "Lead" ? "Booked" : client.status,
                 nextSession: sessionDate || client.nextSession,
@@ -1099,7 +1111,7 @@ export default function App() {
             }
             syncedItems.push({
               type: evt.eventType === "invitee.updated" ? "Updated" : "Booked",
-              clientName: client.name || [client.firstName, client.lastName].filter(Boolean).join(" ") || evt.name || "Unknown",
+              clientName: client.name || [client.firstName, client.lastName].filter(Boolean).join(" ") || inviteeFormName || "Unknown",
               eventName: evt.eventName || "",
               scheduledAt: evt.startTime || "",
               amount: paymentAmount != null ? Number(paymentAmount) : null,
@@ -1145,7 +1157,7 @@ export default function App() {
               let cancelClient = emailNorm ? clients.find(c => (c.email || "").toLowerCase() === emailNorm) : null;
               if (!cancelClient && emailNorm) {
                 cancelClient = {
-                  id: uid("c"), name: evt.name || evt.email, email: emailNorm,
+                  id: uid("c"), name: inviteeFormName || evt.email, email: emailNorm,
                   phone: evt.phone || "", source: "Calendly", status: "Lead",
                   clientType: "First-time attendee", tags: [], firstSession: "",
                   sessionsAttended: 0, lastSession: "", nextSession: "",
@@ -1184,7 +1196,7 @@ export default function App() {
             }
             syncedItems.push({
               type: cancelStatus === "rescheduled" ? "Rescheduled" : "Canceled",
-              clientName: evt.name || "",
+              clientName: inviteeFormName || "",
               eventName: evt.eventName || "",
               scheduledAt: evt.startTime || "",
               amount: null,
@@ -1201,7 +1213,7 @@ export default function App() {
               const sessIdx = sessions.findIndex(s => s.id === reg.sessionId);
               if (sessIdx >= 0) sessions[sessIdx] = { ...sessions[sessIdx], noShows: (sessions[sessIdx].noShows || 0) + 1 };
             }
-            syncedItems.push({ type: "No-show", clientName: evt.name || "", eventName: evt.eventName || "", scheduledAt: evt.startTime || "", amount: null, isNew: false });
+            syncedItems.push({ type: "No-show", clientName: inviteeFormName || "", eventName: evt.eventName || "", scheduledAt: evt.startTime || "", amount: null, isNew: false });
             processed++;
             ids.push(evt.id);
 
@@ -1215,7 +1227,7 @@ export default function App() {
                 sessions[sessIdx] = { ...sessions[sessIdx], noShows: sessions[sessIdx].noShows - 1 };
               }
             }
-            syncedItems.push({ type: "No-show cleared", clientName: evt.name || "", eventName: evt.eventName || "", scheduledAt: evt.startTime || "", amount: null, isNew: false });
+            syncedItems.push({ type: "No-show cleared", clientName: inviteeFormName || "", eventName: evt.eventName || "", scheduledAt: evt.startTime || "", amount: null, isNew: false });
             processed++;
             ids.push(evt.id);
           }

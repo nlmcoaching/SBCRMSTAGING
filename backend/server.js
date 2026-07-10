@@ -381,19 +381,52 @@ function verifySignature(req) {
   } catch { return false; }
 }
 
+/**
+ * Invitee display name from registration/billing form data only.
+ * Prefer payload.invitee.* when nested; otherwise the invitee resource itself
+ * (Calendly webhooks put invitee fields on payload). Never use scheduled_event
+ * name/description or other calendar-sync metadata.
+ */
+function resolveInviteeFormName(inviteeResource, scheduled = {}) {
+  if (!inviteeResource || typeof inviteeResource !== "object") return "";
+  const form = (inviteeResource.invitee && typeof inviteeResource.invitee === "object")
+    ? inviteeResource.invitee
+    : inviteeResource;
+  const fromParts = [form.first_name, form.last_name].filter(Boolean).join(" ").trim();
+  const raw = String(form.name || fromParts || "").trim();
+  if (!raw) return "";
+
+  // Safeguard: reject values that are clearly calendar event titles / descriptions
+  const eventTitle = String(scheduled?.name || "").trim();
+  const eventDesc = String(scheduled?.description || "").trim();
+  if (eventTitle && raw.toLowerCase() === eventTitle.toLowerCase()) {
+    console.warn("[WARN] Rejecting invitee name that matches scheduled_event.name (calendar sync contamination)");
+    return "";
+  }
+  if (eventDesc && raw.toLowerCase() === eventDesc.toLowerCase()) {
+    console.warn("[WARN] Rejecting invitee name that matches scheduled_event.description");
+    return "";
+  }
+  return raw;
+}
+
 // ── Helper: extract clean fields from Calendly payload ──
 function extractEvent(event, payload) {
-  const scheduled = payload.scheduled_event || {};
+  // Dedicated invitee object when present; Calendly invitee.* webhooks use payload as the invitee.
+  const invitee = (payload.invitee && typeof payload.invitee === "object")
+    ? payload.invitee
+    : payload;
+  const scheduled = payload.scheduled_event || invitee.scheduled_event || {};
   const location  = scheduled.location || {};
 
-  // Custom question answers
+  // Custom question answers (registration form)
   const answers = {};
-  (payload.questions_and_answers || []).forEach(({ question, answer }) => {
-    const key = question.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  (invitee.questions_and_answers || payload.questions_and_answers || []).forEach(({ question, answer }) => {
+    const key = String(question || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
     answers[key] = answer || "";
   });
 
-  const payment = payload.payment || null;
+  const payment = invitee.payment || payload.payment || null;
   const rawAmount = payment?.amount;
   const paymentAmount = rawAmount != null
     ? (typeof rawAmount === "number" ? rawAmount : parseFloat(rawAmount))
@@ -404,30 +437,30 @@ function extractEvent(event, payload) {
     receivedAt:           new Date().toISOString(),
     processed:            false,
     eventType:            event,                              // invitee.created | invitee.canceled | ...
-    // Invitee
-    name:                 payload.name || "",
-    email:                (payload.email || "").toLowerCase(),
-    phone:                answers.phone_number || answers.phone || payload.text_reminder_number || "",
-    timezone:             payload.timezone || "",
-    // Scheduled event
-    calendlyInviteeUri:   payload.uri || "",
+    // Invitee — name strictly from registration/billing invitee form (never event title)
+    name:                 resolveInviteeFormName(payload, scheduled),
+    email:                (invitee.email || payload.email || "").toLowerCase(),
+    phone:                answers.phone_number || answers.phone || invitee.text_reminder_number || payload.text_reminder_number || "",
+    timezone:             invitee.timezone || payload.timezone || "",
+    // Scheduled event (calendar metadata — kept separate from invitee name)
+    calendlyInviteeUri:   invitee.uri || payload.uri || "",
     calendlyEventUri:     scheduled.uri || "",
     calendlyEventTypeUri: scheduled.event_type || "",
     eventName:            scheduled.name || "",
     description:          scheduled.description || "",
     startTime:            scheduled.start_time || "",
     endTime:              scheduled.end_time  || "",
-    createdAt:            payload.created_at || "",
+    createdAt:            invitee.created_at || payload.created_at || "",
     locationType:         location.type || "",               // zoom, physical, custom, etc.
     locationJoinUrl:      location.join_url || "",
     locationAddress:      location.location || "",
     // Status
-    rescheduled:          payload.rescheduled || false,
-    cancelerType:         payload.cancellation?.canceler_type || "",
-    cancelReason:         payload.cancellation?.reason || "",
+    rescheduled:          invitee.rescheduled || payload.rescheduled || false,
+    cancelerType:         invitee.cancellation?.canceler_type || payload.cancellation?.canceler_type || "",
+    cancelReason:         invitee.cancellation?.reason || payload.cancellation?.reason || "",
     // Reschedule links (Calendly: new_invitee on the canceled side, old_invitee on the new booking)
-    newInviteeUri:        payload.new_invitee || "",
-    oldInviteeUri:        payload.old_invitee || "",
+    newInviteeUri:        invitee.new_invitee || payload.new_invitee || "",
+    oldInviteeUri:        invitee.old_invitee || payload.old_invitee || "",
     // Custom question answers (full map + common fields)
     doneBreathworkBefore: answers.have_you_done_breathwork_before || answers.breathwork_before || "",
     howHeard:             answers.how_did_you_hear_about_us || answers.how_did_you_find_us || "",
@@ -437,9 +470,9 @@ function extractEvent(event, payload) {
     reviewedContraindications: answers.have_you_reviewed_contraindications || answers.contraindications || "",
     customAnswers:        answers,
     // UTM / tracking
-    utmSource:            payload.tracking?.utm_source || "",
-    utmMedium:            payload.tracking?.utm_medium || "",
-    utmCampaign:          payload.tracking?.utm_campaign || "",
+    utmSource:            invitee.tracking?.utm_source || payload.tracking?.utm_source || "",
+    utmMedium:            invitee.tracking?.utm_medium || payload.tracking?.utm_medium || "",
+    utmCampaign:          invitee.tracking?.utm_campaign || payload.tracking?.utm_campaign || "",
     // Payment (Calendly Stripe / native checkout)
     paymentAmount:        paymentAmount != null && !Number.isNaN(paymentAmount) ? paymentAmount : null,
     paidAmount:           paymentAmount != null && !Number.isNaN(paymentAmount) ? paymentAmount : null,
@@ -871,7 +904,8 @@ function buildInviteeCreatedFromApi(invitee, scheduled) {
     processed:          false,
     eventType:          "invitee.created",
     source:             "calendly_api_pull",
-    name:               invitee.name || "",
+    // Invitee name from invitee resource only — never scheduled.name / description
+    name:               resolveInviteeFormName(invitee, scheduled),
     email:              (invitee.email || "").toLowerCase(),
     phone:              answers.phone_number || answers.phone || invitee.text_reminder_number || "",
     timezone:           invitee.timezone || "",
