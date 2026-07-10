@@ -45,6 +45,8 @@ It is built around two types of relationships you manage every day:
 
 Everything in the system connects back to these two lanes. The color coding and layout throughout the app reflect this split so you always know which side of your business you're working in.
 
+> **App updates:** Routine maintenance updates may improve how the CRM is organized internally, but they do not change the steps for logging in, finding records, or using the sections in this guide.
+
 ---
 
 ## Logging In

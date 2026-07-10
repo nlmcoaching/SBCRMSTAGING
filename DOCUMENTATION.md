@@ -2213,7 +2213,38 @@ simply-breathe-app/
 │   ├── sb-heart-wave.png        # Lock screen logo
 │   └── favicon.ico
 ├── src/
-│   ├── App.jsx                  # All components, logic, styles (single-file architecture)
+│   ├── App.jsx                  # Root state, routing, drawers, and shared views
+│   ├── components/
+│   │   ├── primitives.jsx       # Reusable presentational primitives
+│   │   └── appBridge.jsx        # Access to App-owned shared views kept in App.jsx
+│   ├── features/
+│   │   ├── auth/                # First-run setup and lock screen
+│   │   ├── admin/               # Admin settings and user management views
+│   │   ├── content/             # Content analytics
+│   │   ├── followup/            # Follow-up engine and template views
+│   │   ├── outreach/            # Outreach hub
+│   │   ├── referrals/           # Referral tree
+│   │   ├── revenue/             # Revenue, expense, and refund views
+│   │   ├── stripe/              # Payment reconciliation and charge details
+│   │   ├── templates/           # Template library
+│   │   ├── testimonials/        # Testimonial library
+│   │   └── workflows/           # Workflow builder and views
+│   ├── lib/
+│   │   ├── theme.js             # Colors, fonts, hexA
+│   │   ├── format.js            # money, dates, uid, cleanName
+│   │   ├── constants.js         # Domain enums, RBAC, FU steps/templates
+│   │   ├── crmSettings.js       # Configurable CRM lists
+│   │   ├── checklists.js        # Session/equipment checklist defs
+│   │   ├── templates.js         # Template var helpers, outreachScore
+│   │   ├── api.js               # API headers, Calendly helpers
+│   │   ├── email.js             # sendCrmEmail + email log helpers
+│   │   ├── store.js             # IndexedDB / localStorage facade
+│   │   ├── sec.js               # AES-GCM / PIN / session crypto
+│   │   ├── normalizeData.js     # CRM shape repair + studio heal
+│   │   ├── revenue.js           # Ledger, Stripe payment, LTV helpers
+│   │   └── seed.js              # Default SEED dataset
+│   ├── stripeMatching.js        # Stripe↔booking reconciliation
+│   ├── assets/logo.js           # Brand logo (base64)
 │   └── index.css                # Global CSS + responsive rules
 ├── vite.config.js               # CSP headers, Vite proxy (/api → localhost:3001)
 ├── package.json
@@ -2229,10 +2260,10 @@ All dollar amounts in the frontend are accumulated using **integer-cents math** 
 
 | Helper | Location | Description |
 |---|---|---|
-| `_c(v)` | `App.jsx` top-level | Converts a dollar float to integer cents: `Math.round(v * 100)`. Used as a building block everywhere amounts are summed. |
-| `calcNet(r)` | `App.jsx` top-level | Computes net for a revenue row in cents, then divides by 100: `(_c(gross) − _c(fee) − _c(split) − _c(cost) − _c(refunds)) / 100`. |
-| `sum(rows, k)` | `App.jsx` top-level | Sums a dollar field across an array in cents then divides: `rows.reduce((a,r) => a + _c(r[k]), 0) / 100`. |
-| `readAmt(rec, field)` | `App.jsx` top-level | Reads `amountGross` / `amountRefunded` from a Stripe payment record. Divides by 100 when `rec._centsFormat` is `true` (new integer-cents records); passes through dollar floats on legacy records. |
+| `_c(v)` | `src/lib/revenue.js` | Converts a dollar float to integer cents: `Math.round(v * 100)`. Used as a building block everywhere amounts are summed. |
+| `calcNet(r)` | `src/lib/revenue.js` | Computes net for a revenue row in cents, then divides by 100: `(_c(gross) − _c(fee) − _c(split) − _c(cost) − _c(refunds)) / 100`. |
+| `sum(rows, k)` | `App.jsx` (table helpers) | Sums a dollar field across an array in cents then divides: `rows.reduce((a,r) => a + _c(r[k]), 0) / 100`. |
+| `readAmt(rec, field)` | `src/lib/revenue.js` | Reads `amountGross` / `amountRefunded` from a Stripe payment record. Divides by 100 when `rec._centsFormat` is `true` (new integer-cents records); passes through dollar floats on legacy records. |
 
 **Stripe payment record format migration (2026-07):** `backend/stripe-handlers.js` `extractStripePayment` now stores `amountGross` and `amountRefunded` as **integer cents** (e.g. `1050` for $10.50) and sets `_centsFormat: true`. Older records already in the encrypted store remain as dollar floats. The `readAmt()` helper in the frontend handles both transparently; no re-migration of existing records is needed.
 
@@ -2240,15 +2271,15 @@ All dollar amounts in the frontend are accumulated using **integer-cents math** 
 
 | Constant | Purpose |
 |---|---|
-| `C` | Color palette (brand, surface, ink, line, etc.) |
-| `FONT` | Typography (display, body) |
-| `LANE` | B2C / B2B visual theme config |
-| `SEED` | Default data for first run |
-| `FIELDS` | Dynamic form schema per section |
-| `VIEWS` | View definitions (table, kanban, custom) per section |
-| `STORE_KEY_ENC` | `simplybreathe:data:v5:enc` — encrypted data key |
-| `SEC_META_KEY` | `sb:security:v1` — security/user config key |
-| `CALENDLY_BACKEND` | Resolved from `VITE_CALENDLY_BACKEND` env var — base URL for backend API (defaults to `""` for local dev, using Vite proxy) |
+| `C` | Color palette (brand, surface, ink, line, etc.) — `src/lib/theme.js` |
+| `FONT` | Typography (display, body) — `src/lib/theme.js` |
+| `LANE` | B2C / B2B visual theme config — `App.jsx` |
+| `SEED` | Default data for first run — `src/lib/seed.js` |
+| `FIELDS` | Dynamic form schema per section — `App.jsx` |
+| `VIEWS` | View definitions (table, kanban, custom) per section — `App.jsx` |
+| `STORE_KEY_ENC` | `simplybreathe:data:v5:enc` — encrypted data key (`src/lib/api.js`) |
+| `SEC_META_KEY` | `sb:security:v1` — security/user config key (`src/lib/api.js`) |
+| `CALENDLY_BACKEND` | Resolved from `VITE_CALENDLY_BACKEND` env var — base URL for backend API (defaults to `""` for local dev, using Vite proxy) — `src/lib/api.js` |
 
 ### State Management
 
@@ -2259,6 +2290,8 @@ All state is managed via React `useState` and `useMemo` in the root `App` compon
 | Component | Purpose |
 |---|---|
 | `App` | Root — auth gate, layout, data state |
+| `primitives.jsx` | Shared `BreathMark`, `Stat`, `Panel`, `Row`, `Dot`, `Tag`, `MiniChip`, `DateChip`, and `Empty` presentation components |
+| `features/*` | Leaf feature modules re-export their public components through each folder's `index.js`; feature modules import shared code from `lib` and never import `App.jsx` |
 | `LockScreen` | PIN login, user tile selection |
 | `Today` | Dashboard with stats, alerts, NBA |
 | `ActionEmailModal` | Relationship NBA email compose — template dropdown, pre-filled recipient, editable subject/body, send via Resend |
@@ -2288,7 +2321,7 @@ All state is managed via React `useState` and `useMemo` in the root `App` compon
 | `AlertsPanel` | Smart alert list with severity and actions |
 | `ImportModal` | CSV import with parsing and validation |
 
-### Security Utilities (`Sec` object)
+### Security Utilities (`Sec` object in `src/lib/sec.js`)
 
 ```js
 Sec.hashPin(pin)                          // SHA-256 PIN hash
