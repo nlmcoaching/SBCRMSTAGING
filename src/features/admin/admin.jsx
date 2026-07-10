@@ -7,6 +7,7 @@ import { AGREEMENT_BLOB_PREFIX, SEC_META_KEY, apiHeaders, calendlyApiUrl, safeRe
 import { store } from "../../lib/store.js";
 import { Sec } from "../../lib/sec.js";
 import { DEFAULT_CRM_SETTINGS } from "../../lib/crmSettings.js";
+import { CRM_ARRAY_KEYS, normalizeCrmData } from "../../lib/normalizeData.js";
 import { Stat } from "../../components/primitives.jsx";
 import { AppComponent } from "../../components/appBridge.jsx";
 
@@ -270,11 +271,12 @@ const EMAIL_STATUS_COLOR = {
   unknown:   C.ink3,
 };
 
-export function EmailLogsView({ data, setData }) {
+export function EmailLogsView({ data, setData, currentUser }) {
   const logs = [...(data.emailLog || [])].reverse();
   const [checking, setChecking] = useState({});
   const [expanded, setExpanded] = useState(null);
   const [clearConfirm, setClearConfirm] = useState(false);
+  const canClearLog = currentUser?.role === "Owner";
   const mountedRef = useRef(true);
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
 
@@ -328,7 +330,7 @@ export function EmailLogsView({ data, setData }) {
               <RefreshCw size={13} /> Refresh all statuses
             </button>
           )}
-          {logs.length > 0 && (
+          {canClearLog && logs.length > 0 && (
             <button onClick={clearLog} style={{ padding: "7px 16px", borderRadius: 8, border: `1px solid ${hexA("#C0392B", 0.3)}`, background: hexA("#C0392B", 0.05), fontSize: 13, fontWeight: 600, color: "#C0392B", cursor: "pointer" }}>
               Clear log
             </button>
@@ -435,12 +437,16 @@ export function EmailLogsView({ data, setData }) {
           })}
         </div>
       )}
-      {clearConfirm && (
+      {canClearLog && clearConfirm && (
         <AppComponent name="ConfirmModal"
-          message="Clear the entire email log? This cannot be undone."
+          message="Clear the entire email log? This cannot be undone. Owner only."
           okLabel="Clear log"
           danger
-          onOk={() => { setData(d => ({ ...d, emailLog: [] })); setClearConfirm(false); }}
+          onOk={() => {
+            if (currentUser?.role !== "Owner") { setClearConfirm(false); return; }
+            setData(d => ({ ...d, emailLog: [] }));
+            setClearConfirm(false);
+          }}
           onCancel={() => setClearConfirm(false)}
         />
       )}
@@ -486,6 +492,7 @@ export function ResetToProductionView({ data, setData, currentUser }) {
   const [pinValue, setPinValue] = useState("");
   const [pinErr, setPinErr]     = useState("");
   const [verifying, setVerifying] = useState(false);
+  const isOwner = currentUser?.role === "Owner";
 
   const counts = RESET_WIPE_TABLES.reduce((acc, { key }) => {
     acc[key] = (data[key] || []).length;
@@ -493,7 +500,20 @@ export function ResetToProductionView({ data, setData, currentUser }) {
   }, {});
   const total = Object.values(counts).reduce((s, n) => s + n, 0);
 
+  if (!isOwner) {
+    return (
+      <div style={{ padding: "40px 24px", textAlign: "center", maxWidth: 480, margin: "0 auto" }}>
+        <Lock size={36} color={C.ink3} style={{ marginBottom: 14 }} />
+        <div style={{ fontSize: 16, fontWeight: 700, color: C.ink, marginBottom: 8 }}>Owner access required</div>
+        <div style={{ fontSize: 13.5, color: C.ink2, lineHeight: 1.6 }}>
+          Reset to Production permanently wipes CRM data. Only the Owner account can run this action.
+        </div>
+      </div>
+    );
+  }
+
   const executeReset = async () => {
+    if (currentUser?.role !== "Owner") throw new Error("Owner role required.");
     let queueCleared = false;
     try {
       const res = await fetch(calendlyApiUrl("/api/integration/clear-queues"), {
@@ -522,6 +542,7 @@ export function ResetToProductionView({ data, setData, currentUser }) {
   };
 
   const handleVerifyPin = async () => {
+    if (currentUser?.role !== "Owner") { setPinErr("Owner role required."); return; }
     if (!pinValue) { setPinErr("Enter your PIN."); return; }
     setVerifying(true); setPinErr("");
 
@@ -537,6 +558,8 @@ export function ResetToProductionView({ data, setData, currentUser }) {
 
     // Phase 2 — execute reset; failures here are reset errors, not PIN errors
     try {
+      // Re-check role after await — session may have changed mid-flow
+      if (currentUser?.role !== "Owner") throw new Error("Owner role required.");
       await executeReset();
     } catch (e) {
       setPinErr(`Reset failed: ${e?.message || "unexpected error"}. The reset may be partially complete — review CRM data before retrying.`);
@@ -1233,10 +1256,12 @@ export function AdminView({ tab, data, setData, secUsers, currentUser, today, cr
         <JourneyDescriptionsView settings={crmSettings} onSave={onSaveSettings} />
       )}
       {tab === "email-logs" && (
-        <EmailLogsView data={data} setData={setData} />
+        <EmailLogsView data={data} setData={setData} currentUser={currentUser} />
       )}
       {tab === "reset" && (
-        <ResetToProductionView data={data} setData={setData} currentUser={currentUser} />
+        currentUser?.role === "Owner"
+          ? <ResetToProductionView data={data} setData={setData} currentUser={currentUser} />
+          : <div style={{ padding: "40px 24px", textAlign: "center", color: C.ink2, fontSize: 14 }}>Owner access required to reset production data.</div>
       )}
       {exportConfirm && (
         <AppComponent name="ConfirmModal"

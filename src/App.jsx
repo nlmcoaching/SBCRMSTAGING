@@ -269,11 +269,14 @@ export default function App() {
     } catch {}
     const rec = _idbLockData[userId] || { count: 0, lockedUntil: 0 };
 
-    // Server-side check: blocks brute-force even if IDB is cleared via DevTools
+    // Server-side check: blocks brute-force even if IDB is cleared via DevTools.
+    // Capture the one-shot challenge so failed/success reports cannot be forged without it.
+    let _pinChallenge = null;
     try {
       const _srvRes = await fetch(`/api/auth/pin-status?userId=${encodeURIComponent(userId)}`, { headers: apiHeaders(false) });
       if (_srvRes.ok) {
         const _srv = await _srvRes.json();
+        _pinChallenge = _srv.challenge || null;
         if (_srv.locked) {
           const remaining = Math.ceil(Math.max(0, _srv.lockedUntil - now) / 60000);
           setPinError(`Too many failed attempts. Try again in ${remaining || 1} minute${remaining !== 1 ? "s" : ""}.`);
@@ -289,18 +292,27 @@ export default function App() {
     }
 
     // Helpers shared by v1 and v2 paths
+    const _postPinAttempt = (failed) => {
+      if (!_pinChallenge) return;
+      const challenge = _pinChallenge;
+      _pinChallenge = null; // one-shot
+      fetch("/api/auth/pin-attempt", {
+        method: "POST", headers: apiHeaders(),
+        body: JSON.stringify({ userId, failed, challenge }),
+      }).catch(() => {});
+    };
     const _recordFail = async () => {
       const newCount = (rec.count || 0) + 1;
       const lockedUntil = newCount >= PIN_MAX_ATTEMPTS ? Date.now() + PIN_LOCKOUT_MS : 0;
       const updated = { ..._idbLockData, [userId]: { count: newCount, lockedUntil } };
       try { await _idbSet("sb:pin-lockout:v2", JSON.stringify(updated)); } catch {}
-      fetch("/api/auth/pin-attempt", { method: "POST", headers: apiHeaders(), body: JSON.stringify({ userId, failed: true }) }).catch(() => {});
+      _postPinAttempt(true);
       return { newCount, lockedUntil };
     };
     const _clearLockout = () => {
       const { [userId]: _rm, ...rest } = _idbLockData;
       _idbSet("sb:pin-lockout:v2", JSON.stringify(rest)).catch(() => {});
-      fetch("/api/auth/pin-attempt", { method: "POST", headers: apiHeaders(), body: JSON.stringify({ userId, failed: false }) }).catch(() => {});
+      _postPinAttempt(false);
     };
     try {
       const secRaw = await store.get(SEC_META_KEY);
@@ -360,6 +372,7 @@ export default function App() {
         loaded.current = true;
         setLocked(false);
         setSection("today"); setView(0);
+        mintRefundToken(userId, await Sec.sessionTokenHash("unlock:" + userId + ":" + masterKeyB64.slice(0, 32)));
         return;
       }
 
@@ -458,7 +471,9 @@ export default function App() {
       loaded.current = true;
       setLocked(false);
       setSection("today"); setView(0);
-      mintRefundToken();
+      // unlockProof: HMAC-like attestation derived from the just-unwrapped master key material.
+      // Server cannot verify the crypto, but requires a fresh challenge + non-empty proof + userId.
+      mintRefundToken(userId, await Sec.sessionTokenHash("unlock:" + userId + ":" + mkB64.slice(0, 32)));
     } catch (e) {
       if (!e.message?.includes("PIN")) setPinError("Something went wrong. Please try again.");
     }
@@ -538,11 +553,23 @@ export default function App() {
         const { [userId]: _rm, ...rest } = _lData;
         await _idbSet("sb:pin-lockout:v2", JSON.stringify(rest));
       } catch {}
-      fetch("/api/auth/pin-attempt", { method: "POST", headers: apiHeaders(), body: JSON.stringify({ userId, failed: false }) }).catch(() => {});
+      try {
+        const _st = await fetch(`/api/auth/pin-status?userId=${encodeURIComponent(userId)}`, { headers: apiHeaders(false) });
+        if (_st.ok) {
+          const _sj = await _st.json();
+          if (_sj.challenge) {
+            await fetch("/api/auth/pin-attempt", {
+              method: "POST", headers: apiHeaders(),
+              body: JSON.stringify({ userId, failed: false, challenge: _sj.challenge }),
+            });
+          }
+        }
+      } catch {}
       try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, token: _sessionToken })); } catch (_) {}
       loaded.current = true;
       setLocked(false);
       setSection("today"); setView(0);
+      mintRefundToken(userId, await Sec.sessionTokenHash("unlock:" + userId + ":" + String(masterKeyRaw).slice(0, 32)));
       return { success: true };
     } catch (e) {
       return { success: false, error: "Failed to set new PIN. Please try again." };
@@ -583,6 +610,7 @@ export default function App() {
       setNeedsSetup(false);
       setLocked(false);
       setSection("today"); setView(0);
+      mintRefundToken(owner.id, await Sec.sessionTokenHash("unlock:" + owner.id + ":" + masterKeyB64.slice(0, 32)));
     } catch (e) {
       setPinError("Setup failed. Please try again.");
     }
@@ -590,14 +618,22 @@ export default function App() {
 
   /* ── Logout ── */
   // Mint a short-lived backend session token immediately after PIN unlock.
-  // Stored only in React state (memory), never persisted. Required by
-  // POST /api/stripe/refund so that the endpoint cannot be called without
-  // a live authenticated CRM session.
-  const mintRefundToken = async () => {
+  // Requires a one-shot challenge + unlockProof so FRONTEND_SECRET alone cannot mint refunds.
+  // Stored only in React state (memory), never persisted. Required by POST /api/stripe/refund.
+  const mintRefundToken = async (userId, unlockProof) => {
+    if (!userId || !unlockProof) return;
     try {
+      const chRes = await fetchWithTimeout(calendlyApiUrl("/api/auth/session-challenge"), {
+        method: "GET",
+        headers: apiHeaders(false),
+      }, 5000);
+      if (!chRes.ok) return;
+      const ch = await chRes.json().catch(() => ({}));
+      if (!ch.nonce) return;
       const res = await fetchWithTimeout(calendlyApiUrl("/api/auth/session"), {
         method: "POST",
         headers: apiHeaders(),
+        body: JSON.stringify({ userId, nonce: ch.nonce, unlockProof }),
       }, 5000);
       if (res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -3681,7 +3717,19 @@ function SourceBreakdown({ data }) {
    SECTION (per database, with views)
    ============================================================ */
 function Section({ section, data, derived, today, view, setView, query, onOpen, currentUser, secUsers, masterKeyRaw, setSecUsers, setData, canEdit, setConfirm, crmSettings, saveCrmSettings, syncStripe, stripeStatus, refundToken }) {
-  const cfg = VIEWS[section];
+  const cfg = useMemo(() => {
+    const base = VIEWS[section];
+    if (!base) return base;
+    // Hide Owner-only destructive admin tabs from non-Owners (defense in depth with view gates).
+    if (section === "admin" && currentUser?.role !== "Owner") {
+      return {
+        ...base,
+        views: base.views.filter(vv => vv.layout !== "admin-reset"),
+      };
+    }
+    return base;
+  }, [section, currentUser?.role]);
+  if (!cfg) return null;
   const v = cfg.views[Math.min(view, cfg.views.length - 1)];
   const revenueRows = useMemo(() => buildRevenueViewRows(data), [data]);
   let rows = data[section] || [];

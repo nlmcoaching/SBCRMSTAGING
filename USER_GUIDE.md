@@ -1225,8 +1225,8 @@ A complete log of every email attempted from the CRM — including successful se
 **Viewing the email content:**
 - Click any row in the table to expand it and see the full subject line and message body that was sent, along with the send timestamp and Resend message ID.
 
-**Clearing the log:**
-- Click **Clear log** to remove all entries. This does not unsend any emails — it only clears the history display.
+**Clearing the log (Owner only):**
+- Owners can click **Clear log** to remove all entries. This does not unsend any emails — it only clears the history display. Other roles can view and refresh delivery status but cannot clear the log.
 
 ### Journey Descriptions Tab
 
@@ -1252,7 +1252,7 @@ This is where you manage the list of breathwork journeys available in session dr
 
 **Navigate to:** Sidebar → Admin → Reset to Production tab
 
-This is a one-time action used to wipe all test and sample data before going live with real clients, sessions, and studio partners.
+**Owner only.** This tab is hidden for other roles. It is a one-time action used to wipe all test and sample data before going live with real clients, sessions, and studio partners.
 
 > **Warning:** This permanently deletes data. Export a backup from the Storage & Backup tab first.
 
@@ -1266,9 +1266,9 @@ This is a one-time action used to wipe all test and sample data before going liv
 
 1. **Review** — You'll see exactly how many records will be deleted and what will be preserved. Click "I understand — continue to reset".
 2. **Confirm** — Type the word `RESET` in the text field, then click "Continue →".
-3. **Enter your PIN** — Re-enter your admin PIN to authorize the wipe. Click "Wipe records — go live".
+3. **Enter your PIN** — Re-enter your Owner PIN to authorize the wipe. Click "Wipe records — go live".
 
-Only after all three steps are completed will any data be deleted.
+Only after all three steps are completed will any data be deleted. Non-Owner accounts cannot open or run this flow.
 
 ---
 
@@ -1424,7 +1424,7 @@ Go to Admin → Email Logs. Find the email in the list — the **Delivery Status
 Yes — completed items stay visible in the Due Today list with a green "✓ Email sent" badge rather than disappearing. This lets you see at a glance what has been handled vs what still needs attention. Items marked complete won't re-trigger reminders.
 
 **I want to start using the CRM with real clients and clear out the test data. How?**
-First, download a backup from Admin → Storage & Backup → Download Backup. Then go to Admin → Reset to Production and follow the three-step confirmation process (review, type RESET, enter your PIN). This wipes all test client/session/payment records while preserving templates, content calendar posts, testimonials, outreach records, settings, and user accounts, and clears Calendly/Stripe webhook queues so test data does not re-import.
+First, download a backup from Admin → Storage & Backup → Download Backup. Then, as Owner, go to Admin → Reset to Production and follow the three-step confirmation process (review, type RESET, enter your PIN). This wipes all test client/session/payment records while preserving templates, content calendar posts, testimonials, outreach records, settings, and user accounts, and clears Calendly/Stripe webhook queues so test data does not re-import.
 
 **My email shows in the Email Logs but the delivery status is still "unknown". What does that mean?**
 It means the system hasn't received a delivery confirmation from the email service yet. This can happen if the check ran too soon after sending. Open Admin → Email Logs and click **Refresh all statuses** to pull the latest delivery information.

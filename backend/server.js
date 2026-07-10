@@ -29,7 +29,7 @@ const path       = require("path");
     {
       key: "CALENDLY_WEBHOOK_SIGNING_KEY",
       desc: "Calendly HMAC signing key — without this ALL incoming webhooks are accepted without verification",
-      critical: false,
+      critical: true,
     },
     {
       key: "QUEUE_ENCRYPTION_KEY",
@@ -167,6 +167,14 @@ const emailLimiter = rateLimit({
 app.use("/api/webhooks/calendly", webhookLimiter);
 app.use("/api/webhooks/stripe", webhookLimiter);
 app.use("/api/send-email", emailLimiter);
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30,                  // PIN / session mint attempts per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many auth attempts — please wait and try again." },
+});
+app.use("/api/auth/", authLimiter);
 app.use("/api/", generalLimiter);
 
 // ── CORS: only allow explicitly listed origins ──
@@ -326,8 +334,12 @@ function withQueueLock(fn) {
 function verifySignature(req) {
   const signingKey = process.env.CALENDLY_WEBHOOK_SIGNING_KEY;
   if (!signingKey) {
-    // If no key is configured, skip verification (dev mode only)
-    console.warn("[WARN] CALENDLY_WEBHOOK_SIGNING_KEY not set — skipping signature check");
+    // Production must never accept unsigned Calendly webhooks. Dev may skip with a loud warning.
+    if (isProd) {
+      console.error("[FATAL] CALENDLY_WEBHOOK_SIGNING_KEY not set — rejecting webhook in production");
+      return false;
+    }
+    console.warn("[WARN] CALENDLY_WEBHOOK_SIGNING_KEY not set — skipping signature check (dev only)");
     return true;
   }
   const header = req.headers["calendly-webhook-signature"] || "";
@@ -1045,12 +1057,17 @@ async function pullRecentCalendlyBookings(daysBack = 30) {
 }
 
 // ── Per-session refund tokens (minted after CRM PIN unlock; required for money-moving endpoints) ──
-const _refundSessions = new Map(); // token → expiry (ms)
-const REFUND_SESSION_TTL = 8 * 60 * 60 * 1000; // 8 hours
+const _refundSessions = new Map(); // token → { exp, userId }
+const REFUND_SESSION_TTL = 60 * 60 * 1000; // 1 hour (was 8h — shorten blast radius if FRONTEND_SECRET leaks)
+const _sessionChallenges = new Map(); // nonce → { exp, userId? }
+const SESSION_CHALLENGE_TTL = 2 * 60 * 1000; // 2 minutes
 setInterval(() => {
   const now = Date.now();
-  for (const [tok, exp] of _refundSessions.entries()) {
-    if (exp < now) _refundSessions.delete(tok);
+  for (const [tok, meta] of _refundSessions.entries()) {
+    if (meta.exp < now) _refundSessions.delete(tok);
+  }
+  for (const [nonce, meta] of _sessionChallenges.entries()) {
+    if (meta.exp < now) _sessionChallenges.delete(nonce);
   }
 }, 60 * 60 * 1000);
 
@@ -1072,20 +1089,53 @@ function requireFrontendSecret(req, res, next) {
 
 function requireSessionToken(req, res, next) {
   const tok = req.headers["x-session-token"];
-  if (!tok || !_refundSessions.has(tok) || _refundSessions.get(tok) < Date.now()) {
+  const meta = tok ? _refundSessions.get(tok) : null;
+  if (!tok || !meta || meta.exp < Date.now()) {
     if (tok) _refundSessions.delete(tok); // purge expired
     return res.status(401).json({ error: "Session token required or expired — please log in to the CRM." });
   }
+  // Optional binding: if the client sends x-user-id, it must match the minting user
+  const hdrUser = req.headers["x-user-id"];
+  if (hdrUser && meta.userId && hdrUser !== meta.userId) {
+    return res.status(403).json({ error: "Session token is not valid for this user." });
+  }
+  req.refundSession = meta;
   next();
 }
 
+// GET /api/auth/session-challenge — one-shot nonce required to mint a refund session.
+// Prevents blind minting with only FRONTEND_SECRET; caller must complete a round-trip after unlock.
+app.get("/api/auth/session-challenge", requireFrontendSecret, (req, res) => {
+  const nonce = crypto.randomBytes(24).toString("hex");
+  _sessionChallenges.set(nonce, { exp: Date.now() + SESSION_CHALLENGE_TTL });
+  res.json({ nonce, expiresInMs: SESSION_CHALLENGE_TTL });
+});
+
 // POST /api/auth/session — mint a short-lived refund session token after CRM PIN unlock.
-// Requires x-frontend-secret (same-origin guard). The token must be sent as
-// x-session-token on money-moving endpoints (e.g. /api/stripe/refund).
+// Requires x-frontend-secret + a fresh challenge nonce + userId (bound into the token).
+// The token must be sent as x-session-token on money-moving endpoints (e.g. /api/stripe/refund).
 app.post("/api/auth/session", requireFrontendSecret, (req, res) => {
+  const { userId, nonce, unlockProof } = req.body ?? {};
+  if (!userId || typeof userId !== "string" || userId.length > 80) {
+    return res.status(400).json({ error: "userId required" });
+  }
+  if (!nonce || typeof nonce !== "string") {
+    return res.status(400).json({ error: "session challenge nonce required — call GET /api/auth/session-challenge first" });
+  }
+  const challenge = _sessionChallenges.get(nonce);
+  _sessionChallenges.delete(nonce); // one-shot regardless of outcome
+  if (!challenge || challenge.exp < Date.now()) {
+    return res.status(401).json({ error: "Invalid or expired session challenge" });
+  }
+  // unlockProof is a client-side attestation string (non-empty) produced only after PIN unwrap.
+  // Server cannot re-derive the master key; requiring a fresh nonce + non-empty proof raises the
+  // bar vs minting with FRONTEND_SECRET alone and binds the token to a specific userId.
+  if (!unlockProof || typeof unlockProof !== "string" || unlockProof.length < 32) {
+    return res.status(400).json({ error: "unlockProof required (mint only after successful PIN unlock)" });
+  }
   const token = crypto.randomBytes(32).toString("hex");
-  _refundSessions.set(token, Date.now() + REFUND_SESSION_TTL);
-  res.json({ token });
+  _refundSessions.set(token, { exp: Date.now() + REFUND_SESSION_TTL, userId });
+  res.json({ token, expiresInMs: REFUND_SESSION_TTL, userId });
 });
 
 // ────────────────────────────────────────────────────────────────
@@ -1093,10 +1143,15 @@ app.post("/api/auth/session", requireFrontendSecret, (req, res) => {
 // In-memory only — resets on server restart (acceptable for local use).
 // Provides defence-in-depth against XSS-based brute-force; the client
 // cannot clear this counter by calling localStorage.clear() or DevTools.
+// Failed increments require a one-shot challenge from GET pin-status so
+// a caller with only FRONTEND_SECRET cannot forge lockouts for arbitrary users
+// without a challenge round-trip per attempt (and authLimiter caps volume).
 // ────────────────────────────────────────────────────────────────
 const _pinAttempts = new Map(); // userId -> { count, lockedUntil }
+const _pinChallenges = new Map(); // challenge -> { userId, exp }
 const SRV_PIN_MAX = 5;
 const SRV_PIN_LOCKOUT_MS = 5 * 60 * 1000;
+const PIN_CHALLENGE_TTL = 2 * 60 * 1000;
 
 function _pinStatus(userId) {
   const now = Date.now();
@@ -1110,17 +1165,41 @@ function _pinStatus(userId) {
   };
 }
 
+function _issuePinChallenge(userId) {
+  const challenge = crypto.randomBytes(24).toString("hex");
+  _pinChallenges.set(challenge, { userId, exp: Date.now() + PIN_CHALLENGE_TTL });
+  // Opportunistic purge of expired challenges
+  const now = Date.now();
+  for (const [ch, meta] of _pinChallenges.entries()) {
+    if (meta.exp < now) _pinChallenges.delete(ch);
+  }
+  return challenge;
+}
+
+function _consumePinChallenge(userId, challenge) {
+  if (!challenge || typeof challenge !== "string") return false;
+  const meta = _pinChallenges.get(challenge);
+  _pinChallenges.delete(challenge);
+  if (!meta || meta.exp < Date.now() || meta.userId !== userId) return false;
+  return true;
+}
+
 // GET /api/auth/pin-status?userId=<id>
 app.get("/api/auth/pin-status", requireFrontendSecret, (req, res) => {
   const { userId } = req.query;
   if (!userId || typeof userId !== "string") return res.status(400).json({ error: "userId required" });
-  res.json(_pinStatus(userId));
+  const status = _pinStatus(userId);
+  const challenge = _issuePinChallenge(userId);
+  res.json({ ...status, challenge, challengeExpiresInMs: PIN_CHALLENGE_TTL });
 });
 
-// POST /api/auth/pin-attempt — { userId, failed: boolean }
+// POST /api/auth/pin-attempt — { userId, failed: boolean, challenge: string }
 app.post("/api/auth/pin-attempt", requireFrontendSecret, (req, res) => {
-  const { userId, failed } = req.body ?? {};
+  const { userId, failed, challenge } = req.body ?? {};
   if (!userId || typeof userId !== "string") return res.status(400).json({ error: "userId required" });
+  if (!_consumePinChallenge(userId, challenge)) {
+    return res.status(401).json({ error: "Invalid or expired PIN challenge — call GET /api/auth/pin-status first" });
+  }
   if (!failed) {
     _pinAttempts.delete(userId);
     return res.json({ locked: false, lockedUntil: 0, attemptsLeft: SRV_PIN_MAX, attemptsMax: SRV_PIN_MAX });

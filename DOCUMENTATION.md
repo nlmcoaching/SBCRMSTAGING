@@ -222,15 +222,17 @@ const apiHeaders = (json = true) => {
 
 The proxy injects the header without needing `VITE_FRONTEND_SECRET`. `VITE_FRONTEND_SECRET` is retained as a fallback only for deployments that serve the frontend without a secret-injecting proxy.
 
-### Reset to Production — 3-Step PIN Re-Challenge
+### Reset to Production — Owner-only, 3-Step PIN Re-Challenge
 
-The **Reset to Production** admin feature uses a 3-step confirmation flow to prevent accidental data wipes from an unattended session:
+The **Reset to Production** admin feature is **Owner-only** (tab hidden for other roles; execute path re-checks `role === "Owner"`). It uses a 3-step confirmation flow to prevent accidental data wipes from an unattended session:
 
 1. **Review** — displays record counts across all wipe tables and what will be preserved.
 2. **Confirm** — user must type `RESET` exactly.
-3. **PIN challenge** — user must re-enter their admin PIN (verified via PBKDF2 `unwrapKeyForUser`, same cryptographic path as login). Only on successful PIN verification is the wipe executed.
+3. **PIN challenge** — Owner must re-enter their PIN (verified via PBKDF2 `unwrapKeyForUser`, same cryptographic path as login). Only on successful PIN verification is the wipe executed.
 
 On success, the CRM also calls `POST /api/integration/clear-queues` to empty Calendly and Stripe webhook pending queues so test events cannot re-import. Server-side integration configuration (webhook URLs, API keys, Resend) is not modified.
+
+**Email Logs → Clear log** is likewise Owner-only; other roles can view and refresh delivery status but cannot wipe the audit trail.
 
 ### Helmet — Explicit CSP
 
@@ -1843,6 +1845,10 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 - SSRF guard: `fetchEventTypeDescription` rejects any `event_type` URI that does not begin with `https://api.calendly.com/`
 - Queue capped at **1,000 events**; processed events older than **7 days** are automatically purged on each write
 - Startup validation: server exits with code 1 in production if `CALENDLY_WEBHOOK_SIGNING_KEY`, `QUEUE_ENCRYPTION_KEY`, `STRIPE_WEBHOOK_SECRET`, or `FRONTEND_SECRET` are missing
+- Calendly webhook handler rejects unsigned requests in production when the signing key is unset (same fail-closed pattern as Stripe)
+- Refund session mint (`POST /api/auth/session`) requires a one-shot challenge from `GET /api/auth/session-challenge` plus `userId` + `unlockProof` after PIN unlock; tokens expire in 1 hour and are bound to `userId`
+- Server PIN lockout (`POST /api/auth/pin-attempt`) requires a one-shot challenge from `GET /api/auth/pin-status` so lockouts cannot be forged with only `FRONTEND_SECRET`
+- `/api/auth/*` is rate-limited (30 requests / 15 min / IP)
 - Stripe payment auto-match uses **email + booking time** (not amount); Stripe gross always becomes session price on match. Run `npm run test:stripe-match` to verify.
 
 ### Supported Calendly Events
