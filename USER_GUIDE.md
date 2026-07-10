@@ -558,6 +558,8 @@ At the bottom of the sidebar you'll see a **Calendly sync status indicator**. Th
 
 Each sync also **pulls recent bookings and cancellations directly from Calendly** (not just webhooks), so new bookings — and any cancellations — appear even if a webhook was missed while ngrok or the backend was offline. Cancellations are checked first on every sync, so a session canceled in Calendly is marked canceled in the CRM (and moves to the Cancellations and Reschedules view) on the very next sync, automatically. This works for **both** a one-on-one virtual session that someone cancels **and** a single participant who drops out of a **studio group class** (where the class itself stays on the calendar but that person's spot is freed) — both kinds of cancellation now come through reliably.
 
+Recent bookings (created in the last few days) are also **re-checked** on sync so they can reappear if they were acknowledged but missing from your local CRM data. Fake signature-test bookings (names like “Sig Test” with TEST links) are ignored and will not be imported.
+
 Once a booking is marked **Canceled** or **Rescheduled** in the CRM — whether that happened automatically from Calendly **or** because you changed the status by hand — the automated sync will **never flip it back to booked** or bring the session back. Future syncs simply skip that booking, so your manual status changes always stick. (This is true even if the session is still showing as active in Calendly.) The cancellation, along with its date and reason, stays put.
 
 When a **virtual** session is canceled or rescheduled, it is automatically **removed from the Session Calendar and the session list** (since virtual sessions are one-on-one). You'll still see the canceled/rescheduled booking on the **Cancellations and Reschedules** tab. **Studio** sessions are group events, so canceling one person does not remove the session — instead, that person's booking is **removed from the session's Bookings tab**, which lowers the registered count and frees up a spot for someone else to book. The cancellation is still recorded on the Cancellations and Reschedules tab.
@@ -1330,6 +1332,8 @@ After logging out, the login screen is shown and your data is locked until the c
 This launches the backend, frontend, and ngrok tunnel all at once. Everything the CRM needs will be running before you open your browser.
 
 > **Services stay running after you close the terminal.** `start.bat` / `start.ps1` launch the backend and frontend as independent background processes — closing the PowerShell window or Cursor IDE will not stop them. They keep running until you restart your computer or manually kill the processes. If you need a clean restart, just run `start.bat` again — it automatically stops any existing services on ports 3001 and 5173 before starting fresh.
+
+> **Yellow ngrok warning:** When you run `start.ps1`, you may see a warning that ngrok is starting while the backend is not in production mode. That is normal for local use — it reminds you that the public tunnel is exposing your local (dev) backend. Startup continues; you do not need to change anything for day-to-day work.
 
 **Start every day on the Today dashboard.**
 The Next Best Actions list is ranked automatically. Work through it top to bottom and your most important business tasks are handled.

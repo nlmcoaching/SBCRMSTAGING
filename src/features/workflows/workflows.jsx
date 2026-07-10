@@ -22,7 +22,7 @@ export function buildWorkflows(data, today) {
   const cFirst   = clients.filter(c => c.clientType === "First-time attendee" || (c.sessionsAttended === 1 && !["Advocate","Referral source"].includes(c.clientType)));
   const cRepeat  = clients.filter(c => ["Repeat attendee","Member","Private client","Corporate attendee","Virtual attendee"].includes(c.clientType) || c.sessionsAttended >= 3);
   const cAdvocate= clients.filter(c => ["Advocate","Referral source"].includes(c.clientType));
-  const cLostOrDormant = clients.filter(c => c.clientType === "Past client needing reactivation");
+  const cLostOrDormant = clients.filter(c => c.clientType === "Past client — reactivate");
 
   /* ── 2. Studio Pipeline ── */
   const TARGET_STAGES  = ["Target identified","Researched","Initial outreach sent","Follow-up needed"];
@@ -106,7 +106,7 @@ export function buildWorkflows(data, today) {
         { id: "partner", label: "Recurring Partner", color: "#4A8C6F",  count: pPartner.length, value: pPartner.reduce((s,p)=>s+(p.revenuePotential||0),0), records: pPartner, tip: "Active recurring studio" },
       ],
       kpis: [
-        { label: "Pipeline value", value: "$" + money(pPipeVal) },
+        { label: "Pipeline value", value: money(pPipeVal) },
         { label: "Stuck / overdue", value: pStuck.length },
         { label: "Active partners", value: pPartner.length },
       ],
@@ -129,7 +129,7 @@ export function buildWorkflows(data, today) {
         { id: "closed", label: "Closed Out",   color: "#4A8C6F",  count: sClosed.length,     value: null, records: sClosed,     tip: "Revenue reconciled and closed" },
       ],
       kpis: [
-        { label: "Revenue delivered", value: "$" + money(sRevTotal) },
+        { label: "Revenue delivered", value: money(sRevTotal) },
         { label: "Needing follow-up", value: sDelivered.filter(s => !s.followUpSent).length },
         { label: "Sessions past date, stuck", value: sStuck.length },
       ],
@@ -153,8 +153,8 @@ export function buildWorkflows(data, today) {
         { id: "lost",    label: "Declined / Lost",color: "#C0392B", count: oLost.length,     value: oLost.reduce((s,o)=>s+(o.price||0),0), records: oLost, tip: "Declined or expired" },
       ],
       kpis: [
-        { label: "Open pipeline", value: "$" + money(oPipeVal) },
-        { label: "Won revenue", value: "$" + money(oWonVal) },
+        { label: "Open pipeline", value: money(oPipeVal) },
+        { label: "Won revenue", value: money(oWonVal) },
         { label: "Conversion rate", value: (oWon.length + oLost.length) > 0 ? Math.round(oWon.length / (oWon.length + oLost.length) * 100) + "%" : "—" },
       ],
       nextAction: oStuck.length > 0 ? `Follow up on ${oStuck.length} overdue offer${oStuck.length > 1 ? "s" : ""}` : oFollowUp.length > 0 ? `${oFollowUp.length} offer${oFollowUp.length > 1 ? "s" : ""} need follow-up today` : null,
@@ -175,7 +175,7 @@ export function buildWorkflows(data, today) {
         { id: "purchased", label: "Purchased",  color: "#4A8C6F",  count: rfPurchased.length, value: rfRevenue, records: rfPurchased, tip: "Purchased a session or package" },
       ],
       kpis: [
-        { label: "Referral revenue", value: "$" + money(rfRevenue) },
+        { label: "Referral revenue", value: money(rfRevenue) },
         { label: "Awaiting thank-you", value: referrals.filter(r => !r.thankYouSent && r.status !== "Referred").length },
         { label: "Conversion rate", value: referrals.length > 0 ? Math.round(rfPurchased.length / referrals.length * 100) + "%" : "—" },
       ],

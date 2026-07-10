@@ -739,6 +739,10 @@ app.post("/api/webhooks/calendly", async (req, res) => {
     console.warn("[WARN] Event has no email — skipping");
     return res.status(200).json({ status: "skipped", reason: "no email" });
   }
+  if (isSyntheticCalendlyUri(extracted.calendlyInviteeUri) || isSyntheticCalendlyUri(extracted.calendlyEventUri)) {
+    console.warn("[WARN] Ignoring synthetic Calendly TEST URI (signature-test payload)");
+    return res.status(200).json({ status: "skipped", reason: "synthetic_test_uri" });
+  }
 
   // Enrich with event type description from Calendly API (cached per event type)
   const eventTypeUri = payload.scheduled_event?.event_type;
@@ -951,24 +955,75 @@ async function fetchScheduledEvents(userUri, minStart, status, token) {
   return events;
 }
 
-/** Append candidate events to the queue, deduped by invitee URI + event type. Returns {added, skipped}. */
+/** Append candidate events to the queue, deduped by invitee URI + event type. Returns {added, skipped, requeued}.
+ *  Processed events normally block re-queue (avoid sync thrash). Exceptions:
+ *  - Payload changed (name / start / end / event / email) → refresh so CRM picks up edits
+ *  - Booked within REQUEUE_RECENT_MS → re-queue so a lost CRM registration can heal
+ */
+const REQUEUE_RECENT_MS = 72 * 60 * 60 * 1000;
+
+function calendlyEventPayloadChanged(existing, evt) {
+  return existing.name !== evt.name
+    || existing.email !== evt.email
+    || existing.eventName !== evt.eventName
+    || existing.startTime !== evt.startTime
+    || existing.endTime !== evt.endTime
+    || existing.phone !== evt.phone;
+}
+
+function isRecentCalendlyBooking(evt) {
+  const bookedAt = Date.parse(evt.createdAt || evt.receivedAt || "");
+  return Number.isFinite(bookedAt) && (Date.now() - bookedAt) < REQUEUE_RECENT_MS;
+}
+
+/** Synthetic URIs from webhook-signature tests (not real Calendly bookings). */
+function isSyntheticCalendlyUri(uri) {
+  if (!uri) return false;
+  const u = String(uri);
+  return /\/scheduled_events\/TEST\b/i.test(u) || /\/invitees\/TEST\b/i.test(u);
+}
+
 async function queueCandidates(candidates) {
-  let added = 0, skipped = 0;
+  let added = 0, skipped = 0, requeued = 0;
   await withQueueLock(() => {
     const queue = readQueue();
-    // Dedup by invitee URI + event type so a cancellation can still be queued even if the
-    // original booking event for that invitee is already in the queue.
-    const knownKeys = new Set(queue.map(e => `${e.calendlyInviteeUri}|${e.eventType}`).filter(k => k !== "|"));
+    // Index by invitee URI + event type (cancellation can coexist with booking).
+    const byKey = new Map();
+    queue.forEach((e, i) => {
+      const key = `${e.calendlyInviteeUri}|${e.eventType}`;
+      if (key !== "|") byKey.set(key, i);
+    });
     for (const evt of candidates) {
+      if (isSyntheticCalendlyUri(evt.calendlyInviteeUri) || isSyntheticCalendlyUri(evt.calendlyEventUri)) {
+        skipped++;
+        continue;
+      }
       const key = `${evt.calendlyInviteeUri}|${evt.eventType}`;
-      if (knownKeys.has(key)) { skipped++; continue; }
-      queue.push(evt);
-      knownKeys.add(key);
+      if (key === "|") { skipped++; continue; }
+      const idx = byKey.get(key);
+      if (idx == null) {
+        queue.push(evt);
+        byKey.set(key, queue.length - 1);
+        added++;
+        continue;
+      }
+      const existing = queue[idx];
+      if (!existing.processed) { skipped++; continue; }
+      const shouldRequeue = calendlyEventPayloadChanged(existing, evt) || isRecentCalendlyBooking(evt);
+      if (!shouldRequeue) { skipped++; continue; }
+      queue[idx] = {
+        ...evt,
+        id: existing.id,
+        processed: false,
+        requeuedAt: new Date().toISOString(),
+        previouslyProcessedAt: existing.processedAt || "",
+      };
+      requeued++;
       added++;
     }
     writeQueue(queue);
   });
-  return { added, skipped };
+  return { added, skipped, requeued };
 }
 
 /** Fetch recent Calendly bookings AND cancellations via API; queue any missing events (webhook fallback). */
@@ -984,7 +1039,7 @@ async function pullRecentCalendlyBookings(daysBack = 30) {
   }
 
   const minStart = new Date(Date.now() - Math.min(Math.max(daysBack, 1), 90) * 86400000).toISOString();
-  let added = 0, skipped = 0, scanned = 0;
+  let added = 0, skipped = 0, scanned = 0, requeued = 0;
 
   // ── PASS 1: Cancellations first ──
   // Canceled events are few and need no payment enrichment, so they queue within ~1-2s —
@@ -1010,8 +1065,8 @@ async function pullRecentCalendlyBookings(daysBack = 30) {
       } while (invPage);
     }
     const r1 = await queueCandidates(cancelCandidates);
-    added += r1.added; skipped += r1.skipped;
-    if (r1.added > 0) console.log(`[OK] Calendly API pull queued ${r1.added} cancellation(s)`);
+    added += r1.added; skipped += r1.skipped; requeued += r1.requeued || 0;
+    if (r1.added > 0) console.log(`[OK] Calendly API pull queued ${r1.added} cancellation(s) (${r1.requeued || 0} re-queued)`);
   } catch (e) {
     console.warn(`[WARN] Cancellation pull failed: ${e.message}`);
   }
@@ -1047,17 +1102,17 @@ async function pullRecentCalendlyBookings(daysBack = 30) {
   }
   if (lateCancelCandidates.length) {
     const rc = await queueCandidates(lateCancelCandidates);
-    added += rc.added; skipped += rc.skipped;
+    added += rc.added; skipped += rc.skipped; requeued += rc.requeued || 0;
     if (rc.added > 0) console.log(`[OK] Calendly API pull queued ${rc.added} group-event participant cancellation(s)`);
   }
   const r2 = await queueCandidates(bookingCandidates);
-  added += r2.added; skipped += r2.skipped;
+  added += r2.added; skipped += r2.skipped; requeued += r2.requeued || 0;
 
   if (added > 0) {
-    console.log(`[OK] Calendly API pull queued ${added} new event(s) total (${skipped} already known, ${scanned} invitees scanned)`);
+    console.log(`[OK] Calendly API pull queued ${added} event(s) (${requeued} re-queued for CRM heal/refresh, ${skipped} unchanged, ${scanned} invitees scanned)`);
   }
 
-  return { added, skipped, scanned };
+  return { added, skipped, scanned, requeued };
 }
 
 // ── Per-session refund tokens (minted after CRM PIN unlock; required for money-moving endpoints) ──

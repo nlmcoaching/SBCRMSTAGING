@@ -82,6 +82,25 @@ Start-Sleep -Seconds 3
 
 # 9. Start ngrok as an independent process
 if (-not $skipNgrok) {
+    # Resolve NODE_ENV from the process env, then backend\.env (if set there).
+    $nodeEnv = $env:NODE_ENV
+    if (-not $nodeEnv -and (Test-Path $envFile)) {
+        $nodeEnvLine = Get-Content $envFile | Where-Object { $_ -match '^\s*NODE_ENV\s*=' } | Select-Object -First 1
+        if ($nodeEnvLine) {
+            $nodeEnv = ($nodeEnvLine -replace '^\s*NODE_ENV\s*=\s*', '' -replace '^["'']|["'']$', '').Trim()
+        }
+    }
+    if (-not $nodeEnv) { $nodeEnv = "(unset)" }
+
+    if ($nodeEnv -ne "production") {
+        Write-Host ""
+        Write-Host "  [WARN] About to start ngrok while NODE_ENV=$nodeEnv (not production)." -ForegroundColor Yellow
+        Write-Host "         A public tunnel will expose this backend with dev-mode security" -ForegroundColor Yellow
+        Write-Host "         (weaker secret checks; unsigned Calendly webhooks only if" -ForegroundColor Yellow
+        Write-Host "         ALLOW_UNSIGNED_CALENDLY_WEBHOOKS=true — never enable that with ngrok)." -ForegroundColor Yellow
+        Write-Host ""
+    }
+
     Write-Host "  [3/3] Starting ngrok tunnel to localhost:3001..." -ForegroundColor Green
     Start-Process -FilePath "cmd.exe" `
         -ArgumentList "/c ngrok http 3001" `

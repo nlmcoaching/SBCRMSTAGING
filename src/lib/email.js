@@ -1,4 +1,4 @@
-import { apiHeaders, safeResJSON } from "./api.js";
+import { apiHeaders, fetchWithTimeout, safeResJSON } from "./api.js";
 
 // ── Email log helpers ─────────────────────────────────────────────────────────
 // Cap the global audit log so it never eats unbounded IndexedDB/localStorage space.
@@ -30,16 +30,15 @@ export function cappedLog(existing, newEntry) {
 //   subject, body – final rendered strings
 //   templateId, templateName, category – template metadata (use empty strings for ad-hoc sends)
 export async function sendCrmEmail({ to, recipientName, recipientType, subject, body, templateId = "", templateName = "", category = "" }) {
-  const res = await fetch("/api/send-email", {
+  const res = await fetchWithTimeout("/api/send-email", {
     method: "POST",
     headers: apiHeaders(),
     body: JSON.stringify({ to, recipientName, subject, body }),
   });
+  const json = await safeResJSON(res);
   if (!res.ok) {
-    const e = await safeResJSON(res);
-    throw new Error(e.error || `Send failed (${res.status}).`);
+    throw new Error(json.error || `Send failed (${res.status}).`);
   }
-  const json = await res.json();
   return {
     id:            `em_${Date.now()}`,
     date:          new Date().toISOString(),

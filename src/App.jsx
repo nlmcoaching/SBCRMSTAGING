@@ -815,6 +815,13 @@ export default function App() {
             // locationJoinUrl validated separately by https:// check before use
           };
 
+          // Ignore synthetic signature-test payloads (…/scheduled_events/TEST/…).
+          const _uri = String(evt.calendlyInviteeUri || evt.calendlyEventUri || "");
+          if (/\/scheduled_events\/TEST\b/i.test(_uri) || /\/invitees\/TEST\b/i.test(_uri)) {
+            ids.push(evt.id);
+            return;
+          }
+
           // ── Sync-from-date filter ──
           // Ignore events whose Calendly creation date is before the configured cutoff.
           // Uses the booking creation timestamp (when the client booked), NOT the session date.
@@ -1202,7 +1209,18 @@ export default function App() {
         const ltvData = { registrations, revenue: next.revenue || [], offers: next.offers || [] };
         return { ...next, clients: applyRegistrationLifetimeValues(clients, ltvData), registrations, sessions: refreshedSessions, followups, partners };
       })();
-      setData(_nextCalendlyState);
+      // Merge sync-owned collections into latest state so concurrent edits to
+      // unrelated keys (templates, settings, etc.) are not overwritten. Sync
+      // still runs outside the updater so acknowledge ids are computed once
+      // (React Strict Mode can discard updater results).
+      setData(prev => ({
+        ...prev,
+        clients: _nextCalendlyState.clients,
+        registrations: _nextCalendlyState.registrations,
+        sessions: _nextCalendlyState.sessions,
+        followups: _nextCalendlyState.followups,
+        partners: _nextCalendlyState.partners,
+      }));
 
       // Acknowledge processed events
       if (ids.length) {
@@ -1366,7 +1384,14 @@ export default function App() {
           clients: amountFix.clients,
         };
       })();
-      setData(_nextStripeState);
+      // Merge sync-owned collections into latest state (see Calendly sync comment).
+      setData(prev => ({
+        ...prev,
+        payments: _nextStripeState.payments,
+        registrations: _nextStripeState.registrations,
+        sessions: _nextStripeState.sessions,
+        clients: _nextStripeState.clients,
+      }));
       if (ackIds.length) {
         await fetch(calendlyApiUrl("/api/stripe/acknowledge"), {
           method: "POST",

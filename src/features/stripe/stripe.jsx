@@ -21,7 +21,9 @@ function sortRegistrationsByCreatedAt(rows) {
   return [...rows].sort((a, b) => registrationCreatedTimestamp(b) - registrationCreatedTimestamp(a));
 }
 
-export let _paymentRepairRanOnce = false;
+// Module-private remount guard: payment amount repair runs once per page load
+// (Strict Mode / drawer remounts must not re-apply the same patches).
+let _paymentRepairRanOnce = false;
 
 export function paymentStatusLabel(status) {
   const map = {

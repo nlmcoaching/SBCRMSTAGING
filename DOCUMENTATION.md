@@ -971,6 +971,10 @@ Each Stripe sync calls `GET /api/stripe/ledger` to reload processed webhook even
 
 **Calendly API backfill:** Each Calendly sync calls `POST /api/calendly/pull-recent` (requires `CALENDLY_API_TOKEN`) to fetch recent scheduled events from the Calendly API and queue any invitees missing from the webhook queue — e.g. when ngrok was down or a webhook was never delivered. The pull fetches **both active and canceled** scheduled events. Cancellations are scanned first (without payment enrichment) so they queue within ~1–2 seconds — well inside the sync's pull timeout — and are reconciled on the same sync; canceled invitees are queued as `invitee.canceled` events.
 
+**Re-queue after acknowledge (CRM heal):** Queue dedup is by `calendlyInviteeUri` + `eventType`. Unprocessed duplicates are skipped. **Processed** events are re-queued when (a) name, email, event name, or start/end time changed on Calendly, or (b) the booking was created within the last **72 hours**. That heals registrations lost after acknowledge (e.g. after a local data wipe) and picks up invitee edits without re-processing the entire history every sync.
+
+**Synthetic TEST payloads:** Webhook and pull ignore Calendly URIs containing `/scheduled_events/TEST` or `/invitees/TEST` (signature-verification fixtures). The CRM sync also acknowledges and skips those events so they never create "Sig Test" bookings.
+
 **Group/studio participant cancellations:** A 1:1 virtual event becomes `status = canceled` when its only invitee cancels, so it is found by the canceled-events scan. A **group/studio event stays `status = active`** even after a participant cancels — only that individual invitee's status flips to `canceled`. The pull therefore also inspects the invitees of every **active** event and queues an `invitee.canceled` for any participant whose status is `canceled` (deduped by invitee URI + event type). Without this, a participant who dropped out of a still-active studio class would never sync as a cancellation. This makes cancellations recover automatically even when no webhook was received, with no reliance on ngrok.
 
 **Cancellation protection (CRM status always wins):** When an `invitee.created` event is processed, the sync first looks for an existing registration with the same `calendlyInviteeUri` whose status is already `canceled` or `rescheduled` — set **either** by a Calendly cancellation **or** by a manual status change in the CRM. If one is found, the booking event is **skipped entirely**: the client is not re-touched, the session is not (re)created, and the registration is not rebuilt or flipped back to `booked`. This holds even after the original booking event ages out of the queue and is re-pulled from the Calendly API (a common cause of "the cancellation came back"), because a booking that is canceled in the CRM but still **active in Calendly** would otherwise be re-pulled on every sync. The result: the automated sync can never resurrect a deleted virtual session or overwrite a manual cancel/reschedule. (Reschedules still create the new booking normally, because Calendly assigns the rescheduled session a brand-new invitee URI that does not match the old, rescheduled record.)
@@ -1845,6 +1849,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 - Request body size capped at 256 KB
 - Webhook HMAC-SHA256 signature verified with 5-minute timestamp replay protection
 - Queue file encrypted at rest with AES-256-GCM when `QUEUE_ENCRYPTION_KEY` is set
+- If the encryption key is lost or rotated without decrypting first, the backend may leave `*.bak` copies next to the live queue files under `backend/data/` (e.g. `pending-events.json.bak`). Those backups are ciphertext for the **old** key and cannot be recovered without it. **Retention decision:** keep them only while you still hope to recover the old key; otherwise delete the `.bak` files after confirming the live queue (`pending-events.json`, etc.) is healthy. They are gitignored and are not used by the running server.
 - `/pending` and `/acknowledge` require `x-frontend-secret` header injected by Vite proxy (never sent directly from browser code)
 - Webhook string fields sanitized via `Sec.sanitize()` before storage (strips HTML and formula injection)
 - SSRF guard: `fetchEventTypeDescription` rejects any `event_type` URI that does not begin with `https://api.calendly.com/`
@@ -2034,6 +2039,8 @@ Both scripts:
 7. Print all local URLs and remind you to register the ngrok URL in Calendly
 
 > **Process persistence (`start.ps1`):** `start.ps1` uses PowerShell's `Start-Process` (not `Start-Job`) so the backend, frontend, and ngrok processes are independent OS-level processes. They continue running even if the PowerShell terminal or Cursor IDE window is closed. Each run kills any process already holding ports 3001 and 5173 before starting fresh. Output is logged to `backend/backend.log` and `frontend/frontend.log` in the project root.
+
+> **ngrok + `NODE_ENV` (`start.ps1`):** Before starting the tunnel, `start.ps1` reads `NODE_ENV` from the process environment (or `NODE_ENV=` in `backend/.env`). If it is not `production`, it prints a yellow warning that a public tunnel will expose a non-production backend (dev-mode secret checks). Startup continues; the warning is informational. Never set `ALLOW_UNSIGNED_CALENDLY_WEBHOOKS=true` while ngrok is running.
 
 ### Setup Requirements
 1. Double-click `start.bat` (or run `.\start.ps1`)

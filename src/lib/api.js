@@ -68,8 +68,8 @@ export async function fetchCalendlyDescriptionForSession(session, registrations)
   else if (eventUri) params.set("eventUri", eventUri);
   if (eventName) params.set("eventName", eventName);
   if (!params.toString()) return { description: "", error: "No Calendly link or event name on this session" };
-  const res = await fetch(calendlyApiUrl(`/api/calendly/event-description?${params}`), { headers: apiHeaders() });
-  const j = await res.json().catch(() => ({}));
+  const res = await fetchWithTimeout(calendlyApiUrl(`/api/calendly/event-description?${params}`), { headers: apiHeaders() });
+  const j = await safeResJSON(res);
   if (!res.ok) return { description: "", error: j.error || `Request failed (${res.status})` };
   return { description: (j.description || "").trim(), error: "" };
 }
