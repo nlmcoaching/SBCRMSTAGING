@@ -49,7 +49,7 @@ import { PaymentReconciliationView, ChargeDetails, paymentStatusLabel, registrat
 import { AdminView, CrmSettingsView, JourneyDescriptionsView, EmailLogsView, ResetToProductionView, UserManagementView, EditUserPanel } from "./features/admin";
 
 const { STATUS, STATUS_COLOR, CLIENT_TYPE, CLIENT_TYPE_COLOR, INTENT_TAGS, TAG_COLOR, STAGE, STAGE_COLOR, STUDIO_TYPE, CLOSE_PROB, CLOSE_PROB_COLOR, CONTRACT_STATUS, PARTNER_CHECKLIST_PHASES, PARTNER_CHECKLIST, emptyChecklist, FUTYPE, FUTYPE_COLOR, SOURCE, SOURCE_COLOR, PACKAGE, REFERRAL, REFERRAL_COLOR, OFFER_TYPE, OFFER_STATUS, OFFER_STATUS_COLOR, OFFER_PROB, OPEN_STATUSES, WON_STATUSES, LOST_STATUSES, REF_STATUS, REF_STATUS_COLOR, OUTREACH_STATUS, OUTREACH_STATUS_COLOR, OUTREACH_WARMTH, OUTREACH_WARMTH_COLOR, OUTREACH_TARGET_TYPE, OUTREACH_RESPONSE, OUTREACH_SOURCE, OUTREACH_PRIORITY, OUTREACH_PRIORITY_COLOR, TESTIMONIAL_STATUS, TESTIMONIAL_STATUS_COLOR, TESTIMONIAL_TYPE, TESTIMONIAL_THEMES, TMPL_CATEGORY, TMPL_CATEGORY_COLOR, TMPL_CHANNEL, TMPL_CHANNEL_COLOR, TMPL_LINKED_TO, EXPENSE_CATEGORY, EXPENSE_CATEGORY_COLOR, EXPENSE_PAYMENT_METHOD, EXPENSE_RECUR_FREQ, REV_CHANNEL, REV_CHANNEL_COLOR, COST_CENTER, CONTENT_TYPE, PLATFORM, PLATFORM_COLOR, CONTENT_STATUS, CONTENT_STATUS_COLOR, CONTENT_CATEGORY, CONTENT_CAT_COLOR, CONTENT_CTA, SESSION_STATUS, SESSION_STATUS_COLOR, JOURNEY_TYPES, SETUP_STATUS, FU_STEPS, FU_TEMPLATES, interpolateTemplate, addDays, makeSequenceSteps, USER_ROLES, USER_ROLE_COLOR, USER_COLORS, ROLE_PERMISSIONS } = constants;
-const { _c, readAmt, calcNet, deriveRegistrationPaymentStatus, applyRegistrationPaymentLookup, stripePaymentExists, buildStripePaymentRecord, applyStripePaymentToRegistration, stripePaymentFromRecord, applyPaymentReconciliation, reconcileAmountMismatches, processStripeWebhookEvents, LTV_OFFER_STATUSES, formatRegistrationAmount, resolveSessionListPrice, formatBookingAmount, resolveActualBookingAmount, formatActualBookingAmount, calendlyBookingAmount, backfillRegistrationPaymentsForRegs, registrationPaymentForLtv, sessionBookingRevenue, applySessionRevenueFromRegistrations, studioSessionFinance, sessionFinanceFor, refreshCalendlySessionRevenue, buildSessionMap, registrationRevenueForMonth, registrationRevenueByMonth, buildSessionListPriceMap, registrationRevenueChannel, offerRevenueChannel, buildPaidPaymentsByBooking, bookingStripeCharge, buildRegistrationRevenueRows, buildOfferRevenueRows, AUTO_REV_ID_PREFIX, AUTO_CXL_EXP_ID_PREFIX, AUTO_SPLIT_EXP_ID_PREFIX, isAutoRevenueRecord, isAutoExpenseRecord, buildBookingLedgerRecords, syncBookingLedgers, buildRevenueViewRows, applyStudioSessionSplit, openRevenueViewRow, computeClientLifetimeValue, applyRegistrationLifetimeValues } = revenue;
+const { _c, readAmt, calcNet, deriveRegistrationPaymentStatus, applyRegistrationPaymentLookup, stripePaymentExists, buildStripePaymentRecord, applyStripePaymentToRegistration, stripePaymentFromRecord, applyPaymentReconciliation, reconcileAmountMismatches, processStripeWebhookEvents, LTV_OFFER_STATUSES, formatRegistrationAmount, resolveSessionListPrice, formatBookingAmount, resolveActualBookingAmount, formatActualBookingAmount, calendlyBookingAmount, backfillRegistrationPaymentsForRegs, registrationPaymentForLtv, sessionBookingRevenue, applySessionRevenueFromRegistrations, studioSessionFinance, sessionFinanceFor, refreshCalendlySessionRevenue, buildSessionMap, registrationRevenueForMonth, registrationRevenueByMonth, buildSessionListPriceMap, registrationRevenueChannel, offerRevenueChannel, buildPaidPaymentsByBooking, bookingStripeCharge, buildRegistrationRevenueRows, buildOfferRevenueRows, AUTO_REV_ID_PREFIX, AUTO_CXL_EXP_ID_PREFIX, AUTO_SPLIT_EXP_ID_PREFIX, isAutoRevenueRecord, isAutoExpenseRecord, buildBookingLedgerRecords, syncBookingLedgers, buildRevenueViewRows, applyStudioSessionSplit, openRevenueViewRow, computeClientLifetimeValue, applyRegistrationLifetimeValues, issueStripeRefund } = revenue;
 
 /* ============================================================
    Simply Breathe OS — CRM
@@ -921,8 +921,12 @@ export default function App() {
 
               const existingSessionIdx = sessions.findIndex(s => s.calendlyEventUri === evt.calendlyEventUri);
               if (existingSessionIdx >= 0) {
-                // Update registered count; also backfill studioId and zoom link if missing
-                const regsForEvent = registrations.filter(r => r.calendlyEventUri === evt.calendlyEventUri && r.status !== "canceled").length + 1;
+                // Count other active regs for this event, then +1 for this invitee (avoid double-counting on redelivery).
+                const regsForEvent = registrations.filter(r =>
+                  r.calendlyEventUri === evt.calendlyEventUri
+                  && r.status !== "canceled" && r.status !== "rescheduled"
+                  && r.calendlyInviteeUri !== evt.calendlyInviteeUri
+                ).length + 1;
                 const existingSession = sessions[existingSessionIdx];
                 const zoomUrl = evt.locationJoinUrl || existingSession.locationJoinUrl || "";
                 sessions[existingSessionIdx] = {
@@ -1001,7 +1005,9 @@ export default function App() {
             }
             // Never let a (re-delivered) booking event resurrect a canceled/rescheduled
             // registration back to "booked" — this was silently undoing cancellations.
+            // Also keep manual attendance statuses (attended / no_show) across redelivery.
             const preserveCancel = prevReg && (prevReg.status === "canceled" || prevReg.status === "rescheduled");
+            const preserveAttendanceStatus = prevReg && (prevReg.status === "attended" || prevReg.status === "no_show");
             const regRecord = {
               id: existingRegIdx >= 0 ? registrations[existingRegIdx].id : uid("reg"),
               clientId: client.id, sessionId,
@@ -1009,7 +1015,7 @@ export default function App() {
               calendlyEventUri:   evt.calendlyEventUri,
               calendlyEventTypeUri: evt.calendlyEventTypeUri || prevReg?.calendlyEventTypeUri || "",
               eventName:          evt.eventName,
-              status:             preserveCancel ? prevReg.status : "booked",
+              status:             preserveCancel || preserveAttendanceStatus ? prevReg.status : "booked",
               paymentAmount,
               paidAmount,
               paymentStatus,
@@ -1030,14 +1036,16 @@ export default function App() {
               locationJoinUrl:    evt.locationJoinUrl,
               locationAddress:    evt.locationAddress,
               attendanceType:     evt.attendanceType,
-              checkedIn: false, attended: false, noShow: false,
+              checkedIn: prevReg?.checkedIn || false,
+              attended:  prevReg?.attended  || false,
+              noShow:    prevReg?.noShow    || false,
               doneBreathworkBefore: evt.doneBreathworkBefore,
               howHeard:           evt.howHeard,
               referredBy:         evt.referredBy,
               concerns:           evt.concerns,
               reviewedContraindications: evt.reviewedContraindications,
               rescheduledFromInviteeUri: evt.oldInviteeUri || prevReg?.rescheduledFromInviteeUri || "",
-              notes: "",
+              notes: prevReg?.notes || "",
             };
             // Carry over cancellation metadata so a re-delivered booking doesn't wipe it.
             if (preserveCancel) {
@@ -4036,51 +4044,6 @@ function refundEligibility(reg, data) {
   return { eligible: false, amount, reason: `Late cancel (\u2264${REFUND_POLICY_HOURS}h before session) — no refund per policy` };
 }
 
-// Issues a FULL Stripe refund via the backend, then stamps the refund on the
-// registration and its linked payment record. The auto cancellation expense
-// (cxlexp_) picks up the refund on the next ledger sync, and the eventual
-// charge.refunded webhook confirms the same state through the normal pipeline.
-async function issueStripeRefund(reg, setData, sessionToken) {
-  if (!sessionToken) throw new Error("Not authorised — please log out and log back in before issuing a refund.");
-  const res = await fetchWithTimeout(calendlyApiUrl("/api/stripe/refund"), {
-    method: "POST",
-    headers: { ...apiHeaders(), "x-session-token": sessionToken },
-    body: JSON.stringify({
-      paymentIntentId: reg.stripePaymentIntentId || "",
-      chargeId: reg.stripeChargeId || "",
-      registrationId: reg.id || "",
-      reason: "requested_by_customer",
-    }),
-  }, 20000);
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(j.error || `Refund request failed (${res.status})`);
-
-  const refundedAt = j.createdAt || new Date().toISOString();
-  setData(prev => {
-    const registrations = (prev.registrations || []).map(r => r.id === reg.id ? {
-      ...r,
-      paymentStatus: "refunded",
-      amountRefunded: j.amount ?? (Number(r.paidAmount) || 0),
-      stripeRefundId: j.refundId || "",
-      refundedAt,
-    } : r);
-    const payments = (prev.payments || []).map(p => {
-      const match = (reg.paymentId && p.id === reg.paymentId)
-        || (reg.stripePaymentIntentId && p.stripePaymentIntentId === reg.stripePaymentIntentId)
-        || (reg.stripeChargeId && p.stripeChargeId === reg.stripeChargeId);
-      return match ? {
-        ...p,
-        status: "refunded",
-        amountRefunded: j.amount ?? readAmt(p, "amountGross"),
-        stripeRefundId: j.refundId || "",
-        refundedAt,
-      } : p;
-    });
-    return { ...prev, registrations, payments };
-  });
-  return j;
-}
-
 // Shared expanded-row detail panel for registration tables (All Bookings + Cancellations).
 function registrationExpandRow(r, ctx) {
   const client = (ctx.data.clients||[]).find(x => x.id === r.clientId);
@@ -7067,12 +7030,15 @@ function openAgreementFile(a, cryptoKey) {
     const url = URL.createObjectURL(blob);
 
     if (ext === "pdf") {
-      const w = window.open(url, "_blank", "noopener,noreferrer");
+      // Do not pass "noopener" — it forces window.open to return null by spec,
+      // which made every PDF open look like a blocked pop-up.
+      const w = window.open(url, "_blank", "noreferrer");
       if (!w) {
         URL.revokeObjectURL(url);
         alert("Pop-up blocked. Please allow pop-ups to view this PDF.");
         return;
       }
+      try { w.opener = null; } catch (_) {}
       setTimeout(() => URL.revokeObjectURL(url), 120_000);
       return;
     }
@@ -7354,7 +7320,7 @@ function SessionBookingsTab({ record, data, onOpenRelated, setData }) {
     }).join("");
 
     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">
+      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
       <title>Participant List — ${sessionName}</title>
       <style>
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 32px 40px; color: #1a1d23; font-size: 13px; }

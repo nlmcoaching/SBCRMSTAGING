@@ -1,5 +1,5 @@
 import { amountsMatch, registrationSessionAmount, reconcileStripePayments, resetStripeAutoMatches } from "../stripeMatching.js";
-import { apiHeaders, calendlyApiUrl } from "./api.js";
+import { apiHeaders, calendlyApiUrl, fetchWithTimeout } from "./api.js";
 import { cleanName, money, uid } from "./format.js";
 import { patchAmountMismatches } from "./patchAmountMismatches.js";
 
@@ -764,4 +764,48 @@ export function applyRegistrationLifetimeValues(clients, data) {
   return clients.map(c => regClientIds.has(c.id)
     ? { ...c, lifetimeValue: computeClientLifetimeValue(c.id, data) }
     : c);
+}
+
+/** Issues a FULL Stripe refund via the backend, then stamps the refund on the
+ * registration and its linked payment record. Shared by RefundsView and
+ * registration expand-row cancel/refund actions. */
+export async function issueStripeRefund(reg, setData, sessionToken) {
+  if (!sessionToken) throw new Error("Not authorised — please log out and log back in before issuing a refund.");
+  const res = await fetchWithTimeout(calendlyApiUrl("/api/stripe/refund"), {
+    method: "POST",
+    headers: { ...apiHeaders(), "x-session-token": sessionToken },
+    body: JSON.stringify({
+      paymentIntentId: reg.stripePaymentIntentId || "",
+      chargeId: reg.stripeChargeId || "",
+      registrationId: reg.id || "",
+      reason: "requested_by_customer",
+    }),
+  }, 20000);
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.error || `Refund request failed (${res.status})`);
+
+  const refundedAt = j.createdAt || new Date().toISOString();
+  setData(prev => {
+    const registrations = (prev.registrations || []).map(r => r.id === reg.id ? {
+      ...r,
+      paymentStatus: "refunded",
+      amountRefunded: j.amount ?? (Number(r.paidAmount) || 0),
+      stripeRefundId: j.refundId || "",
+      refundedAt,
+    } : r);
+    const payments = (prev.payments || []).map(p => {
+      const match = (reg.paymentId && p.id === reg.paymentId)
+        || (reg.stripePaymentIntentId && p.stripePaymentIntentId === reg.stripePaymentIntentId)
+        || (reg.stripeChargeId && p.stripeChargeId === reg.stripeChargeId);
+      return match ? {
+        ...p,
+        status: "refunded",
+        amountRefunded: j.amount ?? readAmt(p, "amountGross"),
+        stripeRefundId: j.refundId || "",
+        refundedAt,
+      } : p;
+    });
+    return { ...prev, registrations, payments };
+  });
+  return j;
 }

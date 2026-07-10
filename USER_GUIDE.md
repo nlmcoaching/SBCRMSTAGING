@@ -1120,8 +1120,8 @@ This is the most important section. It shows you the full picture:
 - Gross Revenue this month (from completed sessions)
 - Minus studio splits
 - = Net Revenue
-- Minus your expenses
-- = **Operating Profit** (green when positive, red when you're in the red)
+- Minus your operating expenses (studio-split expense rows are already counted above, so they are not subtracted again here)
+- = **Operating Profit** (green when positive, red when you're in the red) — Net minus Expenses should equal Profit
 
 ### Adding an Expense Manually
 1. Click **New Record** in the top bar while in any Expenses view

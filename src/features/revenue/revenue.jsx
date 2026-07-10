@@ -4,8 +4,7 @@ import { XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ComposedChar
 import { C, FONT, hexA } from "../../lib/theme.js";
 import { addMonthsISO, fmtDate, money, sameMonth, norm, cleanName, clientShort } from "../../lib/format.js";
 import { SOURCE_COLOR, OFFER_STATUS, OFFER_STATUS_COLOR, OPEN_STATUSES, WON_STATUSES, LOST_STATUSES, EXPENSE_CATEGORY, EXPENSE_CATEGORY_COLOR, REV_CHANNEL_COLOR } from "../../lib/constants.js";
-import { _c, readAmt, calcNet, registrationRevenueChannel, buildRevenueViewRows, applyStudioSessionSplit, isAutoExpenseRecord, AUTO_SPLIT_EXP_ID_PREFIX } from "../../lib/revenue.js";
-import { apiHeaders, calendlyApiUrl, fetchWithTimeout } from "../../lib/api.js";
+import { _c, calcNet, registrationRevenueChannel, buildRevenueViewRows, applyStudioSessionSplit, isAutoExpenseRecord, AUTO_SPLIT_EXP_ID_PREFIX, issueStripeRefund } from "../../lib/revenue.js";
 import { Stat, Panel, Tag, DateChip, Empty } from "../../components/primitives.jsx";
 import { AppComponent } from "../../components/appBridge.jsx";
 
@@ -403,47 +402,6 @@ function refundEligibility(reg, data) {
   return { eligible: false, amount, reason: `Late cancel (\u2264${REFUND_POLICY_HOURS}h before session) — no refund per policy` };
 }
 
-async function issueStripeRefund(reg, setData, sessionToken) {
-  if (!sessionToken) throw new Error("Not authorised — please log out and log back in before issuing a refund.");
-  const res = await fetchWithTimeout(calendlyApiUrl("/api/stripe/refund"), {
-    method: "POST",
-    headers: { ...apiHeaders(), "x-session-token": sessionToken },
-    body: JSON.stringify({
-      paymentIntentId: reg.stripePaymentIntentId || "",
-      chargeId: reg.stripeChargeId || "",
-      registrationId: reg.id || "",
-      reason: "requested_by_customer",
-    }),
-  }, 20000);
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(j.error || `Refund request failed (${res.status})`);
-
-  const refundedAt = j.createdAt || new Date().toISOString();
-  setData(prev => {
-    const registrations = (prev.registrations || []).map(r => r.id === reg.id ? {
-      ...r,
-      paymentStatus: "refunded",
-      amountRefunded: j.amount ?? (Number(r.paidAmount) || 0),
-      stripeRefundId: j.refundId || "",
-      refundedAt,
-    } : r);
-    const payments = (prev.payments || []).map(p => {
-      const match = (reg.paymentId && p.id === reg.paymentId)
-        || (reg.stripePaymentIntentId && p.stripePaymentIntentId === reg.stripePaymentIntentId)
-        || (reg.stripeChargeId && p.stripeChargeId === reg.stripeChargeId);
-      return match ? {
-        ...p,
-        status: "refunded",
-        amountRefunded: j.amount ?? readAmt(p, "amountGross"),
-        stripeRefundId: j.refundId || "",
-        refundedAt,
-      } : p;
-    });
-    return { ...prev, registrations, payments };
-  });
-  return j;
-}
-
 function revenueTableCols() {
   return [
     col("date", "Date", (r) => {
@@ -526,7 +484,8 @@ export function ExpenseSummaryView({ data, today, onOpen, onImportExpenses, canE
   const grossRevMTD = sum(revRowsMTD, "gross");
   const studioSplitsMTD = sum(revRowsMTD, "studioSplit");
   const netRevMTD = revRowsMTD.reduce((s, r) => s + calcNet(r), 0);
-  // totMTD includes auto Studio Split expenses; calcNet already deducted studioSplit — exclude them.
+  // totMTD includes auto Studio Split expenses; calcNet already deducted studioSplit — exclude them
+  // from both the displayed Total Expenses line and the Operating Profit formula so the panel adds up.
   const totMTDForOp = mtd.filter(e => !(isAutoExpenseRecord(e) && String(e.id || "").startsWith(AUTO_SPLIT_EXP_ID_PREFIX)))
     .reduce((s, e) => s + (+e.amount || 0), 0);
   const opProfit = netRevMTD - totMTDForOp;
@@ -606,7 +565,7 @@ export function ExpenseSummaryView({ data, today, onOpen, onImportExpenses, canE
             { label:"Gross Revenue MTD",    value: grossRevMTD,              positive:true },
             { label:"Studio Splits MTD",    value: -studioSplitsMTD,         positive:false },
             { label:"Net Revenue MTD",      value: netRevMTD,                positive:true, bold:true },
-            { label:"Total Expenses MTD",   value: -totMTD,                  positive:false },
+            { label:"Total Expenses MTD",   value: -totMTDForOp,             positive:false },
             { label:"Operating Profit MTD", value: opProfit,                 positive:opProfit>=0, bold:true, big:true },
           ].map(r => (
             <div key={r.label} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.line}`,fontSize:r.big?15:13}}>

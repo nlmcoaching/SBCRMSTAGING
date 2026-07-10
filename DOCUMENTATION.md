@@ -53,6 +53,8 @@ The system is designed to answer three core daily questions:
 
 ## Authentication & Security
 
+> **Deployment model:** Simply Breathe OS is a **single-operator local app**. Role checks (`Owner` / `Admin` / `Editor` / `Viewer`), the manage-bit, and related UI gates are **advisory** — they guide the UI for trusted users on one machine. They are not a multi-tenant authorization boundary: roles are stored in plaintext security metadata, Viewers can still trigger some email/export paths, and several backend admin actions rely on `FRONTEND_SECRET` rather than a full session proof. Do not expose the CRM or backend to untrusted users without additional hardening.
+
 ### PIN-Based Lock Screen
 
 - The app launches into a full-screen lock screen on every visit.
@@ -272,7 +274,7 @@ All queue read-modify-write operations (webhook receipt and `/acknowledge`) are 
 
 ### PDF Export — XSS Prevention
 
-All user-supplied strings (session name, studio name, notes, time, journey) interpolated into the `document.write` PDF template are HTML-escaped via an `esc()` helper. The generated print window also has a strict `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'` applied.
+All user-supplied strings (session name, studio name, notes, time, journey) interpolated into the `document.write` PDF template are HTML-escaped via an `esc()` helper. The generated print window also has a strict `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'` when an inline print script is used (participant list); the Performance PDF report uses `style-src` only and calls `w.print()` from the opener.
 
 ### SSRF Guard
 
@@ -1098,7 +1100,7 @@ Additional guards: a booking whose `stripeRefundId` is set, whose `paymentStatus
 |---|---|
 | Backend endpoint | `POST /api/stripe/refund` (`backend/server.js`), `requireFrontendSecret` guard |
 | Env var | `STRIPE_SECRET_KEY` in `backend/.env` (Stripe secret API key `sk_live_...` / `sk_test_...`). Without it the endpoint returns 503 — the webhook signing secret alone cannot create refunds |
-| Frontend helpers | `refundEligibility`, `issueStripeRefund`, `REFUND_POLICY_HOURS`, `RefundsView` (all inline in `App.jsx`) |
+| Frontend helpers | `refundEligibility`, `issueStripeRefund` (`src/lib/revenue.js`), `REFUND_POLICY_HOURS`, `RefundsView` |
 | Permissions | Issuing a refund requires **Edit** permission (`canEdit`) |
 
 ### Table Footer Totals
@@ -1731,12 +1733,12 @@ Auto-recorded expense records (id prefix `cxlexp_` for cancellations, `studiospl
 **Top Vendors:** Ranked list of top 8 vendors by YTD spend.
 
 **Profitability Panel (MTD):**
-- Gross Revenue — from completed sessions
-- Studio Splits — revenue shared with partners
-- Net Revenue — gross minus splits
-- Total Expenses — all expenses for the month
-- Operating Profit — net revenue minus expenses (red when negative)
-- Operating Margin % — profit as a percentage of net revenue
+- Gross Revenue — from completed sessions (Stripe-backed revenue rows)
+- Studio Splits — revenue shared with partners (from `studioSplit` on revenue rows)
+- Net Revenue — gross minus fees/splits/refunds (`calcNet`)
+- Total Expenses — month expenses **excluding** auto studio-split expense rows (`studiosplit_*`), so splits are not double-counted after Net already deducted them
+- Operating Profit — Net Revenue − Total Expenses (must add: Net − Expenses = Profit)
+- Operating Margin % — profit as a percentage of gross revenue
 
 ### CSV Import
 Expenses can be bulk-imported monthly via the **Import CSVs** sidebar button. Select **Expenses** as the target section.
@@ -1858,7 +1860,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 
 | Event | CRM Action |
 |---|---|
-| `invitee.created` | **Skipped entirely** if a registration with the same invitee URI is already `canceled`/`rescheduled` in the CRM (CRM status wins — see Cancellation protection). Otherwise: create/update client · upsert session · create registration · create 3 follow-up tasks |
+| `invitee.created` | **Skipped entirely** if a registration with the same invitee URI is already `canceled`/`rescheduled` in the CRM (CRM status wins — see Cancellation protection). Otherwise: create/update client · upsert session · create/update registration · create 3 follow-up tasks (new regs only). On **redelivery** of an existing invitee: preserve `checkedIn` / `attended` / `noShow` / `notes` and attendance statuses (`attended` / `no_show`); do not reset them to false/empty. Session `registered` recount excludes this invitee's own existing row before adding 1 (avoids double-count). |
 | `invitee.canceled` | Set registration status to `canceled` (or `rescheduled` if `payload.rescheduled = true`). If the linked session is **virtual** (no `studioId`) and has no remaining active registrations, the session is **deleted** from the session list/calendar (the canceled registration still shows on the Cancellations and Reschedules tab). **Studio** (group) sessions are kept and only have their `registered` count decremented. |
 | `invitee_no_show.created` | Set registration `noShow: true`, status `no_show` · increment session noShows |
 | `invitee_no_show.deleted` | Revert no-show flag · decrement noShows |
@@ -1911,6 +1913,10 @@ Each individual Calendly booking is stored as a `registration` record:
 | `reviewedContraindications` | Custom question answer |
 | `attendanceType` | Virtual or in-person |
 | `locationAddress` | Physical address of the studio/venue from Calendly |
+| `checkedIn` | Boolean — manual check-in flag; **preserved** across Calendly redelivery / API re-pull |
+| `attended` | Boolean — manual attendance flag; preserved on redelivery |
+| `noShow` | Boolean — no-show flag; preserved on redelivery (also set by `invitee_no_show.*` events) |
+| `notes` | Free-text notes; **preserved** on redelivery (not wiped to `""`) |
 
 ### Payments Data Table
 
