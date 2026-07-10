@@ -6,6 +6,7 @@ import {
   resetStripeAutoMatches,
   finalizeRegistrationPaymentStatuses,
   explainPendingVerificationReason,
+  confirmRegistrationFreeCoupon,
 } from "./stripeMatching.js";
 
 const clients = [
@@ -125,6 +126,38 @@ describe("reconcileStripePayments", () => {
     assert.equal(r9d.paidAmount, 29);
     assert.equal(outPay.find(p => p.id === "p29").bookingId, "r9d");
     assert.equal(outPay.find(p => p.id === "p29").matchStatus, "manual");
+  });
+});
+
+describe("confirmRegistrationFreeCoupon", () => {
+  it("marks the booking free and stores the coupon code", () => {
+    const r = {
+      ...reg("r1", "c1", 29, "2026-07-09T21:00:00.000Z"),
+      paymentStatus: "paid",
+      paidAmount: null,
+    };
+    const out = confirmRegistrationFreeCoupon(r, " welcome100 ");
+    assert.equal(out.couponCode, "WELCOME100");
+    assert.equal(out.paidAmount, 0);
+    assert.equal(out.paymentStatus, "paid");
+    assert.equal(out.stripeVerified, false);
+    assert.equal(out.lastAmountMismatch?.reason, "free");
+    assert.equal(out.lastAmountMismatch?.couponCode, "WELCOME100");
+    assert.equal(out.lastAmountMismatch?.expectedAmount, 29);
+    assert.equal(out.lastAmountMismatch?.stripeAmount, 0);
+  });
+
+  it("preserves operator coupon through finalize", () => {
+    const registrations = [
+      confirmRegistrationFreeCoupon(
+        { ...reg("r1", "c3", 29, "2026-07-09T21:00:00.000Z"), paymentStatus: "paid" },
+        "COMP29",
+      ),
+    ];
+    const out = finalizeRegistrationPaymentStatuses(registrations, [], clients);
+    assert.equal(out[0].couponCode, "COMP29");
+    assert.equal(out[0].paidAmount, 0);
+    assert.equal(out[0].paymentStatus, "paid");
   });
 });
 

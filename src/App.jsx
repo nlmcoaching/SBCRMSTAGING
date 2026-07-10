@@ -2224,7 +2224,7 @@ function newRecord(db) {
     testimonials: { name: "", clientId: "", sessionId: "", status: "Breakthrough noted", type: "Written", content: "", bestQuote: "", beforeSummary: "", afterSummary: "", themes: [], permissionReceived: false, useOnWebsite: false, useOnSocial: false, firstNameOnly: false, videoUrl: "", dateReceived: "", datePublished: "", notes: "" },
     templates:    { name: "", category: "Post-Session", channel: "Email", subject: "", body: "", variables: "", linkedTo: "clients", usageCount: 0, notes: "" },
     expenses:     { date: "", vendor: "", description: "", amount: 0, category: "Equipment & Supplies", paymentMethod: "Credit Card", taxDeductible: true, recurring: false, recurringFreq: "One-time", linkedSession: "", linkedPartner: "", receiptUrl: "", notes: "" },
-    registrations: { clientId: "", sessionId: "", calendlyInviteeUri: "", calendlyEventUri: "", calendlyEventTypeUri: "", eventName: "", status: "booked", paymentAmount: null, paidAmount: null, paymentStatus: "unknown", stripeVerified: false, stripePaymentIntentId: "", stripeChargeId: "", paymentId: "", paidAt: "", amountRefunded: 0, stripeRefundId: "", refundedAt: "", refundWaived: false, refundWaivedAt: "", waiverStatus: "pending", createdAt: new Date().toISOString(), scheduledAt: "", timezone: "", locationType: "", locationJoinUrl: "", locationAddress: "", attendanceType: "", checkedIn: false, attended: false, noShow: false, doneBreathworkBefore: "", howHeard: "", referredBy: "", concerns: "", reviewedContraindications: "", notes: "" },
+    registrations: { clientId: "", sessionId: "", calendlyInviteeUri: "", calendlyEventUri: "", calendlyEventTypeUri: "", eventName: "", status: "booked", paymentAmount: null, paidAmount: null, paymentStatus: "unknown", stripeVerified: false, stripePaymentIntentId: "", stripeChargeId: "", paymentId: "", paidAt: "", amountRefunded: 0, stripeRefundId: "", refundedAt: "", refundWaived: false, refundWaivedAt: "", waiverStatus: "pending", couponCode: "", createdAt: new Date().toISOString(), scheduledAt: "", timezone: "", locationType: "", locationJoinUrl: "", locationAddress: "", attendanceType: "", checkedIn: false, attended: false, noShow: false, doneBreathworkBefore: "", howHeard: "", referredBy: "", concerns: "", reviewedContraindications: "", notes: "" },
   };
   return { ...base, ...m[db] };
 }
@@ -4119,6 +4119,7 @@ function registrationExpandRow(r, ctx) {
         {field("Join URL", r.locationJoinUrl && r.locationJoinUrl.startsWith("https://") ? <a href={r.locationJoinUrl} target="_blank" rel="noreferrer noopener" style={{ color: C.brand, wordBreak: "break-all", fontSize: 12 }}>{r.locationJoinUrl}</a> : (r.locationJoinUrl || null))}
         {field("Attendance type", r.attendanceType)}
         {field("Payment status", r.paymentStatus)}
+        {field("Coupon code", r.couponCode || null)}
         {field("Calendly amount", calendlyBookingAmount(r) != null ? money(calendlyBookingAmount(r)) : null)}
         {field("Paid amount", r.paidAmount != null ? money(r.paidAmount) : null)}
         {field("Paid at", r.paidAt ? formatRegistrationDateTime(r.paidAt) : null)}

@@ -107,6 +107,7 @@ export function linkStripePaymentToRegistration(payments, registrations, payIdx,
     paidAt: p.paidAt || "",
     paymentId: p.id,
     amountRefunded: 0,
+    couponCode: "", // real charge supersedes a free-coupon confirmation
     // Drop the placeholder "free session" mismatch — a real Stripe amount now applies.
     lastAmountMismatch: prev.lastAmountMismatch?.reason === "free" ? undefined : prev.lastAmountMismatch,
   };
@@ -116,8 +117,38 @@ function markFreeSessionRegistration(reg, listPrice) {
   const correctedAt = reg.lastAmountMismatch?.reason === "free"
     ? reg.lastAmountMismatch.correctedAt
     : new Date().toISOString();
+  const couponCode = String(reg.couponCode || reg.lastAmountMismatch?.couponCode || "").trim();
   return {
     ...reg,
+    paymentStatus: "paid",
+    stripeVerified: false,
+    paidAmount: 0,
+    ...(couponCode ? { couponCode } : {}),
+    lastAmountMismatch: {
+      expectedAmount: listPrice,
+      stripeAmount: 0,
+      reason: "free",
+      correctedAt,
+      ...(couponCode ? { couponCode } : {}),
+    },
+  };
+}
+
+/**
+ * Operator confirms a 100%-off coupon for a booking that never hit Stripe.
+ * Marks the registration as a free ($0) session and stores the coupon code so it
+ * leaves the Stripe "payment exceptions" list.
+ */
+export function confirmRegistrationFreeCoupon(reg, couponCode) {
+  const code = String(couponCode || "").trim().toUpperCase();
+  if (!reg || !code) return reg;
+  const listPrice = reg.lastAmountMismatch?.expectedAmount
+    ?? reg.paymentAmount
+    ?? registrationSessionAmount(reg)
+    ?? 0;
+  return {
+    ...reg,
+    couponCode: code,
     paymentStatus: "paid",
     stripeVerified: false,
     paidAmount: 0,
@@ -125,7 +156,8 @@ function markFreeSessionRegistration(reg, listPrice) {
       expectedAmount: listPrice,
       stripeAmount: 0,
       reason: "free",
-      correctedAt,
+      couponCode: code,
+      correctedAt: new Date().toISOString(),
     },
   };
 }
@@ -140,6 +172,19 @@ export function finalizeRegistrationPaymentStatuses(registrations, payments, cli
 
   for (const reg of regs) {
     if (reg.stripeVerified || reg.status === "canceled" || reg.status === "rescheduled") continue;
+    // Operator-confirmed free coupon — keep $0 / paid; do not reclassify as pending.
+    if (String(reg.couponCode || "").trim()) {
+      const idxKeep = regs.findIndex(x => x.id === reg.id);
+      if (idxKeep >= 0) {
+        regs[idxKeep] = {
+          ...regs[idxKeep],
+          paymentStatus: "paid",
+          stripeVerified: false,
+          paidAmount: 0,
+        };
+      }
+      continue;
+    }
     const listPrice = registrationSessionAmount(reg);
     const idx = regs.findIndex(x => x.id === reg.id);
     if (idx < 0) continue;

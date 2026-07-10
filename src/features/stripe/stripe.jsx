@@ -3,7 +3,7 @@ import { RefreshCw, ChevronRight, ArrowUpRight } from "lucide-react";
 import { C, hexA } from "../../lib/theme.js";
 import { fmtDate, money, norm, cleanName } from "../../lib/format.js";
 import { readAmt, applyPaymentReconciliation, reconcileAmountMismatches, formatRegistrationAmount, registrationRevenueChannel } from "../../lib/revenue.js";
-import { amountsMatch, normalizeEmail, registrationSessionAmount, registrationCreatedTimestamp } from "../../stripeMatching.js";
+import { amountsMatch, normalizeEmail, registrationSessionAmount, registrationCreatedTimestamp, confirmRegistrationFreeCoupon } from "../../stripeMatching.js";
 import { Panel, Empty } from "../../components/primitives.jsx";
 
 function formatRegistrationDateTime(iso) {
@@ -65,6 +65,7 @@ export function ChargeDetails({ row }) {
     { label: "Amount", value: `${money(row.stripeAmount)} ${d.currency || ""}`.trim(), style: dv },
     { label: "Refunded", value: d.amountRefunded ? money(d.amountRefunded) : "—", style: dv },
     { label: "Payment method", value: d.paymentMethodType || "—", style: dv },
+    ...(d.couponCode ? [{ label: "Coupon code", value: d.couponCode, style: mono }] : []),
     { label: "Session", value: row.matched ? `${row.sessionName}${row.channel ? ` · ${row.channel}` : ""}` : "No matching booking", style: dv },
     { label: "Match", value: d.matchStatus || "—", style: dv },
     { label: "Charge ID", value: d.stripeChargeId || "—", style: mono },
@@ -101,8 +102,34 @@ export function PaymentReconciliationView({ data, derived, setData, onOpen, sync
   const registrations = data.registrations || [];
   const clients = data.clients || [];
   const [expandedCharges, setExpandedCharges] = useState({});
+  const [couponDrafts, setCouponDrafts] = useState({}); // bookingId → draft coupon code
+  const [couponError, setCouponError] = useState({});   // bookingId → error message
   const toggleCharge = (id) => setExpandedCharges(prev => ({ ...prev, [id]: !prev[id] }));
 
+  const confirmFreeCoupon = (bookingId) => {
+    if (!canEdit || !setData || !bookingId) return;
+    const code = String(couponDrafts[bookingId] || "").trim();
+    if (!code) {
+      setCouponError(prev => ({ ...prev, [bookingId]: "Enter the coupon code used for this booking." }));
+      return;
+    }
+    setData(prev => ({
+      ...prev,
+      registrations: (prev.registrations || []).map(r =>
+        r.id === bookingId ? confirmRegistrationFreeCoupon(r, code) : r
+      ),
+    }));
+    setCouponDrafts(prev => {
+      const next = { ...prev };
+      delete next[bookingId];
+      return next;
+    });
+    setCouponError(prev => {
+      const next = { ...prev };
+      delete next[bookingId];
+      return next;
+    });
+  };
   // One-time repair: undo stale "unmatched" booking labels and re-run FIFO matching.
   // Guard is a module-level variable (not useRef) so it persists across remounts.
   useEffect(() => {
@@ -227,7 +254,9 @@ export function PaymentReconciliationView({ data, derived, setData, onOpen, sync
     // A booking is a payment exception when it carries evidence that money WAS expected/attempted
     // (status "paid", "failed", or "unmatched") but no Stripe charge exists. Auto-forgiving these
     // as free would silently absorb failed or missing charges as comped sessions.
+    // Operator-confirmed free coupons (and reason "free") are excluded — they belong in Free rows.
     const isPaymentException = (r) => {
+      if (String(r.couponCode || "").trim() || r.lastAmountMismatch?.reason === "free") return false;
       if (r.paymentStatus === "failed") return true;
       const expAmt = r.lastAmountMismatch?.expectedAmount ?? r.paymentAmount ?? registrationSessionAmount(r);
       return (r.paymentStatus === "paid" || r.paymentStatus === "unmatched") && Number(expAmt) > 0;
@@ -239,6 +268,7 @@ export function PaymentReconciliationView({ data, derived, setData, onOpen, sync
         const client = clientById.get(r.clientId);
         const meta = regSessionMeta(r);
         const expected = r.lastAmountMismatch?.expectedAmount ?? r.paymentAmount ?? registrationSessionAmount(r);
+        const couponCode = String(r.couponCode || r.lastAmountMismatch?.couponCode || "").trim();
         return {
           id: `free-${r.id}`,
           name: cleanName(client?.name || "—"),
@@ -248,7 +278,7 @@ export function PaymentReconciliationView({ data, derived, setData, onOpen, sync
           matched: true,
           free: true,
           paymentException: false,
-          description: "Free session — no Stripe charge",
+          description: couponCode ? `Free session — coupon ${couponCode}` : "Free session — no Stripe charge",
           paidDisplay: "—",
           bookedDisplay: formatRegistrationDateTime(r.createdAt),
           sortTs: registrationCreatedTimestamp(r),
@@ -262,13 +292,16 @@ export function PaymentReconciliationView({ data, derived, setData, onOpen, sync
             paidAt: "—",
             paymentMethodType: "",
             amountRefunded: 0,
+            couponCode: couponCode || "",
             stripeChargeId: "",
             stripePaymentIntentId: "",
             stripeCheckoutSessionId: "",
             stripeEventId: "",
             receiptUrl: "",
             matchStatus: "free",
-            notes: "No Stripe transaction tied to this booking — recorded as a free ($0.00) session (e.g. booked with a free coupon code).",
+            notes: couponCode
+              ? `Free coupon: ${couponCode} — no Stripe transaction (100%-off code; $0.00).`
+              : "No Stripe transaction tied to this booking — recorded as a free ($0.00) session (e.g. booked with a free coupon code).",
           },
         };
       });
@@ -374,7 +407,7 @@ export function PaymentReconciliationView({ data, derived, setData, onOpen, sync
       {exceptionCharges.length > 0 && (
         <Panel title={`Payment exceptions — charge expected but not found (${exceptionCharges.length})`}>
           <div style={{ fontSize: 12, color: "#8B3A2F", marginBottom: 12, lineHeight: 1.55, background: hexA("#C0573F", 0.07), border: `1px solid ${hexA("#C0573F", 0.22)}`, borderRadius: 8, padding: "10px 14px" }}>
-            <strong>These bookings were not auto-forgiven as free sessions.</strong> Each one was recorded as paid, failed, or unmatched in Calendly but has no corresponding Stripe charge. A failed or missing charge can look identical to a comped session if silently zeroed. Review each booking — mark the payment status manually or open the booking to reconcile.
+            <strong>These bookings were not auto-forgiven as free sessions.</strong> Each one was recorded as paid, failed, or unmatched in Calendly but has no corresponding Stripe charge. A failed or missing charge can look identical to a comped session if silently zeroed. For 100%-off coupon bookings, expand the row and enter the coupon code to mark it free — it will move to the Stripe charges list as a <strong>Free</strong> row. Otherwise open the booking to reconcile.
           </div>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
@@ -416,12 +449,64 @@ export function PaymentReconciliationView({ data, derived, setData, onOpen, sync
                         <td></td>
                         <td colSpan={5} style={{ padding: "4px 12px 16px", borderBottom: `1px solid ${C.lineSoft}`, background: hexA("#C0573F", 0.04) }}>
                           <ChargeDetails row={row} />
-                          {row.bookingId && onOpen && (
-                            <button type="button" onClick={() => { const r = registrations.find(x => x.id === row.bookingId); if (r) onOpen({ db: "registrations", record: r }); }}
-                              style={{ marginTop: 10, padding: "5px 12px", fontSize: 12, background: C.surfaceAlt, border: `1px solid ${C.line}`, borderRadius: 7, cursor: "pointer" }}>
-                              Open booking
-                            </button>
-                          )}
+                          <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
+                            {canEdit && row.paymentStatus !== "failed" && setData && (
+                              <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 220 }}>
+                                <label style={{ fontSize: 11, fontWeight: 600, color: C.ink3, textTransform: "uppercase", letterSpacing: ".04em" }}>
+                                  Free coupon code
+                                </label>
+                                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                  <input
+                                    type="text"
+                                    value={couponDrafts[row.bookingId] || ""}
+                                    onClick={e => e.stopPropagation()}
+                                    onChange={e => {
+                                      const v = e.target.value;
+                                      setCouponDrafts(prev => ({ ...prev, [row.bookingId]: v }));
+                                      if (couponError[row.bookingId]) {
+                                        setCouponError(prev => {
+                                          const next = { ...prev };
+                                          delete next[row.bookingId];
+                                          return next;
+                                        });
+                                      }
+                                    }}
+                                    onKeyDown={e => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        confirmFreeCoupon(row.bookingId);
+                                      }
+                                    }}
+                                    placeholder="e.g. WELCOME100"
+                                    style={{
+                                      padding: "6px 10px", borderRadius: 7, border: `1px solid ${couponError[row.bookingId] ? "#C0573F" : C.line}`,
+                                      fontSize: 13, minWidth: 140, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={e => { e.stopPropagation(); confirmFreeCoupon(row.bookingId); }}
+                                    style={{
+                                      padding: "6px 12px", fontSize: 12, fontWeight: 700, border: "none", borderRadius: 7,
+                                      background: C.brand, color: "#fff", cursor: "pointer", whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    Confirm free coupon
+                                  </button>
+                                </div>
+                                {couponError[row.bookingId] && (
+                                  <div style={{ fontSize: 11.5, color: "#C0573F" }}>{couponError[row.bookingId]}</div>
+                                )}
+                              </div>
+                            )}
+                            {row.bookingId && onOpen && (
+                              <button type="button" onClick={() => { const r = registrations.find(x => x.id === row.bookingId); if (r) onOpen({ db: "registrations", record: r }); }}
+                                style={{ padding: "6px 12px", fontSize: 12, background: C.surfaceAlt, border: `1px solid ${C.line}`, borderRadius: 7, cursor: "pointer" }}>
+                                Open booking
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     )}

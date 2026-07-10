@@ -773,10 +773,11 @@ This is fully automatic — there is no manual matching to do.
 
 **The Payment reconciliation page has:**
 
-1. **Unmatched Stripe transactions** (only appears when there are any) — Stripe charges that could not be tied to a Calendly booking (no booking within 2 days for that participant). These are usually test charges, duplicate payments, or a charge made under a different email than the Calendly booking.
-2. **Stripe charges** — every matched Stripe payment, tied to its Calendly session, with the amounts above. **Free sessions** (any booking with no Stripe charge — for example, someone who booked with a free coupon code, which never goes through Stripe) show here automatically as a **$0.00** row with a **Free** badge, no matter how old the booking is, so every booking is accounted for and the page is a complete record. If a payment later comes in for that session, the row turns into a normal charge on the next sync. **Click any row** to expand it and see the full charge details (session date & time, status, paid date, payment method, refund amount, Stripe IDs, a link to the Stripe receipt, and notes).
-3. **Bookings awaiting a Stripe charge** — sessions booked but with no charge pulled yet (they appear here until the next sync ties a charge to them).
-4. **Refunded payments** — any refunds.
+1. **Payment exceptions** (only appears when there are any) — bookings that look paid (or unmatched) with an expected price but have **no Stripe charge**. 100%-off coupon bookings often land here because Calendly still shows the list price and Stripe is never involved. Expand the row, enter the **coupon code** that was used, and click **Confirm free coupon**. The booking is marked free ($0), the coupon is saved on the record, and it moves into the Stripe charges list as a **Free** row. Failed charges stay here for investigation (no coupon confirm).
+2. **Unmatched Stripe transactions** (only appears when there are any) — Stripe charges that could not be tied to a Calendly booking (no booking within 2 days for that participant). These are usually test charges, duplicate payments, or a charge made under a different email than the Calendly booking.
+3. **Stripe charges** — every matched Stripe payment, tied to its Calendly session, with the amounts above. **Free sessions** (no Stripe charge — including bookings you confirmed with a coupon code) show here as a **$0.00** row with a **Free** badge. Confirmed coupon codes appear in the expanded details. If a payment later comes in for that session, the row turns into a normal charge on the next sync. **Click any row** to expand full charge details.
+4. **Bookings awaiting a Stripe charge** — sessions booked but with no charge pulled yet (they appear here until the next sync ties a charge to them).
+5. **Refunded payments** — any refunds.
 
 Use the **search box** at the top of the page to filter every list here by name, email, session, or description.
 

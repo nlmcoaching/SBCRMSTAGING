@@ -958,7 +958,8 @@ Revenue views derive each booking's amount from its **actual matched Stripe char
 | Section | Purpose |
 |---|---|
 | Unmatched Stripe transactions | Shown **above Stripe charges** only when present. Stripe charges (`status: "paid"`) that no Calendly booking matched (no booking within the match window for that participant). Columns: **Name, Paid, Description, Stripe amount**; rows expand to the same `ChargeDetails` panel. Common causes: test charges, duplicate payments, or a different email between Stripe and Calendly. |
-| Stripe charges | One row per **matched** Stripe charge (`status: "paid"`), tied to the Calendly session it paid for. Columns: **Booked**, **Name**, Session, Expected, Stripe, Session amount (sorted by booked date, most recent first). **Free sessions** — any active booking with no paid Stripe charge tied to it (e.g. booked with a free coupon code, which never goes to Stripe) — appear here as synthetic **$0.00** rows with a **Free** badge, shown at **any age** so the page is a complete record of every booking (display-only; they self-correct to a real charge row if a payment arrives later). **Click a row to expand** a details panel (`ChargeDetails`) showing session date & time, status, paid-at, amount/currency, refunded amount, payment method, tied session, match status, Stripe charge / payment-intent / checkout-session / event IDs, a link to the Stripe receipt, and any notes. |
+| Payment exceptions | Shown when a booking looks paid/unmatched/failed with an expected amount but has **no Stripe charge**. Not auto-forgiven as free (a missing charge can look like a comp). Expand a non-failed row → enter the **free coupon code** → **Confirm free coupon** (`confirmRegistrationFreeCoupon`). Sets `couponCode`, `paidAmount: 0`, and `lastAmountMismatch.reason: "free"`; the row leaves exceptions and appears under Stripe charges as a **Free** row. Requires Edit permission. |
+| Stripe charges | One row per **matched** Stripe charge (`status: "paid"`), tied to the Calendly session it paid for. Columns: **Booked**, **Name**, Session, Expected, Stripe, Session amount (sorted by booked date, most recent first). **Free sessions** — any active booking with no paid Stripe charge that is not a payment exception (including operator-confirmed coupons) — appear as synthetic **$0.00** rows with a **Free** badge; confirmed coupon codes show in `ChargeDetails`. They self-correct to a real charge row if a payment arrives later. |
 | Bookings awaiting a Stripe charge | Calendly bookings still in `pending_verification` (booked but no charge tied yet). |
 | Refunds | Stripe refund events affecting revenue. |
 
@@ -1914,7 +1915,8 @@ Each individual Calendly booking is stored as a `registration` record:
 | `amountRefunded` | Refunded amount — from Stripe refund webhooks, or set immediately when a refund is issued from the CRM |
 | `stripeRefundId` | Stripe refund ID (`re_...`) when a refund was issued from the CRM (Revenue → Refunds) |
 | `refundedAt` | ISO timestamp when the CRM-issued Stripe refund was created |
-| `lastAmountMismatch` | When Stripe paid ≠ Calendly expected price: `{ expectedAmount, stripeAmount, correctedAt }` — `paymentAmount` is updated to Stripe |
+| `lastAmountMismatch` | When Stripe paid ≠ Calendly expected price, or a free/coupon confirmation: `{ expectedAmount, stripeAmount, reason?, couponCode?, correctedAt }` — `reason: "free"` marks a $0 session with no Stripe charge |
+| `couponCode` | Free / 100%-off coupon code confirmed by an operator on the Stripe payment-exceptions list (cleared if a real Stripe charge later matches) |
 | `waiverStatus` | `pending` · `signed` |
 | `createdAt` | ISO 8601 timestamp when the booking was created (from Calendly `created_at`, webhook receipt time, or manual entry) |
 | `scheduledAt` | ISO 8601 start time |
