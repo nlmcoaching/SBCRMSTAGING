@@ -5566,20 +5566,24 @@ function PipelineSnapshot({ data, today }) {
 
   const totalPotential  = openPipelineVal + studioPipeVal;
 
+  // Local MTD revenue rows — must not reference LaneSplitPanel's allRevRowsMTD
+  // (that was a scope leak from the memoization refactor and blanked the app after unlock).
+  const allRevRowsMTD = useMemo(
+    () => buildRevenueViewRows(data).filter(r => ((r.bookedAt || r.date) || "").startsWith(mo)),
+    [data, mo],
+  );
+  const opProfitMTD = useMemo(() => {
+    const exp = (data.expenses || []).filter(e => (e.date || "").startsWith(mo)).reduce((s, e) => s + (+e.amount || 0), 0);
+    const net = allRevRowsMTD.map(applyStudioSessionSplit(data)).reduce((s, r) => s + calcNet(r), 0);
+    return net - exp;
+  }, [data.expenses, allRevRowsMTD, data, mo]);
+
   const tiles = [
     {
       label: "Operating profit MTD",
-      value: (() => {
-        const exp = (data.expenses||[]).filter(e=>(e.date||"").startsWith(mo)).reduce((s,e)=>s+(+e.amount||0),0);
-        const net = allRevRowsMTD.map(applyStudioSessionSplit(data)).reduce((s,r)=>s+calcNet(r),0);
-        return money(net - exp);
-      })(),
+      value: money(opProfitMTD),
       sub: "net session revenue minus expenses",
-      accent: (() => {
-        const exp = (data.expenses||[]).filter(e=>(e.date||"").startsWith(mo)).reduce((s,e)=>s+(+e.amount||0),0);
-        const net = allRevRowsMTD.map(applyStudioSessionSplit(data)).reduce((s,r)=>s+calcNet(r),0);
-        return (net-exp) >= 0 ? "#16A34A" : "#E05454";
-      })(),
+      accent: opProfitMTD >= 0 ? "#16A34A" : "#E05454",
       Icon: TrendingUp,
     },
     {
