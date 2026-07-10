@@ -8,6 +8,7 @@ import {
   Zap, Copy, Clock, TrendingUp, BarChart2, AlertCircle, Activity, Send, Info, BellRing, Milestone,
   LogOut, UserCircle, Shield, KeyRound, Receipt, ClipboardList, FileSignature, CalendarCheck, CheckCircle, Save, Scale, Lock,
 } from "lucide-react";
+import { LOGO } from "./assets/logo.js";
 import {
   amountsMatch,
   normalizeEmail,
@@ -36,7 +37,6 @@ const C = {
   gold: "#D9892B", goldSoft: "#F6EAD6",
 };
 
-const LOGO = "data:image/png;base64,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";
 const STATUS = ["Lead", "Booked", "Attended 1x", "Engaged (2-3x)", "Member (4+)", "Advocate"];
 const STATUS_COLOR = {
   "Lead": "#9FB2CC", "Booked": "#6FA8E8", "Attended 1x": "#3F87DC",
@@ -582,7 +582,7 @@ const EQUIP_CHECKLIST_PHASES = [
 const EQUIP_CHECKLIST = EQUIP_CHECKLIST_PHASES.flatMap(p => p.items.map(i => ({ ...i, phase: p.id })));
 const emptyEquipChecklist = () => Object.fromEntries(EQUIP_CHECKLIST.map(i => [i.id, false]));
 
-/** Equip items shown under Pre-Session in VirtualSessionChecklist (not the Virtual Setup phase block) */
+/** Equip items shown under Pre-Session in SessionChecklistPanel (virtual mode only, not the Virtual Setup phase block) */
 const VIRTUAL_PRE_SESSION_MOVED_EQUIP_IDS = new Set([
   "eq_camera", "eq_do_not_disturb",
   "eq_playlist_v", "eq_wifi_v",
@@ -1149,6 +1149,66 @@ function slimHistEntry(e) {
 function cappedLog(existing, newEntry) {
   const next = [...(existing || []), newEntry];
   return next.length > EMAIL_LOG_CAP ? next.slice(-EMAIL_LOG_CAP) : next;
+}
+
+// ── Shared email send helper ──────────────────────────────────────────────────
+// All five email-send flows in the CRM share the same HTTP call + log-entry
+// shape.  This helper handles the fetch, the res.ok guard, and builds the
+// canonical logEntry.  Call sites keep only their own setData side-effects.
+//
+// Returns the logEntry on success; throws on HTTP or network failure.
+//
+// Args:
+//   to            – recipient email address
+//   recipientName – display name (already cleaned by the call site)
+//   recipientType – "client" | "partner"
+//   subject, body – final rendered strings
+//   templateId, templateName, category – template metadata (use empty strings for ad-hoc sends)
+async function sendCrmEmail({ to, recipientName, recipientType, subject, body, templateId = "", templateName = "", category = "" }) {
+  const res = await fetch("/api/send-email", {
+    method: "POST",
+    headers: apiHeaders(),
+    body: JSON.stringify({ to, recipientName, subject, body }),
+  });
+  if (!res.ok) {
+    const e = await safeResJSON(res);
+    throw new Error(e.error || `Send failed (${res.status}).`);
+  }
+  const json = await res.json();
+  return {
+    id:            `em_${Date.now()}`,
+    date:          new Date().toISOString(),
+    templateId,
+    templateName,
+    category,
+    to,
+    recipientName,
+    recipientType,
+    subject,
+    body,
+    resendId:      json.id || null,
+    sendStatus:    "sent",
+  };
+}
+
+// Build a failed-send log entry without making a network call.
+// Used in catch blocks so every failure is consistently logged.
+function makeEmailFailEntry({ to = "", recipientName = "", recipientType = "client", subject = "", body = "", templateId = "", templateName = "", category = "" }, err) {
+  return {
+    id:            `em_${Date.now()}`,
+    date:          new Date().toISOString(),
+    templateId,
+    templateName,
+    category,
+    to,
+    recipientName,
+    recipientType,
+    subject,
+    body,
+    resendId:      null,
+    sendStatus:    "failed",
+    errorMsg:      err?.message || "Unknown error",
+  };
 }
 
 function isTruncatedPreview(text) {
@@ -5696,38 +5756,15 @@ function ActionEmailModal({ action, data, setData, currentUser, onClose, onSent 
     const finalSubject = subjectEdit || applyTemplateVars(template.subject || template.name, vars);
     const finalBody = bodyOverride ?? populatedBody;
 
+    const recipientName = recipient._type === "partner"
+      ? (recipient.contact || recipient.name || "")
+      : cleanName(recipient.name || "");
     try {
-      const res = await fetch("/api/send-email", {
-        method: "POST",
-        headers: apiHeaders(),
-        body: JSON.stringify({
-          to: recipient.email,
-          recipientName: recipient._type === "partner"
-            ? (recipient.contact || recipient.name || "")
-            : cleanName(recipient.name || ""),
-          subject: finalSubject,
-          body: finalBody,
-        }),
+      const logEntry = await sendCrmEmail({
+        to: recipient.email, recipientName, recipientType: recipient._type,
+        subject: finalSubject, body: finalBody,
+        templateId: template.id, templateName: template.name, category: template.category || "",
       });
-      if (!res.ok) { const e = await safeResJSON(res); throw new Error(e.error || `Send failed (${res.status}).`); }
-      const json = await res.json();
-
-      const logEntry = {
-        id: `em_${Date.now()}`,
-        date: new Date().toISOString(),
-        templateId: template.id,
-        templateName: template.name,
-        category: template.category || "",
-        to: recipient.email,
-        recipientName: recipient._type === "partner"
-          ? (recipient.contact || recipient.name || "")
-          : cleanName(recipient.name || ""),
-        recipientType: recipient._type,
-        subject: finalSubject,
-        body: finalBody,
-        resendId: json.id || null,
-        sendStatus: "sent",
-      };
 
       setData(d => {
         const slim = slimHistEntry(logEntry);
@@ -5765,16 +5802,7 @@ function ActionEmailModal({ action, data, setData, currentUser, onClose, onSent 
       setSent(true);
       setTimeout(() => { onSent?.(); onClose(); }, 1500);
     } catch (err) {
-      const failEntry = {
-        id: `em_${Date.now()}`, date: new Date().toISOString(),
-        templateId: template?.id || "", templateName: template?.name || "",
-        category: template?.category || "",
-        to: recipient?.email || "",
-        recipientName: recipient?._type === "partner" ? (recipient.contact || recipient.name || "") : cleanName(recipient?.name || ""),
-        recipientType: recipient?._type || "client",
-        subject: finalSubject, body: finalBody,
-        resendId: null, sendStatus: "failed", errorMsg: err.message,
-      };
+      const failEntry = makeEmailFailEntry({ to: recipient?.email, recipientName, recipientType: recipient?._type, subject: finalSubject, body: finalBody, templateId: template?.id, templateName: template?.name, category: template?.category }, err);
       setData(d => ({ ...d, emailLog: cappedLog(d.emailLog, failEntry) }));
       setError(err.message);
     }
@@ -8930,29 +8958,20 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
             : hasSessionTabs && tab === "bookings"
             ? <SessionBookingsTab record={draft} data={data} onOpenRelated={onOpenRelated} setData={setData} />
             : hasSessionTabs && tab === "session-checklist"
-            ? isVirtualSession
-              ? <VirtualSessionChecklist
-                  equipChecklist={draft.equipChecklist || emptyEquipChecklist()}
-                  onEquipChange={(cl) => set("equipChecklist", cl)}
-                  checklist={draft.checklist || emptySessionChecklist()}
-                  onChecklistChange={(cl) => set("checklist", cl)}
-                  sessionName={cleanName(draft.name)}
-                  sessionDate={draft.date}
-                  status={draft.status}
-                  sessionAmount={(() => {
-                    const reg = (data.registrations || []).find(r => r.sessionId === draft.id && r.status !== "canceled");
-                    return formatActualBookingAmount(reg, null) ?? formatRegistrationAmount(reg);
-                  })()}
-                />
-              : <StudioSessionChecklist
-                  equipChecklist={draft.equipChecklist || emptyEquipChecklist()}
-                  onEquipChange={(cl) => set("equipChecklist", cl)}
-                  checklist={draft.checklist || emptySessionChecklist()}
-                  onChecklistChange={(cl) => set("checklist", cl)}
-                  sessionName={cleanName(draft.name)}
-                  sessionDate={draft.date}
-                  status={draft.status}
-                />
+            ? <SessionChecklistPanel
+                isVirtual={isVirtualSession}
+                equipChecklist={draft.equipChecklist || emptyEquipChecklist()}
+                onEquipChange={(cl) => set("equipChecklist", cl)}
+                checklist={draft.checklist || emptySessionChecklist()}
+                onChecklistChange={(cl) => set("checklist", cl)}
+                sessionName={cleanName(draft.name)}
+                sessionDate={draft.date}
+                status={draft.status}
+                sessionAmount={isVirtualSession ? (() => {
+                  const reg = (data.registrations || []).find(r => r.sessionId === draft.id && r.status !== "canceled");
+                  return formatActualBookingAmount(reg, null) ?? formatRegistrationAmount(reg);
+                })() : undefined}
+              />
             : hasSessionTabs && tab === "performance"
             ? <div>
                 <div style={{ display: "flex", justifyContent: "flex-end", padding: "0 4px 10px" }}>
@@ -9470,17 +9489,29 @@ function sortCriticalFirst(items, criticalIds) {
   });
 }
 
-/* ── VIRTUAL SESSION CHECKLIST (combined equipment + run) ── */
-function VirtualSessionChecklist({ equipChecklist, onEquipChange, checklist, onChecklistChange, sessionName, sessionDate, status, sessionAmount }) {
+/* ── SESSION CHECKLIST PANEL (virtual + studio merged) ──────────────────────
+   Props identical to the old VirtualSessionChecklist / StudioSessionChecklist;
+   the `isVirtual` boolean selects which item set and behaviour to use.
+   sessionAmount is only shown for virtual sessions.
+   ──────────────────────────────────────────────────────────────────────────── */
+function SessionChecklistPanel({ equipChecklist, onEquipChange, checklist, onChecklistChange, sessionName, sessionDate, status, sessionAmount, isVirtual }) {
   const [showCritical, setShowCritical] = useState(false);
   const toggleEquip = (id) => onEquipChange({ ...equipChecklist, [id]: !equipChecklist[id] });
   const toggleRun   = (id) => onChecklistChange({ ...checklist, [id]: !checklist[id] });
 
+  // Studio has a fixed exclusion list; virtual uses the .virtual flag on each item.
+  const studioExcludeIds = isVirtual ? null : new Set([
+    "eq_speaker", "eq_space_v", "eq_lighting_v", "promo_sent", "equipment_packed", "audio_tested",
+  ]);
+  const itemFilter = isVirtual
+    ? (i) => i.virtual
+    : (i) => !i.virtual && !studioExcludeIds.has(i.id);
+
   const activeEquipPhases = EQUIP_CHECKLIST_PHASES
-    .map(p => ({ ...p, items: p.items.filter(i => i.virtual) }))
+    .map(p => ({ ...p, items: p.items.filter(itemFilter) }))
     .filter(p => p.items.length > 0);
   const equipItems = activeEquipPhases.flatMap(p => p.items);
-  const runItems   = SESSION_CHECKLIST.filter(i => i.virtual);
+  const runItems   = SESSION_CHECKLIST.filter(itemFilter);
 
   const equipDone  = equipItems.filter(i => equipChecklist[i.id]).length;
   const runDone    = runItems.filter(i => checklist[i.id]).length;
@@ -9488,10 +9519,12 @@ function VirtualSessionChecklist({ equipChecklist, onEquipChange, checklist, onC
   const total      = equipItems.length + runItems.length;
   const pct        = total ? Math.round((totalDone / total) * 100) : 0;
 
-  // Items pulled from their equipment phases into the merged Pre-Session section
-  const virtualPreSessionEquipIds = VIRTUAL_PRE_SESSION_MOVED_EQUIP_IDS;
+  // Virtual only: some equip items are pulled into the merged Pre-Session block.
+  const virtualPreSessionEquipIds = isVirtual ? VIRTUAL_PRE_SESSION_MOVED_EQUIP_IDS : new Set();
 
-  const criticalIds     = ["eq_zoom_tested", "eq_headset_v", "eq_do_not_disturb", "eq_contraindication"];
+  const criticalIds     = isVirtual
+    ? ["eq_zoom_tested", "eq_headset_v", "eq_do_not_disturb", "eq_contraindication"]
+    : ["eq_headsets", "eq_backup_headset", "eq_playlist", "eq_waiver_qr", "eq_emergency", "eq_contraindication"];
   const criticalMissing = criticalIds.filter(id => !equipChecklist[id]);
   const isCompleted     = ["Completed", "Follow-up pending", "Closed out"].includes(status);
 
@@ -9536,7 +9569,7 @@ function VirtualSessionChecklist({ equipChecklist, onEquipChange, checklist, onC
       <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: "16px 18px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{sessionName} — Virtual Setup</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{sessionName} — {isVirtual ? "Virtual" : "Studio"} Setup</div>
             <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>
               {sessionDate ? `Session: ${sessionDate}  ·  ` : ""}{totalDone} of {total} items complete
             </div>
@@ -9613,190 +9646,6 @@ function VirtualSessionChecklist({ equipChecklist, onEquipChange, checklist, onC
           [
             ...preItems.map(i => ({ ...i, _src: "run" })),
             ...movedEquipItems.map(i => ({ ...i, _src: "equip" })),
-            ...safetyItems.map(i => ({ ...i, _src: "equip" })),
-          ],
-          criticalIds
-        );
-        return (
-          <div>
-            {renderPhaseHeader("Pre-Session", phColor, done, allPreItems.length, null)}
-            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              {allSorted.map(item =>
-                item._src === "run"
-                  ? renderItem(item, !!checklist[item.id], toggleRun, phColor, criticalIds.includes(item.id), false)
-                  : renderItem(item, !!equipChecklist[item.id], toggleEquip, phColor, criticalIds.includes(item.id), false)
-              )}
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Post-Session */}
-      {(() => {
-        const items = sortCriticalFirst(runItems.filter(i => i.phase === "Post-Session"), criticalIds);
-        if (!items.length) return null;
-        const phaseDone = items.filter(i => checklist[i.id]).length;
-        const phColor = SESSION_PHASE_COLOR["Post-Session"];
-        const disabled = !isCompleted;
-        return (
-          <div style={{ opacity: disabled ? 0.55 : 1 }}>
-            {renderPhaseHeader("Post-Session", phColor, phaseDone, items.length,
-              disabled ? <span style={{ fontSize: 11, color: C.ink3 }}>(available after session is Completed)</span> : null
-            )}
-            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              {items.map(item => renderItem(item, !!checklist[item.id], toggleRun, phColor, criticalIds.includes(item.id), disabled))}
-            </div>
-          </div>
-        );
-      })()}
-
-      {pct === 100 && (
-        <div style={{ background: hexA("#4A8C6F", 0.1), border: `1px solid ${hexA("#4A8C6F", 0.3)}`, borderRadius: 10, padding: "14px 16px", textAlign: "center" }}>
-          <div style={{ marginBottom: 6 }}><CheckCircle size={28} color="#4A8C6F" strokeWidth={1.5} /></div>
-          <div style={{ fontWeight: 700, fontSize: 14, color: "#2D6A50" }}>You're fully set up</div>
-          <div style={{ fontSize: 12, color: "#4A8C6F", marginTop: 3 }}>All setup and session items confirmed. Go hold space. 🌿</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── STUDIO SESSION CHECKLIST (combined equipment + run) ── */
-function StudioSessionChecklist({ equipChecklist, onEquipChange, checklist, onChecklistChange, sessionName, sessionDate, status }) {
-  const [showCritical, setShowCritical] = useState(false);
-  const toggleEquip = (id) => onEquipChange({ ...equipChecklist, [id]: !equipChecklist[id] });
-  const toggleRun   = (id) => onChecklistChange({ ...checklist, [id]: !checklist[id] });
-
-  const studioExcludeIds = new Set([
-    "eq_speaker",       // Speaker / audio
-    "eq_space_v",       // Personal space quiet
-    "eq_lighting_v",    // Lighting flattering
-    "promo_sent",       // Promotional push
-    "equipment_packed", // Equipment packed
-    "audio_tested",     // Music & headsets tested (replaced by tech_room_setup)
-  ]);
-
-  const activeEquipPhases = EQUIP_CHECKLIST_PHASES
-    .map(p => ({ ...p, items: p.items.filter(i => !i.virtual && !studioExcludeIds.has(i.id)) }))
-    .filter(p => p.items.length > 0);
-  const equipItems = activeEquipPhases.flatMap(p => p.items);
-  const runItems   = SESSION_CHECKLIST.filter(i => !i.virtual && !studioExcludeIds.has(i.id));
-
-  const equipDone  = equipItems.filter(i => equipChecklist[i.id]).length;
-  const runDone    = runItems.filter(i => checklist[i.id]).length;
-  const totalDone  = equipDone + runDone;
-  const total      = equipItems.length + runItems.length;
-  const pct        = total ? Math.round((totalDone / total) * 100) : 0;
-
-  const criticalIds     = ["eq_headsets","eq_backup_headset","eq_playlist","eq_waiver_qr","eq_emergency","eq_contraindication"];
-  const criticalMissing = criticalIds.filter(id => !equipChecklist[id]);
-  const isCompleted     = ["Completed", "Follow-up pending", "Closed out"].includes(status);
-
-  const renderItem = (item, checked, onToggle, color, isCritical, disabled) => (
-    <button key={item.id} onClick={() => !disabled && onToggle(item.id)} disabled={disabled} style={{
-      display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
-      background: checked ? hexA(color, 0.07) : "transparent",
-      border: "none", borderRadius: 8, padding: "9px 10px",
-      cursor: disabled ? "not-allowed" : "pointer", transition: "background .12s",
-    }}>
-      <div style={{
-        width: 20, height: 20, borderRadius: 5, flexShrink: 0, transition: "all .12s",
-        border: `2px solid ${checked ? color : isCritical && !checked ? "#D9892B" : C.line}`,
-        background: checked ? color : C.surface,
-        display: "flex", alignItems: "center", justifyContent: "center",
-      }}>
-        {checked && <Check size={12} color="#fff" strokeWidth={3} />}
-      </div>
-      <span style={{ fontSize: 13.5, flex: 1, fontWeight: checked ? 500 : 400, color: checked ? C.ink3 : C.ink, textDecoration: checked ? "line-through" : "none" }}>
-        {item.label}
-      </span>
-      {isCritical && !checked && (
-        <span style={{ fontSize: 10, fontWeight: 700, color: "#D9892B", background: hexA("#D9892B", 0.12), borderRadius: 4, padding: "1px 6px" }}>CRITICAL</span>
-      )}
-    </button>
-  );
-
-  const renderPhaseHeader = (label, phColor, done, phTotal, extra) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "6px 10px", borderRadius: 8, background: hexA(phColor, 0.07) }}>
-      <div style={{ width: 10, height: 10, borderRadius: "50%", background: phColor, flexShrink: 0 }} />
-      <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: phColor, flex: 1 }}>{label}</span>
-      {extra}
-      {done === phTotal
-        ? <span style={{ fontSize: 11, fontWeight: 700, color: "#4A8C6F" }}>✓ All done</span>
-        : <span style={{ fontSize: 11, color: C.ink3 }}>{done}/{phTotal}</span>}
-    </div>
-  );
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Progress header with critical badge */}
-      <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: "16px 18px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{sessionName} — Studio Setup</div>
-            <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>
-              {sessionDate ? `Session: ${sessionDate}  ·  ` : ""}{totalDone} of {total} items complete
-            </div>
-            {criticalMissing.length > 0 && (
-              <button onClick={() => setShowCritical(v => !v)} style={{
-                marginTop: 8, display: "inline-flex", alignItems: "center", gap: 5,
-                background: showCritical ? "#D9892B" : hexA("#D9892B", 0.12),
-                border: `1px solid ${hexA("#D9892B", 0.4)}`,
-                borderRadius: 20, padding: "3px 10px", cursor: "pointer",
-                fontSize: 11.5, fontWeight: 700, color: showCritical ? "#fff" : "#9A5D10",
-                transition: "all .15s",
-              }}>
-                ⚠️ {criticalMissing.length} critical item{criticalMissing.length > 1 ? "s" : ""} not checked
-                <span style={{ fontSize: 10 }}>{showCritical ? "▲" : "▼"}</span>
-              </button>
-            )}
-          </div>
-          <div style={{ fontFamily: FONT.display, fontSize: 28, fontWeight: 700, color: pct === 100 ? "#4A8C6F" : pct >= 50 ? C.brand : C.gold }}>
-            {pct}%
-          </div>
-        </div>
-        <div style={{ height: 8, background: C.line, borderRadius: 8, overflow: "hidden" }}>
-          <div style={{ height: "100%", borderRadius: 8, transition: "width .3s", width: pct + "%",
-            background: pct === 100 ? "#4A8C6F" : pct >= 50 ? C.brand : C.gold }} />
-        </div>
-        {showCritical && criticalMissing.length > 0 && (
-          <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${hexA("#D9892B", 0.25)}` }}>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {criticalMissing.map(id => {
-                const item = equipItems.find(i => i.id === id);
-                return item ? <span key={id} style={{ fontSize: 11.5, background: "#fff", border: `1px solid ${hexA("#D9892B", 0.4)}`, borderRadius: 6, padding: "3px 10px", color: "#9A5D10", fontWeight: 600 }}>{item.label}</span> : null;
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Equipment phases — all except Safety & Facilitation */}
-      {activeEquipPhases.filter(p => p.id !== "safety").map(phase => {
-        const sortedItems = sortCriticalFirst(phase.items, criticalIds);
-        const phaseDone = sortedItems.filter(i => equipChecklist[i.id]).length;
-        return (
-          <div key={phase.id}>
-            {renderPhaseHeader(phase.label, phase.color, phaseDone, sortedItems.length, null)}
-            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              {sortedItems.map(item => renderItem(item, !!equipChecklist[item.id], toggleEquip, phase.color, criticalIds.includes(item.id), false))}
-            </div>
-          </div>
-        );
-      })}
-
-      {/* Pre-Session — run items + Safety & Facilitation merged */}
-      {(() => {
-        const safetyPhase = activeEquipPhases.find(p => p.id === "safety");
-        const safetyItems = safetyPhase ? safetyPhase.items : [];
-        const preItems = runItems.filter(i => i.phase === "Pre-Session");
-        const allPreItems = [...preItems, ...safetyItems];
-        if (!allPreItems.length) return null;
-        const phColor = SESSION_PHASE_COLOR["Pre-Session"];
-        const done = preItems.filter(i => checklist[i.id]).length + safetyItems.filter(i => equipChecklist[i.id]).length;
-        const allSorted = sortCriticalFirst(
-          [
-            ...preItems.map(i => ({ ...i, _src: "run" })),
             ...safetyItems.map(i => ({ ...i, _src: "equip" })),
           ],
           criticalIds
@@ -13757,15 +13606,10 @@ function FollowUpSendButton({ r, data, setData, today }) {
   const send = async () => {
     if (!client?.email) return;
     setSending(true); setError("");
+    const tmpl = allOptions.find(t => t.id === selectedId);
+    const emailParams = { to: client.email, recipientName: cleanName(client.name || ""), recipientType: "client", subject, body, templateId: tmpl?.id || "followup", templateName: tmpl?.name || r.name, category: tmpl?.category || "Follow-Up" };
     try {
-      const res  = await fetch("/api/send-email", {
-        method: "POST", headers: apiHeaders(),
-        body: JSON.stringify({ to: client.email, recipientName: (client.name||"").split(" ")[0], subject, body }),
-      });
-      if (!res.ok) { const e = await safeResJSON(res); throw new Error(e.error || `Send failed (${res.status}).`); }
-      const json = await res.json();
-      const tmpl = allOptions.find(t => t.id === selectedId);
-      const logEntry = { id: `em_${Date.now()}`, date: new Date().toISOString(), templateId: tmpl?.id || "followup", templateName: tmpl?.name || r.name, category: tmpl?.category || "Follow-Up", to: client.email, recipientName: cleanName(client.name||""), recipientType: "client", subject, body, resendId: json.id || null, sendStatus: "sent" };
+      const logEntry = await sendCrmEmail(emailParams);
       setData(d => ({
         ...d,
         emailLog: cappedLog(d.emailLog, logEntry),
@@ -13776,16 +13620,7 @@ function FollowUpSendButton({ r, data, setData, today }) {
       // Brief "Sent!" feedback, then mark completed — this closes modal and shows green badge
       setTimeout(() => { setCompleted(true); }, 900);
     } catch (err) {
-      const tmplFail = allOptions.find(t => t.id === selectedId);
-      const failEntry = {
-        id: `em_${Date.now()}`, date: new Date().toISOString(),
-        templateId: tmplFail?.id || "followup", templateName: tmplFail?.name || r.name,
-        category: tmplFail?.category || "Follow-Up",
-        to: client?.email || "", recipientName: cleanName(client?.name || ""),
-        recipientType: "client", subject, body,
-        resendId: null, sendStatus: "failed", errorMsg: err.message,
-      };
-      setData(d => ({ ...d, emailLog: cappedLog(d.emailLog, failEntry) }));
+      setData(d => ({ ...d, emailLog: cappedLog(d.emailLog, makeEmailFailEntry(emailParams, err)) }));
       setError(err.message);
     }
     setSending(false);
@@ -15086,51 +14921,24 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser, query }) {
 
     setEmailSending(true);
     setEmailError("");
+    const tmpl  = emailPreview.template;
+    const recip = emailPreview.recipient;
+    const today = new Date().toISOString().slice(0, 10);
+    const rName = recip._type === "partner" ? (recip.contact || recip.name || "") : cleanName(recip.name || "");
+    const emailParams = {
+      to: recipientEmail, recipientName: rName, recipientType: recip._type,
+      subject: emailPopulatedSubject || tmpl.name, body: emailBodyOverride ?? emailPopulatedBody,
+      templateId: tmpl.id, templateName: tmpl.name, category: tmpl.category || "",
+    };
     try {
-      const res = await fetch("/api/send-email", {
-        method: "POST",
-        headers: apiHeaders(),
-        body: JSON.stringify({
-          to:            recipientEmail,
-          recipientName: emailPreview.recipient._type === "partner"
-            ? (emailPreview.recipient.contact || emailPreview.recipient.name || "")
-            : cleanName(emailPreview.recipient.name || ""),
-          subject:       emailPopulatedSubject || emailPreview.template.name,
-          body:          emailBodyOverride ?? emailPopulatedBody,
-        }),
-      });
-      if (!res.ok) { const e = await safeResJSON(res); throw new Error(e.error || `Send failed (${res.status}).`); }
-      const json = await res.json();
-
-      // ── Workflow updates after successful send ──
-      const tmpl     = emailPreview.template;
-      const recip    = emailPreview.recipient;
-      const today    = new Date().toISOString().slice(0, 10);
-      const logEntry = {
-        id:            `em_${Date.now()}`,
-        date:          new Date().toISOString(),
-        templateId:    tmpl.id,
-        templateName:  tmpl.name,
-        category:      tmpl.category || "",
-        to:            recipientEmail,
-        recipientName: recip._type === "partner"
-          ? (recip.contact || recip.name || "")
-          : cleanName(recip.name || ""),
-        recipientType: recip._type,
-        subject:       emailPopulatedSubject || tmpl.name,
-        body:          emailBodyOverride ?? emailPopulatedBody,
-        resendId:      json.id || null,
-        sendStatus:    "sent",
-      };
+      const logEntry = await sendCrmEmail(emailParams);
 
       // ── Write to global email log (capped); slim reference to per-record history ──
       setData(d => ({ ...d, emailLog: cappedLog(d.emailLog, logEntry) }));
       const slim3 = slimHistEntry(logEntry);
       if (recip._type === "partner") {
-        // Update lastTouch on partner + append slim ref to emailHistory
         onUpdate("partners", recip.id, p => ({ ...p, lastTouch: today, emailHistory: [...(p.emailHistory || []), slim3] }));
       } else if (recip._type === "client") {
-        // Log slim send ref on client record
         onUpdate("clients", recip.id, c => ({ ...c, emailHistory: [...(c.emailHistory || []), slim3] }));
         // If Post-Session or Operations template, also mark followUpSent on most-recent unactioned session for this client
         if (["Post-Session", "Operations"].includes(tmpl.category)) {
@@ -15145,26 +14953,7 @@ function TemplateLibraryView({ data, setData, onOpen, currentUser, query }) {
       setEmailSent(true);
       setTimeout(() => { setEmailSent(false); setEmailPreview(null); }, 2000);
     } catch (err) {
-      // Log the failed send attempt to the global email log
-      const tmplFail  = emailPreview?.template;
-      const recipFail = emailPreview?.recipient;
-      if (tmplFail && recipFail) {
-        const failEntry = {
-          id:            `em_${Date.now()}`,
-          date:          new Date().toISOString(),
-          templateId:    tmplFail.id,
-          templateName:  tmplFail.name,
-          category:      tmplFail.category || "",
-          to:            recipFail.email || "",
-          recipientName: cleanName(recipFail.name || ""),
-          recipientType: recipFail._type,
-          subject:       emailPopulatedSubject || tmplFail.name,
-          resendId:      null,
-          sendStatus:    "failed",
-          errorMsg:      err.message,
-        };
-        setData(d => ({ ...d, emailLog: cappedLog(d.emailLog, failEntry) }));
-      }
+      setData(d => ({ ...d, emailLog: cappedLog(d.emailLog, makeEmailFailEntry(emailParams, err)) }));
       setEmailError(err.message || "Failed to send. Please try again.");
     } finally {
       setEmailSending(false);
@@ -17148,37 +16937,15 @@ function MessageQueue({ overdue, todayItems, upcoming, today, markSent, onOpenCl
     const state = emailState[key];
     if (!state || !item.client?.email) return;
     setEmailState(s => ({ ...s, [key]: { ...s[key], sending: true, error: "" } }));
+    const selectedTmpl = state.selectedTemplateId && state.selectedTemplateId !== "__followup__"
+      ? emailTemplates.find(t => t.id === state.selectedTemplateId) : null;
+    const emailParams = {
+      to: item.client.email, recipientName: cleanName(item.client.name || ""), recipientType: "client",
+      subject: state.subject, body: state.body,
+      templateId: selectedTmpl?.id || item.stepId, templateName: selectedTmpl?.name || item.stepDef?.label || item.stepId, category: selectedTmpl?.category || "Follow-Up",
+    };
     try {
-      const res  = await fetch("/api/send-email", {
-        method: "POST",
-        headers: apiHeaders(),
-        body: JSON.stringify({
-          to:            item.client.email,
-          recipientName: (item.client.name || "").split(" ")[0],
-          subject:       state.subject,
-          body:          state.body,
-        }),
-      });
-      if (!res.ok) { const e = await safeResJSON(res); throw new Error(e.error || `Send failed (${res.status}).`); }
-      const json = await res.json();
-
-      // Write to global email log
-      const selectedTmpl = state.selectedTemplateId && state.selectedTemplateId !== "__followup__"
-        ? emailTemplates.find(t => t.id === state.selectedTemplateId) : null;
-      const logEntry = {
-        id:            `em_${Date.now()}`,
-        date:          new Date().toISOString(),
-        templateId:    selectedTmpl?.id || item.stepId,
-        templateName:  selectedTmpl?.name || item.stepDef?.label || item.stepId,
-        category:      selectedTmpl?.category || "Follow-Up",
-        to:            item.client.email,
-        recipientName: cleanName(item.client.name || ""),
-        recipientType: "client",
-        subject:       state.subject,
-        body:          state.body,
-        resendId:      json.id || null,
-        sendStatus:    "sent",
-      };
+      const logEntry = await sendCrmEmail(emailParams);
       setData(d => ({
         ...d,
         emailLog: cappedLog(d.emailLog, logEntry),
@@ -17186,22 +16953,11 @@ function MessageQueue({ overdue, todayItems, upcoming, today, markSent, onOpenCl
           c.id === item.clientId ? { ...c, emailHistory: [...(c.emailHistory || []), slimHistEntry(logEntry)] } : c
         ),
       }));
-
       setEmailState(s => ({ ...s, [key]: { ...s[key], sending: false, sent: true } }));
       markSent(item.seqId, item.stepId);
       setTimeout(() => { setComposing(null); setExpanded(e => ({ ...e, [key]: false })); }, 1500);
     } catch (err) {
-      const selectedTmplFail = state?.selectedTemplateId && state.selectedTemplateId !== "__followup__"
-        ? emailTemplates.find(t => t.id === state.selectedTemplateId) : null;
-      const failEntry = {
-        id: `em_${Date.now()}`, date: new Date().toISOString(),
-        templateId: selectedTmplFail?.id || item.stepId, templateName: selectedTmplFail?.name || item.stepDef?.label || item.stepId,
-        category: selectedTmplFail?.category || "Follow-Up",
-        to: item.client?.email || "", recipientName: cleanName(item.client?.name || ""),
-        recipientType: "client", subject: state?.subject || "", body: state?.body || "",
-        resendId: null, sendStatus: "failed", errorMsg: err.message,
-      };
-      setData(d => ({ ...d, emailLog: cappedLog(d.emailLog, failEntry) }));
+      setData(d => ({ ...d, emailLog: cappedLog(d.emailLog, makeEmailFailEntry(emailParams, err)) }));
       setEmailState(s => ({ ...s, [key]: { ...s[key], sending: false, error: err.message || "Send failed." } }));
     }
   };
@@ -17510,14 +17266,10 @@ function FUTemplateEmailModal({ templateBody, templateName, data, setData, onClo
   const send = async () => {
     if (!recipientEmail) return;
     setSending(true); setError("");
+    const rName = recipient?._type === "partner" ? (recipient.contact || recipient.name) : cleanName(recipient?.name || "");
+    const emailParams = { to: recipientEmail, recipientName: rName, recipientType: recipient?._type, subject, body, templateId: "fu_custom", templateName, category: "Follow-Up" };
     try {
-      const res = await fetch("/api/send-email", {
-        method: "POST", headers: apiHeaders(),
-        body: JSON.stringify({ to: recipientEmail, recipientName: recipient?._type === "partner" ? (recipient.contact || recipient.name) : cleanName(recipient?.name || ""), subject, body }),
-      });
-      if (!res.ok) { const e = await safeResJSON(res); throw new Error(e.error || `Send failed (${res.status}).`); }
-      const json = await res.json();
-      const logEntry = { id: `em_${Date.now()}`, date: new Date().toISOString(), templateId: "fu_custom", templateName, category: "Follow-Up", to: recipientEmail, recipientName: recipient?._type === "partner" ? (recipient.contact || recipient.name) : cleanName(recipient?.name || ""), recipientType: recipient?._type, subject, body, resendId: json.id || null, sendStatus: "sent" };
+      const logEntry = await sendCrmEmail(emailParams);
       const slim5 = slimHistEntry(logEntry);
       setData(d => ({
         ...d,
@@ -17528,15 +17280,7 @@ function FUTemplateEmailModal({ templateBody, templateName, data, setData, onClo
       setSent(true);
       setTimeout(() => { setSent(false); onClose(); }, 1500);
     } catch (err) {
-      const failEntry = {
-        id: `em_${Date.now()}`, date: new Date().toISOString(),
-        templateId: "fu_custom", templateName,
-        category: "Follow-Up",
-        to: recipientEmail || "", recipientName: recipient?._type === "partner" ? (recipient.contact || recipient.name) : cleanName(recipient?.name || ""),
-        recipientType: recipient?._type, subject, body,
-        resendId: null, sendStatus: "failed", errorMsg: err.message,
-      };
-      setData(d => ({ ...d, emailLog: cappedLog(d.emailLog, failEntry) }));
+      setData(d => ({ ...d, emailLog: cappedLog(d.emailLog, makeEmailFailEntry(emailParams, err)) }));
       setError(err.message);
     }
     setSending(false);
