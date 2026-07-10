@@ -1327,7 +1327,7 @@ export default function App() {
           processed = pendingEvents?.length || 0;
           ackIds = result.ackIds.filter(id => (pendingEvents || []).some(e => e.id === id));
           next = {
-            ...prev,
+            ...data,
             payments: result.payments,
             registrations: result.registrations,
             sessions: result.sessions,
@@ -1556,12 +1556,18 @@ export default function App() {
     const expensesMTD = (data.expenses||[]).filter(e => (e.date||"").startsWith(mo)).reduce((s,e) => s + (+e.amount||0), 0);
     const expensesYTD = (data.expenses||[]).filter(e => (e.date||"").startsWith(yr)).reduce((s,e) => s + (+e.amount||0), 0);
     // Revenue MTD: filter by booking/payment date (bookedAt), matching the Revenue This Month tab.
+    // applyStudioSessionSplit + calcNet already deduct studioSplit from net — so when computing
+    // operating profit, exclude auto "Studio Split" expenses or the partner cut is counted twice.
     const mtdRows = buildRevenueViewRows(data)
       .filter(r => ((r.bookedAt || r.date) || "").startsWith(mo))
       .map(applyStudioSessionSplit(data));
     const grossRevMTD = mtdRows.reduce((s, r) => s + (r.gross || 0), 0);
     const netRevMTD   = mtdRows.reduce((s, r) => s + calcNet(r), 0);
-    const opProfit    = netRevMTD - expensesMTD;
+    const expensesMTDForOp = (data.expenses || [])
+      .filter(e => (e.date || "").startsWith(mo))
+      .filter(e => !(isAutoExpenseRecord(e) && String(e.id || "").startsWith(AUTO_SPLIT_EXP_ID_PREFIX)))
+      .reduce((s, e) => s + (+e.amount || 0), 0);
+    const opProfit    = netRevMTD - expensesMTDForOp;
     const opMargin    = netRevMTD > 0 ? Math.round((opProfit / netRevMTD) * 100) : null;
 
     return { partnerName, clientName, acceptedByClient, sessionsByStudio, expensesMTD, expensesYTD, grossRevMTD, netRevMTD, opProfit, opMargin };
@@ -3029,7 +3035,11 @@ function PipelineSnapshot({ data, today }) {
     [data, mo],
   );
   const opProfitMTD = useMemo(() => {
-    const exp = (data.expenses || []).filter(e => (e.date || "").startsWith(mo)).reduce((s, e) => s + (+e.amount || 0), 0);
+    // Exclude auto Studio Split expenses — calcNet already deducts studioSplit from net.
+    const exp = (data.expenses || [])
+      .filter(e => (e.date || "").startsWith(mo))
+      .filter(e => !(isAutoExpenseRecord(e) && String(e.id || "").startsWith(AUTO_SPLIT_EXP_ID_PREFIX)))
+      .reduce((s, e) => s + (+e.amount || 0), 0);
     const net = allRevRowsMTD.map(applyStudioSessionSplit(data)).reduce((s, r) => s + calcNet(r), 0);
     return net - exp;
   }, [data.expenses, allRevRowsMTD, data, mo]);

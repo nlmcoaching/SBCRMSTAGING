@@ -737,7 +737,8 @@ export function applyStudioSessionSplit(data) {
   const partnersById = Object.fromEntries((data.partners || []).map(p => [p.id, p]));
   return (row) => {
     if (row.channel !== "Studio session") return row;
-    const studioPct = Math.min(100, Math.max(0, Number(partnersById[row.studioId]?.studioSharePct) || 30));
+    // Fallback 0% — matches studioSessionFinance / normalizeData. Never invent a 30% split.
+    const studioPct = Math.min(100, Math.max(0, Number(partnersById[row.studioId]?.studioSharePct) || 0));
     const usPct = 100 - studioPct;
     const grossCents  = Math.round((Number(row.gross) || 0) * 100);
     const splitCents  = Math.round(grossCents * studioPct / 100);

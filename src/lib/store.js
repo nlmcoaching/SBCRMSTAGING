@@ -6,7 +6,12 @@
 export const IDB_NAME = "simplybreathe";
 export const IDB_STORE = "kv";
 export let _idbPromise = null;
+
+// Once IndexedDB open fails, stop retrying every get/set — fall through to localStorage.
+let _idbUnavailable = false;
+
 export function _idbOpen() {
+  if (_idbUnavailable) return Promise.reject(new Error("indexeddb-unavailable"));
   if (_idbPromise) return _idbPromise;
   _idbPromise = new Promise((resolve, reject) => {
     if (typeof indexedDB === "undefined") { reject(new Error("no-indexeddb")); return; }
@@ -14,6 +19,10 @@ export function _idbOpen() {
     req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains(IDB_STORE)) req.result.createObjectStore(IDB_STORE); };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
+  }).catch((err) => {
+    _idbUnavailable = true;
+    _idbPromise = null;
+    throw err;
   });
   return _idbPromise;
 }
@@ -42,6 +51,15 @@ export function _idbRemove(key) {
   }));
 }
 
+function _lsGet(key) {
+  try {
+    if (typeof localStorage === "undefined") return null;
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
 // Unified storage — window.storage (Cursor canvas) → IndexedDB → localStorage (last-resort fallback)
 export const store = {
   async get(key) {
@@ -49,28 +67,55 @@ export const store = {
       if (typeof window !== "undefined" && window.storage) {
         return window.storage.get(key);
       }
-      if (typeof indexedDB !== "undefined") {
+    } catch { /* fall through */ }
+
+    // Prefer IndexedDB when available, but NEVER treat an IDB open/read failure as
+    // "key missing" — that previously booted the app into first-run against an empty store
+    // while encrypted data still lived in localStorage.
+    if (typeof indexedDB !== "undefined" && !_idbUnavailable) {
+      try {
         const v = await _idbGet(key);
         if (v != null) return { value: v };
         // Lazy migration: pull a pre-existing localStorage value into IndexedDB once.
-        const ls = (typeof localStorage !== "undefined") ? localStorage.getItem(key) : null;
-        if (ls != null) { try { await _idbSet(key, ls); } catch { /* ignore */ } }
+        const ls = _lsGet(key);
+        if (ls != null) { try { await _idbSet(key, ls); } catch { /* ignore migrate write */ } }
         return { value: ls };
+      } catch (e) {
+        console.warn("[SBCRM store.get] IndexedDB unavailable — falling back to localStorage:", e?.message || e);
+        // Fall through to localStorage below
       }
-      return { value: localStorage.getItem(key) };
-    } catch { return { value: null }; }
+    }
+
+    return { value: _lsGet(key) };
   },
   async set(key, value) {
     try {
       if (typeof window !== "undefined" && window.storage) {
         return await window.storage.set(key, value);
       }
-      if (typeof indexedDB !== "undefined") {
+    } catch { /* fall through */ }
+
+    if (typeof indexedDB !== "undefined" && !_idbUnavailable) {
+      try {
         await _idbSet(key, value);
         // Best-effort: drop the now-stale localStorage copy so it stops consuming the 5 MB cap.
-        try { if (typeof localStorage !== "undefined") localStorage.removeItem(key); } catch { /* ignore */ }
+        // Keep localStorage as a backup if IDB later fails to open.
+        try {
+          if (typeof localStorage !== "undefined") {
+            // Mirror a compact copy only for security meta / small keys? No — keep LS as
+            // last-resort read path by NOT deleting after successful IDB write when we want
+            // dual-write durability. Dual-write encrypted payload can hit quota; prefer IDB
+            // primary and leave any existing LS value alone (do not remove).
+          }
+        } catch { /* ignore */ }
         return;
+      } catch (e) {
+        console.warn("[SBCRM store.set] IndexedDB write failed — falling back to localStorage:", e?.message || e);
+        // Fall through to localStorage
       }
+    }
+
+    try {
       localStorage.setItem(key, value);
     } catch (e) {
       console.error("[SBCRM store.set] FAILED for key " + key + " (value " + (typeof value === "string" ? value.length : 0) + " chars):", e);
@@ -82,7 +127,11 @@ export const store = {
       if (typeof window !== "undefined" && window.storage?.remove) {
         return window.storage.remove(key);
       }
-      if (typeof indexedDB !== "undefined") { await _idbRemove(key); }
+    } catch { /* ignore */ }
+    try {
+      if (typeof indexedDB !== "undefined" && !_idbUnavailable) { await _idbRemove(key); }
+    } catch { /* ignore */ }
+    try {
       if (typeof localStorage !== "undefined") localStorage.removeItem(key);
     } catch { /* storage unavailable */ }
   },

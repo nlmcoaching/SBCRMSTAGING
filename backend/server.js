@@ -334,12 +334,16 @@ function withQueueLock(fn) {
 function verifySignature(req) {
   const signingKey = process.env.CALENDLY_WEBHOOK_SIGNING_KEY;
   if (!signingKey) {
-    // Production must never accept unsigned Calendly webhooks. Dev may skip with a loud warning.
-    if (isProd) {
-      console.error("[FATAL] CALENDLY_WEBHOOK_SIGNING_KEY not set — rejecting webhook in production");
+    // Never accept unsigned Calendly webhooks unless explicitly opted in for local testing.
+    // Production always rejects. Dev also rejects by default (ngrok exposure is common);
+    // set ALLOW_UNSIGNED_CALENDLY_WEBHOOKS=true only for intentional local unsigned testing.
+    const allowUnsigned = !isProd && process.env.ALLOW_UNSIGNED_CALENDLY_WEBHOOKS === "true";
+    if (!allowUnsigned) {
+      console.error("[FATAL] CALENDLY_WEBHOOK_SIGNING_KEY not set — rejecting webhook"
+        + (isProd ? " in production" : " (set ALLOW_UNSIGNED_CALENDLY_WEBHOOKS=true to override in dev)"));
       return false;
     }
-    console.warn("[WARN] CALENDLY_WEBHOOK_SIGNING_KEY not set — skipping signature check (dev only)");
+    console.warn("[WARN] CALENDLY_WEBHOOK_SIGNING_KEY not set — ALLOW_UNSIGNED_CALENDLY_WEBHOOKS=true; skipping signature check (dev only)");
     return true;
   }
   const header = req.headers["calendly-webhook-signature"] || "";

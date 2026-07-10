@@ -1757,7 +1757,7 @@ Expenses feed into two places:
 1. **Pipeline Snapshot** (Dashboard) — two new tiles: "Expenses MTD" and "Operating Profit MTD"
 2. **`derived` computed values** — `expensesMTD`, `expensesYTD`, `netRevMTD`, `opProfit`, `opMargin` available throughout the app
 
-`netRevMTD` is calculated using `buildRevenueViewRows` → `applyStudioSessionSplit(data)` → `calcNet` for the current calendar month. `applyStudioSessionSplit` is now a curried function: it receives `data` once and returns a row-mapper that looks up the real `studioSharePct` on the matched partner record, rather than using a hardcoded 70/30 constant. Revenue rows carry `studioId` (propagated from `buildRegistrationRevenueRows`) for the lookup. The **Profitability Panel** on the Expenses Summary tab uses this same pipeline: Gross Revenue (session prices MTD) − Studio Splits − Total Expenses = Operating Profit. Operating Profit MTD will be negative when expenses exceed net revenue.
+`netRevMTD` is calculated using `buildRevenueViewRows` → `applyStudioSessionSplit(data)` → `calcNet` for the current calendar month. `applyStudioSessionSplit` looks up the real `studioSharePct` on the matched partner (fallback **0%**, matching `studioSessionFinance` — never invents 30%). Revenue rows carry `studioId` for the lookup. Operating profit = `netRevMTD` − expenses **excluding** auto `studiosplit_*` expense rows, because `calcNet` already deducted `studioSplit` from net (counting those expenses again would double-deduct the partner cut).
 
 ### Requirements
 | Item | Detail |
@@ -1818,7 +1818,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 
 **Environment variables (`backend/.env`):**
 - `PORT` — server port (default 3001)
-- `CALENDLY_WEBHOOK_SIGNING_KEY` — HMAC signing key from Calendly webhook subscription; **required in production** (server refuses to start without it); if blank in dev, signature verification is skipped with a loud warning
+- `CALENDLY_WEBHOOK_SIGNING_KEY` — HMAC signing key from Calendly webhook subscription; **required in production** (server refuses to start without it). In dev, unsigned webhooks are **rejected** unless `ALLOW_UNSIGNED_CALENDLY_WEBHOOKS=true` (never enable with a public ngrok URL)
 - `ALLOWED_ORIGINS` — comma-separated CORS origins (default `http://localhost:5173`)
 - `FRONTEND_SECRET` — shared secret for `/pending` and `/acknowledge` endpoints. **Required in production** (server exits if missing). Generate with `openssl rand -hex 32`. Injected server-side by the Vite proxy (dev) or reverse proxy (production).
 - `ADMIN_SECRET` — token required for debug endpoints (`GET/DELETE /api/calendly/events`, `GET/DELETE /api/stripe/events`). Pass as `x-admin-token` header.

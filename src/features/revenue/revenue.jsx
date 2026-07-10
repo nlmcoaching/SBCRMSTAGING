@@ -4,7 +4,7 @@ import { XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ComposedChar
 import { C, FONT, hexA } from "../../lib/theme.js";
 import { addMonthsISO, fmtDate, money, sameMonth, norm, cleanName, clientShort } from "../../lib/format.js";
 import { SOURCE_COLOR, OFFER_STATUS, OFFER_STATUS_COLOR, OPEN_STATUSES, WON_STATUSES, LOST_STATUSES, EXPENSE_CATEGORY, EXPENSE_CATEGORY_COLOR, REV_CHANNEL_COLOR } from "../../lib/constants.js";
-import { _c, readAmt, calcNet, registrationRevenueChannel, buildRevenueViewRows, applyStudioSessionSplit } from "../../lib/revenue.js";
+import { _c, readAmt, calcNet, registrationRevenueChannel, buildRevenueViewRows, applyStudioSessionSplit, isAutoExpenseRecord, AUTO_SPLIT_EXP_ID_PREFIX } from "../../lib/revenue.js";
 import { apiHeaders, calendlyApiUrl, fetchWithTimeout } from "../../lib/api.js";
 import { Stat, Panel, Tag, DateChip, Empty } from "../../components/primitives.jsx";
 import { AppComponent } from "../../components/appBridge.jsx";
@@ -526,7 +526,10 @@ export function ExpenseSummaryView({ data, today, onOpen, onImportExpenses, canE
   const grossRevMTD = sum(revRowsMTD, "gross");
   const studioSplitsMTD = sum(revRowsMTD, "studioSplit");
   const netRevMTD = revRowsMTD.reduce((s, r) => s + calcNet(r), 0);
-  const opProfit = netRevMTD - totMTD;
+  // totMTD includes auto Studio Split expenses; calcNet already deducted studioSplit — exclude them.
+  const totMTDForOp = mtd.filter(e => !(isAutoExpenseRecord(e) && String(e.id || "").startsWith(AUTO_SPLIT_EXP_ID_PREFIX)))
+    .reduce((s, e) => s + (+e.amount || 0), 0);
+  const opProfit = netRevMTD - totMTDForOp;
   const margin = grossRevMTD > 0 ? Math.round((opProfit / grossRevMTD) * 100) : null;
 
   // CSV import instructions
