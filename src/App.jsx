@@ -398,7 +398,6 @@ export default function App() {
       if (encRaw?.value) {
         try {
           const dec = normalizeCrmData(await Sec.decrypt(encRaw.value, masterKey));
-          console.log("[SBCRM load] decrypted partners studioSharePct = " + JSON.stringify((dec.partners || []).map(p => p.id + ":" + JSON.stringify(p.studioSharePct))));
           if (Sec.validate(dec)) {
             setData(healStudioPartnersData(dec));
             dataLoadedAtRef.current = parseInt(localStorage.getItem(SAVE_TS_KEY) || "0") || Date.now();
@@ -1399,22 +1398,20 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locked]);
 
-  // Auto-lock after 15 minutes of inactivity
+  // Auto-lock after 15 minutes of inactivity — same wipe as logout (key + decrypted data out of memory).
   useEffect(() => {
     if (locked) return;
     const IDLE_MS = 15 * 60 * 1000;
-    const lockAndClear = () => {
-      setLocked(true);
-      try { sessionStorage.removeItem("sb:session:v1"); sessionStorage.removeItem("sb:nav:v1"); } catch (_) {}
-    };
-    let timer = setTimeout(lockAndClear, IDLE_MS);
-    const reset = () => { clearTimeout(timer); timer = setTimeout(lockAndClear, IDLE_MS); };
+    let timer = setTimeout(handleLogout, IDLE_MS);
+    const reset = () => { clearTimeout(timer); timer = setTimeout(handleLogout, IDLE_MS); };
     const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"];
     events.forEach(e => window.addEventListener(e, reset, { passive: true }));
     return () => {
       clearTimeout(timer);
       events.forEach(e => window.removeEventListener(e, reset));
     };
+  // handleLogout is stable enough for idle wipe; re-bind when lock state changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locked]);
 
   /* ── Cross-tab data-sync: detect when another window saves a newer version ──
@@ -3746,9 +3743,10 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
     }
     return base;
   }, [section, currentUser?.role]);
+  // Must run before any early return — conditional hooks white-screen the whole app.
+  const revenueRows = useMemo(() => buildRevenueViewRows(data), [data]);
   if (!cfg) return null;
   const v = cfg.views[Math.min(view, cfg.views.length - 1)];
-  const revenueRows = useMemo(() => buildRevenueViewRows(data), [data]);
   let rows = data[section] || [];
   if (section === "revenue") rows = revenueRows;
 
@@ -8506,7 +8504,8 @@ const IMPORT_MAP = {
   followups: { file: "06-Follow-Ups.csv", map: { "follow-up": "name", "client name": "_client", stage: "stage", "last contact date": "lastContact", "follow-up type": "futype", "next action date": "nextAction", outcome: "outcome" }, rel: { field: "_client", to: "clients", set: "clientId" } },
   expenses: { file: "07-Expenses.csv", map: { date: "date", vendor: "vendor", description: "description", amount: "amount", category: "category", "payment method": "paymentMethod", "paymentmethod": "paymentMethod", "tax deductible": "taxDeductible", "taxdeductible": "taxDeductible", recurring: "recurring", "recurring freq": "recurringFreq", "recurringfreq": "recurringFreq", "linked session": "linkedSession", "linked partner": "linkedPartner", "receipt url": "receiptUrl", notes: "notes" }, nums: ["amount"] },
 };
-const DB_ORDER = ["partners", "clients", "sessions", "offers", "content", "followups", "expenses", "registrations"];
+// Calendly bookings (`registrations`) are sync-only — not in IMPORT_MAP / not CSV-importable.
+const DB_ORDER = ["partners", "clients", "sessions", "offers", "content", "followups", "expenses"];
 
 /* ============================================================
    EDIT PROFILE MODAL
@@ -8923,10 +8922,15 @@ function EditProfileModal({ user, masterKeyRaw, onSave, onClose }) {
         const storedIter = user.pbkdf2Iterations ?? 100_000;
         try { await Sec.unwrapKeyForUser(user.wrappedMasterKey, curPin, user.pinSalt, storedIter); }
         catch (_) { setPinMsg("Current PIN is incorrect."); setSaving(false); return; }
+        // Refuse to rewrite salt/iterations without re-wrapping — keeping the old wrap with a
+        // new salt bricks the next login (unwrap uses the new salt against the old ciphertext).
+        if (!masterKeyRaw) {
+          setPinMsg("Cannot change PIN — master key not in memory. Log out and back in, then try again.");
+          setSaving(false);
+          return;
+        }
         const pinSalt = Sec.newSalt();
-        const wrappedMasterKey = masterKeyRaw
-          ? await Sec.wrapKeyForUser(masterKeyRaw, newPin, pinSalt, Sec.PBKDF2_ITERATIONS)
-          : user.wrappedMasterKey;
+        const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyRaw, newPin, pinSalt, Sec.PBKDF2_ITERATIONS);
         Object.assign(updates, { pinSalt, wrappedMasterKey, pbkdf2Iterations: Sec.PBKDF2_ITERATIONS });
         setPinMsg(""); setCurPin(""); setNewPin(""); setConfirmPin("");
       }
@@ -9224,6 +9228,7 @@ function ImportModal({ data, setData, onClose }) {
       // wire relations
       DB_ORDER.forEach((db) => {
         const spec = IMPORT_MAP[db];
+        if (!spec) return;
         if (spec.rel && next[db]) {
           const targetRows = next[spec.rel.to];
           next[db] = next[db].map((r) => {
@@ -9256,13 +9261,13 @@ function ImportModal({ data, setData, onClose }) {
             re-link Sessions, Offers, and Follow-Ups. Headers are matched by name, so the exact column order doesn't matter.
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }}>
-            {DB_ORDER.map((db) => (
+            {DB_ORDER.filter((db) => IMPORT_MAP[db]).map((db) => (
               <div key={db} className="sb-importrow">
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: 13.5 }}>{sectionLabel(db)}</div>
                   <div style={{ fontSize: 11.5, color: C.ink3 }}>{IMPORT_MAP[db].file}</div>
                 </div>
-                {staged[db] ? <span className="sb-importok"><Check size={13} /> {staged[db].length} rows ready</span> : <span style={{ fontSize: 12, color: C.ink3 }}>current: {data[db].length}</span>}
+                {staged[db] ? <span className="sb-importok"><Check size={13} /> {staged[db].length} rows ready</span> : <span style={{ fontSize: 12, color: C.ink3 }}>current: {(data[db] || []).length}</span>}
                 <label className="sb-ghost" style={{ cursor: "pointer" }}>
                   <Upload size={14} /> Choose
                   <input type="file" accept=".csv" style={{ display: "none" }} onChange={(e) => e.target.files[0] && handleFile(db, e.target.files[0])} />

@@ -83,7 +83,8 @@ function unlinkedPaidCountForEmail(email, payments) {
 export function linkStripePaymentToRegistration(payments, registrations, payIdx, reg) {
   const p = payments[payIdx];
   if (!p || !reg) return;
-  const gross = Number(p.amountGross) || 0;
+  // Dual-format: integer cents when _centsFormat, else legacy dollar float.
+  const gross = p._centsFormat ? (Number(p.amountGross) || 0) / 100 : (Number(p.amountGross) || 0);
   payments[payIdx] = {
     ...p,
     clientId: reg.clientId,

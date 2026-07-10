@@ -30,7 +30,7 @@ npm install
 cp .env.example .env
 ```
 Edit `.env` and fill in:
-- `CALENDLY_WEBHOOK_SIGNING_KEY` — from Calendly → Integrations → Webhooks → your subscription's Signing Key
+- `CALENDLY_WEBHOOK_SIGNING_KEY` — generate (`openssl rand -hex 32`) and pass as `signing_key` when creating the webhook subscription; store the same value here. Required in production.
 - `ALLOWED_ORIGINS` — your React dev server URL (default: `http://localhost:5173`)
 
 ### 3. Start the backend

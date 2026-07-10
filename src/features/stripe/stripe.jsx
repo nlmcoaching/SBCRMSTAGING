@@ -110,10 +110,18 @@ export function PaymentReconciliationView({ data, derived, setData, onOpen, sync
   }, [setData]);
 
   useEffect(() => {
-    const needsFix = registrations.some(r =>
-      r.stripeVerified && r.paidAmount != null
-      && !amountsMatch(r.paymentAmount ?? registrationSessionAmount(r), r.paidAmount),
-    );
+    // Mirror reconcileAmountMismatches: Stripe-verified + paidAmount set, but list
+    // price missing/NaN or not matching paidAmount. Keep this aligned so a no-op
+    // reconcile cannot leave needsFix true (endless setData / re-encrypt loop).
+    const needsFix = registrations.some(r => {
+      if (!r.stripeVerified || r.paidAmount == null) return false;
+      const stripeAmt = Number(r.paidAmount);
+      if (Number.isNaN(stripeAmt)) return false;
+      const hasListPrice = r.paymentAmount != null && r.paymentAmount !== "";
+      const expected = hasListPrice ? Number(r.paymentAmount) : null;
+      if (expected == null || Number.isNaN(expected)) return true;
+      return !amountsMatch(expected, stripeAmt);
+    });
     if (!needsFix || !setData) return;
     setData(prev => {
       const fix = reconcileAmountMismatches(prev);
@@ -571,7 +579,7 @@ export function PaymentReconciliationView({ data, derived, setData, onOpen, sync
         <Panel title={`Refunded payments (${refundedPayments.length})`}>
           {refundedPayments.map(p => (
             <div key={p.id} style={{ padding: "10px 0", borderBottom: `1px solid ${C.lineSoft}`, fontSize: 13 }}>
-              {p.customerEmail || "—"} · {money(p.amountGross)} · refunded {money(p.amountRefunded)}
+              {p.customerEmail || "—"} · {money(readAmt(p, "amountGross"))} · refunded {money(readAmt(p, "amountRefunded"))}
             </div>
           ))}
         </Panel>

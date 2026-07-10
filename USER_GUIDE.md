@@ -1289,6 +1289,7 @@ Click your **avatar circle** in the top-right corner of any page, then select **
 1. Enter your **Current PIN**.
 2. Enter a **New PIN** (minimum 6 characters).
 3. Confirm the new PIN.
+4. Save. If the app says the master key is not available, log out and back in first, then change the PIN — otherwise the save is blocked so your login cannot be broken.
 4. Click **Save Changes**.
 
 **Security tab — Recovery Code:**

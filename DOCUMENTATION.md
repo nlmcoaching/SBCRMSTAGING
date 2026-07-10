@@ -67,6 +67,7 @@ After a successful PIN login, the master key, user ID, and a per-login restore t
 - `sessionStorage` is scoped to the browser tab; closing the tab or window clears the session, requiring PIN entry on next open.
 - The last-visited section and tab view are also saved to `sessionStorage` (`sb:nav:v1`) while the user is logged in, so a refresh returns to the same page rather than the Command Center.
 - Both keys are cleared on explicit logout and on idle auto-lock.
+- Idle auto-lock (15 minutes) calls the same wipe as logout: clears `cryptoKey`, `masterKeyRaw`, decrypted CRM `data`, refund session token, and `sessionStorage` session/nav keys — so neither the master key nor the dataset remain in React state after lock.
 
 #### Session Token Integrity (per-user restore token)
 
@@ -872,7 +873,7 @@ Automates post-session communication sequences so that no revenue window is miss
 
 ### Send Email from Message Queue
 
-Each item in the **Message Queue** has a **Send Email** button. All sequence steps use the email channel (SMS/text dispatch is not yet enabled). Clicking **Send Email** opens an inline compose area:
+Each item in the **Message Queue** has a **Send Email** button. All sequence steps use the email channel (SMS/text dispatch is not yet enabled). Clicking **Send Email** opens an inline compose area pre-filled from `data.fuTemplates` overrides when present, otherwise the hardcoded `FU_TEMPLATES` default for that step:
 
 - Template picker dropdown listing all **Template Library** templates (email channel) and all **Follow-Up Engine sequence templates** (custom overrides + FU_STEPS defaults).
 - Editable subject and body, pre-populated from the selected template with client variables interpolated.
@@ -955,6 +956,8 @@ Revenue views derive each booking's amount from its **actual matched Stripe char
 | Refunds | Stripe refund events affecting revenue. |
 
 Use **Sync Stripe now** to load charges from the backend ledger and run reconciliation (also polls every 5 minutes).
+
+`reconcileAmountMismatches` / `patchAmountMismatches` correct Stripe-verified bookings whose Calendly list price (`paymentAmount`) is missing or differs from `paidAmount`. On a no-op it returns the **same** `registrations` array reference so `PaymentReconciliationView`'s identity guard can stop the effect; missing list prices are filled from Stripe (not skipped), which prevents an endless `setData` / re-encrypt loop.
 
 The page header **search box** (the global `query`, passed into `PaymentReconciliationView`) filters every list on this page — Stripe charges, unmatched transactions, refunded payments, and bookings awaiting a charge — matching on name, email, session, and description.
 
@@ -1818,7 +1821,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 
 **Environment variables (`backend/.env`):**
 - `PORT` — server port (default 3001)
-- `CALENDLY_WEBHOOK_SIGNING_KEY` — HMAC signing key from Calendly webhook subscription; **required in production** (server refuses to start without it). In dev, unsigned webhooks are **rejected** unless `ALLOW_UNSIGNED_CALENDLY_WEBHOOKS=true` (never enable with a public ngrok URL)
+- `CALENDLY_WEBHOOK_SIGNING_KEY` — HMAC signing key for Calendly webhooks; **required in production** (server refuses to start without it). Generate with `openssl rand -hex 32` and pass as `signing_key` when creating the subscription via `POST /webhook_subscriptions` (PAT create responses no longer return the key). In dev, unsigned webhooks are **rejected** unless `ALLOW_UNSIGNED_CALENDLY_WEBHOOKS=true` (never enable with a public ngrok URL)
 - `ALLOWED_ORIGINS` — comma-separated CORS origins (default `http://localhost:5173`)
 - `FRONTEND_SECRET` — shared secret for `/pending` and `/acknowledge` endpoints. **Required in production** (server exits if missing). Generate with `openssl rand -hex 32`. Injected server-side by the Vite proxy (dev) or reverse proxy (production).
 - `ADMIN_SECRET` — token required for debug endpoints (`GET/DELETE /api/calendly/events`, `GET/DELETE /api/stripe/events`). Pass as `x-admin-token` header.
@@ -2029,7 +2032,7 @@ Both scripts:
 ### Setup Requirements
 1. Double-click `start.bat` (or run `.\start.ps1`)
 2. Register webhook URL shown in the ngrok window in Calendly Dashboard → Integrations → Webhooks
-3. Add signing key from that subscription to `backend/.env` as `CALENDLY_WEBHOOK_SIGNING_KEY`
+3. Generate a signing key (`openssl rand -hex 32`), pass it as `signing_key` when creating the subscription, and set the same value in `backend/.env` as `CALENDLY_WEBHOOK_SIGNING_KEY` (and in production env before restart)
 
 See `backend/README.md` for manual setup instructions.
 
@@ -2117,7 +2120,8 @@ Click the avatar in the top-right to open the dropdown:
 
 ### CSV Import
 
-- Available for: Clients, Studio Partners, Sessions, Offers, Referrals, Content, Outreach, **Expenses**
+- Available for: Clients, Studio Partners, Sessions, Offers, Content, Follow-Ups, **Expenses**
+- **Not CSV-importable:** Calendly bookings (`registrations`) — those arrive only via Calendly sync / webhooks (`DB_ORDER` / `IMPORT_MAP` stay aligned; a missing map entry would crash Import CSVs on open)
 - Expenses can also be imported directly via the **Upload Expense CSV** button on the Expenses → Summary page (appends rows; does not replace existing data)
 - Drag-and-drop or file picker via the global **Import CSVs** sidebar button
 - PapaParse used for CSV parsing
@@ -2149,8 +2153,8 @@ Accessed via the avatar dropdown → Edit Profile. Two tabs:
 - Phone
 
 **Security Tab**
-- Change PIN (requires current PIN, minimum 4 characters, confirmation match)
-- On PIN change, master key is re-wrapped with the new PIN
+- Change PIN (requires current PIN, minimum 6 characters, confirmation match)
+- On PIN change, master key is re-wrapped with the new PIN (requires `masterKeyRaw` in memory — refused if missing, so a new salt is never written against the old wrap)
 
 ### Where Photos Appear
 

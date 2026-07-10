@@ -8,14 +8,20 @@ import { Stat, Tag, MiniChip } from "../../components/primitives.jsx";
 
 function f(key, label, type, opts = {}) { return { key, label, type, ...opts }; }
 
+/** Prefer saved `data.fuTemplates` body over hardcoded FU_TEMPLATES defaults. */
+function getFuStepBody(stepId, fuTemplates = []) {
+  return fuTemplates.find(t => t.id === stepId)?.body ?? FU_TEMPLATES[stepId] ?? "";
+}
+
 export function FollowUpSendButton({ r, data, setData, today }) {
   const clients      = data.clients   || [];
   const libraryTmpls = data.templates || [];
   const client       = clients.find(c => c.id === r.clientId);
+  const fuOverrides  = data.fuTemplates || [];
 
   const fuOptions = FU_STEPS.map(s => ({
     id: `fu_${s.id}`, name: s.label, category: "Follow-Up Sequence",
-    channel: s.channel, body: FU_TEMPLATES[s.id] || "", subject: `Follow-up: ${r.name}`,
+    channel: s.channel, body: getFuStepBody(s.id, fuOverrides), subject: `Follow-up: ${r.name}`,
   }));
   const allOptions = [...libraryTmpls, ...fuOptions];
   const firstOpt   = allOptions[0];
@@ -233,6 +239,8 @@ export function MessageQueue({ overdue, todayItems, upcoming, today, markSent, o
   const [emailState, setEmailState] = useState({}); // { [key]: { subject, body, sending, sent, error } }
 
   const emailTemplates = (data?.templates || []).filter(t => (t.channel || "").toLowerCase() === "email");
+  const fuOverrides = data?.fuTemplates || [];
+  const stepBody = (stepId) => getFuStepBody(stepId, fuOverrides);
 
   const populateForClient = (tmplBody, tmplSubject, client, item) => {
     const fullName  = (client?.name || "there").trim();
@@ -260,7 +268,7 @@ export function MessageQueue({ overdue, todayItems, upcoming, today, markSent, o
 
   const applyTemplate = (key, tmplId, item) => {
     if (tmplId === "__followup__") {
-      const msg = interpolateTemplate(FU_TEMPLATES[item.stepId], item.client, item);
+      const msg = interpolateTemplate(stepBody(item.stepId), item.client, item);
       setEmailState(s => ({ ...s, [key]: { ...s[key], selectedTemplateId: tmplId, subject: `Follow-up: ${item.sessionName || "your session"}`, body: msg } }));
     } else {
       const tmpl = emailTemplates.find(t => t.id === tmplId);
@@ -321,7 +329,7 @@ export function MessageQueue({ overdue, todayItems, upcoming, today, markSent, o
             const isEmail    = item.stepDef?.channel === "email";
             const isComposing = composing === key;
             const eState     = emailState[key] || {};
-            const msg        = interpolateTemplate(FU_TEMPLATES[item.stepId], item.client, item);
+            const msg        = interpolateTemplate(stepBody(item.stepId), item.client, item);
             const wasCopied  = copied === key;
             const daysAgo    = Math.round((new Date(today) - new Date(item.sessionDate)) / 86400000);
             return (
@@ -691,7 +699,7 @@ export function TemplatesView({ data, setData }) {
 
   // Overrides / custom templates stored in data.fuTemplates
   const fuOverrides = data.fuTemplates || [];
-  const getBody = (stepId) => fuOverrides.find(t => t.id === stepId)?.body ?? FU_TEMPLATES[stepId] ?? "";
+  const getBody = (stepId) => getFuStepBody(stepId, fuOverrides);
   const customTmpls = fuOverrides.filter(t => t.isCustom);
 
   const saveEdit = (id) => {

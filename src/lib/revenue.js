@@ -1,6 +1,9 @@
 import { amountsMatch, registrationSessionAmount, reconcileStripePayments, resetStripeAutoMatches } from "../stripeMatching.js";
 import { apiHeaders, calendlyApiUrl } from "./api.js";
 import { cleanName, money, uid } from "./format.js";
+import { patchAmountMismatches } from "./patchAmountMismatches.js";
+
+export { patchAmountMismatches };
 
 export const _c = (v) => Math.round((Number(v) || 0) * 100);
 // Read amountGross / amountRefunded from a Stripe payment record.
@@ -92,14 +95,14 @@ export function applyStripePaymentToRegistration(reg, stripeEvt, paymentId) {
     stripeChargeId: stripeEvt.stripeChargeId || reg.stripeChargeId || "",
     paidAt: stripeEvt.paidAt || reg.paidAt || "",
     paymentId: paymentId || reg.paymentId || "",
-    amountRefunded: stripeEvt.amountRefunded ?? reg.amountRefunded ?? 0,
+    amountRefunded: readAmt(stripeEvt, "amountRefunded") || reg.amountRefunded || 0,
   };
 }
 export function stripePaymentFromRecord(p) {
   return {
     customerEmail: p.customerEmail,
     description: p.description,
-    amountGross: p.amountGross,
+    amountGross: readAmt(p, "amountGross"),
     paidAt: p.paidAt,
     receivedAt: p.createdAt,
     stripePaymentIntentId: p.stripePaymentIntentId,
@@ -130,32 +133,12 @@ export function applyPaymentReconciliation(prevData) {
   };
 }
 export function reconcileAmountMismatches(prevData) {
-  let registrations = [...(prevData.registrations || [])];
-  let changed = false;
-
-  registrations = registrations.map(r => {
-    if (!r.stripeVerified || r.paidAmount == null) return r;
-    const expected = r.paymentAmount != null && r.paymentAmount !== ""
-      ? Number(r.paymentAmount)
-      : registrationSessionAmount(r);
-    const stripeAmt = Number(r.paidAmount);
-    if (expected == null || Number.isNaN(stripeAmt) || amountsMatch(expected, stripeAmt)) return r;
-
-    changed = true;
-    return {
-      ...r,
-      paymentAmount: stripeAmt,
-      lastAmountMismatch: {
-        expectedAmount: expected,
-        stripeAmount: stripeAmt,
-        correctedAt: new Date().toISOString(),
-      },
-    };
-  });
+  const prevRegs = prevData.registrations || [];
+  const { registrations, changed } = patchAmountMismatches(prevRegs);
 
   if (!changed) {
     return {
-      registrations,
+      registrations: prevRegs,
       sessions: prevData.sessions,
       clients: prevData.clients,
     };
