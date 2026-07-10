@@ -25,7 +25,10 @@ import { uid, todayISO, addDaysISO, addMonthsISO, MONTHS, fmtDate, money, pct, o
 import { CRM_SETTINGS_KEY, DEFAULT_CRM_SETTINGS, parseCrmSettings, loadCrmSettings, _crmSettings, getS, setCrmSettings } from "./lib/crmSettings.js";
 import * as constants from "./lib/constants.js";
 import { SESSION_CHECKLIST, EQUIP_CHECKLIST_PHASES, EQUIP_CHECKLIST, emptyEquipChecklist, VIRTUAL_PRE_SESSION_MOVED_EQUIP_IDS, virtualEquipPhaseItems, SESSION_CHECKLIST_PHASES, SESSION_PHASE_COLOR, emptySessionChecklist } from "./lib/checklists.js";
-import { STORE_KEY, STORE_KEY_ENC, AGREEMENT_BLOB_PREFIX, SEC_META_KEY, apiHeaders, CALENDLY_BACKEND, calendlyApiUrl, fetchWithTimeout, safeResJSON, isTruncatedPreview, resolveCalendlyDescription, sessionCalendlyLookupName, fetchCalendlyDescriptionForSession, applyCalendlyDescriptionToSessions } from "./lib/api.js";
+import { STORE_KEY, STORE_KEY_ENC, AGREEMENT_BLOB_PREFIX, apiHeaders, CALENDLY_BACKEND, calendlyApiUrl, fetchWithTimeout, safeResJSON, isTruncatedPreview, resolveCalendlyDescription, sessionCalendlyLookupName, fetchCalendlyDescriptionForSession, applyCalendlyDescriptionToSessions } from "./lib/api.js";
+import { setApiSessionToken, clearApiSessionToken } from "./lib/apiSession.js";
+import { ensureRegisteredAndMint, ensureUnlockAndMint } from "./lib/apiAuth.js";
+import { loadSecMeta, saveSecMeta } from "./lib/secMeta.js";
 import { EMAIL_LOG_CAP, slimHistEntry, cappedLog, sendCrmEmail, makeEmailFailEntry } from "./lib/email.js";
 import { _idbGet, _idbSet, _idbRemove, store } from "./lib/store.js";
 import { Sec } from "./lib/sec.js";
@@ -197,9 +200,8 @@ export default function App() {
     let alive = true;
     (async () => {
       try {
-        const sec = await store.get(SEC_META_KEY);
-        if (sec?.value) {
-          const parsed = JSON.parse(sec.value);
+        const parsed = await loadSecMeta();
+        if (parsed) {
           // v2 multi-user format
           if (parsed.version === 2 && Array.isArray(parsed.users)) {
             const activeUsers = parsed.users.filter(u => u.active !== false);
@@ -315,9 +317,8 @@ export default function App() {
       _postPinAttempt(false);
     };
     try {
-      const secRaw = await store.get(SEC_META_KEY);
-      if (!secRaw?.value) throw new Error("No security config");
-      const sec = JSON.parse(secRaw.value);
+      const sec = await loadSecMeta();
+      if (!sec) throw new Error("No security config");
 
       // ── Migrate v1 → v2 ──
       if (!sec.version || sec.version < 2) {
@@ -342,7 +343,7 @@ export default function App() {
           sessionTokenHash: await Sec.sessionTokenHash(_migToken),
         };
         const newSec = { version: 2, users: [owner] };
-        await store.set(SEC_META_KEY, JSON.stringify(newSec));
+        await saveSecMeta(newSec);
         setSecUsers([owner]);
         const masterKey = await Sec.importMasterKey(masterKeyB64);
         // Migrate encrypted data: re-encrypt with new master key
@@ -372,7 +373,24 @@ export default function App() {
         loaded.current = true;
         setLocked(false);
         setSection("today"); setView(0);
-        mintRefundToken(userId, await Sec.sessionTokenHash("unlock:" + userId + ":" + masterKeyB64.slice(0, 32)));
+        const { token } = await ensureUnlockAndMint(owner, pin, {
+          role: "Owner",
+          canEdit: true,
+          persist: async (wrapped) => {
+            try {
+              const sec2 = (await loadSecMeta()) || {};
+              if (Array.isArray(sec2.users)) {
+                const updated = {
+                  ...sec2,
+                  users: sec2.users.map(u => u.id === owner.id ? { ...u, wrappedUnlockSecret: wrapped } : u),
+                };
+                await saveSecMeta(updated);
+                setSecUsers(updated.users.filter(u => u.active !== false));
+              }
+            } catch (_) {}
+          },
+        });
+        if (token) { setRefundSessionToken(token); setApiSessionToken(token); }
         return;
       }
 
@@ -442,7 +460,18 @@ export default function App() {
       const _sessionToken = Sec.randomToken();
       const _sessionTokenHash = await Sec.sessionTokenHash(_sessionToken);
 
-      // Update lastLogin, scrub legacy pinHash, persist iteration count + session token hash
+      // Per-user unlock secret (PIN-wrapped) — used for server-verified API session mint.
+      let unlockSecret = null;
+      if (user.wrappedUnlockSecret) {
+        try {
+          unlockSecret = await Sec.unwrapUnlockSecret(user.wrappedUnlockSecret, pin, user.pinSalt, storedIterations);
+        } catch (_) {
+          unlockSecret = null;
+        }
+      }
+      if (!unlockSecret) unlockSecret = Sec.generateUnlockSecret();
+      const unlockWrapped = await Sec.wrapUnlockSecret(unlockSecret, pin, upgradedSalt, Sec.PBKDF2_ITERATIONS);
+
       const updatedUsers = sec.users.map(u => {
         const { pinHash: _dropped, ...rest } = u; // remove legacy SHA-256 hash
         if (u.id === userId) {
@@ -453,16 +482,18 @@ export default function App() {
             wrappedMasterKey:  upgradedWrappedKey,
             pbkdf2Iterations:  Sec.PBKDF2_ITERATIONS,
             sessionTokenHash:  _sessionTokenHash,
+            wrappedUnlockSecret: unlockWrapped,
           };
         }
         return rest;
       });
-      await store.set(SEC_META_KEY, JSON.stringify({ ...sec, users: updatedUsers }));
+      await saveSecMeta({ ...sec, users: updatedUsers });
       setSecUsers(updatedUsers.filter(u => u.active !== false));
 
       setMasterKeyRaw(mkB64);
       setCryptoKey(masterKey);
-      setCurrentUser(updatedUsers.find(u => u.id === userId) ?? user);
+      const unlockedUser = updatedUsers.find(u => u.id === userId) ?? user;
+      setCurrentUser(unlockedUser);
       _clearLockout();
       // Clean up legacy unencrypted storage
       try { localStorage.removeItem(STORE_KEY); } catch (_) {}
@@ -470,9 +501,12 @@ export default function App() {
       loaded.current = true;
       setLocked(false);
       setSection("today"); setView(0);
-      // unlockProof: HMAC-like attestation derived from the just-unwrapped master key material.
-      // Server cannot verify the crypto, but requires a fresh challenge + non-empty proof + userId.
-      mintRefundToken(userId, await Sec.sessionTokenHash("unlock:" + userId + ":" + mkB64.slice(0, 32)));
+      await ensureRegisteredAndMint(userId, unlockSecret, {
+        role: unlockedUser.role,
+        canEdit: !!unlockedUser.permissions?.edit,
+      }).then((token) => {
+        if (token) { setRefundSessionToken(token); setApiSessionToken(token); }
+      });
     } catch (e) {
       if (!e.message?.includes("PIN")) setPinError("Something went wrong. Please try again.");
     }
@@ -481,9 +515,8 @@ export default function App() {
   /* ── Recovery: verify code + decrypt data (step 1 of 2) ── */
   const handleRecoveryVerify = async (userId, code) => {
     try {
-      const secRaw = await store.get(SEC_META_KEY);
-      if (!secRaw?.value) return { success: false, error: "No security config found." };
-      const sec = JSON.parse(secRaw.value);
+      const sec = await loadSecMeta();
+      if (!sec) return { success: false, error: "No security config found." };
       const user = (sec.users || []).find(u => u.id === userId && u.active !== false);
       if (!user?.recoveryWrappedMasterKey) return { success: false, error: "No recovery code has been set for this account." };
       let mkB64, masterKey;
@@ -525,26 +558,28 @@ export default function App() {
   /* ── Recovery: set new PIN + unlock (step 2 of 2) ── */
   const handleRecoverySetPin = async (userId, newPin, masterKeyRaw) => {
     try {
-      const secRaw = await store.get(SEC_META_KEY);
-      if (!secRaw?.value) return { success: false, error: "Security config not found." };
-      const sec = JSON.parse(secRaw.value);
+      const sec = await loadSecMeta();
+      if (!sec) return { success: false, error: "Security config not found." };
       // Re-wrap master key with new PIN, clear recovery code (consumed), mint session token
       const pinSalt = Sec.newSalt();
       const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyRaw, newPin, pinSalt, Sec.PBKDF2_ITERATIONS);
+      const unlockSecret = Sec.generateUnlockSecret();
+      const wrappedUnlockSecret = await Sec.wrapUnlockSecret(unlockSecret, newPin, pinSalt, Sec.PBKDF2_ITERATIONS);
       const _sessionToken = Sec.randomToken();
       const _sessionTokenHash = await Sec.sessionTokenHash(_sessionToken);
       const updatedUsers = sec.users.map(u => {
         if (u.id !== userId) return u;
         const { pinHash: _d, recoveryWrappedMasterKey: _r, recoverySalt: _s, recoveryPbkdf2Iterations: _i, ...rest } = u;
-        return { ...rest, pinSalt, wrappedMasterKey, pbkdf2Iterations: Sec.PBKDF2_ITERATIONS,
+        return { ...rest, pinSalt, wrappedMasterKey, wrappedUnlockSecret, pbkdf2Iterations: Sec.PBKDF2_ITERATIONS,
           lastLogin: todayISO(), sessionTokenHash: _sessionTokenHash };
       });
-      await store.set(SEC_META_KEY, JSON.stringify({ ...sec, users: updatedUsers }));
+      await saveSecMeta({ ...sec, users: updatedUsers });
       setSecUsers(updatedUsers.filter(u => u.active !== false));
       const masterKey = await Sec.importMasterKey(masterKeyRaw);
       setMasterKeyRaw(masterKeyRaw);
       setCryptoKey(masterKey);
-      setCurrentUser(updatedUsers.find(u => u.id === userId));
+      const recoveredUser = updatedUsers.find(u => u.id === userId);
+      setCurrentUser(recoveredUser);
       // Clear lockout counter for this user in IDB + server (recovery proves identity)
       try {
         const _lRaw = await _idbGet("sb:pin-lockout:v2");
@@ -568,7 +603,11 @@ export default function App() {
       loaded.current = true;
       setLocked(false);
       setSection("today"); setView(0);
-      mintRefundToken(userId, await Sec.sessionTokenHash("unlock:" + userId + ":" + String(masterKeyRaw).slice(0, 32)));
+      const token = await ensureRegisteredAndMint(userId, unlockSecret, {
+        role: recoveredUser?.role,
+        canEdit: !!recoveredUser?.permissions?.edit,
+      });
+      if (token) { setRefundSessionToken(token); setApiSessionToken(token); }
       return { success: true };
     } catch (e) {
       return { success: false, error: "Failed to set new PIN. Please try again." };
@@ -587,17 +626,19 @@ export default function App() {
       const pinSalt      = Sec.newSalt();
       const masterKeyB64 = await Sec.generateMasterKeyB64();
       const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyB64, pin, pinSalt, Sec.PBKDF2_ITERATIONS);
+      const unlockSecret = Sec.generateUnlockSecret();
+      const wrappedUnlockSecret = await Sec.wrapUnlockSecret(unlockSecret, pin, pinSalt, Sec.PBKDF2_ITERATIONS);
       const _setupToken = Sec.randomToken();
       const owner = {
         id: "u_owner", name: name.trim(), role: "Owner",
-        pinSalt, wrappedMasterKey, pbkdf2Iterations: Sec.PBKDF2_ITERATIONS,
+        pinSalt, wrappedMasterKey, wrappedUnlockSecret, pbkdf2Iterations: Sec.PBKDF2_ITERATIONS,
         permissions: ROLE_PERMISSIONS.Owner,
         active: true, color: USER_COLORS[0],
         createdAt: todayISO(), lastLogin: todayISO(),
         sessionTokenHash: await Sec.sessionTokenHash(_setupToken),
       };
       const newSec = { version: 2, users: [owner] };
-      await store.set(SEC_META_KEY, JSON.stringify(newSec));
+      await saveSecMeta(newSec);
       const masterKey = await Sec.importMasterKey(masterKeyB64);
       setSecUsers([owner]);
       setMasterKeyRaw(masterKeyB64);
@@ -609,47 +650,22 @@ export default function App() {
       setNeedsSetup(false);
       setLocked(false);
       setSection("today"); setView(0);
-      mintRefundToken(owner.id, await Sec.sessionTokenHash("unlock:" + owner.id + ":" + masterKeyB64.slice(0, 32)));
+      const token = await ensureRegisteredAndMint(owner.id, unlockSecret, { role: "Owner", canEdit: true });
+      if (token) { setRefundSessionToken(token); setApiSessionToken(token); }
     } catch (e) {
       setPinError("Setup failed. Please try again.");
     }
   };
 
   /* ── Logout ── */
-  // Mint a short-lived backend session token immediately after PIN unlock.
-  // Requires a one-shot challenge + unlockProof so FRONTEND_SECRET alone cannot mint refunds.
-  // Stored only in React state (memory), never persisted. Required by POST /api/stripe/refund.
-  const mintRefundToken = async (userId, unlockProof) => {
-    if (!userId || !unlockProof) return;
-    try {
-      const chRes = await fetchWithTimeout(calendlyApiUrl("/api/auth/session-challenge"), {
-        method: "GET",
-        headers: apiHeaders(false),
-      }, 5000);
-      if (!chRes.ok) return;
-      const ch = await chRes.json().catch(() => ({}));
-      if (!ch.nonce) return;
-      const res = await fetchWithTimeout(calendlyApiUrl("/api/auth/session"), {
-        method: "POST",
-        headers: apiHeaders(),
-        body: JSON.stringify({ userId, nonce: ch.nonce, unlockProof }),
-      }, 5000);
-      if (res.ok) {
-        const j = await res.json().catch(() => ({}));
-        if (j.token) setRefundSessionToken(j.token);
-      }
-    } catch (_) {
-      // Non-fatal — backend may not be running; refund will surface a clear error.
-    }
-  };
-
   const handleLogout = () => {
     setLocked(true);
     setCryptoKey(null);
     setMasterKeyRaw(null);
     setCurrentUser(null);
     setData({}); // clear decrypted data from memory
-    setRefundSessionToken(null); // invalidate backend refund session
+    setRefundSessionToken(null);
+    clearApiSessionToken();
     try { sessionStorage.removeItem("sb:session:v1"); sessionStorage.removeItem("sb:nav:v1"); } catch (_) {}
     setOpen(null);
     loaded.current = false;
@@ -1472,11 +1488,10 @@ export default function App() {
     setSecUsers(prev => prev.map(u => u.id === currentUser.id ? updated : u));
     
     try {
-      const secRaw = await store.get(SEC_META_KEY);
-      const sec = JSON.parse(secRaw?.value || "{}");
+      const sec = (await loadSecMeta()) || {};
       if (!Array.isArray(sec.users)) return;
       const newSec = { ...sec, users: sec.users.map(u => u.id === currentUser.id ? updated : u) };
-      await store.set(SEC_META_KEY, JSON.stringify(newSec));
+      await saveSecMeta(newSec);
     } catch (e) { console.error("handleSaveProfile:", e); }
   };
 
@@ -3898,7 +3913,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
         : v.layout === "workflows"
         ? <WorkflowsView data={data} derived={derived} today={today} />
         : v.layout === "user-management"
-        ? <UserManagementView currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} onUsersUpdated={setSecUsers} onConfirm={setConfirm} />
+        ? <UserManagementView currentUser={currentUser} secUsers={secUsers} masterKeyRaw={masterKeyRaw} onUsersUpdated={setSecUsers} onConfirm={setConfirm} crmSettings={crmSettings} apiSessionToken={refundToken} />
         : v.layout === "admin-overview"   ? <AdminView tab="overview"   data={data} setData={setData} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
         : v.layout === "admin-schema"     ? <AdminView tab="schema"     data={data} setData={setData} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />
         : v.layout === "admin-integrity"  ? <AdminView tab="integrity"  data={data} setData={setData} secUsers={secUsers} currentUser={currentUser} today={today} crmSettings={crmSettings} onSaveSettings={saveCrmSettings} />

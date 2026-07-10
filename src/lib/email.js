@@ -1,4 +1,5 @@
 import { apiHeaders, fetchWithTimeout, safeResJSON } from "./api.js";
+import { getApiSessionToken } from "./apiSession.js";
 
 // ── Email log helpers ─────────────────────────────────────────────────────────
 // Cap the global audit log so it never eats unbounded IndexedDB/localStorage space.
@@ -29,10 +30,12 @@ export function cappedLog(existing, newEntry) {
 //   recipientType – "client" | "partner"
 //   subject, body – final rendered strings
 //   templateId, templateName, category – template metadata (use empty strings for ad-hoc sends)
-export async function sendCrmEmail({ to, recipientName, recipientType, subject, body, templateId = "", templateName = "", category = "" }) {
+export async function sendCrmEmail({ to, recipientName, recipientType, subject, body, templateId = "", templateName = "", category = "", sessionToken } = {}) {
+  const tok = sessionToken || getApiSessionToken();
+  if (!tok) throw new Error("Not authorised — please log out and log back in before sending email.");
   const res = await fetchWithTimeout("/api/send-email", {
     method: "POST",
-    headers: apiHeaders(),
+    headers: { ...apiHeaders(), "x-session-token": tok },
     body: JSON.stringify({ to, recipientName, subject, body }),
   });
   const json = await safeResJSON(res);

@@ -3,8 +3,11 @@ import { RefreshCw, Plus, Upload, Download, ChevronDown, Check, AlertCircle, Act
 import { C, FONT, hexA } from "../../lib/theme.js";
 import { todayISO, fmtDate } from "../../lib/format.js";
 import { USER_ROLES, USER_ROLE_COLOR, USER_COLORS, ROLE_PERMISSIONS } from "../../lib/constants.js";
-import { AGREEMENT_BLOB_PREFIX, SEC_META_KEY, apiHeaders, calendlyApiUrl, safeResJSON } from "../../lib/api.js";
+import { AGREEMENT_BLOB_PREFIX, apiHeaders, calendlyApiUrl, safeResJSON } from "../../lib/api.js";
+import { getApiSessionToken } from "../../lib/apiSession.js";
+import { registerUnlockCredential, setUnlockPermissions } from "../../lib/apiAuth.js";
 import { store } from "../../lib/store.js";
+import { loadSecMeta, saveSecMeta } from "../../lib/secMeta.js";
 import { Sec } from "../../lib/sec.js";
 import { DEFAULT_CRM_SETTINGS } from "../../lib/crmSettings.js";
 import { CRM_ARRAY_KEYS, normalizeCrmData } from "../../lib/normalizeData.js";
@@ -1332,6 +1335,30 @@ export function CrmSettingsView({ settings, onSave }) {
         </button>
       </div>
 
+      {/* Multi-user access — shared master key warning */}
+      <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "18px 20px" }}>
+        <div style={{ fontWeight: 700, fontSize: 13.5, color: C.ink, marginBottom: 4 }}>Multi-user access</div>
+        <div style={{ fontSize: 12, color: C.ink3, marginBottom: 14, lineHeight: 1.6 }}>
+          By default this CRM is <strong>single-operator</strong>. Every account that unlocks with a PIN can decrypt the <strong>full</strong> client, health, and financial dataset (one shared encryption key). Only enable additional users if you trust them with all CRM data.
+        </div>
+        <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={!!draft.allowMultiUser}
+            onChange={e => setDraft(d => ({ ...d, allowMultiUser: e.target.checked }))}
+            style={{ marginTop: 3 }}
+          />
+          <span style={{ fontSize: 13, color: C.ink, lineHeight: 1.5 }}>
+            Allow additional user accounts in User Management
+            {!draft.allowMultiUser && (
+              <span style={{ display: "block", fontSize: 11.5, color: C.ink3, marginTop: 4 }}>
+                Currently locked to a single Owner account (recommended for real client data).
+              </span>
+            )}
+          </span>
+        </label>
+      </div>
+
       {/* Calendly sync-from date — custom scalar field, not a string-array dropdown */}
       <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 14, padding: "18px 20px" }}>
         <div style={{ fontWeight: 700, fontSize: 13.5, color: C.ink, marginBottom: 4 }}>Calendly Sync Cutoff Date</div>
@@ -1513,7 +1540,7 @@ export function JourneyDescriptionsView({ settings, onSave }) {
   );
 }
 
-export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdated, onConfirm }) {
+export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUsersUpdated, onConfirm, crmSettings, apiSessionToken }) {
   const [showAdd, setShowAdd]           = useState(false);
   const [editUser, setEditUser]         = useState(null);
   const [newName, setNewName]           = useState("");
@@ -1526,6 +1553,7 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
   const [deactivateConfirm, setDeactivateConfirm] = useState(null);
 
   const canManage = currentUser?.role === "Owner" || currentUser?.permissions?.manage;
+  const allowMultiUser = crmSettings?.allowMultiUser === true;
   const initials  = (name) => name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
 
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(""), 2800); };
@@ -1536,6 +1564,10 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
   };
 
   const handleAdd = async () => {
+    if (!allowMultiUser) {
+      flash("Enable multi-user access in Admin → Settings first. All users can decrypt the full CRM.");
+      return;
+    }
     if (!newName.trim() || !newPin.trim()) return;
     if (newPin.length < 6) { flash("PIN must be at least 6 characters."); return; }
     if (!masterKeyRaw)    { flash("Session key unavailable — please log out and back in."); return; }
@@ -1543,22 +1575,33 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
     try {
       const pinSalt  = Sec.newSalt();
       const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyRaw, newPin, pinSalt, Sec.PBKDF2_ITERATIONS);
+      const unlockSecret = Sec.generateUnlockSecret();
+      const wrappedUnlockSecret = await Sec.wrapUnlockSecret(unlockSecret, newPin, pinSalt, Sec.PBKDF2_ITERATIONS);
       const color    = USER_COLORS[secUsers.length % USER_COLORS.length];
       const nu = {
         id: "u_" + Math.random().toString(36).slice(2, 9),
         name: newName.trim(), role: newRole,
-        pinSalt, wrappedMasterKey, pbkdf2Iterations: Sec.PBKDF2_ITERATIONS,
+        pinSalt, wrappedMasterKey, wrappedUnlockSecret, pbkdf2Iterations: Sec.PBKDF2_ITERATIONS,
         permissions: { ...newPerm },
         active: true, color, createdAt: todayISO(), lastLogin: "",
       };
-      const secRaw = await store.get(SEC_META_KEY);
-      const sec    = JSON.parse(secRaw?.value || "{}");
+      const sec = (await loadSecMeta()) || {};
       if (!Array.isArray(sec.users)) sec.users = [];
       const updated = { ...sec, version: 2, users: [...sec.users, nu] };
-      await store.set(SEC_META_KEY, JSON.stringify(updated));
+      await saveSecMeta(updated);
+      const ownerTok = apiSessionToken || getApiSessionToken();
+      const registered = await registerUnlockCredential(nu.id, unlockSecret, {
+        role: nu.role,
+        canEdit: !!nu.permissions?.edit,
+        ownerSessionToken: ownerTok,
+      });
+      if (!registered) {
+        flash("User saved locally, but server permission sync failed — have them log in, then re-save their permissions.");
+      } else {
+        flash(`✓ ${nu.name} added successfully`);
+      }
       onUsersUpdated(updated.users.filter(u => u.active !== false));
       setShowAdd(false); setNewName(""); setNewPin(""); setNewRole("Editor");
-      flash(`✓ ${nu.name} added successfully`);
     } catch (e) { console.error("handleAdd error:", e); flash("Error: " + (e?.message || e)); }
     setSaving(false);
   };
@@ -1567,13 +1610,18 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
     
     setSaving(true);
     try {
-      const secRaw = await store.get(SEC_META_KEY);
-      const sec    = JSON.parse(secRaw?.value || "{}");
+      const sec = (await loadSecMeta()) || {};
       if (!Array.isArray(sec.users)) { flash("No user config found."); setSaving(false); return; }
       const updated = { ...sec, users: sec.users.map(u =>
         u.id === userId ? { ...u, permissions: updatedPerms, role: updatedRole } : u
       )};
-      await store.set(SEC_META_KEY, JSON.stringify(updated));
+      await saveSecMeta(updated);
+      const ownerTok = apiSessionToken || getApiSessionToken();
+      await setUnlockPermissions(userId, {
+        role: updatedRole,
+        canEdit: !!updatedPerms?.edit,
+        ownerSessionToken: ownerTok,
+      });
       onUsersUpdated(updated.users.filter(u => u.active !== false));
       setEditUser(null);
       flash("✓ Permissions updated");
@@ -1588,13 +1636,21 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
     try {
       const pinSalt  = Sec.newSalt();
       const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyRaw, newPinVal, pinSalt, Sec.PBKDF2_ITERATIONS);
-      const secRaw = await store.get(SEC_META_KEY);
-      const sec    = JSON.parse(secRaw?.value || "{}");
+      const unlockSecret = Sec.generateUnlockSecret();
+      const wrappedUnlockSecret = await Sec.wrapUnlockSecret(unlockSecret, newPinVal, pinSalt, Sec.PBKDF2_ITERATIONS);
+      const sec = (await loadSecMeta()) || {};
       if (!Array.isArray(sec.users)) { flash("No user config found."); setSaving(false); return; }
+      const target = sec.users.find(u => u.id === userId);
       const updated = { ...sec, users: sec.users.map(u =>
-        u.id === userId ? { ...u, pinSalt, wrappedMasterKey, pbkdf2Iterations: Sec.PBKDF2_ITERATIONS } : u
+        u.id === userId ? { ...u, pinSalt, wrappedMasterKey, wrappedUnlockSecret, pbkdf2Iterations: Sec.PBKDF2_ITERATIONS } : u
       )};
-      await store.set(SEC_META_KEY, JSON.stringify(updated));
+      await saveSecMeta(updated);
+      const ownerTok = apiSessionToken || getApiSessionToken();
+      await registerUnlockCredential(userId, unlockSecret, {
+        role: target?.role || "Viewer",
+        canEdit: !!target?.permissions?.edit,
+        ownerSessionToken: ownerTok,
+      });
       flash("✓ PIN reset successfully");
     } catch (e) { console.error("handleResetPin:", e); flash("Error: " + (e?.message || e)); }
     setSaving(false);
@@ -1610,11 +1666,10 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
   const doDeactivate = async (userId) => {
     setSaving(true);
     try {
-      const secRaw = await store.get(SEC_META_KEY);
-      const sec    = JSON.parse(secRaw?.value || "{}");
+      const sec = (await loadSecMeta()) || {};
       if (!Array.isArray(sec.users)) { setSaving(false); return; }
       const updated = { ...sec, users: sec.users.map(u => u.id === userId ? { ...u, active: false } : u) };
-      await store.set(SEC_META_KEY, JSON.stringify(updated));
+      await saveSecMeta(updated);
       onUsersUpdated(updated.users.filter(u => u.active !== false));
       flash("User deactivated");
     } catch (e) { console.error("handleDeactivate:", e); }
@@ -1642,7 +1697,12 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
       {/* Add user */}
       {canManage && (
         <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 18px" }}>
-          {!showAdd ? (
+          {!allowMultiUser ? (
+            <div style={{ fontSize: 13, color: C.ink2, lineHeight: 1.55 }}>
+              Additional accounts are disabled. This keeps the CRM single-operator — every PIN user can decrypt all client data.
+              Enable <strong>Multi-user access</strong> in <strong>Admin → Settings</strong> only if you accept that risk.
+            </div>
+          ) : !showAdd ? (
             <button onClick={() => setShowAdd(true)} style={{
               display: "flex", alignItems: "center", gap: 8, background: C.brand,
               color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px",

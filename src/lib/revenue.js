@@ -1,5 +1,6 @@
 import { amountsMatch, registrationSessionAmount, reconcileStripePayments, resetStripeAutoMatches } from "../stripeMatching.js";
 import { apiHeaders, calendlyApiUrl, fetchWithTimeout } from "./api.js";
+import { getApiSessionToken } from "./apiSession.js";
 import { cleanName, money, uid } from "./format.js";
 import { patchAmountMismatches } from "./patchAmountMismatches.js";
 
@@ -769,16 +770,25 @@ export function applyRegistrationLifetimeValues(clients, data) {
 /** Issues a FULL Stripe refund via the backend, then stamps the refund on the
  * registration and its linked payment record. Shared by RefundsView and
  * registration expand-row cancel/refund actions. */
-export async function issueStripeRefund(reg, setData, sessionToken) {
-  if (!sessionToken) throw new Error("Not authorised — please log out and log back in before issuing a refund.");
+export async function issueStripeRefund(reg, setData, sessionToken, opts = {}) {
+  const tok = sessionToken || getApiSessionToken();
+  if (!tok) throw new Error("Not authorised — please log out and log back in before issuing a refund.");
+  if (!reg?.id) throw new Error("Registration id required for refund.");
+  const sessionAt = reg.scheduledAt || opts.sessionAt || "";
   const res = await fetchWithTimeout(calendlyApiUrl("/api/stripe/refund"), {
     method: "POST",
-    headers: { ...apiHeaders(), "x-session-token": sessionToken },
+    headers: { ...apiHeaders(), "x-session-token": tok },
     body: JSON.stringify({
       paymentIntentId: reg.stripePaymentIntentId || "",
       chargeId: reg.stripeChargeId || "",
       registrationId: reg.id || "",
       reason: "requested_by_customer",
+      policy: {
+        cancelerType: reg.cancelerType || "",
+        canceledAt: reg.canceledAt || "",
+        sessionAt,
+        override: opts.policyOverride === true,
+      },
     }),
   }, 20000);
   const j = await res.json().catch(() => ({}));

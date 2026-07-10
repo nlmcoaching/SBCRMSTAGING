@@ -1,7 +1,7 @@
 export const STORE_KEY     = "simplybreathe:data:v4";           // legacy (unencrypted)
 export const STORE_KEY_ENC = "simplybreathe:data:v5:enc";       // encrypted storage
 export const AGREEMENT_BLOB_PREFIX = "sb:agreement:v1:";      // per-file encrypted blobs (kept out of main CRM payload)
-export const SEC_META_KEY  = "sb:security:v1";                  // { users: [...] }
+export const SEC_META_KEY  = "sb:security:v1";                  // legacy plaintext (migrated → sb:security:v1:enc)
 
 // Centralized API headers — x-frontend-secret is injected server-side by the Vite proxy
 // (dev) or a production reverse proxy. It must never appear in the browser bundle;

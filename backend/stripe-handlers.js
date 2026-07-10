@@ -151,10 +151,18 @@ function extractStripePayment(event) {
 
 function verifyStripeSignature(rawBody, signatureHeader, webhookSecret) {
   if (!webhookSecret) {
-    if (process.env.NODE_ENV === "production") {
-      return { ok: false, error: "STRIPE_WEBHOOK_SECRET not configured" };
+    // Fail closed unless explicitly opted into unsigned local testing (never with public ngrok).
+    const allowUnsigned = process.env.NODE_ENV !== "production"
+      && process.env.ALLOW_UNSIGNED_STRIPE_WEBHOOKS === "true";
+    if (!allowUnsigned) {
+      return {
+        ok: false,
+        error: process.env.NODE_ENV === "production"
+          ? "STRIPE_WEBHOOK_SECRET not configured"
+          : "STRIPE_WEBHOOK_SECRET not set (set ALLOW_UNSIGNED_STRIPE_WEBHOOKS=true to override in dev)",
+      };
     }
-    console.warn("[WARN] STRIPE_WEBHOOK_SECRET not set — skipping Stripe signature check");
+    console.warn("[WARN] STRIPE_WEBHOOK_SECRET not set — ALLOW_UNSIGNED_STRIPE_WEBHOOKS=true; skipping Stripe signature check (dev only)");
     return { ok: true, devMode: true };
   }
   if (!signatureHeader || !rawBody) return { ok: false, error: "Missing signature or body" };

@@ -20,12 +20,16 @@ export const DEFAULT_CRM_SETTINGS = {
   // ISO timestamp — Calendly events whose createdAt is before this date are ignored during sync.
   // Set to the date of your production reset to prevent old test bookings from re-appearing.
   calendlySyncFromDate: "2026-07-01T00:00:00.000Z",
+  // When false (default), User Management cannot add accounts. All PIN users share one master
+  // key and can decrypt the full CRM — keep single-operator unless you explicitly accept that.
+  allowMultiUser: false,
 };
 export function parseCrmSettings(parsed) {
   if (!parsed || typeof parsed !== "object") return JSON.parse(JSON.stringify(DEFAULT_CRM_SETTINGS));
   const merged = Object.fromEntries(Object.keys(DEFAULT_CRM_SETTINGS).map(k => {
     // calendlySyncFromDate is a string (not array) — use nullish coalescing so empty string is preserved.
     if (k === "calendlySyncFromDate") return [k, parsed[k] != null ? parsed[k] : DEFAULT_CRM_SETTINGS[k]];
+    if (k === "allowMultiUser") return [k, parsed[k] === true];
     return [k, parsed[k] || DEFAULT_CRM_SETTINGS[k]];
   }));
   if (!Array.isArray(merged.journeyDescriptions) || (merged.journeyDescriptions.length > 0 && typeof merged.journeyDescriptions[0] === "string")) {

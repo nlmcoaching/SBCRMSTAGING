@@ -76,6 +76,26 @@ export const Sec = {
     const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("sb-session-v3:" + token));
     return btoa(String.fromCharCode(...new Uint8Array(buf)));
   },
+  // ── Per-user unlock secret (server-verifiable refund/email session mint) ──
+  // Random secret, PIN-wrapped on the user record (never plaintext in SEC_META).
+  // Server stores the raw secret and verifies HMAC(nonce:userId) on session mint.
+  generateUnlockSecret() {
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+  },
+  async wrapUnlockSecret(secretHex, pin, salt, iterations) {
+    return Sec.wrapKeyForUser(secretHex, pin, salt, iterations);
+  },
+  async unwrapUnlockSecret(wrappedB64, pin, salt, iterations) {
+    const wrapKey = await Sec.deriveKey(pin, salt, iterations);
+    return Sec.decrypt(wrappedB64, wrapKey);
+  },
+  async unlockProofHmac(unlockSecretHex, nonce, userId) {
+    const raw = new Uint8Array(unlockSecretHex.match(/.{1,2}/g).map(h => parseInt(h, 16)));
+    const key = await crypto.subtle.importKey("raw", raw, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${nonce}:${userId}`));
+    return btoa(String.fromCharCode(...new Uint8Array(sig)));
+  },
   // ── Recovery code (offline PIN reset) ──
   // Generates a cryptographically random 30-char code in 6×5 groups (e.g. A3K9M-...).
   // The master key is wrapped with this code the same way it is with the PIN, using its

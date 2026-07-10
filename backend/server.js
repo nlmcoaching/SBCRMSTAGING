@@ -1115,11 +1115,51 @@ async function pullRecentCalendlyBookings(daysBack = 30) {
   return { added, skipped, scanned, requeued };
 }
 
-// ── Per-session refund tokens (minted after CRM PIN unlock; required for money-moving endpoints) ──
-const _refundSessions = new Map(); // token → { exp, userId }
-const REFUND_SESSION_TTL = 60 * 60 * 1000; // 1 hour (was 8h — shorten blast radius if FRONTEND_SECRET leaks)
-const _sessionChallenges = new Map(); // nonce → { exp, userId? }
+// ── Per-session API tokens (minted after CRM PIN unlock; required for money-moving + email) ──
+const AUTH_USERS_FILE = path.join(DATA_DIR, "auth-users.json");
+const _refundSessions = new Map(); // token → { exp, userId, role, canEdit }
+const REFUND_SESSION_TTL = 60 * 60 * 1000; // 1 hour
+const _sessionChallenges = new Map(); // nonce → { exp }
 const SESSION_CHALLENGE_TTL = 2 * 60 * 1000; // 2 minutes
+
+function readAuthUsers() {
+  try {
+    if (!fs.existsSync(AUTH_USERS_FILE)) return { users: {} };
+    const raw = fs.readFileSync(AUTH_USERS_FILE, "utf8");
+    const json = _decryptQueue(raw);
+    const parsed = JSON.parse(json);
+    return parsed && typeof parsed.users === "object" ? parsed : { users: {} };
+  } catch {
+    return { users: {} };
+  }
+}
+
+function writeAuthUsers(data) {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  const payload = JSON.stringify({ users: data.users || {} }, null, 2);
+  fs.writeFileSync(AUTH_USERS_FILE, _encryptQueue(payload), "utf8");
+}
+
+function _b64ToBuf(b64) {
+  return Buffer.from(b64, "base64");
+}
+
+function verifyUnlockProof(unlockSecretHex, nonce, userId, unlockProofB64) {
+  if (!unlockSecretHex || !nonce || !userId || !unlockProofB64) return false;
+  if (typeof unlockSecretHex !== "string" || !/^[0-9a-f]{64}$/i.test(unlockSecretHex)) return false;
+  try {
+    const expected = crypto
+      .createHmac("sha256", Buffer.from(unlockSecretHex, "hex"))
+      .update(`${nonce}:${userId}`)
+      .digest();
+    const got = _b64ToBuf(unlockProofB64);
+    if (got.length !== expected.length) return false;
+    return crypto.timingSafeEqual(got, expected);
+  } catch {
+    return false;
+  }
+}
+
 setInterval(() => {
   const now = Date.now();
   for (const [tok, meta] of _refundSessions.entries()) {
@@ -1131,13 +1171,20 @@ setInterval(() => {
 }, 60 * 60 * 1000);
 
 // ── Frontend secret guard (for CRM-facing endpoints) ──
+// Fail closed whenever FRONTEND_SECRET is unset, unless ALLOW_INSECURE_DEV_AUTH=true
+// (local-only escape hatch — never enable with a public ngrok tunnel).
 function requireFrontendSecret(req, res, next) {
   const secret = process.env.FRONTEND_SECRET;
   if (!secret) {
-    if (isProd) {
-      return res.status(503).json({ error: "Server misconfigured — FRONTEND_SECRET required" });
+    const allowInsecure = !isProd && process.env.ALLOW_INSECURE_DEV_AUTH === "true";
+    if (!allowInsecure) {
+      return res.status(503).json({
+        error: isProd
+          ? "Server misconfigured — FRONTEND_SECRET required"
+          : "FRONTEND_SECRET required (set ALLOW_INSECURE_DEV_AUTH=true only for local unsigned testing)",
+      });
     }
-    console.warn("[WARN] FRONTEND_SECRET not set — /pending and /acknowledge are unauthenticated");
+    console.warn("[WARN] FRONTEND_SECRET not set — ALLOW_INSECURE_DEV_AUTH=true; CRM APIs are unauthenticated (dev only)");
     return next();
   }
   if (req.headers["x-frontend-secret"] !== secret) {
@@ -1158,21 +1205,109 @@ function requireSessionToken(req, res, next) {
   if (hdrUser && meta.userId && hdrUser !== meta.userId) {
     return res.status(403).json({ error: "Session token is not valid for this user." });
   }
-  req.refundSession = meta;
+  req.apiSession = meta;
+  req.refundSession = meta; // backwards-compatible alias
   next();
 }
 
-// GET /api/auth/session-challenge — one-shot nonce required to mint a refund session.
-// Prevents blind minting with only FRONTEND_SECRET; caller must complete a round-trip after unlock.
+function requireEditSession(req, res, next) {
+  requireSessionToken(req, res, () => {
+    if (res.headersSent) return;
+    if (!req.apiSession?.canEdit) {
+      return res.status(403).json({ error: "Edit permission required for this action." });
+    }
+    next();
+  });
+}
+
+// GET /api/auth/session-challenge — one-shot nonce required to mint an API session.
 app.get("/api/auth/session-challenge", requireFrontendSecret, (req, res) => {
   const nonce = crypto.randomBytes(24).toString("hex");
   _sessionChallenges.set(nonce, { exp: Date.now() + SESSION_CHALLENGE_TTL });
   res.json({ nonce, expiresInMs: SESSION_CHALLENGE_TTL });
 });
 
-// POST /api/auth/session — mint a short-lived refund session token after CRM PIN unlock.
-// Requires x-frontend-secret + a fresh challenge nonce + userId (bound into the token).
-// The token must be sent as x-session-token on money-moving endpoints (e.g. /api/stripe/refund).
+// POST /api/auth/register-unlock — register/update per-user unlock secret + role bits.
+// Body: { userId, unlockSecret?, role?, canEdit?, nonce?, unlockProof? }
+// - Empty registry: bootstrap (first Owner setup) — requires unlockSecret; trusts canEdit
+// - Owner session: create/update anyone (unlockSecret required only when creating or rotating)
+// - Existing user + valid HMAC proof: rotate secret only (role unchanged)
+// - New userId without Owner session: allowed with unlockSecret; canEdit forced false
+app.post("/api/auth/register-unlock", requireFrontendSecret, (req, res) => {
+  const { userId, unlockSecret, role, canEdit, nonce, unlockProof } = req.body ?? {};
+  if (!userId || typeof userId !== "string" || userId.length > 80) {
+    return res.status(400).json({ error: "userId required" });
+  }
+  const hasSecret = typeof unlockSecret === "string" && /^[0-9a-f]{64}$/i.test(unlockSecret);
+  if (unlockSecret != null && unlockSecret !== "" && !hasSecret) {
+    return res.status(400).json({ error: "unlockSecret must be 32-byte hex" });
+  }
+
+  const store = readAuthUsers();
+  const existing = store.users[userId];
+  const sessionTok = req.headers["x-session-token"];
+  const sessionMeta = sessionTok ? _refundSessions.get(sessionTok) : null;
+  const sessionOk = sessionMeta && sessionMeta.exp >= Date.now();
+  const canManageUsers = sessionOk && sessionMeta.role === "Owner";
+
+  const userCount = Object.keys(store.users).length;
+  let nextCanEdit;
+  let nextRole = typeof role === "string" && role.length <= 40 ? role : (existing?.role || "Viewer");
+  let nextSecret = existing?.unlockSecret;
+
+  if (userCount === 0) {
+    if (!hasSecret) return res.status(400).json({ error: "unlockSecret required for bootstrap" });
+    nextSecret = unlockSecret;
+    nextCanEdit = canEdit === true;
+    nextRole = typeof role === "string" && role.length <= 40 ? role : "Owner";
+  } else if (canManageUsers) {
+    if (!existing && !hasSecret) {
+      return res.status(400).json({ error: "unlockSecret required to register a new user" });
+    }
+    if (hasSecret) nextSecret = unlockSecret;
+    nextCanEdit = canEdit === true;
+    if (typeof role === "string" && role.length <= 40) nextRole = role;
+  } else if (existing) {
+    if (!hasSecret) {
+      return res.status(400).json({ error: "unlockSecret required to rotate" });
+    }
+    if (!nonce || typeof nonce !== "string") {
+      return res.status(400).json({ error: "nonce required to rotate unlock secret" });
+    }
+    const challenge = _sessionChallenges.get(nonce);
+    _sessionChallenges.delete(nonce);
+    if (!challenge || challenge.exp < Date.now()) {
+      return res.status(401).json({ error: "Invalid or expired challenge" });
+    }
+    if (!verifyUnlockProof(existing.unlockSecret, nonce, userId, unlockProof)) {
+      return res.status(403).json({ error: "Invalid unlock proof — cannot rotate secret" });
+    }
+    nextSecret = unlockSecret;
+    nextCanEdit = existing.canEdit === true;
+    nextRole = existing.role || nextRole;
+  } else {
+    if (!hasSecret) return res.status(400).json({ error: "unlockSecret required" });
+    nextSecret = unlockSecret;
+    nextCanEdit = false;
+    nextRole = typeof role === "string" && role.length <= 40 ? role : "Viewer";
+  }
+
+  if (!nextSecret) {
+    return res.status(400).json({ error: "unlockSecret required" });
+  }
+
+  store.users[userId] = {
+    unlockSecret: nextSecret,
+    role: nextRole,
+    canEdit: nextCanEdit === true,
+    updatedAt: new Date().toISOString(),
+  };
+  writeAuthUsers(store);
+  res.json({ ok: true, userId, role: nextRole, canEdit: nextCanEdit === true });
+});
+
+// POST /api/auth/session — mint a short-lived API session after CRM PIN unlock.
+// Requires x-frontend-secret + fresh challenge nonce + HMAC unlockProof over registered secret.
 app.post("/api/auth/session", requireFrontendSecret, (req, res) => {
   const { userId, nonce, unlockProof } = req.body ?? {};
   if (!userId || typeof userId !== "string" || userId.length > 80) {
@@ -1186,15 +1321,25 @@ app.post("/api/auth/session", requireFrontendSecret, (req, res) => {
   if (!challenge || challenge.exp < Date.now()) {
     return res.status(401).json({ error: "Invalid or expired session challenge" });
   }
-  // unlockProof is a client-side attestation string (non-empty) produced only after PIN unwrap.
-  // Server cannot re-derive the master key; requiring a fresh nonce + non-empty proof raises the
-  // bar vs minting with FRONTEND_SECRET alone and binds the token to a specific userId.
-  if (!unlockProof || typeof unlockProof !== "string" || unlockProof.length < 32) {
-    return res.status(400).json({ error: "unlockProof required (mint only after successful PIN unlock)" });
+
+  const store = readAuthUsers();
+  const rec = store.users[userId];
+  if (!rec?.unlockSecret) {
+    return res.status(401).json({ error: "User not registered for API sessions — unlock again or ask Owner to sync permissions" });
   }
+  if (!verifyUnlockProof(rec.unlockSecret, nonce, userId, unlockProof)) {
+    return res.status(401).json({ error: "Invalid unlockProof" });
+  }
+
   const token = crypto.randomBytes(32).toString("hex");
-  _refundSessions.set(token, { exp: Date.now() + REFUND_SESSION_TTL, userId });
-  res.json({ token, expiresInMs: REFUND_SESSION_TTL, userId });
+  const meta = {
+    exp: Date.now() + REFUND_SESSION_TTL,
+    userId,
+    role: rec.role || "Viewer",
+    canEdit: rec.canEdit === true,
+  };
+  _refundSessions.set(token, meta);
+  res.json({ token, expiresInMs: REFUND_SESSION_TTL, userId, role: meta.role, canEdit: meta.canEdit });
 });
 
 // ────────────────────────────────────────────────────────────────
@@ -1437,23 +1582,132 @@ app.post("/api/stripe/acknowledge", requireFrontendSecret, async (req, res) => {
 // POST /api/stripe/refund
 // Issues a FULL refund for a payment via the Stripe API (POST /v1/refunds).
 // Called by the CRM after a human approves a refund for a canceled booking.
-// Body: { paymentIntentId?: "pi_...", chargeId?: "ch_...", registrationId?: string, reason?: string }
-// Omitting `amount` in the Stripe request makes Stripe refund the full charge —
-// no cents conversion needed on the way in.
+// Body: {
+//   paymentIntentId?: "pi_...", chargeId?: "ch_...", registrationId: string (required),
+//   reason?: string,
+//   policy?: { cancelerType, canceledAt, sessionAt, override? }
+// }
 // ────────────────────────────────────────────────────────────────
-app.post("/api/stripe/refund", requireFrontendSecret, requireSessionToken, async (req, res) => {
+const REFUND_POLICY_HOURS = 24;
+const REFUND_AUDIT_FILE = path.join(DATA_DIR, "refund-audit.json");
+
+function evaluateRefundPolicyServer(policy) {
+  const p = policy && typeof policy === "object" ? policy : {};
+  const canceler = String(p.cancelerType || "").toLowerCase();
+  if (canceler === "host") {
+    return { eligible: true, reason: "Canceled by host — full refund due" };
+  }
+  const sessionTs = Date.parse(p.sessionAt || "");
+  const canceledTs = Date.parse(p.canceledAt || "");
+  if (!sessionTs || Number.isNaN(canceledTs)) {
+    // Timing unknown — treat as eligible but require human review (UI flags this).
+    // Server allows Edit sessions through; Owner override not required.
+    return { eligible: true, reason: "Client canceled (timing unknown)" };
+  }
+  const hoursBefore = (sessionTs - canceledTs) / 3600000;
+  if (hoursBefore > REFUND_POLICY_HOURS) {
+    return { eligible: true, reason: `Client canceled ${Math.floor(hoursBefore)}h before session` };
+  }
+  return { eligible: false, reason: `Late cancel (≤${REFUND_POLICY_HOURS}h before session) — no refund per policy` };
+}
+
+function appendRefundAudit(entry) {
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    let log = [];
+    if (fs.existsSync(REFUND_AUDIT_FILE)) {
+      try {
+        const raw = fs.readFileSync(REFUND_AUDIT_FILE, "utf8");
+        log = JSON.parse(_decryptQueue(raw));
+        if (!Array.isArray(log)) log = [];
+      } catch { log = []; }
+    }
+    log.push(entry);
+    if (log.length > 500) log = log.slice(-500);
+    fs.writeFileSync(REFUND_AUDIT_FILE, _encryptQueue(JSON.stringify(log, null, 2)), "utf8");
+  } catch (err) {
+    console.warn("[WARN] Could not write refund audit log:", err.message);
+  }
+}
+
+async function stripeGet(pathSuffix, apiKey) {
+  const resp = await fetch(`https://api.stripe.com/v1/${pathSuffix}`, {
+    headers: { "Authorization": `Basic ${Buffer.from(`${apiKey}:`).toString("base64")}` },
+  });
+  const j = await resp.json().catch(() => ({}));
+  return { ok: resp.ok, status: resp.status, body: j };
+}
+
+app.post("/api/stripe/refund", requireFrontendSecret, requireEditSession, async (req, res) => {
   res.set("Cache-Control", "no-store");
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) {
     return res.status(503).json({ error: "STRIPE_SECRET_KEY not configured — refunds cannot be issued from the CRM" });
   }
 
-  const { paymentIntentId, chargeId, registrationId, reason } = req.body || {};
+  const { paymentIntentId, chargeId, registrationId, reason, policy } = req.body || {};
   const validId = (v, prefix) => typeof v === "string" && v.startsWith(prefix) && v.length <= 100 && /^[\w]+$/.test(v);
   const pi = validId(paymentIntentId, "pi_") ? paymentIntentId : "";
   const ch = validId(chargeId, "ch_") ? chargeId : "";
   if (!pi && !ch) {
     return res.status(400).json({ error: "A valid paymentIntentId (pi_...) or chargeId (ch_...) is required" });
+  }
+  if (!registrationId || typeof registrationId !== "string" || registrationId.length > 100) {
+    return res.status(400).json({ error: "registrationId is required — refunds must be tied to a CRM booking" });
+  }
+
+  // Server-side policy gate (same 24h matrix as the CRM UI).
+  const policyResult = evaluateRefundPolicyServer(policy);
+  if (!policyResult.eligible) {
+    const wantsOverride = policy && policy.override === true;
+    if (!wantsOverride) {
+      return res.status(403).json({ error: policyResult.reason, code: "policy_denied" });
+    }
+    if (req.apiSession?.role !== "Owner") {
+      return res.status(403).json({ error: "Policy override requires Owner role", code: "policy_override_owner_required" });
+    }
+  }
+
+  // Look up the Stripe object and bind it to this registrationId when possible.
+  let stripeObj = null;
+  let stripeMetaRegId = "";
+  try {
+    if (pi) {
+      const got = await stripeGet(`payment_intents/${encodeURIComponent(pi)}`, key);
+      if (!got.ok) {
+        return res.status(400).json({ error: got.body?.error?.message || "PaymentIntent not found in Stripe" });
+      }
+      stripeObj = got.body;
+    } else {
+      const got = await stripeGet(`charges/${encodeURIComponent(ch)}`, key);
+      if (!got.ok) {
+        return res.status(400).json({ error: got.body?.error?.message || "Charge not found in Stripe" });
+      }
+      stripeObj = got.body;
+    }
+    stripeMetaRegId = String(stripeObj?.metadata?.registrationId || "");
+    const amount = Number(stripeObj?.amount) || 0;
+    const amountRefunded = Number(stripeObj?.amount_refunded) || 0;
+    const status = String(stripeObj?.status || "");
+    if (amount <= 0) {
+      return res.status(400).json({ error: "Stripe payment has zero amount — nothing to refund" });
+    }
+    // Charges expose amount_refunded; PaymentIntents may not — Stripe still rejects double refunds.
+    if ((amountRefunded > 0 && amountRefunded >= amount) || status === "canceled") {
+      return res.status(400).json({ error: "Stripe payment is already fully refunded or canceled" });
+    }
+    if (stripeMetaRegId && stripeMetaRegId !== registrationId) {
+      return res.status(403).json({
+        error: `Stripe payment is linked to a different registration (${stripeMetaRegId})`,
+        code: "registration_mismatch",
+      });
+    }
+    // Missing metadata is normal for payments matched only in the CRM — registrationId
+    // on the request + Edit session + policy check still bind the refund. Conflicting
+    // metadata is the hard deny above.
+  } catch (err) {
+    console.error("[ERROR] Stripe lookup before refund failed:", err.message);
+    return res.status(502).json({ error: "Could not verify payment with Stripe before refunding. Try again." });
   }
 
   const params = new URLSearchParams();
@@ -1461,9 +1715,8 @@ app.post("/api/stripe/refund", requireFrontendSecret, requireSessionToken, async
   else params.set("charge", ch);
   const allowedReasons = new Set(["duplicate", "fraudulent", "requested_by_customer"]);
   params.set("reason", allowedReasons.has(reason) ? reason : "requested_by_customer");
-  if (typeof registrationId === "string" && registrationId && registrationId.length <= 100) {
-    params.set("metadata[registrationId]", registrationId);
-  }
+  params.set("metadata[registrationId]", registrationId);
+  if (req.apiSession?.userId) params.set("metadata[refundedByUserId]", String(req.apiSession.userId).slice(0, 80));
 
   try {
     const resp = await fetch("https://api.stripe.com/v1/refunds", {
@@ -1478,9 +1731,33 @@ app.post("/api/stripe/refund", requireFrontendSecret, requireSessionToken, async
     if (!resp.ok) {
       const msg = j?.error?.message || `Stripe refund failed (HTTP ${resp.status})`;
       console.error(`[ERROR] Stripe refund failed: ${msg}`);
+      appendRefundAudit({
+        at: new Date().toISOString(),
+        ok: false,
+        registrationId,
+        paymentIntentId: pi,
+        chargeId: ch,
+        userId: req.apiSession?.userId || "",
+        role: req.apiSession?.role || "",
+        error: msg,
+      });
       return res.status(resp.status >= 500 ? 502 : 400).json({ error: msg, code: j?.error?.code || "" });
     }
-    console.log(`[OK] Stripe refund created: ${j.id} — ${j.amount} ${String(j.currency || "").toUpperCase()}`);
+    console.log(`[OK] Stripe refund created: ${j.id} — ${j.amount} ${String(j.currency || "").toUpperCase()} (reg ${registrationId})`);
+    appendRefundAudit({
+      at: new Date().toISOString(),
+      ok: true,
+      registrationId,
+      paymentIntentId: pi || (typeof j.payment_intent === "string" ? j.payment_intent : ""),
+      chargeId: ch || (typeof j.charge === "string" ? j.charge : ""),
+      refundId: j.id || "",
+      amount: centsToDollars(j.amount),
+      userId: req.apiSession?.userId || "",
+      role: req.apiSession?.role || "",
+      policyReason: policyResult.reason,
+      policyOverride: !!(policy && policy.override),
+      hadStripeMeta: !!stripeMetaRegId,
+    });
     res.json({
       refundId: j.id || "",
       amount: centsToDollars(j.amount),
@@ -1609,7 +1886,7 @@ app.post("/api/integration/clear-queues", requireFrontendSecret, (_req, res) => 
 const { Resend } = require("resend");
 const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-app.post("/api/send-email", requireFrontendSecret, async (req, res) => {
+app.post("/api/send-email", requireFrontendSecret, requireEditSession, async (req, res) => {
   if (!resendClient) {
     return res.status(503).json({ error: "Email service not configured (RESEND_API_KEY missing)." });
   }

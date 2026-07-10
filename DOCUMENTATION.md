@@ -53,7 +53,7 @@ The system is designed to answer three core daily questions:
 
 ## Authentication & Security
 
-> **Deployment model:** Simply Breathe OS is a **single-operator local app**. Role checks (`Owner` / `Admin` / `Editor` / `Viewer`), the manage-bit, and related UI gates are **advisory** — they guide the UI for trusted users on one machine. They are not a multi-tenant authorization boundary: roles are stored in plaintext security metadata, Viewers can still trigger some email/export paths, and several backend admin actions rely on `FRONTEND_SECRET` rather than a full session proof. Do not expose the CRM or backend to untrusted users without additional hardening.
+> **Deployment model:** Simply Breathe OS is a **single-operator local app** by default. Additional user accounts are disabled until an Owner enables **Multi-user access** in Admin → Settings. Even then, roles are **not a data boundary**: all PIN users share one AES master key and can decrypt the full CRM after unlock. What *is* enforced server-side: refund and send-email APIs require a PIN-minted session whose `canEdit` bit was registered with the backend (Viewers cannot call those endpoints). Do not expose the CRM or backend to untrusted users or the public internet without additional hardening.
 
 ### PIN-Based Lock Screen
 
@@ -93,11 +93,14 @@ A rejected token is removed from `sessionStorage` and the user must re-enter the
 | Salt | 16-byte random per user |
 | Master key | Generated once, envelope-encrypted per user |
 | Storage key | `simplybreathe:data:v5:enc` |
-| Security metadata key | `sb:security:v1` |
+| Security metadata (encrypted) | `sb:security:v1:enc` |
+| Security device key (IDB) | `sb:security:device-key:v1` |
+| Legacy plaintext meta (migrated away) | `sb:security:v1` |
 
 - All CRM data is encrypted at rest using the master key.
 - Each user's copy of the master key is wrapped with their individual PIN-derived key.
 - Adding a new user re-wraps the master key for them using their PIN.
+- Security metadata (user list, salts, wrapped keys, session hashes) is AES-GCM encrypted with a browser-local device key stored in IndexedDB (not dual-written to localStorage). Legacy plaintext `sb:security:v1` is migrated on first load and removed.
 - If the browser storage API is unavailable, the app falls back to unencrypted seed data mode.
 - PBKDF2 iterations are automatically upgraded to 600,000 on next login for any account created before v7.0. The upgrade is silent and transparent.
 
@@ -304,14 +307,16 @@ Viewers can open session records and view the studio event description (ⓘ), bu
 
 ### Adding a User
 
-- Fields: Full Name · PIN · Role (Owner / Admin / Editor / Viewer).
+- **Prerequisite:** Owner must enable **Multi-user access** in Admin → Settings. Default is off because every PIN user can decrypt the full CRM (shared master key).
+- Fields: Full Name · PIN · Role (Admin / Editor / Viewer).
 - Individual permissions for View / Edit / Delete can be overridden per user.
 - A new user's copy of the master key is wrapped with their PIN on creation.
+- A per-user **unlock secret** is also PIN-wrapped and registered with the backend so Edit permission is enforced on refund/email APIs.
 
 ### Editing a User
 
-- Update role and individual permission toggles.
-- Reset PIN for any user (requires the master key to re-wrap).
+- Update role and individual permission toggles (synced to the backend auth registry for API `canEdit`).
+- Reset PIN for any user (requires the master key to re-wrap; also rotates the unlock secret).
 
 ### Deactivating a User
 
@@ -1092,8 +1097,8 @@ Additional guards: a booking whose `stripeRefundId` is set, whose `paymentStatus
 #### Refund flow
 
 1. User clicks **Refund $X** (Refunds tab) or accepts the refund prompt offered immediately after a manual **Cancel booking** (see below), then confirms in a dialog.
-2. Frontend `issueStripeRefund(reg, setData)` calls `POST /api/stripe/refund` on the backend with the booking's `stripePaymentIntentId` (or `stripeChargeId`) and `registrationId`.
-3. The backend (guarded by `requireFrontendSecret`) calls Stripe's `POST /v1/refunds` directly (no SDK) with basic auth using `STRIPE_SECRET_KEY`. The `amount` parameter is **omitted**, so Stripe issues a **full refund**; `reason` is `requested_by_customer` and `metadata[registrationId]` is set for auditing. Stripe errors (e.g. charge already refunded) surface as readable messages in the UI.
+2. Frontend `issueStripeRefund(reg, setData)` calls `POST /api/stripe/refund` with `stripePaymentIntentId` / `stripeChargeId`, required `registrationId`, and a `policy` attestation (`cancelerType`, `canceledAt`, `sessionAt`).
+3. The backend (guarded by `requireFrontendSecret` + Edit session) looks up the PaymentIntent/Charge in Stripe, rejects zero-amount or already-refunded charges, rejects when Stripe `metadata.registrationId` conflicts with the request, evaluates the 24-hour policy server-side (Owner may send `policy.override: true`), then calls Stripe `POST /v1/refunds` (full refund). An encrypted audit entry is appended to `backend/data/refund-audit.json`.
 4. On success the registration is stamped with `paymentStatus: "refunded"`, `amountRefunded`, `stripeRefundId` (`re_...`), and `refundedAt`; the linked `payments` record is updated the same way.
 5. The next booking-ledger sync regenerates the booking's auto cancellation expense (`cxlexp_*`) with the refunded amount, the Stripe refund ID, and the refund date — this is what the **Refund history** list shows.
 6. Stripe later sends the `charge.refunded` webhook, which flows through the existing webhook queue and reconciliation as confirmation (idempotent — the records are already marked refunded).
@@ -1102,10 +1107,10 @@ Additional guards: a booking whose `stripeRefundId` is set, whose `paymentStatus
 
 | Requirement | Detail |
 |---|---|
-| Backend endpoint | `POST /api/stripe/refund` (`backend/server.js`), `requireFrontendSecret` guard |
+| Backend endpoint | `POST /api/stripe/refund` (`backend/server.js`), `requireFrontendSecret` + Edit session + policy/Stripe binding |
 | Env var | `STRIPE_SECRET_KEY` in `backend/.env` (Stripe secret API key `sk_live_...` / `sk_test_...`). Without it the endpoint returns 503 — the webhook signing secret alone cannot create refunds |
 | Frontend helpers | `refundEligibility`, `issueStripeRefund` (`src/lib/revenue.js`), `REFUND_POLICY_HOURS`, `RefundsView` |
-| Permissions | Issuing a refund requires **Edit** permission (`canEdit`) |
+| Permissions | Issuing a refund requires **Edit** permission (`canEdit`), enforced server-side |
 
 ### Table Footer Totals
 
@@ -1385,7 +1390,8 @@ Displays the two storage keys the application uses (persisted in IndexedDB, or `
 | Key | Purpose |
 |---|---|
 | `simplybreathe:data:v5:enc` | AES-256-GCM encrypted CRM data payload |
-| `sb:security:v1` | User accounts, PIN hashes, wrapped master keys |
+| `sb:security:v1:enc` | Encrypted user accounts, salts, wrapped master/unlock keys |
+| `sb:security:device-key:v1` | Browser-local AES key for the security vault (IndexedDB) |
 
 These keys are stored in **IndexedDB** (object store `kv` in the `simplybreathe` database), which avoids the ~5 MB `localStorage` quota that previously caused silent save failures (`QuotaExceededError`) once the encrypted payload grew large. On first load, any existing `localStorage` value for a key is automatically migrated into IndexedDB and the stale `localStorage` copy is removed. Under the Cursor canvas, `window.storage` is used instead; `localStorage` remains only as a last-resort fallback when IndexedDB is unavailable.
 
@@ -1829,11 +1835,12 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 - `PORT` — server port (default 3001)
 - `CALENDLY_WEBHOOK_SIGNING_KEY` — HMAC signing key for Calendly webhooks; **required in production** (server refuses to start without it). Generate with `openssl rand -hex 32` and pass as `signing_key` when creating the subscription via `POST /webhook_subscriptions` (PAT create responses no longer return the key). In dev, unsigned webhooks are **rejected** unless `ALLOW_UNSIGNED_CALENDLY_WEBHOOKS=true` (never enable with a public ngrok URL)
 - `ALLOWED_ORIGINS` — comma-separated CORS origins (default `http://localhost:5173`)
-- `FRONTEND_SECRET` — shared secret for `/pending` and `/acknowledge` endpoints. **Required in production** (server exits if missing). Generate with `openssl rand -hex 32`. Injected server-side by the Vite proxy (dev) or reverse proxy (production).
+- `FRONTEND_SECRET` — shared secret for CRM-facing endpoints. **Required** (server exits in production if missing; in dev, endpoints return 503 unless `ALLOW_INSECURE_DEV_AUTH=true`). Generate with `openssl rand -hex 32`. Injected server-side by the Vite proxy (dev) or reverse proxy (production).
+- `ALLOW_INSECURE_DEV_AUTH` — local-only; allows CRM APIs without `FRONTEND_SECRET`. `start.ps1` **refuses to start ngrok** when this is true.
 - `ADMIN_SECRET` — token required for debug endpoints (`GET/DELETE /api/calendly/events`, `GET/DELETE /api/stripe/events`). Pass as `x-admin-token` header.
 - `QUEUE_ENCRYPTION_KEY` — 32-byte hex key for AES-256-GCM encryption of `pending-events.json` at rest. Generate with `openssl rand -hex 32`. **Required in production** (server refuses to start without it); if blank in dev, queue is stored as plaintext with a loud warning.
 - `CALENDLY_API_TOKEN` — Calendly Personal Access Token (from Calendly → Integrations → API & Webhooks). Required for event type description fetching and payment amount backfill. See `backend/.env.example`.
-- `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret (`whsec_...`) from Stripe Dashboard → Developers → Webhooks. **Required in production** (server exits if missing).
+- `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret (`whsec_...`) from Stripe Dashboard → Developers → Webhooks. **Required in production** (server exits if missing). In dev, unsigned Stripe webhooks are **rejected** unless `ALLOW_UNSIGNED_STRIPE_WEBHOOKS=true` (never enable with a public ngrok URL; `start.ps1` refuses ngrok when set).
 - `STRIPE_SECRET_KEY` — Stripe secret API key (`sk_live_...` / `sk_test_...`) from Stripe Dashboard → Developers → API keys. Used by `POST /api/stripe/refund` to issue refunds. Optional — without it the refund endpoint returns 503 and the CRM's Refund buttons report that refunds are not configured.
 - `TRUST_PROXY` — Set to `1` when behind ngrok/nginx/Caddy so rate limiting uses the real client IP. Omit when binding directly to port 3001 on a public interface.
 - `RESEND_API_KEY` — Resend API key for direct email sending. Server logs a warning at startup if missing and returns 503 on any send attempt.
@@ -1856,7 +1863,10 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 - Queue capped at **1,000 events**; processed events older than **7 days** are automatically purged on each write
 - Startup validation: server exits with code 1 in production if `CALENDLY_WEBHOOK_SIGNING_KEY`, `QUEUE_ENCRYPTION_KEY`, `STRIPE_WEBHOOK_SECRET`, or `FRONTEND_SECRET` are missing
 - Calendly webhook handler rejects unsigned requests in production when the signing key is unset (same fail-closed pattern as Stripe)
-- Refund session mint (`POST /api/auth/session`) requires a one-shot challenge from `GET /api/auth/session-challenge` plus `userId` + `unlockProof` after PIN unlock; tokens expire in 1 hour and are bound to `userId`
+- Refund / API session mint (`POST /api/auth/session`) requires a one-shot challenge from `GET /api/auth/session-challenge` plus a **server-verified HMAC** `unlockProof` over a per-user unlock secret registered via `POST /api/auth/register-unlock`. Tokens expire in 1 hour, are bound to `userId`, and carry server-side `role` / `canEdit`.
+- `POST /api/stripe/refund` and `POST /api/send-email` require an API session with `canEdit: true` (not merely `FRONTEND_SECRET`).
+- Per-user unlock secrets are PIN-wrapped in security metadata (`wrappedUnlockSecret`) and stored encrypted at rest on the backend in `backend/data/auth-users.json`.
+- Multi-user account creation is gated by CRM setting `allowMultiUser` (default `false`) because all users share one master encryption key.
 - Server PIN lockout (`POST /api/auth/pin-attempt`) requires a one-shot challenge from `GET /api/auth/pin-status` so lockouts cannot be forged with only `FRONTEND_SECRET`
 - `/api/auth/*` is rate-limited (30 requests / 15 min / IP)
 - Stripe payment auto-match uses **email + booking time** (not amount); Stripe gross always becomes session price on match. Run `npm run test:stripe-match` to verify.
@@ -2040,7 +2050,7 @@ Both scripts:
 
 > **Process persistence (`start.ps1`):** `start.ps1` uses PowerShell's `Start-Process` (not `Start-Job`) so the backend, frontend, and ngrok processes are independent OS-level processes. They continue running even if the PowerShell terminal or Cursor IDE window is closed. Each run kills any process already holding ports 3001 and 5173 before starting fresh. Output is logged to `backend/backend.log` and `frontend/frontend.log` in the project root.
 
-> **ngrok + `NODE_ENV` (`start.ps1`):** Before starting the tunnel, `start.ps1` reads `NODE_ENV` from the process environment (or `NODE_ENV=` in `backend/.env`). If it is not `production`, it prints a yellow warning that a public tunnel will expose a non-production backend (dev-mode secret checks). Startup continues; the warning is informational. Never set `ALLOW_UNSIGNED_CALENDLY_WEBHOOKS=true` while ngrok is running.
+> **ngrok + secrets (`start.ps1`):** Before starting the tunnel, `start.ps1` reads `NODE_ENV` and insecure override flags from the environment / `backend/.env`. If `ALLOW_INSECURE_DEV_AUTH`, `ALLOW_UNSIGNED_CALENDLY_WEBHOOKS`, or `ALLOW_UNSIGNED_STRIPE_WEBHOOKS` is `true`, **ngrok is refused** (backend + frontend still run locally). If `NODE_ENV` is not `production`, a yellow warning still prints recommending production secrets before exposing a public tunnel.
 
 ### Setup Requirements
 1. Double-click `start.bat` (or run `.\start.ps1`)
@@ -2301,7 +2311,8 @@ All dollar amounts in the frontend are accumulated using **integer-cents math** 
 | `FIELDS` | Dynamic form schema per section — `App.jsx` |
 | `VIEWS` | View definitions (table, kanban, custom) per section — `App.jsx` |
 | `STORE_KEY_ENC` | `simplybreathe:data:v5:enc` — encrypted data key (`src/lib/api.js`) |
-| `SEC_META_KEY` | `sb:security:v1` — security/user config key (`src/lib/api.js`) |
+| `SEC_META_KEY` | Legacy plaintext key `sb:security:v1` (migrated to encrypted vault) |
+| `SEC_META_ENC_KEY` | `sb:security:v1:enc` — AES-GCM encrypted user/security config (`src/lib/secMeta.js`) |
 | `CALENDLY_BACKEND` | Resolved from `VITE_CALENDLY_BACKEND` env var — base URL for backend API (defaults to `""` for local dev, using Vite proxy) — `src/lib/api.js` |
 
 ### State Management
@@ -2356,6 +2367,10 @@ Sec.generateMasterKeyB64()                // Random 256-bit master key
 Sec.importMasterKey(b64)                  // Import raw key as CryptoKey
 Sec.wrapKeyForUser(masterKeyB64, pin, salt)   // Encrypt master key for user
 Sec.unwrapKeyForUser(wrappedB64, pin, salt)   // Decrypt master key for user
+Sec.generateUnlockSecret()                 // Random 32-byte hex unlock secret (API session mint)
+Sec.wrapUnlockSecret(secret, pin, salt)    // PIN-wrap unlock secret for SEC_META storage
+Sec.unwrapUnlockSecret(wrapped, pin, salt) // Unwrap unlock secret after PIN entry
+Sec.unlockProofHmac(secret, nonce, userId) // HMAC-SHA256 proof for POST /api/auth/session
 Sec.randomToken()                          // Fresh 256-bit per-login restore token (base64)
 Sec.sessionTokenHash(token)                // SHA-256 hash of a restore token (stored per-user)
 Sec.sanitize(val)                         // Strip formulas and HTML from CSV input and Calendly webhook fields

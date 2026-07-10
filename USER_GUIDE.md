@@ -859,7 +859,7 @@ The **No refund due** list shows canceled bookings that don't qualify (late canc
 - Refunds are always for the **full amount** the client paid.
 - Card refunds typically take **5–10 business days** to appear on the client's statement.
 - Stripe does **not** return its processing fee from the original charge.
-- You need **Edit** permission to issue refunds; others can view the lists but not click Refund.
+- You need **Edit** permission to issue refunds; others can view the lists but not click Refund. The backend also checks Edit on the refund API — a Viewer session cannot issue refunds even via DevTools.
 - **Administrator setup:** refunds require your Stripe secret API key in `STRIPE_SECRET_KEY` in `backend/.env` (Stripe Dashboard → Developers → API keys). Without it, the Refund buttons will say refunds are not configured.
 
 ### Revenue Table tab — see every stored record
@@ -1378,10 +1378,10 @@ This means your last change could not be written to browser storage (most often 
 Yes. Every time you save a record the header briefly shows "Saving…" while the change is written to storage, then "✓ Saved" for a moment. If you see "Saving…" for more than a few seconds and it never changes to "✓ Saved", check your browser console for errors and export a backup as a precaution.
 
 **Is my data secure?**
-Yes. All data is encrypted with AES-256-GCM — the same standard used by banks. Your PIN is never stored; only a cryptographic hash is kept. Even if someone accessed your browser storage directly, they could not read your data without your PIN.
+Yes. CRM records are encrypted with AES-256-GCM. Your PIN is never stored — it unlocks a wrapped key. Account metadata (user list and key material) is also encrypted in the browser with a device-local key. Even if someone opened a casual localStorage dump, they would not see readable security metadata or CRM data without your PIN / this browser profile.
 
 **Someone else needs to access the system. What do I do?**
-Go to **User Management** (Owner or Admin access required) and create a new user account with a unique name and PIN. Assign the appropriate role based on what they need to do.
+By default the CRM is set up for **one person only**. Every extra account can unlock and read **all** client and financial data (not just what their role suggests). If you still want another account: go to **Admin → Settings**, turn on **Multi-user access**, then use **User Management** to add them with a name, PIN, and role. Prefer keeping a single Owner account when working with real client data.
 
 **I made a mistake and entered wrong information. Can I fix it?**
 Yes. Click any record to open it, make your changes, and click Save. There is no version history, so take care when making bulk changes.
@@ -1393,7 +1393,7 @@ Open the offer record and update the **Status** to Accepted, Paid, or Declined a
 Open the session record and go to the **Equipment** tab. Completed items have a checkmark. The session list also shows a setup status indicator.
 
 **I can't see the New button or Save button on some pages. Why?**
-Your account may have Viewer or Editor permissions that restrict certain actions. Viewers can still browse records and view details (including fetched Calendly session descriptions), but changes are not saved to shared data. Contact your Owner or Admin to update your permissions if you need more access.
+Your account may have Viewer or Editor permissions that restrict certain actions. Viewers can still browse records and view details (including fetched Calendly session descriptions), but changes are not saved to shared data. Refunds and sending email from the CRM also require **Edit** permission on the server — logging in as a Viewer will not let those go through. Contact your Owner or Admin to update your permissions if you need more access.
 
 **How do I back up my data?**
 Go to **Admin** in the sidebar, click the **Storage & Backup** tab, and click **Download Backup**. This saves a JSON file to your computer. Keep it somewhere safe.

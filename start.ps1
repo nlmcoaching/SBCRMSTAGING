@@ -84,28 +84,57 @@ Start-Sleep -Seconds 3
 if (-not $skipNgrok) {
     # Resolve NODE_ENV from the process env, then backend\.env (if set there).
     $nodeEnv = $env:NODE_ENV
-    if (-not $nodeEnv -and (Test-Path $envFile)) {
-        $nodeEnvLine = Get-Content $envFile | Where-Object { $_ -match '^\s*NODE_ENV\s*=' } | Select-Object -First 1
-        if ($nodeEnvLine) {
-            $nodeEnv = ($nodeEnvLine -replace '^\s*NODE_ENV\s*=\s*', '' -replace '^["'']|["'']$', '').Trim()
+    $allowInsecure = $false
+    $allowUnsignedCalendly = $false
+    $allowUnsignedStripe = $false
+    if (Test-Path $envFile) {
+        $envLines = Get-Content $envFile
+        if (-not $nodeEnv) {
+            $nodeEnvLine = $envLines | Where-Object { $_ -match '^\s*NODE_ENV\s*=' } | Select-Object -First 1
+            if ($nodeEnvLine) {
+                $nodeEnv = ($nodeEnvLine -replace '^\s*NODE_ENV\s*=\s*', '' -replace '^["'']|["'']$', '').Trim()
+            }
+        }
+        foreach ($line in $envLines) {
+            if ($line -match '^\s*ALLOW_INSECURE_DEV_AUTH\s*=\s*true\s*$') { $allowInsecure = $true }
+            if ($line -match '^\s*ALLOW_UNSIGNED_CALENDLY_WEBHOOKS\s*=\s*true\s*$') { $allowUnsignedCalendly = $true }
+            if ($line -match '^\s*ALLOW_UNSIGNED_STRIPE_WEBHOOKS\s*=\s*true\s*$') { $allowUnsignedStripe = $true }
         }
     }
+    if ($env:ALLOW_INSECURE_DEV_AUTH -eq "true") { $allowInsecure = $true }
+    if ($env:ALLOW_UNSIGNED_CALENDLY_WEBHOOKS -eq "true") { $allowUnsignedCalendly = $true }
+    if ($env:ALLOW_UNSIGNED_STRIPE_WEBHOOKS -eq "true") { $allowUnsignedStripe = $true }
     if (-not $nodeEnv) { $nodeEnv = "(unset)" }
 
-    if ($nodeEnv -ne "production") {
+    if ($allowInsecure -or $allowUnsignedCalendly -or $allowUnsignedStripe) {
+        Write-Host ""
+        Write-Host "  [ERROR] Refusing to start ngrok while insecure overrides are enabled:" -ForegroundColor Red
+        if ($allowInsecure) { Write-Host "           - ALLOW_INSECURE_DEV_AUTH=true" -ForegroundColor Red }
+        if ($allowUnsignedCalendly) { Write-Host "           - ALLOW_UNSIGNED_CALENDLY_WEBHOOKS=true" -ForegroundColor Red }
+        if ($allowUnsignedStripe) { Write-Host "           - ALLOW_UNSIGNED_STRIPE_WEBHOOKS=true" -ForegroundColor Red }
+        Write-Host "           Remove those flags from backend\.env (or set them false), then re-run." -ForegroundColor Red
+        Write-Host "           Backend + frontend are still running locally without a public tunnel." -ForegroundColor Yellow
+        Write-Host ""
+        $skipNgrok = $true
+    }
+
+    if (-not $skipNgrok -and $nodeEnv -ne "production") {
         Write-Host ""
         Write-Host "  [WARN] About to start ngrok while NODE_ENV=$nodeEnv (not production)." -ForegroundColor Yellow
-        Write-Host "         A public tunnel will expose this backend with dev-mode security" -ForegroundColor Yellow
-        Write-Host "         (weaker secret checks; unsigned Calendly webhooks only if" -ForegroundColor Yellow
-        Write-Host "         ALLOW_UNSIGNED_CALENDLY_WEBHOOKS=true — never enable that with ngrok)." -ForegroundColor Yellow
+        Write-Host "         Prefer NODE_ENV=production with FRONTEND_SECRET, webhook secrets," -ForegroundColor Yellow
+        Write-Host "         and QUEUE_ENCRYPTION_KEY set before exposing a public tunnel." -ForegroundColor Yellow
         Write-Host ""
     }
 
-    Write-Host "  [3/3] Starting ngrok tunnel to localhost:3001..." -ForegroundColor Green
-    Start-Process -FilePath "cmd.exe" `
-        -ArgumentList "/c ngrok http 3001" `
-        -WindowStyle Hidden
-    Start-Sleep -Seconds 2
+    if (-not $skipNgrok) {
+        Write-Host "  [3/3] Starting ngrok tunnel to localhost:3001..." -ForegroundColor Green
+        Start-Process -FilePath "cmd.exe" `
+            -ArgumentList "/c ngrok http 3001" `
+            -WindowStyle Hidden
+        Start-Sleep -Seconds 2
+    } else {
+        Write-Host "  [3/3] Skipping ngrok." -ForegroundColor Yellow
+    }
 } else {
     Write-Host "  [3/3] Skipping ngrok (not installed)." -ForegroundColor Yellow
 }
