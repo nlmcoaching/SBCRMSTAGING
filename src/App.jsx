@@ -1055,15 +1055,15 @@ export default function App() {
             }
 
             // 4. Create follow-up tasks (only for brand-new registrations)
-            if (existingRegIdx < 0 && evt.startTime) {
-              const base = new Date(evt.startTime);
+            // addDays/addDaysISO expect a YYYY-MM-DD string (sessionDate), not a Date object.
+            if (existingRegIdx < 0 && sessionDate) {
               [
                 { label: "Send same-day session confirmation/check-in", days: 0 },
                 { label: "Send 24-hour post-session follow-up",         days: 1 },
                 { label: "Send 72-hour rebooking or package offer",     days: 3 },
               ].forEach(({ label, days }) => {
                 if (!followups.some(f => f.clientId === client.id && f.name === label)) {
-                  followups.push({ id: uid("f"), name: label, clientId: client.id, stage: client.status, lastContact: todayISO(), futype: "24h", nextAction: addDays(base, days), outcome: "" });
+                  followups.push({ id: uid("f"), name: label, clientId: client.id, stage: client.status, lastContact: todayISO(), futype: "24h", nextAction: addDays(sessionDate, days), outcome: "" });
                 }
               });
             }
@@ -1285,13 +1285,20 @@ export default function App() {
       }
     } catch (err) {
       console.error("syncCalendly:", err);
+      const detail = err?.message && !/abort|network|failed to fetch/i.test(err.message)
+        ? err.message
+        : null;
       try {
         const res = await fetch(calendlyApiUrl("/api/calendly/pending"), { headers: _calendlyHeaders() });
+        if (!res.ok) {
+          setCalendlyStatus({ error: detail || `Backend returned ${res.status}` });
+          return;
+        }
         const { total } = await res.json();
         if (total > 0) {
-          setCalendlyStatus({ pending: total, error: "Sync failed — is the backend running on port 3001?" });
+          setCalendlyStatus({ pending: total, error: detail || "Sync failed while processing events" });
         } else {
-          setCalendlyStatus({ error: "Cannot reach backend on port 3001 — run start.ps1" });
+          setCalendlyStatus({ error: detail || "Sync failed — check the browser console" });
         }
       } catch {
         setCalendlyStatus({ error: "Cannot reach backend on port 3001 — run start.ps1" });
