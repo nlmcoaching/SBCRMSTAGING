@@ -7055,9 +7055,9 @@ function openAgreementFile(a, cryptoKey) {
     const url = URL.createObjectURL(blob);
 
     if (ext === "pdf") {
-      // Do not pass "noopener" — it forces window.open to return null by spec,
-      // which made every PDF open look like a blocked pop-up.
-      const w = window.open(url, "_blank", "noreferrer");
+      // No features string: "noreferrer" implies noopener and makes window.open
+      // return null (false "Pop-up blocked"). Sever opener manually instead.
+      const w = window.open(url, "_blank");
       if (!w) {
         URL.revokeObjectURL(url);
         alert("Pop-up blocked. Please allow pop-ups to view this PDF.");
