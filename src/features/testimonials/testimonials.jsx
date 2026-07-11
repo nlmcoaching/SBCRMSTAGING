@@ -1,7 +1,7 @@
 import { ChevronRight, BellRing } from "lucide-react";
 import { C, FONT } from "../../lib/theme.js";
 import { fmtDate, norm, cleanName } from "../../lib/format.js";
-import { TESTIMONIAL_STATUS_COLOR } from "../../lib/constants.js";
+import { TESTIMONIAL_STATUS_COLOR, TESTIMONIAL_ACTION_STATUSES } from "../../lib/constants.js";
 import { Stat, Tag } from "../../components/primitives.jsx";
 
 export function TestimonialLibraryView({ data, query, onOpen }) {
@@ -22,7 +22,7 @@ export function TestimonialLibraryView({ data, query, onOpen }) {
   const published    = testimonials.filter(t => t.status === "Published");
   const approved     = testimonials.filter(t => t.status === "Approved");
   const actionNeeded = testimonials.filter(t =>
-    ["Breakthrough noted","Request sent"].includes(t.status)
+    TESTIMONIAL_ACTION_STATUSES.includes(t.status)
   );
   const withVideo    = testimonials.filter(t => t.type === "Video" && t.status === "Published");
   const readyForWeb  = published.filter(t => t.useOnWebsite);

@@ -65,7 +65,7 @@ export const store = {
   async get(key) {
     try {
       if (typeof window !== "undefined" && window.storage) {
-        return window.storage.get(key);
+        return await window.storage.get(key);
       }
     } catch { /* fall through */ }
 

@@ -53,6 +53,16 @@ export const bool = (v) => {
 };
 export const norm = (s) => String(s || "").trim().toLowerCase();
 
+/** Accept empty or strict YYYY-MM-DD calendar dates (rejects 2026-13-40, MM/DD/YYYY, etc.). */
+export function isValidISODate(v) {
+  if (v == null || v === "") return true;
+  const s = String(v).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const [y, m, d] = s.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+}
+
 export function cleanName(n) { return String(n || "").replace(/^Sample\s*-\s*/i, ""); }
 export function preferLongerText(a, b) {
   const sa = String(a || "").trim();

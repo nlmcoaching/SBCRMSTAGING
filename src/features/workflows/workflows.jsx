@@ -4,6 +4,11 @@ import { C, FONT, hexA } from "../../lib/theme.js";
 import { money } from "../../lib/format.js";
 import { _c } from "../../lib/revenue.js";
 import { Stat } from "../../components/primitives.jsx";
+import {
+  CLIENT_TYPE_LEAD, CLIENT_TYPE_FIRST, CLIENT_TYPE_REPEAT, CLIENT_TYPE_ADVOCATE, CLIENT_TYPE_DORMANT,
+  PARTNER_STAGE_TARGET, PARTNER_STAGE_DEMO, PARTNER_STAGE_PILOT, PARTNER_STAGE_ACTIVE,
+  SESSION_STATUS_PROMOTED, OPEN_STATUSES, WON_STATUSES, LOST_STATUSES,
+} from "../../lib/constants.js";
 
 const sum = (rows, k) => rows.reduce((a, r) => a + _c(r[k]), 0) / 100;
 
@@ -18,29 +23,24 @@ export function buildWorkflows(data, today) {
   const past = (d) => d && new Date(d) <= new Date(today);
 
   /* ── 1. Client Journey ── */
-  const cLead    = clients.filter(c => ["High-value lead"].includes(c.clientType) || c.status === "Lead");
-  const cFirst   = clients.filter(c => c.clientType === "First-time attendee" || (c.sessionsAttended === 1 && !["Advocate","Referral source"].includes(c.clientType)));
-  const cRepeat  = clients.filter(c => ["Repeat attendee","Member","Private client","Corporate attendee","Virtual attendee"].includes(c.clientType) || c.sessionsAttended >= 3);
-  const cAdvocate= clients.filter(c => ["Advocate","Referral source"].includes(c.clientType));
-  const cLostOrDormant = clients.filter(c => c.clientType === "Past client — reactivate");
+  const cLead    = clients.filter(c => CLIENT_TYPE_LEAD.includes(c.clientType) || c.status === "Lead");
+  const cFirst   = clients.filter(c => CLIENT_TYPE_FIRST.includes(c.clientType) || (c.sessionsAttended === 1 && !CLIENT_TYPE_ADVOCATE.includes(c.clientType)));
+  const cRepeat  = clients.filter(c => CLIENT_TYPE_REPEAT.includes(c.clientType) || c.sessionsAttended >= 3);
+  const cAdvocate= clients.filter(c => CLIENT_TYPE_ADVOCATE.includes(c.clientType));
+  const cLostOrDormant = clients.filter(c => c.clientType === CLIENT_TYPE_DORMANT);
 
   /* ── 2. Studio Pipeline ── */
-  const TARGET_STAGES  = ["Target identified","Researched","Initial outreach sent","Follow-up needed"];
-  const DEMO_STAGES    = ["Discovery call booked","Demo session offered","Demo completed"];
-  const PILOT_STAGES   = ["Pilot proposed","Agreement sent","Agreement signed","First session scheduled","Pilot completed"];
-  const PARTNER_STAGES = ["Recurring partner"];
-
-  const pTarget  = partners.filter(p => TARGET_STAGES.includes(p.stage));
-  const pDemo    = partners.filter(p => DEMO_STAGES.includes(p.stage));
-  const pPilot   = partners.filter(p => PILOT_STAGES.includes(p.stage));
-  const pPartner = partners.filter(p => PARTNER_STAGES.includes(p.stage));
+  const pTarget  = partners.filter(p => PARTNER_STAGE_TARGET.includes(p.stage));
+  const pDemo    = partners.filter(p => PARTNER_STAGE_DEMO.includes(p.stage));
+  const pPilot   = partners.filter(p => PARTNER_STAGE_PILOT.includes(p.stage));
+  const pPartner = partners.filter(p => PARTNER_STAGE_ACTIVE.includes(p.stage));
 
   const pStuck   = [...pTarget, ...pDemo, ...pPilot].filter(p => daysSince(p.lastTouch) > 14);
   const pPipeVal = [...pTarget, ...pDemo, ...pPilot].reduce((s, p) => s + (p.revenuePotential || 0), 0);
 
   /* ── 3. Session Lifecycle ── */
   const sScheduled  = sessions.filter(s => s.status === "Planned");
-  const sPromoted   = sessions.filter(s => ["Booking open","Promotion active","Almost full"].includes(s.status));
+  const sPromoted   = sessions.filter(s => SESSION_STATUS_PROMOTED.includes(s.status));
   const sDelivered  = sessions.filter(s => s.status === "Completed");
   const sFollowedUp = sessions.filter(s => s.followUpSent || s.status === "Follow-up pending");
   const sClosed     = sessions.filter(s => s.status === "Closed out");
@@ -48,10 +48,10 @@ export function buildWorkflows(data, today) {
   const sRevTotal   = sDelivered.reduce((sum, s) => sum + (s.netRevenue || s.revenue || 0), 0);
 
   /* ── 4. Offer Pipeline ── */
-  const oMade    = offers.filter(o => ["Drafted","Sent","Viewed"].includes(o.status));
+  const oMade    = offers.filter(o => OPEN_STATUSES.includes(o.status) && o.status !== "Follow-up due");
   const oFollowUp= offers.filter(o => o.status === "Follow-up due");
-  const oWon     = offers.filter(o => ["Accepted","Paid"].includes(o.status));
-  const oLost    = offers.filter(o => ["Declined","Expired"].includes(o.status));
+  const oWon     = offers.filter(o => WON_STATUSES.includes(o.status));
+  const oLost    = offers.filter(o => LOST_STATUSES.includes(o.status));
   const oStuck   = oMade.filter(o => past(o.followUpDate));
   const oPipeVal = [...oMade, ...oFollowUp].reduce((s, o) => s + (o.price || 0), 0);
   const oWonVal  = oWon.reduce((s, o) => s + (o.price || 0), 0);
@@ -281,7 +281,7 @@ export function WorkflowsView({ data, derived, today }) {
                           </div>
                           <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 3 }}>{st.label}</div>
                           {st.value != null && st.value > 0 && (
-                            <div style={{ fontSize: 11, color: st.color, fontWeight: 600 }}>${money(st.value)}</div>
+                            <div style={{ fontSize: 11, color: st.color, fontWeight: 600 }}>{money(st.value)}</div>
                           )}
                           <div style={{ fontSize: 10.5, color: C.ink3, marginTop: 4, lineHeight: 1.4 }}>{st.tip}</div>
                         </div>

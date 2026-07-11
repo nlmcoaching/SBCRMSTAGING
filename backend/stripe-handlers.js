@@ -62,7 +62,7 @@ function extractStripePayment(event) {
     const gross = ensureCents(obj.amount_total);
     return {
       ...base,
-      status: gross != null && gross > 0 ? "paid" : "paid",
+      status: "paid",
       customerEmail: pickEmail(obj.customer_details?.email, obj.customer_email),
       amountGross: gross,
       amountRefunded: 0,
@@ -103,7 +103,7 @@ function extractStripePayment(event) {
       paidAt: obj.created ? new Date(obj.created * 1000).toISOString() : base.receivedAt,
       receiptUrl: charge.receipt_url || "",
       paymentMethodType: charge.payment_method_details?.type || "",
-      stripeFee: charge.balance_transaction ? null : null,
+      stripeFee: null,
       description: pickText(
         obj.description,
         charge.description,

@@ -43,6 +43,23 @@ export function applyTemplateVars(text, vars) {
   return (text || "").replace(/\{\{([^}]+)\}\}/g, (_, k) => vars[k.trim()] || `{{${k.trim()}}}`);
 }
 
+/** Remaining `{{token}}` placeholders in one or more strings (subject/body). */
+export function findUnreplacedTemplateTokens(...texts) {
+  const found = new Set();
+  for (const text of texts) {
+    for (const m of String(text || "").matchAll(/\{\{\s*([^}]+?)\s*\}\}/g)) {
+      const token = m[1].trim();
+      if (token) found.add(token);
+    }
+  }
+  return [...found];
+}
+
+export function unreplacedTokensMessage(tokens) {
+  if (!tokens?.length) return "";
+  return `Replace or remove unfilled placeholders before sending: ${tokens.map(t => `{{${t}}}`).join(", ")}`;
+}
+
 export function resolveRelationshipActionRecipient(action, data) {
   const { db, record: r } = action;
   if (!r) return null;

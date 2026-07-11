@@ -1,5 +1,5 @@
 // In-memory API session token minted after PIN unlock (never persisted).
-// Used by refund + send-email backends that require x-session-token.
+// Used by refund, send-email, and clear-queues backends that require x-session-token.
 let _apiSessionToken = null;
 
 export function setApiSessionToken(token) {

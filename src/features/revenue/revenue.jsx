@@ -4,7 +4,7 @@ import { XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ComposedChar
 import { C, FONT, hexA } from "../../lib/theme.js";
 import { addMonthsISO, fmtDate, money, sameMonth, norm, cleanName, clientShort } from "../../lib/format.js";
 import { SOURCE_COLOR, OFFER_STATUS, OFFER_STATUS_COLOR, OPEN_STATUSES, WON_STATUSES, LOST_STATUSES, EXPENSE_CATEGORY, EXPENSE_CATEGORY_COLOR, REV_CHANNEL_COLOR } from "../../lib/constants.js";
-import { _c, calcNet, registrationRevenueChannel, buildRevenueViewRows, applyStudioSessionSplit, isAutoExpenseRecord, AUTO_SPLIT_EXP_ID_PREFIX, issueStripeRefund } from "../../lib/revenue.js";
+import { _c, calcNet, buildRevenueViewRows, applyStudioSessionSplit, isAutoExpenseRecord, AUTO_SPLIT_EXP_ID_PREFIX, issueStripeRefund } from "../../lib/revenue.js";
 import { Stat, Panel, Tag, DateChip, Empty } from "../../components/primitives.jsx";
 import { AppComponent } from "../../components/appBridge.jsx";
 
@@ -15,20 +15,30 @@ export function RevenueThisMonthView({ data, today, query, onOpen, canEdit }) {
   const inMonth = (dateStr, m) => String(dateStr || "").startsWith(m);
 
   const allRev = data.revenue || [];
-  const allExp = data.expenses || [];
+  // Refunds are negative revenue rows — exclude legacy auto cancellation expenses from P&L.
+  const allExp = (data.expenses || []).filter(e =>
+    !(e.category === "Refunds & Cancellations" && (e.auto || String(e.id || "").startsWith("cxlexp_"))),
+  );
   const revThis = allRev.filter(r => inMonth(r.bookedAt || r.date, monthStr));
   const expThis = allExp.filter(e => inMonth(e.date, monthStr));
   const revPrev = allRev.filter(r => inMonth(r.bookedAt || r.date, prevMonthStr));
   const expPrev = allExp.filter(e => inMonth(e.date, prevMonthStr));
 
   // Accumulate in integer cents then divide once — prevents 0.1 + 0.2 ≠ 0.3 drift.
-  const sumGross   = (rs) => rs.reduce((s, r) => s + _c(r.gross),   0) / 100;
-  const sumRefunds = (rs) => rs.reduce((s, r) => s + _c(r.refunds), 0) / 100;
+  // Refunds are negative gross rows on the revenue ledger (not a parallel expense).
+  const sumPositiveGross = (rs) => rs.reduce((s, r) => {
+    const g = Number(r.gross) || 0;
+    return s + (g > 0 ? _c(g) : 0);
+  }, 0) / 100;
   const sumAmount  = (es) => es.reduce((s, e) => s + _c(e.amount),  0) / 100;
+  const sumRefundAbs = (rs) => rs.reduce((s, r) => {
+    const g = Number(r.gross) || 0;
+    return s + (r.isRefund || g < 0 ? _c(Math.abs(g)) : _c(r.refunds));
+  }, 0) / 100;
 
   const figures = (rs, es) => {
-    const gross    = sumGross(rs);
-    const refunds  = sumRefunds(rs);
+    const gross    = sumPositiveGross(rs);
+    const refunds  = sumRefundAbs(rs);
     const expenses = sumAmount(es);
     const net      = (_c(gross) - _c(refunds) - _c(expenses)) / 100;
     return { gross, refunds, expenses, net, pct: gross > 0 ? Math.round((net / gross) * 100) : 0 };
@@ -43,9 +53,9 @@ export function RevenueThisMonthView({ data, today, query, onOpen, canEdit }) {
     { label: "Gross Revenue", value: curr.gross, prevVal: prev.gross, accent: C.brand,
       sub: `${revThis.length} revenue record${revThis.length !== 1 ? "s" : ""} · Stripe amounts` },
     { label: "Expenses", value: curr.expenses, prevVal: prev.expenses, accent: "#C0573F", invert: true,
-      sub: `${expThis.length} expense record${expThis.length !== 1 ? "s" : ""}${curr.refunds ? ` · ${money(curr.refunds)} refunds` : ""}` },
+      sub: `${expThis.length} expense record${expThis.length !== 1 ? "s" : ""}${curr.refunds ? ` · ${money(curr.refunds)} refunds (revenue)` : ""}` },
     { label: "Net Revenue", value: curr.net, prevVal: prev.net, accent: "#2D6A50",
-      sub: `${curr.pct}% margin (gross − expenses)` },
+      sub: `${curr.pct}% margin (gross − refunds − expenses)` },
   ];
 
   return (
@@ -107,9 +117,9 @@ export function RefundsView({ data, setData, canEdit, setConfirm, onOpen, refund
   const ineligibleRows = canceled.filter(r => !r._elig.eligible && r._elig.reason !== "Already refunded")
     .sort((a, b) => new Date(b.canceledAt || 0) - new Date(a.canceledAt || 0));
 
-  const history = [...(data.expenses || [])]
-    .filter(e => e.category === "Refunds & Cancellations" && e.stripeRefundId)
-    .sort((a, b) => String(b.refundedAt || b.date || "").localeCompare(String(a.refundedAt || a.date || "")));
+  const history = [...(data.revenue || [])]
+    .filter(r => r.isRefund && r.stripeRefundId)
+    .sort((a, b) => String(b.refundedAt || b.bookedAt || b.date || "").localeCompare(String(a.refundedAt || a.bookedAt || a.date || "")));
 
   const startRefund = (reg) => {
     const who = clientsById[reg.clientId] ? cleanName(clientsById[reg.clientId].name) : (reg.eventName || "this client");
@@ -166,11 +176,11 @@ export function RefundsView({ data, setData, canEdit, setConfirm, onOpen, refund
     col("policy", "Why no refund", (r) => <span style={{ color: C.ink3, fontSize: 12.5 }}>{r._elig.reason}</span>),
   ];
   const historyCols = [
-    col("date", "Date", (e) => e.refundedAt ? formatRegistrationDateTime(e.refundedAt) : fmtDate(e.date), { sortVal: (e) => e.refundedAt || e.date || "" }),
-    col("vendor", "Client", (e) => <strong style={{ color: C.ink }}>{e.vendor || "—"}</strong>),
-    col("description", "Description", (e) => e.description || "—"),
-    col("amount", "Refunded", (e) => <strong style={{ color: "#C0573F" }}>{money(e.amount)}</strong>, { align: "right", sum: "amount" }),
-    col("stripeRefundId", "Stripe refund ID", (e) => <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11.5 }}>{e.stripeRefundId}</span>),
+    col("date", "Date", (r) => r.refundedAt ? formatRegistrationDateTime(r.refundedAt) : fmtDate(r.date), { sortVal: (r) => r.refundedAt || r.date || "" }),
+    col("client", "Client", (r) => <strong style={{ color: C.ink }}>{r.client || "—"}</strong>),
+    col("name", "Description", (r) => r.name || r.notes || "—"),
+    col("amount", "Refunded", (r) => <strong style={{ color: "#C0573F" }}>{money(Math.abs(Number(r.gross) || 0))}</strong>, { align: "right", sum: "gross" }),
+    col("stripeRefundId", "Stripe refund ID", (r) => <span style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11.5 }}>{r.stripeRefundId}</span>),
   ];
 
   const heading = (text) => (
@@ -248,15 +258,18 @@ export function RefundsView({ data, setData, canEdit, setConfirm, onOpen, refund
     );
   };
 
-  const expandHistory = (e) => {
-    const reg = (data.registrations || []).find(r => r.stripeRefundId === e.stripeRefundId);
+  const expandHistory = (row) => {
+    const reg = (data.registrations || []).find(r =>
+      r.id === row.registrationId || (row.stripeRefundId && r.stripeRefundId === row.stripeRefundId),
+    );
     const client = reg ? clientsById[reg.clientId] : null;
     const session = reg ? sessionsById[reg.sessionId] : null;
     return gridWrap(
       <>
-        {field("Refunded at", e.refundedAt ? formatRegistrationDateTime(e.refundedAt) : (e.date ? fmtDate(e.date) : null))}
-        {field("Stripe refund ID", e.stripeRefundId, mono)}
-        {field("Description", e.description || null)}
+        {field("Refunded at", row.refundedAt ? formatRegistrationDateTime(row.refundedAt) : (row.date ? fmtDate(row.date) : null))}
+        {field("Stripe refund ID", row.stripeRefundId, mono)}
+        {field("Description", row.name || row.notes || null)}
+        {field("Refunded amount", money(Math.abs(Number(row.gross) || 0)))}
         {client && field("Client email", client.email)}
         {client && field("Client phone", client.phone)}
         {session && field("Session", cleanName(session.name))}
@@ -266,9 +279,9 @@ export function RefundsView({ data, setData, canEdit, setConfirm, onOpen, refund
         {reg && field("Original paid", reg.paidAmount != null ? money(reg.paidAmount) : null)}
       </>,
       <>
-        <button onClick={(ev) => { ev.stopPropagation(); onOpen({ db: "expenses", record: e }); }}
+        <button onClick={(ev) => { ev.stopPropagation(); onOpen({ db: "revenue", record: row }); }}
           style={{ background: "none", border: `1px solid ${C.line}`, borderRadius: 8, fontWeight: 500, fontSize: 12.5, padding: "7px 14px", cursor: "pointer", color: C.ink2 }}>
-          Open expense record
+          Open revenue record
         </button>
         {reg && (
           <button onClick={(ev) => { ev.stopPropagation(); openReg(reg); }}
@@ -484,9 +497,13 @@ export function ExpenseSummaryView({ data, today, onOpen, onImportExpenses, canE
   const grossRevMTD = sum(revRowsMTD, "gross");
   const studioSplitsMTD = sum(revRowsMTD, "studioSplit");
   const netRevMTD = revRowsMTD.reduce((s, r) => s + calcNet(r), 0);
-  // totMTD includes auto Studio Split expenses; calcNet already deducted studioSplit — exclude them
-  // from both the displayed Total Expenses line and the Operating Profit formula so the panel adds up.
-  const totMTDForOp = mtd.filter(e => !(isAutoExpenseRecord(e) && String(e.id || "").startsWith(AUTO_SPLIT_EXP_ID_PREFIX)))
+  // totMTD includes auto Studio Split / legacy cancellation expenses; calcNet already reflects
+  // refunds via negative revenue rows and studioSplit on charge rows — exclude those autos from Op Profit.
+  const totMTDForOp = mtd.filter(e => !(isAutoExpenseRecord(e) && (
+    String(e.id || "").startsWith(AUTO_SPLIT_EXP_ID_PREFIX)
+    || String(e.id || "").startsWith("cxlexp_")
+    || e.category === "Refunds & Cancellations"
+  )))
     .reduce((s, e) => s + (+e.amount || 0), 0);
   const opProfit = netRevMTD - totMTDForOp;
   const margin = grossRevMTD > 0 ? Math.round((opProfit / grossRevMTD) * 100) : null;
@@ -633,13 +650,17 @@ export function RevenueAttributionView({ data, derived, today, onOpen, dateMode 
   const mtdRows     = rows.filter(r => sameMonth(dateKey(r), today));
   const mtdExpRows  = allExpenses.filter(e => sameMonth(e.date, today));
   const mtdSplitExp = mtdExpRows.filter(e => e.category === "Studio Split");
-  const mtdCxlExp   = mtdExpRows.filter(e => e.category === "Refunds & Cancellations");
 
   // ── Core totals (MTD only) ───────────────────────────────────
-  const totalGross = sum(mtdRows, "gross");
+  // Refunds are negative revenue rows — never also add auto "Refunds & Cancellations" expenses.
+  const totalGross = mtdRows.reduce((a, r) => a + Math.max(0, Number(r.gross) || 0), 0);
   const totalFees  = sum(mtdRows, "stripeFee") + sum(mtdRows, "facilitatorCost");
   const totalSplit = mtdSplitExp.reduce((a, e) => a + (Number(e.amount) || 0), 0);
-  const totalRef   = sum(mtdRows, "refunds") + mtdCxlExp.reduce((a, e) => a + (Number(e.amount) || 0), 0);
+  const totalRef   = mtdRows.reduce((a, r) => {
+    const g = Number(r.gross) || 0;
+    if (r.isRefund || g < 0) return a + Math.abs(g);
+    return a + (Number(r.refunds) || 0);
+  }, 0);
   const totalNet   = totalGross - totalFees - totalSplit - totalRef;
   const margin     = totalGross > 0 ? Math.round((totalNet / totalGross) * 100) : 0;
 
@@ -648,24 +669,21 @@ export function RevenueAttributionView({ data, derived, today, onOpen, dateMode 
   mtdRows.forEach(r => {
     const ch = r.channel || "Unknown";
     if (!byChannel[ch]) byChannel[ch] = { gross: 0, fees: 0, split: 0, refunds: 0, net: 0, count: 0 };
-    byChannel[ch].gross   += Number(r.gross || 0);
-    byChannel[ch].fees    += Number(r.stripeFee || 0) + Number(r.facilitatorCost || 0);
-    byChannel[ch].refunds += Number(r.refunds || 0);
-    byChannel[ch].count++;
+    const g = Number(r.gross || 0);
+    if (r.isRefund || g < 0) {
+      byChannel[ch].refunds += Math.abs(g);
+    } else {
+      byChannel[ch].gross   += g;
+      byChannel[ch].fees    += Number(r.stripeFee || 0) + Number(r.facilitatorCost || 0);
+      byChannel[ch].refunds += Number(r.refunds || 0);
+      byChannel[ch].count++;
+    }
   });
   // Studio splits come from the expense ledger — always attributed to the "Studio session" channel
   mtdSplitExp.forEach(e => {
     const ch = "Studio session";
     if (!byChannel[ch]) byChannel[ch] = { gross: 0, fees: 0, split: 0, refunds: 0, net: 0, count: 0 };
     byChannel[ch].split += Number(e.amount || 0);
-  });
-  // Cancellation expenses are attributed to the channel of the linked session
-  const sessionsById = Object.fromEntries((data.sessions || []).map(s => [s.id, s]));
-  mtdCxlExp.forEach(e => {
-    const session = e.linkedSession ? sessionsById[e.linkedSession] : null;
-    const ch = session ? registrationRevenueChannel(session) : "Unknown";
-    if (!byChannel[ch]) byChannel[ch] = { gross: 0, fees: 0, split: 0, refunds: 0, net: 0, count: 0 };
-    byChannel[ch].refunds += Number(e.amount || 0);
   });
   const channelRows = Object.entries(byChannel)
     .map(([ch, d]) => {
@@ -712,10 +730,14 @@ export function RevenueAttributionView({ data, derived, today, onOpen, dateMode 
     const prefix = `${year}-${mm}`;
     const mRows = rows.filter(r => dateKey(r).startsWith(prefix));
     const mExp  = allExpenses.filter(e => (e.date || "").startsWith(prefix));
-    const gross    = sum(mRows, "gross");
+    const gross    = mRows.reduce((a, r) => a + Math.max(0, Number(r.gross) || 0), 0);
     const fees     = sum(mRows, "stripeFee") + sum(mRows, "facilitatorCost");
     const splits   = mExp.filter(e => e.category === "Studio Split").reduce((a, e) => a + (Number(e.amount) || 0), 0);
-    const refunds  = sum(mRows, "refunds") + mExp.filter(e => e.category === "Refunds & Cancellations").reduce((a, e) => a + (Number(e.amount) || 0), 0);
+    const refunds  = mRows.reduce((a, r) => {
+      const g = Number(r.gross) || 0;
+      if (r.isRefund || g < 0) return a + Math.abs(g);
+      return a + (Number(r.refunds) || 0);
+    }, 0);
     const expenses = fees + splits + refunds;
     const net      = gross - expenses;
     return { label, gross: Math.round(gross), expenses: Math.round(expenses), net: Math.round(net) };

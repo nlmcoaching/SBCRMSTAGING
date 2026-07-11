@@ -167,6 +167,8 @@ export const OFFER_PROB = ["10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%
 export const OPEN_STATUSES = ["Drafted", "Sent", "Viewed", "Follow-up due"];
 export const WON_STATUSES  = ["Accepted", "Paid"];
 export const LOST_STATUSES = ["Declined", "Expired"];
+/** Terminal offer statuses — not "still open" for expiry / pipeline alerts. */
+export const CLOSED_OFFER_STATUSES = [...WON_STATUSES, ...LOST_STATUSES];
 
 /* ---------- Referral tracking constants ---------- */
 export const REF_STATUS = ["Referred", "Contacted", "Attended", "Purchased", "Inactive"];
@@ -191,6 +193,8 @@ export const OUTREACH_STATUS_COLOR = {
   "Declined":          "#C0573F",
   "Inactive":          "#AAAAAA",
 };
+export const OUTREACH_CLOSED_STATUSES = ["Won", "Declined", "Inactive"];
+export const OUTREACH_NO_RESPONSE = ["No response", "Ghosted"];
 export const OUTREACH_WARMTH       = ["Cold","Warm","Hot"];
 export const OUTREACH_WARMTH_COLOR = { Cold: "#9E9E9E", Warm: "#E09040", Hot: "#C0573F" };
 export const OUTREACH_TARGET_TYPE  = ["Studio","Referral Partner","Corporate","Gym","Wellness Center","Media","Influencer","Other"];
@@ -209,12 +213,53 @@ export const TESTIMONIAL_STATUS_COLOR = {
   "Published":          "#4A8C6F",
   "Declined":           "#C0573F",
 };
+export const TESTIMONIAL_ACTION_STATUSES = ["Breakthrough noted", "Request sent"];
 export const TESTIMONIAL_TYPE   = ["Written","Video","Audio","Quote only"];
 export const TESTIMONIAL_THEMES = [
   "Stress relief","Emotional release","Mental clarity","Emotional breakthrough",
   "Improved sleep","Performance","Grief processing","Anxiety relief",
   "Confidence","Spiritual growth","Nervous system reset","Physical release",
 ];
+
+/* ── Workflow pipeline stage groupings (must match STAGE / CLIENT_TYPE / SESSION_STATUS / OFFER_STATUS) ── */
+export const CLIENT_TYPE_LEAD = ["High-value lead"];
+export const CLIENT_TYPE_FIRST = ["First-time attendee"];
+export const CLIENT_TYPE_REPEAT = ["Repeat attendee", "Member", "Private client", "Corporate attendee", "Virtual attendee", "Studio attendee"];
+export const CLIENT_TYPE_ADVOCATE = ["Advocate", "Referral source"];
+export const CLIENT_TYPE_DORMANT = "Past client — reactivate";
+
+export const PARTNER_STAGE_TARGET  = ["Target identified", "Researched", "Initial outreach sent", "Follow-up needed"];
+export const PARTNER_STAGE_DEMO    = ["Discovery call booked", "Demo session offered", "Demo completed"];
+export const PARTNER_STAGE_PILOT   = ["Pilot proposed", "Agreement sent", "Agreement signed", "First session scheduled", "Pilot completed"];
+export const PARTNER_STAGE_ACTIVE  = ["Recurring partner"];
+export const PARTNER_STAGE_HOT     = ["Demo completed", "Pilot proposed", "Agreement sent", "Discovery call booked", "Demo session offered"];
+
+export const SESSION_STATUS_PROMOTED = ["Booking open", "Promotion active", "Almost full"];
+
+/** Join option arrays for admin schema `values` strings (middle-dot separator). */
+export const schemaValues = (arr) => (arr || []).join(" · ");
+
+/**
+ * Canonical CRM field names (runtime store / FIELDS / seed).
+ * Admin schema docs and integrity checks must use these — not legacy aliases
+ * like offers.amount, offers.client, testimonials.permissionRec, referrals.referrer.
+ */
+export const FIELD = {
+  clientType: "clientType",
+  offerClientId: "clientId",
+  offerType: "offerType",
+  offerPrice: "price",
+  offerExpireDate: "expireDate",
+  testimonialClientId: "clientId",
+  permissionReceived: "permissionReceived",
+  useOnWebsite: "useOnWebsite",
+  useOnSocial: "useOnSocial",
+  referrerId: "referrerId",
+  referredName: "referredName",
+  sessionRevenue: "revenue",
+  sessionNetRevenue: "netRevenue",
+  sessionStudioId: "studioId",
+};
 
 /* ── MESSAGE TEMPLATES ── */
 export const TMPL_CATEGORY = ["Studio Outreach","Studio Sales","Post-Session","Sales & Offers","Engagement","Operations"];
@@ -397,3 +442,39 @@ export const ROLE_PERMISSIONS = {
   Editor: { view: true,  edit: true,  delete: false, manage: false },
   Viewer: { view: true,  edit: false, delete: false, manage: false },
 };
+
+/**
+ * Sidebar section visibility beyond the default (all roles with view).
+ * Omitted section ids are visible to every authenticated role.
+ * In-view action gates (can.edit / Owner checks) remain defense-in-depth.
+ */
+export const SECTION_ACCESS = {
+  users: { manage: true }, // User Management — Owner (or explicit manage permission)
+};
+
+/**
+ * Admin tab visibility by layout id (see VIEWS.admin in App.jsx).
+ * Omitted layouts are visible to every authenticated role.
+ * Destructive actions inside visible tabs stay Owner-gated in AdminView.
+ */
+export const ADMIN_TAB_ACCESS = {
+  "admin-settings": { roles: ["Owner", "Admin"] },
+  "admin-reset":    { roles: ["Owner"] },
+};
+
+/** Whether a sidebar section should appear for this user. */
+export function canAccessSection(sectionId, user) {
+  const rule = SECTION_ACCESS[sectionId];
+  if (!rule) return true;
+  if (rule.manage) return user?.role === "Owner" || !!user?.permissions?.manage;
+  if (rule.roles) return rule.roles.includes(user?.role);
+  return true;
+}
+
+/** Whether an Admin tab layout should appear for this user. */
+export function canAccessAdminTab(layout, user) {
+  const rule = ADMIN_TAB_ACCESS[layout];
+  if (!rule) return true;
+  if (rule.roles) return rule.roles.includes(user?.role);
+  return true;
+}

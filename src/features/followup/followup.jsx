@@ -4,6 +4,7 @@ import { C, hexA } from "../../lib/theme.js";
 import { fmtDate, cleanName } from "../../lib/format.js";
 import { FU_STEPS, FU_TEMPLATES, interpolateTemplate } from "../../lib/constants.js";
 import { slimHistEntry, cappedLog, sendCrmEmail, makeEmailFailEntry } from "../../lib/email.js";
+import { findUnreplacedTemplateTokens, unreplacedTokensMessage } from "../../lib/templates.js";
 import { Stat, Tag, MiniChip } from "../../components/primitives.jsx";
 
 function f(key, label, type, opts = {}) { return { key, label, type, ...opts }; }
@@ -68,6 +69,11 @@ export function FollowUpSendButton({ r, data, setData, today }) {
 
   const send = async () => {
     if (!client?.email) return;
+    const leftover = findUnreplacedTemplateTokens(subject, body);
+    if (leftover.length) {
+      setError(unreplacedTokensMessage(leftover));
+      return;
+    }
     setSending(true); setError("");
     const tmpl = allOptions.find(t => t.id === selectedId);
     const emailParams = { to: client.email, recipientName: cleanName(client.name || ""), recipientType: "client", subject, body, templateId: tmpl?.id || "followup", templateName: tmpl?.name || r.name, category: tmpl?.category || "Follow-Up" };
@@ -88,6 +94,8 @@ export function FollowUpSendButton({ r, data, setData, today }) {
     }
     setSending(false);
   };
+
+  const leftoverTokens = findUnreplacedTemplateTokens(subject, body);
 
   if (!open) {
     return (
@@ -128,10 +136,15 @@ export function FollowUpSendButton({ r, data, setData, today }) {
         </div>
         <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject" style={{ padding: "7px 10px", border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 13, outline: "none" }} />
         <textarea value={body} onChange={e => setBody(e.target.value)} rows={8} style={{ padding: "10px 12px", border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 13, resize: "vertical", lineHeight: 1.7, fontFamily: "inherit", outline: "none" }} />
+        {leftoverTokens.length > 0 && (
+          <div style={{ fontSize: 12, color: "#92400E", background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 10px" }}>
+            {unreplacedTokensMessage(leftoverTokens)}
+          </div>
+        )}
         {error && <div style={{ fontSize: 12, color: "#C0392B" }}>{error}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button onClick={() => setOpen(false)} style={{ padding: "7px 16px", borderRadius: 8, border: `1px solid ${C.line}`, background: "transparent", fontSize: 13, fontWeight: 600, color: C.ink2, cursor: "pointer" }}>Close</button>
-          <button onClick={send} disabled={sending || sent || !client?.email} style={{ padding: "7px 20px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 700, background: sent ? "#4A8C6F" : C.brand, color: "#fff", cursor: sending || sent ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+          <button onClick={send} disabled={sending || sent || !client?.email || leftoverTokens.length > 0} style={{ padding: "7px 20px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 700, background: sent ? "#4A8C6F" : C.brand, color: "#fff", cursor: sending || sent || leftoverTokens.length > 0 ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6, opacity: leftoverTokens.length > 0 && !sent ? 0.55 : 1 }}>
             {sent ? <><Check size={13}/> Sent!</> : sending ? <><RefreshCw size={13} style={{ animation: "spin 1s linear infinite" }}/> Sending…</> : <><Send size={13}/> Send Email</>}
           </button>
         </div>
@@ -281,6 +294,11 @@ export function MessageQueue({ overdue, todayItems, upcoming, today, markSent, o
   const sendFollowUpEmail = async (key, item) => {
     const state = emailState[key];
     if (!state || !item.client?.email) return;
+    const leftover = findUnreplacedTemplateTokens(state.subject, state.body);
+    if (leftover.length) {
+      setEmailState(s => ({ ...s, [key]: { ...s[key], sending: false, error: unreplacedTokensMessage(leftover) } }));
+      return;
+    }
     setEmailState(s => ({ ...s, [key]: { ...s[key], sending: true, error: "" } }));
     const selectedTmpl = state.selectedTemplateId && state.selectedTemplateId !== "__followup__"
       ? emailTemplates.find(t => t.id === state.selectedTemplateId) : null;
@@ -332,6 +350,7 @@ export function MessageQueue({ overdue, todayItems, upcoming, today, markSent, o
             const msg        = interpolateTemplate(stepBody(item.stepId), item.client, item);
             const wasCopied  = copied === key;
             const daysAgo    = Math.round((new Date(today) - new Date(item.sessionDate)) / 86400000);
+            const composeLeftover = isComposing ? findUnreplacedTemplateTokens(eState.subject, eState.body) : [];
             return (
               <div key={key} style={{
                 background: C.surface, border: `1px solid ${C.line}`, borderLeft: `4px solid ${item.stepDef?.accent || C.brand}`,
@@ -429,6 +448,11 @@ export function MessageQueue({ overdue, todayItems, upcoming, today, markSent, o
                         rows={8}
                         style={{ padding: "10px 12px", border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 13, color: C.ink, background: C.surfaceAlt, resize: "vertical", lineHeight: 1.7, fontFamily: "inherit", outline: "none" }}
                       />
+                      {composeLeftover.length > 0 && (
+                        <div style={{ fontSize: 12, color: "#92400E", background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 10px" }}>
+                          {unreplacedTokensMessage(composeLeftover)}
+                        </div>
+                      )}
                       {eState.error && <div style={{ fontSize: 12, color: "#C0392B" }}>{eState.error}</div>}
                       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                         <button
@@ -439,8 +463,8 @@ export function MessageQueue({ overdue, todayItems, upcoming, today, markSent, o
                         </button>
                         <button
                           onClick={() => sendFollowUpEmail(key, item)}
-                          disabled={eState.sending || eState.sent || !item.client?.email}
-                          style={{ padding: "6px 18px", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: eState.sending || eState.sent ? "not-allowed" : "pointer", background: eState.sent ? "#4A8C6F" : C.brand, color: "#fff", border: "none", display: "flex", alignItems: "center", gap: 6 }}
+                          disabled={eState.sending || eState.sent || !item.client?.email || composeLeftover.length > 0}
+                          style={{ padding: "6px 18px", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: eState.sending || eState.sent || composeLeftover.length > 0 ? "not-allowed" : "pointer", background: eState.sent ? "#4A8C6F" : C.brand, color: "#fff", border: "none", display: "flex", alignItems: "center", gap: 6, opacity: composeLeftover.length > 0 && !eState.sent ? 0.55 : 1 }}
                         >
                           {eState.sent ? <><Check size={12} /> Sent!</>
                             : eState.sending ? <><RefreshCw size={12} style={{ animation: "spin 1s linear infinite" }} /> Sending…</>
@@ -609,6 +633,11 @@ export function FUTemplateEmailModal({ templateBody, templateName, data, setData
 
   const send = async () => {
     if (!recipientEmail) return;
+    const leftover = findUnreplacedTemplateTokens(subject, body);
+    if (leftover.length) {
+      setError(unreplacedTokensMessage(leftover));
+      return;
+    }
     setSending(true); setError("");
     const rName = recipient?._type === "partner" ? (recipient.contact || recipient.name) : cleanName(recipient?.name || "");
     const emailParams = { to: recipientEmail, recipientName: rName, recipientType: recipient?._type, subject, body, templateId: "fu_custom", templateName, category: "Follow-Up" };
@@ -629,6 +658,8 @@ export function FUTemplateEmailModal({ templateBody, templateName, data, setData
     }
     setSending(false);
   };
+
+  const leftoverTokens = findUnreplacedTemplateTokens(subject, body);
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 1200, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -676,11 +707,16 @@ export function FUTemplateEmailModal({ templateBody, templateName, data, setData
           style={{ padding: "7px 10px", border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 13, outline: "none" }} />
         <textarea value={body} onChange={e => setBody(e.target.value)} rows={9} placeholder={recipient ? "" : "Select a recipient to auto-populate…"}
           style={{ padding: "10px 12px", border: `1px solid ${C.line}`, borderRadius: 7, fontSize: 13, resize: "vertical", lineHeight: 1.75, fontFamily: "inherit", outline: "none" }} />
+        {leftoverTokens.length > 0 && (
+          <div style={{ fontSize: 12, color: "#92400E", background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 10px" }}>
+            {unreplacedTokensMessage(leftoverTokens)}
+          </div>
+        )}
         {error && <div style={{ fontSize: 12, color: "#C0392B" }}>{error}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button onClick={onClose} style={{ padding: "7px 16px", borderRadius: 8, border: `1px solid ${C.line}`, background: "transparent", fontSize: 13, fontWeight: 600, color: C.ink2, cursor: "pointer" }}>Close</button>
-          <button onClick={send} disabled={sending || sent || !recipientEmail}
-            style={{ padding: "7px 20px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 700, background: sent ? "#4A8C6F" : C.brand, color: "#fff", cursor: sending || sent || !recipientEmail ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6, opacity: !recipientEmail ? 0.5 : 1 }}>
+          <button onClick={send} disabled={sending || sent || !recipientEmail || leftoverTokens.length > 0}
+            style={{ padding: "7px 20px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 700, background: sent ? "#4A8C6F" : C.brand, color: "#fff", cursor: sending || sent || !recipientEmail || leftoverTokens.length > 0 ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6, opacity: (!recipientEmail || leftoverTokens.length > 0) && !sent ? 0.5 : 1 }}>
             {sent ? <><Check size={13}/> Sent!</> : sending ? <><RefreshCw size={13} style={{ animation: "spin 1s linear infinite" }}/> Sending…</> : <><Send size={13}/> Send Email</>}
           </button>
         </div>

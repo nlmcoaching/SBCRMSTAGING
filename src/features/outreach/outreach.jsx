@@ -1,7 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { C, FONT, hexA } from "../../lib/theme.js";
 import { money } from "../../lib/format.js";
-import { OUTREACH_STATUS, OUTREACH_STATUS_COLOR, OUTREACH_WARMTH_COLOR, OUTREACH_PRIORITY_COLOR } from "../../lib/constants.js";
+import { OUTREACH_STATUS, OUTREACH_STATUS_COLOR, OUTREACH_WARMTH_COLOR, OUTREACH_PRIORITY_COLOR, OUTREACH_CLOSED_STATUSES, OUTREACH_NO_RESPONSE } from "../../lib/constants.js";
 import { outreachScore } from "../../lib/templates.js";
 import { Stat } from "../../components/primitives.jsx";
 
@@ -17,9 +17,9 @@ export function OutreachHubView({ rows, data, today, onOpen }) {
 
   const totalPotential = rows.reduce((a, r) => a + (Number(r.revenuePotential) || 0), 0);
   const hot       = rows.filter(r => r.warmth === "Hot").length;
-  const overdue   = rows.filter(r => r.nextFollowUp && r.nextFollowUp < today && !["Won","Declined","Inactive"].includes(r.status)).length;
-  const noResp    = rows.filter(r => ["No response","Ghosted"].includes(r.responseStatus)).length;
-  const active    = rows.filter(r => !["Won","Declined","Inactive"].includes(r.status)).length;
+  const overdue   = rows.filter(r => r.nextFollowUp && r.nextFollowUp < today && !OUTREACH_CLOSED_STATUSES.includes(r.status)).length;
+  const noResp    = rows.filter(r => OUTREACH_NO_RESPONSE.includes(r.responseStatus)).length;
+  const active    = rows.filter(r => !OUTREACH_CLOSED_STATUSES.includes(r.status)).length;
 
   // Sort by computed priority score descending
   const scored = [...rows].map(r => ({ ...r, _score: outreachScore(r, today) }))
@@ -79,7 +79,7 @@ export function OutreachHubView({ rows, data, today, onOpen }) {
             const warmthColor  = OUTREACH_WARMTH_COLOR[r.warmth]  || C.ink3;
             const statusColor  = OUTREACH_STATUS_COLOR[r.status]  || C.ink3;
             const priorityColor= OUTREACH_PRIORITY_COLOR[r.priority] || C.ink3;
-            const isOverdue    = r.nextFollowUp && r.nextFollowUp < today && !["Won","Declined","Inactive"].includes(r.status);
+            const isOverdue    = r.nextFollowUp && r.nextFollowUp < today && !OUTREACH_CLOSED_STATUSES.includes(r.status);
             const daysDue      = daysAway(r.nextFollowUp);
 
             return (

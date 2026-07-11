@@ -20,6 +20,8 @@ The React CRM polls the backend every **2 minutes** when logged in, and you can 
 ## Setup (First Time)
 
 ### 1. Install dependencies
+Requires **Node.js 18 or newer** (`engines.node` in `package.json`).
+
 ```bash
 cd backend
 npm install
@@ -62,7 +64,7 @@ Deploy `backend/` to any Node.js host (Railway, Render, Fly.io, VPS). Update Cal
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/webhooks/calendly` | Receives Calendly events (signature-verified) |
+| `POST` | `/api/webhooks/calendly` | Receives Calendly events (signature-verified); queues immediately with invitee-URI dedup, enriches async |
 | `POST` | `/api/calendly/pull-recent` | Fetches recent Calendly bookings via API; queues invitees missing from webhook queue |
 | `GET` | `/api/calendly/pending` | Returns unprocessed events |
 | `POST` | `/api/calendly/acknowledge` | Marks events as processed |

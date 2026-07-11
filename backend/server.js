@@ -25,6 +25,7 @@ const path       = require("path");
 // In dev: loud warnings so the developer knows what's missing.
 (function validateConfig() {
   const isProd = process.env.NODE_ENV === "production";
+  const HEX64 = /^[0-9a-f]{64}$/i;
   const checks = [
     {
       key: "CALENDLY_WEBHOOK_SIGNING_KEY",
@@ -74,22 +75,40 @@ const path       = require("path");
   ];
 
   const missing = checks.filter(({ key }) => !process.env[key]);
-  if (!missing.length) return;
+  const malformed = [];
+
+  // Presence alone is not enough: a non-hex or wrong-length key makes _queueKey() return null
+  // and silently stores queues/auth-users in plaintext.
+  const qek = process.env.QUEUE_ENCRYPTION_KEY;
+  if (qek && !HEX64.test(qek)) {
+    malformed.push({
+      key: "QUEUE_ENCRYPTION_KEY",
+      desc: "Must be exactly 64 hex characters (openssl rand -hex 32) — malformed values disable at-rest encryption",
+      critical: true,
+    });
+  }
+
+  if (!missing.length && !malformed.length) return;
 
   missing.forEach(({ key, desc }) => {
     console.error(`[${isProd && checks.find(c => c.key === key)?.critical ? "FATAL" : "WARN"}] Missing env var: ${key}`);
     console.error(`       ${desc}`);
   });
+  malformed.forEach(({ key, desc }) => {
+    console.error(`[${isProd ? "FATAL" : "WARN"}] Malformed env var: ${key}`);
+    console.error(`       ${desc}`);
+  });
 
   const criticalMissing = missing.filter(c => c.critical);
-  if (isProd && criticalMissing.length) {
-    console.error("\n[FATAL] Cannot start in production with missing critical secrets.");
-    console.error(`        Set: ${criticalMissing.map(c => c.key).join(", ")}`);
+  const criticalMalformed = malformed.filter(c => c.critical);
+  if (isProd && (criticalMissing.length || criticalMalformed.length)) {
+    console.error("\n[FATAL] Cannot start in production with missing or malformed critical secrets.");
+    console.error(`        Fix: ${[...criticalMissing, ...criticalMalformed].map(c => c.key).join(", ")}`);
     process.exit(1);
   }
 
-  if (!isProd && missing.length) {
-    console.warn("\n[WARN]  Running in dev mode with missing secrets.");
+  if (!isProd && (missing.length || malformed.length)) {
+    console.warn("\n[WARN]  Running in dev mode with missing or malformed secrets.");
     console.warn("        DO NOT deploy to production without setting all required env vars.\n");
   }
 })();
@@ -203,10 +222,13 @@ const WEBHOOK_LOG_FILE = path.join(DATA_DIR, "webhook-events-log.json");
 const WEBHOOK_LOG_MAX = 500;
 
 // AES-256-GCM helpers for queue file at rest
+const QUEUE_KEY_HEX_RE = /^[0-9a-f]{64}$/i;
+
 function _queueKey() {
   const hex = process.env.QUEUE_ENCRYPTION_KEY;
-  if (!hex || hex.length < 64) return null;
-  return Buffer.from(hex.slice(0, 64), "hex");
+  // Reject missing OR malformed keys — a short/non-hex value must not silently disable encryption.
+  if (!hex || !QUEUE_KEY_HEX_RE.test(hex)) return null;
+  return Buffer.from(hex, "hex"); // exactly 32 bytes when hex is 64 chars
 }
 function _encryptQueue(plaintext) {
   const key = _queueKey();
@@ -756,28 +778,103 @@ async function getEventTypesByNameIndex(token) {
 }
 
 async function fetchEventTypeDescriptionByName(eventName, token) {
+  // Exact name match only (case-insensitive). Substring matching can cross-bind
+  // similar event types (e.g. "Yoga" → "Indiga Yoga - Walnut Creek").
   const needle = String(eventName || "").trim().toLowerCase();
   if (!needle) return "";
   const index = await getEventTypesByNameIndex(token);
   if (index[needle]) return fetchEventTypeDescription(index[needle]);
-  const matchKey = Object.keys(index).find(k => needle.includes(k) || k.includes(needle));
-  if (matchKey) return fetchEventTypeDescription(index[matchKey]);
   return "";
 }
 
 async function fetchEventTypePriceByName(eventName, token) {
+  // Exact name match only — fuzzy substring matching can assign the wrong list price.
   const needle = String(eventName || "").trim().toLowerCase();
   if (!needle) return null;
   const index = await getEventTypesByNameIndex(token);
   if (index[needle]) return fetchEventTypePrice(index[needle]);
-  const matchKey = Object.keys(index).find(k => needle === k || needle.includes(k) || k.includes(needle));
-  if (matchKey) return fetchEventTypePrice(index[matchKey]);
   return null;
+}
+
+/**
+ * Idempotent Calendly webhook enqueue — dedup by invitee URI + event type
+ * (mirrors Stripe's stripeEventId check). Returns { status, id, queued }.
+ */
+function enqueueCalendlyWebhookEvent(extracted) {
+  const queue = readQueue();
+  const key = extracted.calendlyInviteeUri
+    ? `${extracted.calendlyInviteeUri}|${extracted.eventType}`
+    : "";
+  if (key) {
+    const existing = queue.find(
+      e => e.calendlyInviteeUri === extracted.calendlyInviteeUri && e.eventType === extracted.eventType,
+    );
+    if (existing) {
+      console.log(`[INFO] Duplicate Calendly ${extracted.eventType} for ${extracted.calendlyInviteeUri} — skipping`);
+      return { status: "duplicate", id: existing.id, queued: false };
+    }
+  }
+  queue.push(extracted);
+  writeQueue(queue);
+  console.log(`[OK] Queued ${extracted.eventType} for ${extracted.calendlyInviteeUri || extracted.id} — queue length: ${queue.length}`);
+  return { status: "queued", id: extracted.id, queued: true };
+}
+
+/**
+ * Enrich a queued Calendly event after the webhook 200 — description + payment
+ * via Calendly API. Patches the queue entry only while still unprocessed.
+ */
+async function enrichQueuedCalendlyEvent(eventId, { eventTypeUri = "", inviteeUri = "", calendlyEventTypeUri = "" } = {}) {
+  const patches = {};
+
+  if (eventTypeUri) {
+    const desc = await fetchEventTypeDescription(eventTypeUri);
+    if (desc) patches.description = desc;
+  }
+
+  if (inviteeUri) {
+    const pay = await fetchInviteePayment(inviteeUri, eventTypeUri || calendlyEventTypeUri || "");
+    if (pay) {
+      if (pay.paymentAmount != null) patches.paymentAmount = pay.paymentAmount;
+      if (pay.paidAmount != null || pay.paymentSuccessful != null) patches.paidAmount = pay.paidAmount;
+      if (pay.paymentSuccessful != null) patches.paymentSuccessful = pay.paymentSuccessful === true;
+      patches.paymentPriceSource = pay.priceSource || "";
+    }
+  } else if (eventTypeUri) {
+    const price = await fetchEventTypePrice(eventTypeUri);
+    if (price != null) {
+      // Applied only when the queued row still has no amount (see patch below).
+      patches._eventTypePrice = price;
+    }
+  }
+
+  if (Object.keys(patches).length === 0) return;
+
+  await withQueueLock(() => {
+    const queue = readQueue();
+    const idx = queue.findIndex(e => e.id === eventId && !e.processed);
+    if (idx < 0) return;
+    const current = queue[idx];
+    const applied = { ...patches };
+    if (applied._eventTypePrice != null) {
+      if (current.paymentAmount == null) {
+        applied.paymentAmount = applied._eventTypePrice;
+        applied.paymentSuccessful = false;
+        applied.paymentPriceSource = "event_type";
+      }
+      delete applied._eventTypePrice;
+    }
+    if (Object.keys(applied).length === 0) return;
+    queue[idx] = { ...current, ...applied, enrichedAt: new Date().toISOString() };
+    writeQueue(queue);
+    console.log(`[OK] Enriched Calendly event ${eventId}`);
+  });
 }
 
 // ────────────────────────────────────────────────────────────────
 // POST /api/webhooks/calendly
 // Receives all Calendly webhook events, verifies signature, queues
+// immediately (idempotent), then enriches description/payment async.
 // ────────────────────────────────────────────────────────────────
 app.post("/api/webhooks/calendly", async (req, res) => {
   // Signature check
@@ -814,46 +911,32 @@ app.post("/api/webhooks/calendly", async (req, res) => {
     return res.status(200).json({ status: "skipped", reason: "synthetic_test_uri" });
   }
 
-  // Enrich with event type description from Calendly API (cached per event type)
-  const eventTypeUri = payload.scheduled_event?.event_type;
-  if (eventTypeUri) {
-    extracted.description = await fetchEventTypeDescription(eventTypeUri) || extracted.description;
-  }
-
-  // Resolve session list price + actual paid amount (Calendly Payment section amount lives in event type internal_note)
-  if (extracted.calendlyInviteeUri) {
-    const pay = await fetchInviteePayment(
-      extracted.calendlyInviteeUri,
-      eventTypeUri || extracted.calendlyEventTypeUri || "",
-    );
-    if (pay) {
-      if (pay.paymentAmount != null) extracted.paymentAmount = pay.paymentAmount;
-      if (pay.paidAmount != null || pay.paymentSuccessful != null) extracted.paidAmount = pay.paidAmount;
-      if (pay.paymentSuccessful != null) extracted.paymentSuccessful = pay.paymentSuccessful === true;
-      extracted.paymentPriceSource = pay.priceSource || "";
-    }
-  } else if (extracted.paymentAmount == null && eventTypeUri) {
-    const price = await fetchEventTypePrice(eventTypeUri);
-    if (price != null) {
-      extracted.paymentAmount = price;
-      extracted.paymentSuccessful = false;
-      extracted.paymentPriceSource = "event_type";
-    }
-  }
-
+  // Queue first (before any Calendly API enrichment) so we can 200 quickly.
+  // Dedup by invitee URI + event type prevents timeout-then-retry duplicates.
+  let result;
   try {
-    await withQueueLock(() => {
-      const queue = readQueue();
-      queue.push(extracted);
-      writeQueue(queue);
-      console.log(`[OK] Queued ${event} for ${extracted.email || "(no email)"} — queue length: ${queue.length}`);
-    });
+    result = await withQueueLock(() => enqueueCalendlyWebhookEvent(extracted));
   } catch (err) {
     console.error("[ERROR] Failed to persist webhook event — returning 500 so Calendly retries:", err.message);
     return res.status(500).json({ error: "Failed to queue event — please retry" });
   }
 
-  res.status(200).json({ status: "queued", id: extracted.id });
+  res.status(200).json({ status: result.status, id: result.id });
+
+  // Enrich async after the response — description + payment (~3 API calls).
+  // CRM also backfills these on sync if enrichment loses the race.
+  if (result.queued) {
+    const eventTypeUri = payload.scheduled_event?.event_type || extracted.calendlyEventTypeUri || "";
+    setImmediate(() => {
+      enrichQueuedCalendlyEvent(result.id, {
+        eventTypeUri,
+        inviteeUri: extracted.calendlyInviteeUri || "",
+        calendlyEventTypeUri: extracted.calendlyEventTypeUri || "",
+      }).catch(err => {
+        console.warn(`[WARN] Async Calendly enrichment failed for ${result.id}:`, err.message);
+      });
+    });
+  }
 });
 
 // ────────────────────────────────────────────────────────────────
@@ -890,19 +973,20 @@ app.post("/api/webhooks/stripe", async (req, res) => {
     return res.status(200).json({ status: "skipped", reason: "could not extract payment" });
   }
 
-  appendWebhookLog({
-    id: extracted.id,
-    provider: "stripe",
-    eventType: eventType,
-    receivedAt: extracted.receivedAt,
-    processed: false,
-    customerEmail: extracted.customerEmail || "",
-    amountGross: extracted.amountGross,
-    status: extracted.status,
-  });
-
   try {
     await withQueueLock(() => {
+      // Webhook log + queue share the mutex so concurrent Stripe bursts cannot
+      // lose updates on either file's read-modify-write.
+      appendWebhookLog({
+        id: extracted.id,
+        provider: "stripe",
+        eventType: eventType,
+        receivedAt: extracted.receivedAt,
+        processed: false,
+        customerEmail: extracted.customerEmail || "",
+        amountGross: extracted.amountGross,
+        status: extracted.status,
+      });
       const queue = readNamedQueue(STRIPE_QUEUE_FILE);
       if (queue.some(e => e.id === extracted.id || e.stripeEventId === extracted.stripeEventId)) {
         console.log(`[INFO] Duplicate Stripe event ${extracted.stripeEventId} — skipping`);
@@ -910,7 +994,7 @@ app.post("/api/webhooks/stripe", async (req, res) => {
       }
       queue.push({ ...extracted, processed: false });
       writeNamedQueue(STRIPE_QUEUE_FILE, queue);
-      console.log(`[OK] Queued Stripe ${eventType} for ${extracted.customerEmail || "(no email)"} — queue length: ${queue.length}`);
+      console.log(`[OK] Queued Stripe ${eventType} ${extracted.stripeEventId || extracted.id} — queue length: ${queue.length}`);
     });
   } catch (err) {
     console.error("[ERROR] Failed to persist Stripe event:", err.message);
@@ -1193,22 +1277,84 @@ const REFUND_SESSION_TTL = 60 * 60 * 1000; // 1 hour
 const _sessionChallenges = new Map(); // nonce → { exp }
 const SESSION_CHALLENGE_TTL = 2 * 60 * 1000; // 2 minutes
 
-function readAuthUsers() {
-  try {
-    if (!fs.existsSync(AUTH_USERS_FILE)) return { users: {} };
-    const raw = fs.readFileSync(AUTH_USERS_FILE, "utf8");
-    const json = _decryptQueue(raw);
-    const parsed = JSON.parse(json);
-    return parsed && typeof parsed.users === "object" ? parsed : { users: {} };
-  } catch {
-    return { users: {} };
+/** Thrown when auth-users.json exists but cannot be trusted (read/decrypt/parse/shape). */
+class AuthUsersStoreError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "AuthUsersStoreError";
+    this.code = "AUTH_USERS_UNREADABLE";
   }
+}
+
+/**
+ * Load the auth-user registry.
+ * - File absent → { users: {} } (legitimate first-run Owner bootstrap)
+ * - File present but unreadable/decrypt/parse/shape failure → throw AuthUsersStoreError
+ *   (fail closed — never treat as empty, or Owner bootstrap re-opens to any FRONTEND_SECRET caller)
+ * Unlike webhook queues, we do NOT quarantine-rename the live file: removing it would look
+ * like "file absent" and re-enable bootstrap.
+ */
+function readAuthUsers() {
+  if (!fs.existsSync(AUTH_USERS_FILE)) return { users: {} };
+
+  let raw;
+  try {
+    raw = fs.readFileSync(AUTH_USERS_FILE, "utf8");
+  } catch (err) {
+    console.error("[ERROR] auth-users.json unreadable — refusing empty fallback:", err.message);
+    throw new AuthUsersStoreError("Auth user store unreadable");
+  }
+
+  let json;
+  try {
+    json = _decryptQueue(raw);
+  } catch (err) {
+    console.error("[ERROR] auth-users.json decrypt failed — refusing Owner bootstrap:", err.message);
+    throw new AuthUsersStoreError("Auth user store decrypt failed");
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(json);
+  } catch (err) {
+    console.error("[ERROR] auth-users.json JSON parse failed — refusing Owner bootstrap:", err.message);
+    throw new AuthUsersStoreError("Auth user store corrupt");
+  }
+
+  if (
+    !parsed
+    || typeof parsed !== "object"
+    || Array.isArray(parsed)
+    || typeof parsed.users !== "object"
+    || parsed.users === null
+    || Array.isArray(parsed.users)
+  ) {
+    console.error("[ERROR] auth-users.json has invalid shape — refusing Owner bootstrap");
+    throw new AuthUsersStoreError("Auth user store invalid");
+  }
+
+  return parsed;
 }
 
 function writeAuthUsers(data) {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   const payload = JSON.stringify({ users: data.users || {} }, null, 2);
-  fs.writeFileSync(AUTH_USERS_FILE, _encryptQueue(payload), "utf8");
+  _atomicWriteUtf8(AUTH_USERS_FILE, _encryptQueue(payload));
+}
+
+/** Load auth users or send 503. Returns null when the response was already sent. */
+function loadAuthUsersOr503(res) {
+  try {
+    return readAuthUsers();
+  } catch (err) {
+    if (err?.code === "AUTH_USERS_UNREADABLE") {
+      res.status(503).json({
+        error: "Auth user store unavailable — restore or repair backend/data/auth-users.json (do not delete unless intentionally re-bootstrapping)",
+      });
+      return null;
+    }
+    throw err;
+  }
 }
 
 function _b64ToBuf(b64) {
@@ -1244,6 +1390,20 @@ setInterval(() => {
 // ── Frontend secret guard (for CRM-facing endpoints) ──
 // Fail closed whenever FRONTEND_SECRET is unset, unless ALLOW_INSECURE_DEV_AUTH=true
 // (local-only escape hatch — never enable with a public ngrok tunnel).
+
+/** Constant-time string compare for shared secrets (length mismatch → false, no throw). */
+function secretsEqual(provided, expected) {
+  if (typeof provided !== "string" || typeof expected !== "string") return false;
+  const a = Buffer.from(provided, "utf8");
+  const b = Buffer.from(expected, "utf8");
+  if (a.length !== b.length) {
+    // Keep roughly constant work on length mismatch (timingSafeEqual requires equal lengths).
+    crypto.timingSafeEqual(b, b);
+    return false;
+  }
+  return crypto.timingSafeEqual(a, b);
+}
+
 function requireFrontendSecret(req, res, next) {
   const secret = process.env.FRONTEND_SECRET;
   if (!secret) {
@@ -1258,7 +1418,7 @@ function requireFrontendSecret(req, res, next) {
     console.warn("[WARN] FRONTEND_SECRET not set — ALLOW_INSECURE_DEV_AUTH=true; CRM APIs are unauthenticated (dev only)");
     return next();
   }
-  if (req.headers["x-frontend-secret"] !== secret) {
+  if (!secretsEqual(req.headers["x-frontend-secret"], secret)) {
     return res.status(403).json({ error: "Forbidden" });
   }
   next();
@@ -1314,7 +1474,8 @@ app.post("/api/auth/register-unlock", requireFrontendSecret, (req, res) => {
     return res.status(400).json({ error: "unlockSecret must be 32-byte hex" });
   }
 
-  const store = readAuthUsers();
+  const store = loadAuthUsersOr503(res);
+  if (!store) return;
   const existing = store.users[userId];
   const sessionTok = req.headers["x-session-token"];
   const sessionMeta = sessionTok ? _refundSessions.get(sessionTok) : null;
@@ -1393,7 +1554,8 @@ app.post("/api/auth/session", requireFrontendSecret, (req, res) => {
     return res.status(401).json({ error: "Invalid or expired session challenge" });
   }
 
-  const store = readAuthUsers();
+  const store = loadAuthUsersOr503(res);
+  if (!store) return;
   const rec = store.users[userId];
   if (!rec?.unlockSecret) {
     return res.status(401).json({ error: "User not registered for API sessions — unlock again or ask Owner to sync permissions" });
@@ -1802,32 +1964,36 @@ app.post("/api/stripe/refund", requireFrontendSecret, requireEditSession, async 
     if (!resp.ok) {
       const msg = j?.error?.message || `Stripe refund failed (HTTP ${resp.status})`;
       console.error(`[ERROR] Stripe refund failed: ${msg}`);
-      appendRefundAudit({
-        at: new Date().toISOString(),
-        ok: false,
-        registrationId,
-        paymentIntentId: pi,
-        chargeId: ch,
-        userId: req.apiSession?.userId || "",
-        role: req.apiSession?.role || "",
-        error: msg,
+      await withQueueLock(() => {
+        appendRefundAudit({
+          at: new Date().toISOString(),
+          ok: false,
+          registrationId,
+          paymentIntentId: pi,
+          chargeId: ch,
+          userId: req.apiSession?.userId || "",
+          role: req.apiSession?.role || "",
+          error: msg,
+        });
       });
       return res.status(resp.status >= 500 ? 502 : 400).json({ error: msg, code: j?.error?.code || "" });
     }
     console.log(`[OK] Stripe refund created: ${j.id} — ${j.amount} ${String(j.currency || "").toUpperCase()} (reg ${registrationId})`);
-    appendRefundAudit({
-      at: new Date().toISOString(),
-      ok: true,
-      registrationId,
-      paymentIntentId: pi || (typeof j.payment_intent === "string" ? j.payment_intent : ""),
-      chargeId: ch || (typeof j.charge === "string" ? j.charge : ""),
-      refundId: j.id || "",
-      amount: centsToDollars(j.amount),
-      userId: req.apiSession?.userId || "",
-      role: req.apiSession?.role || "",
-      policyReason: policyResult.reason,
-      policyOverride: !!(policy && policy.override),
-      hadStripeMeta: !!stripeMetaRegId,
+    await withQueueLock(() => {
+      appendRefundAudit({
+        at: new Date().toISOString(),
+        ok: true,
+        registrationId,
+        paymentIntentId: pi || (typeof j.payment_intent === "string" ? j.payment_intent : ""),
+        chargeId: ch || (typeof j.charge === "string" ? j.charge : ""),
+        refundId: j.id || "",
+        amount: centsToDollars(j.amount),
+        userId: req.apiSession?.userId || "",
+        role: req.apiSession?.role || "",
+        policyReason: policyResult.reason,
+        policyOverride: !!(policy && policy.override),
+        hadStripeMeta: !!stripeMetaRegId,
+      });
     });
     res.json({
       refundId: j.id || "",
@@ -1956,7 +2122,7 @@ app.get("/api/calendly/event-description", requireFrontendSecret, async (req, re
 function requireAdminToken(req, res, next) {
   const token = process.env.ADMIN_SECRET;
   if (!token) return res.status(503).json({ error: "Admin endpoints disabled — ADMIN_SECRET not configured" });
-  if (req.headers["x-admin-token"] !== token) return res.status(403).json({ error: "Forbidden" });
+  if (!secretsEqual(req.headers["x-admin-token"], token)) return res.status(403).json({ error: "Forbidden" });
   next();
 }
 
@@ -1989,8 +2155,8 @@ app.delete("/api/stripe/events", requireAdminToken, (_req, res) => {
 // ────────────────────────────────────────────────────────────────
 // requireAdminToken is intentionally omitted: this endpoint is called from the browser during
 // Reset to Production. ADMIN_SECRET is a server-side-only secret the browser cannot send.
-// requireFrontendSecret is the correct gate here — it ensures only the CRM app can call this.
-app.post("/api/integration/clear-queues", requireFrontendSecret, (_req, res) => {
+// Gate like refunds: FRONTEND_SECRET + Edit-capable API session (x-session-token).
+app.post("/api/integration/clear-queues", requireFrontendSecret, requireEditSession, (_req, res) => {
   writeQueue([]);
   writeNamedQueue(STRIPE_QUEUE_FILE, []);
   res.json({ status: "cleared", calendly: 0, stripe: 0 });
@@ -2065,7 +2231,7 @@ ${body.split(/\n\n+/).map(para =>
       return res.status(502).json({ error: error.message || "Email service error." });
     }
 
-    console.log(`[send-email] Sent to ${to} — id: ${data.id}`);
+    console.log(`[send-email] Sent — id: ${data.id}`);
     res.json({ success: true, id: data.id });
   } catch (err) {
     console.error("[send-email] Unexpected error:", err.message);

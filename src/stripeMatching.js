@@ -2,8 +2,10 @@
  *
  * Simple flow:
  * 1. Calendly booking with a list price → unknown until Stripe sync
- * 2. Sync → match by email when a Stripe charge exists; otherwise treat as free (paid, $0)
- * 3. Only bookings with an unlinked Stripe payment for the same email stay pending
+ * 2. Sync → match by email + nearest booking time; prefer amount ties first
+ * 3. Positive list price with no matching Stripe charge for that email → unmatched
+ *    (not auto-free — email mismatches would silently undercount revenue)
+ * 4. Zero/blank list price, or operator-confirmed coupon → free ($0)
  */
 
 export const normalizeEmail = (e) => String(e || "").trim().toLowerCase();
@@ -19,6 +21,14 @@ export function registrationSessionAmount(reg) {
   if (!reg) return null;
   const amt = Number(reg.paymentAmount);
   return Number.isNaN(amt) ? null : amt;
+}
+
+/** Stripe payment gross in dollars (handles dual cents/legacy dollar storage). */
+export function paymentGrossDollars(p) {
+  if (!p) return null;
+  const raw = Number(p.amountGross);
+  if (Number.isNaN(raw)) return null;
+  return p._centsFormat ? raw / 100 : raw;
 }
 
 export function registrationCreatedTimestamp(reg) {
@@ -84,7 +94,7 @@ export function linkStripePaymentToRegistration(payments, registrations, payIdx,
   const p = payments[payIdx];
   if (!p || !reg) return;
   // Dual-format: integer cents when _centsFormat, else legacy dollar float.
-  const gross = p._centsFormat ? (Number(p.amountGross) || 0) / 100 : (Number(p.amountGross) || 0);
+  const gross = paymentGrossDollars(p) ?? 0;
   payments[payIdx] = {
     ...p,
     clientId: reg.clientId,
@@ -92,7 +102,7 @@ export function linkStripePaymentToRegistration(payments, registrations, payIdx,
     sessionId: reg.sessionId,
     matchStatus: "auto",
     matchScore: 100,
-    notes: "Matched by email",
+    notes: "Matched by email + time",
   };
   const ri = registrations.findIndex(r => r.id === reg.id);
   if (ri < 0) return;
@@ -113,24 +123,15 @@ export function linkStripePaymentToRegistration(payments, registrations, payIdx,
   };
 }
 
-function markFreeSessionRegistration(reg, listPrice) {
-  const correctedAt = reg.lastAmountMismatch?.reason === "free"
-    ? reg.lastAmountMismatch.correctedAt
-    : new Date().toISOString();
-  const couponCode = String(reg.couponCode || reg.lastAmountMismatch?.couponCode || "").trim();
+/** Positive list price, no Stripe charge for this email — do not auto-zero as free. */
+function markUnmatchedPaidBooking(reg) {
   return {
     ...reg,
-    paymentStatus: "paid",
+    paymentStatus: "unmatched",
     stripeVerified: false,
-    paidAmount: 0,
-    ...(couponCode ? { couponCode } : {}),
-    lastAmountMismatch: {
-      expectedAmount: listPrice,
-      stripeAmount: 0,
-      reason: "free",
-      correctedAt,
-      ...(couponCode ? { couponCode } : {}),
-    },
+    paidAmount: null,
+    // Clear a prior auto-free mark so the booking surfaces as a payment exception.
+    lastAmountMismatch: reg.lastAmountMismatch?.reason === "free" ? undefined : reg.lastAmountMismatch,
   };
 }
 
@@ -163,8 +164,9 @@ export function confirmRegistrationFreeCoupon(reg, couponCode) {
 }
 
 /**
- * After matching: pending only when an unlinked Stripe payment can still pair (FIFO).
- * No Stripe charge for email → free session (paid, $0) recorded in amount mismatches.
+ * After matching: pending when an unlinked Stripe payment can still pair (same email).
+ * Positive list price with no charge for that email → unmatched (not auto-free).
+ * Zero/blank list price → free $0. Operator coupon → keep free.
  */
 export function finalizeRegistrationPaymentStatuses(registrations, payments, clients, data = {}) {
   const regs = (registrations || []).map(r => ({ ...r }));
@@ -198,7 +200,8 @@ export function finalizeRegistrationPaymentStatuses(registrations, payments, cli
 
     const email = normalizeEmail(clients.find(c => c.id === reg.clientId)?.email);
     if (!email || !hasStripePaymentForEmail(email, payments)) {
-      regs[idx] = markFreeSessionRegistration(regs[idx], listPrice);
+      // Likely Stripe email ≠ Calendly email, or charge not synced yet — never silent $0.
+      regs[idx] = markUnmatchedPaidBooking(regs[idx]);
       continue;
     }
 
@@ -216,7 +219,8 @@ export function finalizeRegistrationPaymentStatuses(registrations, payments, cli
       if (i < slots) {
         regs[idx] = { ...regs[idx], paymentStatus: "pending_verification" };
       } else {
-        regs[idx] = markFreeSessionRegistration(regs[idx], registrationSessionAmount(reg));
+        // More priced bookings than unlinked charges for this email — unmatched, not free.
+        regs[idx] = markUnmatchedPaidBooking(regs[idx]);
       }
     });
   }
@@ -231,8 +235,9 @@ export const STRIPE_MATCH_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
 
 /**
  * Tie each Stripe charge to the Calendly booking it paid for, by matching the charge
- * time to the booking time for the same participant. Closest booking within the window
- * wins; the Stripe amount becomes that booking's session amount.
+ * time to the booking time for the same participant. Within the window, prefer a
+ * booking whose list price amountsMatch the charge (first-pass tiebreaker); otherwise
+ * the closest booking in time wins. The Stripe amount becomes that booking's session amount.
  */
 export function reconcileStripePayments(paymentsIn, registrationsIn, clients, data = {}) {
   const payments = (paymentsIn || []).map(p => ({ ...p }));
@@ -264,14 +269,28 @@ export function reconcileStripePayments(paymentsIn, registrationsIn, clients, da
     payIdxList.sort((a, b) => paymentSortTimestamp(payments[a]) - paymentSortTimestamp(payments[b]));
     for (const payIdx of payIdxList) {
       const payTs = paymentSortTimestamp(payments[payIdx]);
+      const payAmt = paymentGrossDollars(payments[payIdx]);
       let best = -1;
       let bestDiff = Infinity;
+      let bestAmtMatch = false;
       for (let k = 0; k < bookingList.length; k++) {
         if (used.has(k)) continue;
         const diff = Math.abs(registrationBookingTimestamp(bookingList[k], data) - payTs);
-        if (diff < bestDiff) { bestDiff = diff; best = k; }
+        if (diff > STRIPE_MATCH_WINDOW_MS) continue;
+        const listPrice = registrationSessionAmount(bookingList[k]);
+        const amtOk = listPrice != null && payAmt != null && amountsMatch(listPrice, payAmt);
+        // First-pass: prefer amount match; among the same class, prefer nearer time.
+        if (
+          best < 0
+          || (amtOk && !bestAmtMatch)
+          || (amtOk === bestAmtMatch && diff < bestDiff)
+        ) {
+          best = k;
+          bestDiff = diff;
+          bestAmtMatch = amtOk;
+        }
       }
-      if (best >= 0 && bestDiff <= STRIPE_MATCH_WINDOW_MS) {
+      if (best >= 0) {
         used.add(best);
         linkStripePaymentToRegistration(payments, registrations, payIdx, bookingList[best]);
       }

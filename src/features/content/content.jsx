@@ -75,10 +75,11 @@ export function ContentAnalyticsView({ data, onOpen }) {
         <div style={{ padding: "8px 16px 16px", display: "flex", gap: 0, alignItems: "stretch" }}>
           {[
             { label: "Posts Published", value: published.length, color: "#9E9E9E",  pct: 100 },
-            { label: "Total Reach",     value: totalReach,       color: "#5FB0F2",  pct: 100 },
-            { label: "Leads",           value: totalLeads,        color: C.gold,    pct: published.length ? Math.min(100, Math.round((totalLeads / published.length) * 25)) : 0 },
+            { label: "Total Reach",     value: totalReach,       color: "#5FB0F2",  pct: totalReach > 0 ? 100 : 0 },
+            { label: "Leads",           value: totalLeads,        color: C.gold,    pct: published.length ? Math.min(100, Math.round((totalLeads / published.length) * 100)) : 0 },
             { label: "Bookings",        value: totalBooked,       color: C.brand,   pct: totalLeads ? Math.round((totalBooked / totalLeads) * 100) : 0 },
-            { label: "Revenue",         value: money(totalRev),   color: "#4A8C6F", pct: totalBooked ? Math.min(100, Math.round((totalBooked / (totalBooked || 1)) * 100)) : 0 },
+            // Overall content → booking conversion (not totalBooked/totalBooked, which was always 100%)
+            { label: "Revenue",         value: money(totalRev),   color: "#4A8C6F", pct: published.length ? Math.min(100, Math.round((totalBooked / published.length) * 100)) : 0 },
           ].map((step, i, arr) => (
             <div key={step.label} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
               <div style={{ width: "90%", height: 8, background: hexA(step.color, 0.15), borderRadius: 4, overflow: "hidden" }}>
@@ -169,7 +170,7 @@ export function ContentAnalyticsView({ data, onOpen }) {
                   {i + 1}
                 </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, lineHeight: 1.3 }}>{p.name.replace("", "")}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, lineHeight: 1.3 }}>{p.name || "Untitled"}</div>
                   <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
                     <Tag color={catColor} soft>{p.category}</Tag>
                     <Tag color={plColor} soft>{p.platform}</Tag>

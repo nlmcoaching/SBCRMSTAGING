@@ -4,6 +4,7 @@ import { C, hexA } from "../../lib/theme.js";
 import { uid, fmtDate, cleanName } from "../../lib/format.js";
 import { TMPL_CATEGORY, TMPL_CATEGORY_COLOR, TMPL_CHANNEL_COLOR } from "../../lib/constants.js";
 import { slimHistEntry, cappedLog, sendCrmEmail, makeEmailFailEntry } from "../../lib/email.js";
+import { findUnreplacedTemplateTokens, unreplacedTokensMessage } from "../../lib/templates.js";
 import { Stat, Tag, Empty } from "../../components/primitives.jsx";
 
 const STARTER_TEMPLATES = [
@@ -410,6 +411,14 @@ export function TemplateLibraryView({ data, setData, onOpen, currentUser, query 
     const recipientEmail = emailPreview.recipient.email;
     if (!recipientEmail) { setEmailError("Recipient has no email address on file."); return; }
 
+    const finalSubject = emailPopulatedSubject || emailPreview.template.name;
+    const finalBody = emailBodyOverride ?? emailPopulatedBody;
+    const leftover = findUnreplacedTemplateTokens(finalSubject, finalBody);
+    if (leftover.length) {
+      setEmailError(unreplacedTokensMessage(leftover));
+      return;
+    }
+
     setEmailSending(true);
     setEmailError("");
     const tmpl  = emailPreview.template;
@@ -418,7 +427,7 @@ export function TemplateLibraryView({ data, setData, onOpen, currentUser, query 
     const rName = recip._type === "partner" ? (recip.contact || recip.name || "") : cleanName(recip.name || "");
     const emailParams = {
       to: recipientEmail, recipientName: rName, recipientType: recip._type,
-      subject: emailPopulatedSubject || tmpl.name, body: emailBodyOverride ?? emailPopulatedBody,
+      subject: finalSubject, body: finalBody,
       templateId: tmpl.id, templateName: tmpl.name, category: tmpl.category || "",
     };
     try {
@@ -473,7 +482,7 @@ export function TemplateLibraryView({ data, setData, onOpen, currentUser, query 
         <Stat label="Total templates"   value={templates.length}                             hint="ready to use" />
         <Stat label="Email"             value={templates.filter(t=>t.channel==="Email").length} hint="email templates" accent="#D9892B" />
         <Stat label="SMS"               value={templates.filter(t=>t.channel==="SMS").length}   hint="text message templates" accent="#4A8C6F" />
-        <Stat label="Most used"         value={[...templates].sort((a,b)=>b.usageCount-a.usageCount)[0]?.name.replace("","")||"—"} hint="by usage count" />
+        <Stat label="Most used"         value={[...templates].sort((a,b)=>b.usageCount-a.usageCount)[0]?.name || "—"} hint="by usage count" />
       </div>
 
       {/* Filters */}

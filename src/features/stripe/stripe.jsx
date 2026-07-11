@@ -380,7 +380,7 @@ export function PaymentReconciliationView({ data, derived, setData, onOpen, sync
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div style={{ fontSize: 13, color: C.ink2, lineHeight: 1.5, maxWidth: 640 }}>
-          <strong>How it works:</strong> A Stripe charge is created the moment a participant books, so each charge is tied to the Calendly session booked at the same time. The Stripe amount becomes that session's amount. Click <strong>Sync Stripe now</strong> to pull the latest charges.
+          <strong>How it works:</strong> A Stripe charge is created the moment a participant books, so each charge is tied to the Calendly session booked at the same time (preferring a matching session price when more than one booking is close). The Stripe amount becomes that session's amount. Priced bookings with no matching charge stay under <strong>Payment exceptions</strong> — they are not auto-marked free. Click <strong>Sync Stripe now</strong> to pull the latest charges.
         </div>
         <div style={{ display: "flex", gap: 8, flexShrink: 0, flexWrap: "wrap" }}>
           <button type="button" className="sb-ghost" onClick={syncStripe} disabled={stripeStatus?.syncing}

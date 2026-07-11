@@ -85,7 +85,7 @@ describe("processStripeWebhookEvents unit mixing", () => {
         _centsFormat: true,
         matchStatus: "auto",
         bookingId: "r1",
-        customerEmail: "jeff@test.com",
+        customerEmail: "client1@example.com",
       }],
       registrations: [{
         id: "r1",
@@ -96,7 +96,7 @@ describe("processStripeWebhookEvents unit mixing", () => {
         stripeVerified: true,
         paymentId: "p1",
       }],
-      clients: [{ id: "c1", email: "jeff@test.com" }],
+      clients: [{ id: "c1", email: "client1@example.com" }],
       sessions: [],
       revenue: [],
       offers: [],
@@ -168,5 +168,39 @@ describe("processStripeWebhookEvents unit mixing", () => {
     assert.equal(p.amountGross, 29);
     assert.equal(readAmt(p, "amountGross"), 29);
     assert.equal(p.customerEmail, "a@b.com");
+  });
+});
+
+describe("refunds as negative revenue rows", () => {
+  it("emits charge + negative refund rows and no cxlexp expense", async () => {
+    const { buildRegistrationRevenueRows, buildBookingLedgerRecords, calcNet } = await import("./revenue.js");
+    const data = {
+      clients: [{ id: "c1", name: "Ada", email: "a@b.com", source: "Calendly" }],
+      sessions: [{ id: "s1", name: "Virtual", date: "2026-07-10", locationType: "zoom" }],
+      payments: [{
+        id: "p1", bookingId: "r1", status: "refunded", amountGross: 55, amountRefunded: 55,
+        customerEmail: "a@b.com",
+      }],
+      registrations: [{
+        id: "r1", clientId: "c1", sessionId: "s1", status: "canceled",
+        paymentStatus: "refunded", paidAmount: 55, amountRefunded: 55,
+        stripeRefundId: "re_123", refundedAt: "2026-07-11T12:00:00.000Z",
+        scheduledAt: "2026-07-10T18:00:00.000Z", createdAt: "2026-07-01T10:00:00.000Z",
+      }],
+    };
+    const rows = buildRegistrationRevenueRows(data);
+    const charge = rows.find(r => !r.isRefund);
+    const refund = rows.find(r => r.isRefund);
+    assert.ok(charge);
+    assert.equal(charge.gross, 55);
+    assert.equal(charge.refunds, 0);
+    assert.ok(refund);
+    assert.equal(refund.gross, -55);
+    assert.equal(refund.stripeRefundId, "re_123");
+    assert.equal(Math.round((calcNet(charge) + calcNet(refund)) * 100) / 100, 0);
+
+    const { revenue, expenses } = buildBookingLedgerRecords(data);
+    assert.equal(expenses.filter(e => e.category === "Refunds & Cancellations").length, 0);
+    assert.ok(revenue.some(r => r.isRefund && r.gross === -55));
   });
 });

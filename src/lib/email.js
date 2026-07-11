@@ -1,5 +1,6 @@
 import { apiHeaders, fetchWithTimeout, safeResJSON } from "./api.js";
 import { getApiSessionToken } from "./apiSession.js";
+import { uid } from "./format.js";
 
 // ── Email log helpers ─────────────────────────────────────────────────────────
 // Cap the global audit log so it never eats unbounded IndexedDB/localStorage space.
@@ -43,7 +44,7 @@ export async function sendCrmEmail({ to, recipientName, recipientType, subject, 
     throw new Error(json.error || `Send failed (${res.status}).`);
   }
   return {
-    id:            `em_${Date.now()}`,
+    id:            uid("em"),
     date:          new Date().toISOString(),
     templateId,
     templateName,
@@ -62,7 +63,7 @@ export async function sendCrmEmail({ to, recipientName, recipientType, subject, 
 // Used in catch blocks so every failure is consistently logged.
 export function makeEmailFailEntry({ to = "", recipientName = "", recipientType = "client", subject = "", body = "", templateId = "", templateName = "", category = "" }, err) {
   return {
-    id:            `em_${Date.now()}`,
+    id:            uid("em"),
     date:          new Date().toISOString(),
     templateId,
     templateName,

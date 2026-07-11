@@ -1,4 +1,4 @@
-import { amountsMatch, registrationSessionAmount, reconcileStripePayments, resetStripeAutoMatches } from "../stripeMatching.js";
+import { registrationSessionAmount, reconcileStripePayments, resetStripeAutoMatches } from "../stripeMatching.js";
 import { apiHeaders, calendlyApiUrl, fetchWithTimeout } from "./api.js";
 import { getApiSessionToken } from "./apiSession.js";
 import { cleanName, money, uid } from "./format.js";
@@ -427,10 +427,11 @@ export function studioSessionFinance(session, data, ctx) {
   // Pass ctx.revenueRows from the caller to avoid re-building the full table in list views.
   const revenueRows = ctx?.revenueRows || buildRegistrationRevenueRows(data);
   const sessionRevRows = revenueRows.filter(r => r.sessionId === session.id);
+  // Sum charge + negative refund rows (refunds are negative gross, not a separate field).
   const gross = Math.round(
-    sessionRevRows.reduce((sum, r) => sum + Math.max(0, r.gross - r.refunds), 0) * 100
+    sessionRevRows.reduce((sum, r) => sum + (Number(r.gross) || 0) - (Number(r.refunds) || 0), 0) * 100
   ) / 100;
-  const participantCount = sessionRevRows.length;
+  const participantCount = sessionRevRows.filter(r => !r.isRefund && (Number(r.gross) || 0) > 0).length;
   const studioSplit = Math.round(gross * (sharePct / 100) * 100) / 100;
   const net = Math.round((gross - studioSplit) * 100) / 100;
   // seatPrice kept for display reference only — no longer drives the split calculation.
@@ -509,12 +510,27 @@ export function offerRevenueChannel(offerType) {
   if (offerType === "Single session" || offerType === "Virtual session") return "Virtual session";
   return "Group package";
 }
+// ── Auto-maintained financial ledgers ──────────────────────────────────────
+// Booking charges and refunds are materialised as revenue-table records (`regrev_*`).
+// Refunds are **negative gross** rows (not a parallel "Refunds & Cancellations" expense),
+// so P&L never subtracts the same money twice. Studio partner splits remain auto expenses.
+export const AUTO_REV_ID_PREFIX = "regrev_";      // revenue record per booking charge / refund
+export const AUTO_CXL_EXP_ID_PREFIX = "cxlexp_";  // legacy auto cancellation expenses (purged on sync)
+export const AUTO_SPLIT_EXP_ID_PREFIX = "studiosplit_"; // expense record per studio session's revenue split
+export const isAutoRevenueRecord = (r) => !!r?.auto || String(r?.id || "").startsWith(AUTO_REV_ID_PREFIX);
+export const isAutoExpenseRecord = (e) => !!e?.auto
+  || String(e?.id || "").startsWith(AUTO_CXL_EXP_ID_PREFIX)
+  || String(e?.id || "").startsWith(AUTO_SPLIT_EXP_ID_PREFIX);
+
 // Index the Stripe payments ledger by the booking each charge paid for. Mirrors how the Stripe
 // reconciliation page links charges to bookings, so revenue can read the same source of truth.
 export function buildPaidPaymentsByBooking(payments) {
   const map = {};
   (payments || []).forEach(p => {
-    if (p.bookingId && (p.status === "paid" || p.status === "partial_refund")) map[p.bookingId] = p;
+    // Include refunded charges so we can emit the original gross + a negative refund row.
+    if (p.bookingId && (p.status === "paid" || p.status === "partial_refund" || p.status === "refunded")) {
+      map[p.bookingId] = p;
+    }
   });
   return map;
 }
@@ -531,58 +547,143 @@ export function bookingStripeCharge(reg, paidByBooking) {
     };
   }
   // Fallback when the ledger isn't loaded but the booking itself carries a verified Stripe amount.
-  if (reg.stripeVerified && reg.paymentStatus !== "refunded" && reg.paidAmount != null) {
+  if (reg.paidAmount != null && (
+    reg.stripeVerified
+    || reg.paymentStatus === "paid"
+    || reg.paymentStatus === "partial_refund"
+    || reg.paymentStatus === "refunded"
+  )) {
     return {
       gross:   Math.max(0, Number(reg.paidAmount) || 0),
       refunds: Math.max(0, Number(reg.amountRefunded) || 0),
     };
   }
+  // Canceled + refunded with no payment row still on file.
+  if (reg.status === "canceled" && (Number(reg.amountRefunded) || 0) > 0) {
+    return {
+      gross:   Math.max(0, Number(reg.paidAmount) || Number(reg.amountRefunded) || 0),
+      refunds: Math.max(0, Number(reg.amountRefunded) || 0),
+    };
+  }
   return { gross: 0, refunds: 0 }; // no Stripe charge → $0, matching the Stripe log
 }
+
+function buildRegRevenueRow(r, session, client, {
+  gross, date, notes, isRefund = false, isFree = false, idSuffix = "",
+}) {
+  const channel = registrationRevenueChannel(session);
+  const net = Math.round(Number(gross) * 100) / 100;
+  return {
+    id: AUTO_REV_ID_PREFIX + r.id + idSuffix,
+    name: client
+      ? `${cleanName(client.name)} — ${cleanName(session?.name || r.eventName || "Session")}${isRefund ? " (refund)" : ""}`
+      : cleanName(session?.name || r.eventName || "Session booking") + (isRefund ? " (refund)" : ""),
+    date,
+    channel,
+    source: client?.source || "Calendly",
+    campaign: "",
+    sessionId: r.sessionId || "",
+    studioId: session?.studioId || null,
+    clientId: r.clientId || "",
+    client: client ? cleanName(client.name) : "",
+    gross: net,
+    stripeFee: 0,
+    studioSplit: 0,
+    facilitatorCost: 0,
+    // Refunds are negative gross rows — never also stored in `refunds` (avoids double-count with expenses).
+    refunds: 0,
+    net,
+    costCenter: channel,
+    notes,
+    registrationId: r.id,
+    bookedAt: isRefund ? (r.refundedAt || r.canceledAt || r.paidAt || r.createdAt || "") : (r.paidAt || r.createdAt || ""),
+    isFree: !!isFree,
+    isRefund: !!isRefund,
+    stripeRefundId: isRefund ? (r.stripeRefundId || "") : "",
+    refundedAt: isRefund ? (r.refundedAt || "") : "",
+    _derived: true,
+  };
+}
+
 export function buildRegistrationRevenueRows(data = {}) {
   const sessions = buildSessionMap(data.sessions);
   const clients = Object.fromEntries((data.clients || []).map(c => [c.id, c]));
   const paidByBooking = buildPaidPaymentsByBooking(data.payments);
-  return (data.registrations || [])
-    .filter(r => r.status !== "canceled" && r.status !== "rescheduled"
-      && !["unpaid", "pending_verification", "unmatched", "failed"].includes(r.paymentStatus))
-    .map(r => {
-      const session = sessions[r.sessionId];
-      const client = clients[r.clientId];
-      const { gross, refunds } = bookingStripeCharge(r, paidByBooking);
-      const net = Math.round((gross - refunds) * 100) / 100;
-      // Date = the session date (when the service is delivered). Falls back to scheduledAt
-      // (session start time from Calendly), then createdAt (booking time) if no session is linked.
-      const date = (session?.date || r.scheduledAt || r.createdAt || "").slice(0, 10);
-      if (!date) return null;
-      return {
-        id: "regrev_" + r.id,
-        name: client
-          ? `${cleanName(client.name)} — ${cleanName(session?.name || r.eventName || "Session")}`
-          : cleanName(session?.name || r.eventName || "Session booking"),
-        date,
-        channel: registrationRevenueChannel(session),
-        source: client?.source || "Calendly",
-        campaign: "",
-        sessionId: r.sessionId || "",
-        studioId: session?.studioId || null,
-        clientId: r.clientId || "",
-        client: client ? cleanName(client.name) : "",
-        gross,
-        stripeFee: 0,
-        studioSplit: 0,
-        facilitatorCost: 0,
-        refunds,
-        net,
-        costCenter: registrationRevenueChannel(session),
+  const rows = [];
+
+  for (const r of (data.registrations || [])) {
+    if (r.status === "rescheduled") continue;
+    if (["unpaid", "pending_verification", "unmatched", "failed"].includes(r.paymentStatus)) continue;
+
+    const session = sessions[r.sessionId];
+    const client = clients[r.clientId];
+    const { gross: chargeGross, refunds: chargeRefunds } = bookingStripeCharge(r, paidByBooking);
+    const refunded = Math.max(0, Number(r.amountRefunded) || chargeRefunds || 0);
+
+    // Canceled: keep the original charge (if any) and emit a negative revenue row for the refund.
+    // Do not drop the charge when canceling — that plus a cancellation expense double-counted.
+    if (r.status === "canceled") {
+      if (chargeGross > 0) {
+        const chargeDate = (session?.date || r.scheduledAt || r.paidAt || r.createdAt || "").slice(0, 10);
+        if (chargeDate) {
+          rows.push(buildRegRevenueRow(r, session, client, {
+            gross: chargeGross,
+            date: chargeDate,
+            notes: "Actual Stripe charge",
+          }));
+        }
+      }
+      if (refunded > 0) {
+        const refundDate = (r.refundedAt || r.canceledAt || r.scheduledAt || r.createdAt || "").slice(0, 10);
+        if (refundDate) {
+          rows.push(buildRegRevenueRow(r, session, client, {
+            gross: -refunded,
+            date: refundDate,
+            notes: r.stripeRefundId ? `Stripe refund ${r.stripeRefundId}` : "Stripe refund",
+            isRefund: true,
+            idSuffix: "_refund",
+          }));
+        }
+      }
+      continue;
+    }
+
+    // Active bookings (including partial/full refunds while still booked).
+    const chargeDate = (session?.date || r.scheduledAt || r.createdAt || "").slice(0, 10);
+    if (!chargeDate) continue;
+
+    if (chargeGross <= 0 && refunded <= 0) {
+      rows.push(buildRegRevenueRow(r, session, client, {
+        gross: 0,
+        date: chargeDate,
         notes: "Actual Stripe charge",
-        registrationId: r.id,
-        bookedAt: r.paidAt || r.createdAt || "",
-        isFree: gross === 0,
-        _derived: true,
-      };
-    })
-    .filter(Boolean);
+        isFree: true,
+      }));
+      continue;
+    }
+
+    if (chargeGross > 0) {
+      rows.push(buildRegRevenueRow(r, session, client, {
+        gross: chargeGross,
+        date: chargeDate,
+        notes: "Actual Stripe charge",
+        isFree: chargeGross === 0,
+      }));
+    }
+
+    if (refunded > 0) {
+      const refundDate = (r.refundedAt || chargeDate).slice(0, 10);
+      rows.push(buildRegRevenueRow(r, session, client, {
+        gross: -refunded,
+        date: refundDate,
+        notes: r.stripeRefundId ? `Stripe refund ${r.stripeRefundId}` : "Stripe refund",
+        isRefund: true,
+        idSuffix: "_refund",
+      }));
+    }
+  }
+
+  return rows;
 }
 export function buildOfferRevenueRows(data = {}) {
   return (data.offers || [])
@@ -616,79 +717,25 @@ export function buildOfferRevenueRows(data = {}) {
     })
     .filter(Boolean);
 }
-// ── Auto-maintained financial ledgers ──────────────────────────────────────
-// Every active virtual/studio booking is materialised as a revenue-table record, and every
-// canceled booking as an expense-table record (for the actual Stripe amount, $0 for free/coupon
-// bookings). These carry `auto: true` and a deterministic id so they can be regenerated from the
-// current bookings on every change without disturbing manually-entered revenue/expense rows.
+// ── Auto-maintained financial ledgers (builders) ────────────────────────────
 // syncBookingLedgers is run from an effect whenever bookings change (see the App component).
-export const AUTO_REV_ID_PREFIX = "regrev_";      // revenue record per active booking
-export const AUTO_CXL_EXP_ID_PREFIX = "cxlexp_";  // expense record per canceled booking
-export const AUTO_SPLIT_EXP_ID_PREFIX = "studiosplit_"; // expense record per studio session's revenue split
-export const isAutoRevenueRecord = (r) => !!r?.auto || String(r?.id || "").startsWith(AUTO_REV_ID_PREFIX);
-export const isAutoExpenseRecord = (e) => !!e?.auto
-  || String(e?.id || "").startsWith(AUTO_CXL_EXP_ID_PREFIX)
-  || String(e?.id || "").startsWith(AUTO_SPLIT_EXP_ID_PREFIX);
-
 export function buildBookingLedgerRecords(data = {}) {
-  const sessions = buildSessionMap(data.sessions);
-  const clients = Object.fromEntries((data.clients || []).map(c => [c.id, c]));
   const partners = Object.fromEntries((data.partners || []).map(p => [p.id, p]));
-  const listPrices = buildSessionListPriceMap(data.registrations);
 
-  // Revenue: reuse the exact per-booking rows the reports derive (channel = session type,
-  // gross = resolved Stripe amount), flagged as auto-generated for the persisted ledger.
-  // Build once here so the studio-split block below can reuse the same rows without re-computing.
+  // Revenue: charge rows + negative refund rows (single ledger for refunds — no cxlexp P&L).
   const revenueRows = buildRegistrationRevenueRows(data);
   const revenue = revenueRows.map(row => ({
     ...row,
-    notes: "Auto-recorded from Calendly booking",
+    notes: row.isRefund
+      ? (row.notes || "Auto-recorded Stripe refund")
+      : "Auto-recorded from Calendly booking",
     auto: true,
   }));
-
-  // Expenses: one record per CANCELED booking. Reschedules are skipped — no money moves, the
-  // payment simply follows the booking to its new time. The amount reflects money that actually
-  // left via Stripe (amountRefunded) — a late cancel or free booking books a $0 expense so the
-  // cancellation stays visible without distorting the P&L.
-  const expenses = (data.registrations || [])
-    .filter(r => r.status === "canceled")
-    .map(r => {
-      const session = sessions[r.sessionId];
-      const client = clients[r.clientId];
-      const sessName = cleanName(session?.name || r.eventName || "Session");
-      const refunded = Math.max(0, Number(r.amountRefunded) || 0);
-      const listAmt = resolveActualBookingAmount(r, listPrices[r.sessionId]) ?? 0;
-      const noteParts = [];
-      if (r.stripeRefundId) noteParts.push(`Stripe refund ${r.stripeRefundId}`);
-      else if (refunded > 0) noteParts.push("Refunded via Stripe");
-      else if ((Number(r.paidAmount) || 0) > 0 || listAmt > 0) noteParts.push("No refund issued");
-      if (r.cancelReason) noteParts.push(`Reason: ${r.cancelReason}`);
-      return {
-        id: AUTO_CXL_EXP_ID_PREFIX + r.id,
-        date: (r.refundedAt || r.canceledAt || r.scheduledAt || r.createdAt || "").slice(0, 10),
-        vendor: client ? cleanName(client.name) : (r.eventName || "Canceled booking"),
-        description: `Canceled session — ${sessName}`,
-        amount: Math.round(refunded * 100) / 100,
-        category: "Refunds & Cancellations",
-        paymentMethod: "Stripe",
-        taxDeductible: false,
-        recurring: false,
-        recurringFreq: "One-time",
-        linkedSession: r.sessionId || "",
-        linkedPartner: session?.studioId || "",
-        receiptUrl: "",
-        stripeRefundId: r.stripeRefundId || "",
-        refundedAt: r.refundedAt || "",
-        notes: noteParts.join(" — ") || "Auto-recorded when the Calendly booking was canceled.",
-        clientId: r.clientId || "",
-        registrationId: r.id,
-        auto: true,
-      };
-    });
 
   // Studio split: one expense per studio session that owes its partner a revenue share. The amount
   // is derived from actual Stripe revenue received for that session × the partner's share % —
   // automatically stays accurate without any manual entry as payments come in and refunds occur.
+  // (Legacy cxlexp_* cancellation expenses are intentionally not regenerated — refunds live on revenue.)
   const splitExpenses = (data.sessions || [])
     .filter(s => s.studioId)
     .map(s => {
@@ -717,7 +764,7 @@ export function buildBookingLedgerRecords(data = {}) {
     })
     .filter(Boolean);
 
-  return { revenue, expenses: [...expenses, ...splitExpenses] };
+  return { revenue, expenses: splitExpenses };
 }
 
 // Merge manually-entered revenue/expense rows with freshly-rebuilt auto booking records.
@@ -773,7 +820,7 @@ export function buildRevenueViewRows(data = {}) {
 export function applyStudioSessionSplit(data) {
   const partnersById = Object.fromEntries((data.partners || []).map(p => [p.id, p]));
   return (row) => {
-    if (row.channel !== "Studio session") return row;
+    if (row.isRefund || row.channel !== "Studio session") return row;
     // Fallback 0% — matches studioSessionFinance / normalizeData. Never invent a 30% split.
     const studioPct = Math.min(100, Math.max(0, Number(partnersById[row.studioId]?.studioSharePct) || 0));
     const usPct = 100 - studioPct;
