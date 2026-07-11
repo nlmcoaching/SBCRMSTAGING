@@ -1696,6 +1696,16 @@ export default function App() {
     return { partnerName, clientName, acceptedByClient, sessionsByStudio, expensesMTD, expensesYTD, grossRevMTD, netRevMTD, opProfit, opMargin };
   }, [data, today]);
 
+  // Bounce off role-restricted sections (e.g. User Management) if nav state is stale.
+  // Must run before lock/setup early returns — Rules of Hooks.
+  useEffect(() => {
+    if (locked || needsSetup || passphraseUpgrade) return;
+    if (!canAccessSection(section, currentUser)) {
+      setSection("today");
+      setView(0);
+    }
+  }, [section, currentUser, locked, needsSetup, passphraseUpgrade]);
+
   if (needsSetup) return <FirstRunSetup onSetup={handleSetupOwner} error={pinError} />;
   if (passphraseUpgrade) return <PassphraseUpgrade onSubmit={handlePassphraseUpgrade} error={pinError} />;
   if (locked) return <LockScreen onUnlock={handleUnlock} error={pinError} initialising={initialising} users={secUsers} onRecoveryVerify={handleRecoveryVerify} onRecoverySetPin={handleRecoverySetPin} />;
@@ -1707,14 +1717,6 @@ export default function App() {
     delete: currentUser?.permissions?.delete ?? false,
     manage: currentUser?.role === "Owner" || !!(currentUser?.permissions?.manage),
   };
-
-  // Bounce off role-restricted sections (e.g. User Management) if nav state is stale.
-  useEffect(() => {
-    if (!canAccessSection(section, currentUser)) {
-      setSection("today");
-      setView(0);
-    }
-  }, [section, currentUser]);
 
   const saveRecord = (db, rec) => {
     const toSave = db === "partners" ? { ...rec, agreements: stripAgreementForStore(rec.agreements) } : rec;
