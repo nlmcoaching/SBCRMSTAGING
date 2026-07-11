@@ -25,7 +25,7 @@ import { uid, todayISO, addDaysISO, addMonthsISO, MONTHS, fmtDate, money, pct, o
 import { CRM_SETTINGS_KEY, DEFAULT_CRM_SETTINGS, parseCrmSettings, loadCrmSettings, _crmSettings, getS, setCrmSettings } from "./lib/crmSettings.js";
 import * as constants from "./lib/constants.js";
 import { SESSION_CHECKLIST, EQUIP_CHECKLIST_PHASES, EQUIP_CHECKLIST, emptyEquipChecklist, VIRTUAL_PRE_SESSION_MOVED_EQUIP_IDS, virtualEquipPhaseItems, SESSION_CHECKLIST_PHASES, SESSION_PHASE_COLOR, emptySessionChecklist } from "./lib/checklists.js";
-import { STORE_KEY, STORE_KEY_ENC, AGREEMENT_BLOB_PREFIX, apiHeaders, CALENDLY_BACKEND, calendlyApiUrl, fetchWithTimeout, safeResJSON, isTruncatedPreview, resolveCalendlyDescription, sessionCalendlyLookupName, fetchCalendlyDescriptionForSession, applyCalendlyDescriptionToSessions } from "./lib/api.js";
+import { STORE_KEY, STORE_KEY_ENC, AGREEMENT_BLOB_PREFIX, apiHeaders, CALENDLY_BACKEND, calendlyApiUrl, fetchWithTimeout, safeResJSON, isTruncatedPreview, resolveCalendlyDescription, sessionCalendlyLookupName, fetchCalendlyDescriptionForSession, applyCalendlyDescriptionToSessions, cancelCalendlyEvent } from "./lib/api.js";
 import { setApiSessionToken, clearApiSessionToken } from "./lib/apiSession.js";
 import { ensureRegisteredAndMint, ensureUnlockAndMint } from "./lib/apiAuth.js";
 import { loadSecMeta, saveSecMeta } from "./lib/secMeta.js";
@@ -2186,6 +2186,7 @@ export default function App() {
             actionContact={open.actionContact}
             setData={setData}
             cryptoKey={cryptoKey}
+            refundToken={refundSessionToken}
             onSync={async () => { await Promise.all([syncCalendly(), syncStripe()]); }}
             onClose={() => setOpen(null)} onSave={can.edit ? (rec) => { saveRecord(open.db, rec); setOpen(null); } : null}
             onDelete={can.delete ? (id) => setConfirm({
@@ -5739,7 +5740,7 @@ function resolveDrawerTab(preferred, { db, isNew, hasTimeline, hasSessionTabs, h
   return "details";
 }
 
-function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, onSave, onDelete, onOpenRelated, sequences, onStartSequence, initialTab, setData, cryptoKey, actionContact, onSync }) {
+function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, onSave, onDelete, onOpenRelated, sequences, onStartSequence, initialTab, setData, cryptoKey, actionContact, onSync, refundToken }) {
   const isNew = !(data[db] || []).some((r) => r.id === record.id);
   const hasTimeline = (db === "clients" || db === "partners") && !isNew;
   const hasChecklist = db === "partners" && !isNew;
@@ -5755,6 +5756,8 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
   const [fetchedCalendlyDesc, setFetchedCalendlyDesc] = useState(null); // null = not yet fetched
   const [fetchingCalendlyDesc, setFetchingCalendlyDesc] = useState(false);
   const [calendlyDescFetchError, setCalendlyDescFetchError] = useState("");
+  const [showCancelCalendly, setShowCancelCalendly] = useState(false);
+  const [cancelCalendlyBusy, setCancelCalendlyBusy] = useState(false);
   // Derived counts computed from live registrations — read-only display values,
   // never written back to draft after the initial open (see reset effect below).
   const isStudioSession = db === "sessions" && !!record.studioId;
@@ -6417,9 +6420,67 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
             ) : null;
           })()}
           <div style={{ flex: 1 }} />
+          {db === "sessions" && !isNew && (() => {
+            const linkedRegs = (data.registrations || []).filter(r => r.sessionId === draft.id);
+            const eventUri = linkedRegs.find(r => r.calendlyEventUri)?.calendlyEventUri || "";
+            if (!eventUri) return null;
+            const allCanceled = linkedRegs.length > 0 && linkedRegs.every(r => r.status === "canceled");
+            const busy = cancelCalendlyBusy;
+            return (
+              <button
+                type="button"
+                disabled={allCanceled || busy}
+                title={allCanceled ? "Already canceled" : "Cancel this session in Calendly"}
+                onClick={() => setShowCancelCalendly(true)}
+                style={{
+                  background: allCanceled || busy ? C.ink3 : "#C0573F",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 8,
+                  fontWeight: 600,
+                  fontSize: 12.5,
+                  padding: "7px 14px",
+                  cursor: allCanceled || busy ? "default" : "pointer",
+                  whiteSpace: "nowrap",
+                  marginRight: 8,
+                }}
+              >
+                {busy ? "Canceling…" : "Cancel in Calendly"}
+              </button>
+            );
+          })()}
           <button className="sb-ghost" onClick={onClose}>Cancel</button>
           {tab !== "timeline" && onSave && <button className="sb-primary" onClick={() => onSave(draft)}>Save</button>}        </div>
       </div>
+      {showCancelCalendly && db === "sessions" && (() => {
+        const linkedRegs = (data.registrations || []).filter(r => r.sessionId === draft.id);
+        const eventUri = linkedRegs.find(r => r.calendlyEventUri)?.calendlyEventUri || "";
+        const activeCount = linkedRegs.filter(r => r.status !== "canceled" && r.status !== "rescheduled").length;
+        return (
+          <CancelCalendlyModal
+            isStudio={!!draft.studioId}
+            activeCount={activeCount}
+            busy={cancelCalendlyBusy}
+            onCancel={() => { if (!cancelCalendlyBusy) setShowCancelCalendly(false); }}
+            onConfirm={async (reason) => {
+              if (cancelCalendlyBusy) return;
+              setCancelCalendlyBusy(true);
+              try {
+                const result = await cancelCalendlyEvent(eventUri, reason, refundToken);
+                if (onSync) await onSync();
+                return { ok: true, alreadyCanceled: !!result?.alreadyCanceled };
+              } catch (err) {
+                const msg = err?.status === 401
+                  ? "Your unlock session expired — log out and back in, then retry."
+                  : (err?.message || "Cancel failed.");
+                throw Object.assign(new Error(msg), { status: err?.status });
+              } finally {
+                setCancelCalendlyBusy(false);
+              }
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }
@@ -9200,6 +9261,115 @@ function ConfirmModal({ message, okLabel = "OK", danger = false, onOk, onCancel 
           }}>
             {busy ? "…" : okLabel}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Host-initiated Calendly cancel — reason required; emails every invitee. */
+function CancelCalendlyModal({ isStudio, activeCount, busy: parentBusy, onConfirm, onCancel }) {
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [busy, setBusy] = useState(false);
+  const isBusy = busy || parentBusy;
+  const trimmed = reason.trim();
+  const canSubmit = trimmed.length > 0 && !isBusy && !success;
+
+  const warning = isStudio
+    ? `This cancels the entire session in Calendly for all ${activeCount} registered participant${activeCount === 1 ? "" : "s"} and emails each of them.`
+    : "This cancels the booking in Calendly and emails the client.";
+
+  const handleOk = async () => {
+    if (!canSubmit) return;
+    setError("");
+    setBusy(true);
+    try {
+      const result = await onConfirm(trimmed.slice(0, 500));
+      if (result?.alreadyCanceled) {
+        setSuccess("Already canceled in Calendly");
+      } else {
+        setSuccess("Canceled in Calendly — syncing bookings…");
+      }
+    } catch (err) {
+      setError(err?.message || "Cancel failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="sb-drawerwrap"
+      onMouseDown={() => { if (!isBusy) onCancel(); }}
+      onClick={(e) => e.stopPropagation()}
+      style={{ zIndex: 90 }}
+    >
+      <div onMouseDown={e => e.stopPropagation()} style={{
+        background: C.surface, borderRadius: 18, padding: "28px 28px 22px",
+        width: 440, maxWidth: "92vw", textAlign: "left",
+        boxShadow: `0 24px 80px ${hexA(C.brandDeep, 0.28)}, 0 4px 16px ${hexA(C.brandDeep, 0.1)}`,
+        animation: "sb-pop .2s cubic-bezier(.22,.68,0,1.2)",
+      }}>
+        <div style={{ fontFamily: FONT.display, fontSize: 17, fontWeight: 700, color: C.ink, marginBottom: 8 }}>
+          Cancel session in Calendly?
+        </div>
+        <div style={{ fontSize: 13, color: "#9A3B2A", lineHeight: 1.55, marginBottom: 14, fontWeight: 600 }}>
+          {warning}
+        </div>
+        <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: C.ink2, marginBottom: 6 }}>
+          Reason for canceling (sent to Calendly and included in the cancellation email)
+        </label>
+        <textarea
+          value={reason}
+          maxLength={500}
+          disabled={isBusy || !!success}
+          onChange={(e) => setReason(e.target.value)}
+          rows={4}
+          placeholder="Required — e.g. facilitator illness, studio closed…"
+          style={{
+            width: "100%", boxSizing: "border-box", borderRadius: 10,
+            border: `1px solid ${C.line}`, padding: "10px 12px", fontSize: 13.5,
+            color: C.ink, background: C.surfaceAlt || C.surface, resize: "vertical",
+            fontFamily: "inherit", lineHeight: 1.45, marginBottom: 6,
+          }}
+        />
+        <div style={{ fontSize: 11, color: C.ink3, marginBottom: 12, textAlign: "right" }}>
+          {trimmed.length}/500
+        </div>
+        {error && (
+          <div style={{
+            fontSize: 12.5, color: "#C0392B", background: hexA("#C0392B", 0.07),
+            border: `1px solid ${hexA("#C0392B", 0.2)}`, borderRadius: 8,
+            padding: "8px 12px", marginBottom: 12, lineHeight: 1.45,
+          }}>
+            {error}
+          </div>
+        )}
+        {success && (
+          <div style={{
+            fontSize: 12.5, color: "#4A8C6F", background: hexA("#4A8C6F", 0.08),
+            border: `1px solid ${hexA("#4A8C6F", 0.25)}`, borderRadius: 8,
+            padding: "8px 12px", marginBottom: 12, lineHeight: 1.45,
+          }}>
+            {success}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={onCancel} disabled={isBusy} className="sb-ghost" style={{ minWidth: 100, justifyContent: "center" }}>
+            {success ? "Close" : "Keep session"}
+          </button>
+          {!success && (
+            <button onClick={handleOk} disabled={!canSubmit} style={{
+              minWidth: 180, padding: "9px 18px", borderRadius: 10, border: "none",
+              cursor: canSubmit ? "pointer" : "default",
+              fontWeight: 700, fontSize: 13.5, justifyContent: "center",
+              background: canSubmit ? "#C0573F" : C.ink3, color: "#fff",
+            }}>
+              {isBusy ? "Canceling…" : "Cancel session in Calendly"}
+            </button>
+          )}
         </div>
       </div>
     </div>

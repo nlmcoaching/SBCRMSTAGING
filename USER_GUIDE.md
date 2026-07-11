@@ -442,6 +442,21 @@ The Sessions calendar shows one month at a time. Each session appears as a color
 
 Click any pill to open that session's record drawer.
 
+### Canceling a session in Calendly
+
+When a session was booked through Calendly, open it from the calendar (or any Sessions list) and use the red **Cancel in Calendly** button at the bottom of the drawer — next to Cancel / Save.
+
+1. Open the virtual or studio session.
+2. Click **Cancel in Calendly** (only shown when the session is linked to Calendly).
+3. Enter a **reason** — this is required and is sent to Calendly and included in the cancellation email clients receive.
+4. Confirm with **Cancel session in Calendly**.
+
+For a **studio (group) session**, this cancels the whole event for every registered participant and emails each of them. For a **virtual (1:1) session**, it cancels that booking and emails the client.
+
+After you confirm, the CRM syncs with Calendly. Bookings flip to canceled automatically, and any paid bookings that qualify appear in **Calendly Bookings → Refunds**. You do not need to cancel each person one by one.
+
+> **Note:** Sessions you created only in the CRM (no Calendly link) do not show this button. Cancel those bookings from **Calendly Bookings → All Bookings** with **Cancel booking** instead.
+
 > **Note:** Studio sessions booked through Calendly are automatically linked to the correct studio partner by matching the studio name in the event name. If no matching partner exists, one is created automatically. The calendar also recognizes a studio booking by the studio name in the session name or address, so it shows the purple studio styling even if the studio link hasn't been saved yet. Any previously synced sessions without a studio link are corrected on the next sync.
 
 ### All Sessions Tab
@@ -597,6 +612,8 @@ To cancel someone's booking manually (for example, they emailed you to cancel in
 The booking moves to the **Cancellations and Reschedules** tab, the spot is freed (for a studio class the registered count drops; for a one-on-one virtual session it's removed from the calendar), and future Calendly syncs will not bring it back. Note: this is **different** from the Lead/Booked/Attended buttons on the *client* record — those describe the client's overall stage, not a single booking.
 
 **If the client paid through Stripe**, a second confirmation pops up right after the cancel, offering to **refund the full amount** to the client — when you cancel on a client, they always qualify for their money back. Click **Issue refund** to send it through Stripe, or close the dialog to decide later — the booking will wait for you in **Revenue → Refunds** (see *Issuing Refunds* under Tracking Revenue).
+
+To cancel the **entire Calendly event** (including every participant on a studio session) from the session itself, use **Cancel in Calendly** on the session drawer — see *Canceling a session in Calendly* under Running Sessions.
 | Pending Waivers | Manually-created registrations without a signed waiver, newest session first |
 | Unpaid | Clients who haven't paid, newest session first |
 | Cancellations and Reschedules | Canceled and rescheduled bookings, newest session first. **Click any row to expand** it for full details — when it was cancelled, by whom, the reason, and (for reschedules) the original and new session times. |

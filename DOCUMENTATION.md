@@ -785,6 +785,22 @@ A small **ⓘ button** appears in the top-right corner of the session name on **
 - If no journey is selected on the session, the popup displays "No journey selected".
 - **Popup anatomy:** branded header · scrollable body (max-height 220px) · × close button.
 
+#### Cancel in Calendly (host-initiated)
+
+Virtual and studio session drawers show a red **Cancel in Calendly** button in the footer (next to Cancel / Save) when any linked registration has a `calendlyEventUri`. Locally created sessions without a Calendly URI do not show the button — use the per-booking **Cancel booking** flow instead.
+
+| Behavior | Detail |
+|---|---|
+| Visibility | Hidden when no linked registration has `calendlyEventUri` |
+| Disabled | When every linked registration is already `status === "canceled"` (tooltip: "Already canceled") |
+| Confirm modal | Required multiline reason (max 500 chars; sent to Calendly and included in cancellation emails). Confirm disabled until non-empty. Studio warning counts **active** (non-canceled) registrations only |
+| API | `cancelCalendlyEvent` (`src/lib/api.js`) → `POST /api/calendly/cancel-booking` with `x-session-token` (same token as Stripe refunds) |
+| Success path | Does **not** mutate registration/session status locally. Calls `syncCalendly()` so `invitee.canceled` webhooks flip bookings to `canceled` and surface refund prompts |
+| Soft success | HTTP 404 → "Already canceled in Calendly", then sync |
+| Auth expiry | HTTP 401 → "Your unlock session expired — log out and back in, then retry." |
+
+Canceling a **studio** (group) event cancels the entire Calendly event for all participants — intended behavior.
+
 #### Calendly-Created Sessions
 When a booking arrives via Calendly webhook, a session record is automatically created or updated:
 - `name` = Calendly event name
@@ -1826,6 +1842,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 | `/api/stripe/pending` | GET | Returns unprocessed Stripe payment events for the CRM to consume |
 | `/api/stripe/acknowledge` | POST | Marks Stripe queue event IDs as processed |
 | `/api/stripe/refund` | POST | Issues a **full Stripe refund** (`POST /v1/refunds`, `amount` omitted) for a canceled booking. Body: `paymentIntentId` (`pi_...`) or `chargeId` (`ch_...`), plus `registrationId` (stored as Stripe metadata) and optional `reason`. Requires `x-frontend-secret` and `STRIPE_SECRET_KEY`; returns the refund ID, amount (dollars), status, and timestamp |
+| `/api/calendly/cancel-booking` | POST | Cancels an **entire** Calendly scheduled event (all invitees) as the host. Body: `eventUri` (`https://api.calendly.com/scheduled_events/<uuid>`) and optional `reason` (max 500 chars; included in Calendly cancellation emails). Requires `x-frontend-secret` + `x-session-token` and `CALENDLY_API_TOKEN`. Returns `{ status: "canceled", eventUuid }`. Does not mutate CRM state — `invitee.canceled` webhooks + `syncCalendly()` converge registrations |
 | `/api/integration/clear-queues` | POST | Clears Calendly and Stripe pending webhook queues (Reset to Production; requires `x-frontend-secret`) |
 | `/api/calendly/events` | GET | All events (debug/admin) |
 | `/api/calendly/events` | DELETE | Clear Calendly queue (admin) |
@@ -1868,6 +1885,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 - Calendly webhook handler rejects unsigned requests in production when the signing key is unset (same fail-closed pattern as Stripe)
 - Refund / API session mint (`POST /api/auth/session`) requires a one-shot challenge from `GET /api/auth/session-challenge` plus a **server-verified HMAC** `unlockProof` over a per-user unlock secret registered via `POST /api/auth/register-unlock`. Tokens expire in 1 hour, are bound to `userId`, and carry server-side `role` / `canEdit`.
 - `POST /api/stripe/refund` and `POST /api/send-email` require an API session with `canEdit: true` (not merely `FRONTEND_SECRET`).
+- `POST /api/calendly/cancel-booking` requires an API session token (`requireSessionToken`) plus `FRONTEND_SECRET`; cancels the whole Calendly event for all invitees.
 - Per-user unlock secrets are PIN-wrapped in security metadata (`wrappedUnlockSecret`) and stored encrypted at rest on the backend in `backend/data/auth-users.json`.
 - Multi-user account creation is gated by CRM setting `allowMultiUser` (default `false`) because all users share one master encryption key.
 - Server PIN lockout (`POST /api/auth/pin-attempt`) requires a one-shot challenge from `GET /api/auth/pin-status` so lockouts cannot be forged with only `FRONTEND_SECRET`
@@ -2274,7 +2292,7 @@ simply-breathe-app/
 │   │   ├── crmSettings.js       # Configurable CRM lists
 │   │   ├── checklists.js        # Session/equipment checklist defs
 │   │   ├── templates.js         # Template var helpers, outreachScore
-│   │   ├── api.js               # API headers, Calendly helpers
+│   │   ├── api.js               # API headers, Calendly helpers (`cancelCalendlyEvent`, description fetch)
 │   │   ├── email.js             # sendCrmEmail + email log helpers
 │   │   ├── store.js             # IndexedDB / localStorage facade
 │   │   ├── sec.js               # AES-GCM / PIN / session crypto
@@ -2340,6 +2358,7 @@ All state is managed via React `useState` and `useMemo` in the root `App` compon
 | `RevenueThisMonthView` | Revenue **This month** tab — computes Gross Revenue from Stripe amounts in the `revenue` table and Net Revenue = gross − refunds − expenses (from the `expenses` table), with month-over-month deltas and supporting record listings |
 | `studioSessionFinance` / `sessionFinanceFor` | Compute a studio session's economics — sums actual Stripe charges (gross − refunds) across all `regrev_*` booking rows for the session, then multiplies by the partner's `studioSharePct` → `{ seatPrice, gross, studioSplit, net, sharePct, participantCount }`. `seatPrice` is display-only. Accepts `ctx.revenueRows` to reuse pre-built rows in list views. Used by the Performance views, partner Sessions tab, and the auto `Studio Split` expense |
 | `RecordDrawer` | Slide-in detail/edit panel |
+| `CancelCalendlyModal` | Host cancel of a Calendly scheduled event — required reason, studio all-participants warning, busy guard; used from session drawer footer |
 | `EditProfileModal` | Profile photo + info + PIN change |
 | `UserManagementView` | Multi-user CRUD and permissions |
 | `AdminView` | 8-tab admin panel: overview, schema browser, integrity check, storage, settings, email logs, journey descriptions, reset to production |

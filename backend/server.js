@@ -1807,6 +1807,49 @@ app.post("/api/stripe/refund", requireFrontendSecret, requireEditSession, async 
   }
 });
 
+// POST /api/calendly/cancel-booking
+// Cancels an ENTIRE scheduled event (all invitees). Gate like refunds: destructive + customer-facing.
+// Body: { eventUri: "https://api.calendly.com/scheduled_events/<uuid>", reason?: string }
+app.post("/api/calendly/cancel-booking", requireFrontendSecret, requireSessionToken, async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const token = process.env.CALENDLY_API_TOKEN;
+  if (!token) return res.status(503).json({ error: "CALENDLY_API_TOKEN not configured" });
+
+  const { eventUri, reason } = req.body || {};
+  // SSRF guard — same rule as /api/calendly/event-description
+  if (typeof eventUri !== "string" || !eventUri.startsWith(CALENDLY_API_BASE) || eventUri.length > 300) {
+    return res.status(400).json({ error: "eventUri must be a valid Calendly scheduled_events URI" });
+  }
+  const uuid = eventUri.split("/").pop();
+  if (!/^[A-Za-z0-9_-]{8,64}$/.test(uuid)) {
+    return res.status(400).json({ error: "Could not extract event UUID" });
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CALENDLY_API_TIMEOUT_MS);
+  try {
+    const resp = await fetch(`${CALENDLY_API_BASE}scheduled_events/${uuid}/cancellation`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: String(reason || "Canceled from CRM").slice(0, 500) }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    const j = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      // 403 = event not owned by this token's user; 404 = already canceled or bad UUID
+      return res.status(resp.status >= 500 ? 502 : resp.status)
+        .json({ error: j?.message || `Calendly returned ${resp.status}` });
+    }
+    console.log(`[OK] Calendly event ${uuid} canceled — invitee.canceled webhook will sync the CRM`);
+    res.json({ status: "canceled", eventUuid: uuid });
+  } catch (err) {
+    clearTimeout(timer);
+    console.error("[ERROR] Calendly cancel failed:", err.message);
+    res.status(502).json({ error: "Could not reach Calendly — the booking was NOT canceled. Try again." });
+  }
+});
+
 // ────────────────────────────────────────────────────────────────
 // GET /api/calendly/event-description
 // Fetch the event-type description for a scheduled event URI.

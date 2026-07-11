@@ -73,6 +73,27 @@ export async function fetchCalendlyDescriptionForSession(session, registrations)
   if (!res.ok) return { description: "", error: j.error || `Request failed (${res.status})` };
   return { description: (j.description || "").trim(), error: "" };
 }
+
+// Cancel an entire Calendly scheduled event as the host. Requires the refund session
+// token (x-session-token) minted at PIN unlock — same auth pattern as issueStripeRefund.
+// 404 is treated as soft success (event already canceled in Calendly).
+export async function cancelCalendlyEvent(eventUri, reason, sessionToken) {
+  const res = await fetchWithTimeout(calendlyApiUrl("/api/calendly/cancel-booking"), {
+    method: "POST",
+    headers: { ...apiHeaders(), "x-session-token": sessionToken },
+    body: JSON.stringify({ eventUri, reason }),
+  });
+  const j = await safeResJSON(res);
+  if (res.status === 404) {
+    return { status: "already_canceled", eventUuid: String(eventUri || "").split("/").pop() || "", alreadyCanceled: true };
+  }
+  if (!res.ok) {
+    const err = new Error(j.error || `Cancel failed (${res.status}).`);
+    err.status = res.status;
+    throw err;
+  }
+  return j; // { status: "canceled", eventUuid }
+}
 export function applyCalendlyDescriptionToSessions(setData, sessionId, desc, onSave) {
   if (!desc || !setData) return;
   setData(prev => ({
