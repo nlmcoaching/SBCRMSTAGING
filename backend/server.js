@@ -238,17 +238,64 @@ function _decryptQueue(stored) {
     return Buffer.concat([decipher.update(enc), decipher.final()]).toString("utf8");
   } catch (err) {
     console.error("[ERROR] Queue file failed GCM authentication — possible tampering:", err.message);
-    throw err; // readQueue() catches this and returns [] — do NOT fall back to raw content
+    throw err; // caller quarantines the file — do NOT fall back to raw content
+  }
+}
+
+/** Rename an unreadable queue file aside so the next write cannot destroy evidence / pending events. */
+function _quarantineCorruptFile(filePath, reason) {
+  try {
+    if (!fs.existsSync(filePath)) return;
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const dest = `${filePath}.corrupt.${stamp}`;
+    fs.renameSync(filePath, dest);
+    console.error(`[ERROR] Quarantined corrupt queue file → ${path.basename(dest)} (${reason})`);
+  } catch (err) {
+    console.error(`[ERROR] Failed to quarantine ${filePath}:`, err.message);
+  }
+}
+
+/** Atomic write: temp file + rename (POSIX atomic replace; Windows unlink+rename fallback). */
+function _atomicWriteUtf8(filePath, content) {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const tmp = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
+  fs.writeFileSync(tmp, content, "utf8");
+  try {
+    fs.renameSync(tmp, filePath);
+  } catch (err) {
+    // Windows cannot rename over an existing destination
+    try { fs.unlinkSync(filePath); } catch (_) { /* dest may not exist */ }
+    try {
+      fs.renameSync(tmp, filePath);
+    } catch (err2) {
+      try { fs.unlinkSync(tmp); } catch (_) { /* best-effort cleanup */ }
+      throw err2;
+    }
+  }
+}
+
+function _readQueueFile(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return [];
+    const raw = fs.readFileSync(filePath, "utf8");
+    const json = _decryptQueue(raw);
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed)) {
+      _quarantineCorruptFile(filePath, "decrypted payload is not an array");
+      return [];
+    }
+    return parsed;
+  } catch (err) {
+    if (fs.existsSync(filePath)) {
+      _quarantineCorruptFile(filePath, err.message || "read/decrypt failure");
+    }
+    return [];
   }
 }
 
 function readQueue() {
-  try {
-    if (!fs.existsSync(QUEUE_FILE)) return [];
-    const raw  = fs.readFileSync(QUEUE_FILE, "utf8");
-    const json = _decryptQueue(raw);
-    return JSON.parse(json);
-  } catch { return []; }
+  return _readQueueFile(QUEUE_FILE);
 }
 
 const QUEUE_MAX_SIZE    = 1000;  // hard cap on total queued events
@@ -269,26 +316,19 @@ function _pruneQueue(events) {
 }
 
 function writeQueue(events) {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   const pruned = _pruneQueue(events);
   const json = JSON.stringify(pruned, null, 2);
-  fs.writeFileSync(QUEUE_FILE, _encryptQueue(json), "utf8");
+  _atomicWriteUtf8(QUEUE_FILE, _encryptQueue(json));
 }
 
 function readNamedQueue(filePath) {
-  try {
-    if (!fs.existsSync(filePath)) return [];
-    const raw = fs.readFileSync(filePath, "utf8");
-    const json = _decryptQueue(raw);
-    return JSON.parse(json);
-  } catch { return []; }
+  return _readQueueFile(filePath);
 }
 
 function writeNamedQueue(filePath, events) {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   const pruned = _pruneQueue(events);
   const json = JSON.stringify(pruned, null, 2);
-  fs.writeFileSync(filePath, _encryptQueue(json), "utf8");
+  _atomicWriteUtf8(filePath, _encryptQueue(json));
 }
 
 function appendWebhookLog(entry) {

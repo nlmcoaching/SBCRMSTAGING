@@ -3,6 +3,21 @@ import { Check, AlertCircle, Shield } from "lucide-react";
 import { LOGO } from "../../assets/logo.js";
 import { C, FONT, hexA } from "../../lib/theme.js";
 import { USER_ROLE_COLOR } from "../../lib/constants.js";
+import { Sec } from "../../lib/sec.js";
+
+const passphraseInputStyle = (hasErr) => ({
+  width: "100%",
+  padding: "13px 16px",
+  border: `1.5px solid ${hasErr ? "#C0392B" : C.line}`,
+  borderRadius: 10,
+  fontSize: 15,
+  outline: "none",
+  color: C.ink,
+  background: C.surface,
+  boxSizing: "border-box",
+  fontFamily: FONT.body,
+  letterSpacing: "normal",
+});
 
 export function FirstRunSetup({ onSetup, error }) {
   const [name, setName]         = useState("");
@@ -14,8 +29,9 @@ export function FirstRunSetup({ onSetup, error }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!name.trim())        { setMsg("Please enter your name."); return; }
-    if (pin.length < 6)      { setMsg("PIN must be at least 6 characters."); return; }
-    if (pin !== confirm)     { setMsg("PINs don't match."); return; }
+    const check = Sec.validatePassphrase(pin);
+    if (!check.ok)           { setMsg(check.error); return; }
+    if (pin !== confirm)     { setMsg("Passphrases don't match."); return; }
     setBusy(true);
     setMsg("");
     await onSetup(name, pin);
@@ -29,7 +45,7 @@ export function FirstRunSetup({ onSetup, error }) {
         <img src={LOGO} alt="Simply Breathe" style={{ height: 64, marginBottom: 20 }} />
         <div style={{ fontFamily: FONT.display, fontSize: 22, fontWeight: 800, color: C.ink, marginBottom: 6 }}>Welcome to Simply Breathe OS</div>
         <div style={{ fontSize: 14, color: C.ink3, marginBottom: 28, lineHeight: 1.6 }}>
-          Let's set up your owner account. You'll use this name and PIN every time you log in.
+          Let's set up your owner account. You'll use this name and passphrase every time you log in.
         </div>
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14, textAlign: "left" }}>
           <div>
@@ -38,13 +54,17 @@ export function FirstRunSetup({ onSetup, error }) {
               style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `1.5px solid ${C.line}`, fontSize: 14, outline: "none", boxSizing: "border-box", fontFamily: FONT.body }} />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: C.ink2, display: "block", marginBottom: 5 }}>Create PIN <span style={{ color: C.ink3, fontWeight: 400 }}>(min. 6 characters)</span></label>
-            <input type="password" value={pin} onChange={e => setPin(e.target.value)} placeholder="Choose a strong PIN"
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.ink2, display: "block", marginBottom: 5 }}>
+              Create passphrase <span style={{ color: C.ink3, fontWeight: 400 }}>({Sec.PASSPHRASE_HINT})</span>
+            </label>
+            <input type="password" value={pin} onChange={e => setPin(e.target.value)} placeholder="Choose a strong passphrase"
+              autoComplete="new-password"
               style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `1.5px solid ${C.line}`, fontSize: 14, outline: "none", boxSizing: "border-box", fontFamily: FONT.body }} />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: C.ink2, display: "block", marginBottom: 5 }}>Confirm PIN</label>
-            <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Re-enter your PIN"
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.ink2, display: "block", marginBottom: 5 }}>Confirm passphrase</label>
+            <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Re-enter your passphrase"
+              autoComplete="new-password"
               style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `1.5px solid ${C.line}`, fontSize: 14, outline: "none", boxSizing: "border-box", fontFamily: FONT.body }} />
           </div>
           {(msg || error) && <div style={{ fontSize: 13, color: "#C0573F", fontWeight: 600 }}>{msg || error}</div>}
@@ -55,8 +75,73 @@ export function FirstRunSetup({ onSetup, error }) {
           </button>
         </form>
         <div style={{ marginTop: 20, fontSize: 12, color: C.ink3, lineHeight: 1.6 }}>
-          Your PIN encrypts all data stored in this browser. Store it somewhere safe — it cannot be recovered if lost.
+          Your passphrase encrypts all data stored in this browser. Store it somewhere safe — it cannot be recovered if lost.
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Forced strengthen screen after unlock with a weak (legacy) PIN. Cannot be dismissed. */
+export function PassphraseUpgrade({ onSubmit, error }) {
+  const [pin, setPin]         = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [msg, setMsg]         = useState("");
+  const [busy, setBusy]       = useState(false);
+  const [show, setShow]       = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const check = Sec.validatePassphrase(pin);
+    if (!check.ok)       { setMsg(check.error); return; }
+    if (pin !== confirm) { setMsg("Passphrases don't match."); return; }
+    setBusy(true);
+    setMsg("");
+    const result = await onSubmit(pin);
+    setBusy(false);
+    if (result && result.success === false) {
+      setMsg(result.error || "Failed to update passphrase.");
+    }
+  };
+
+  const cardStyle = {
+    background: C.surface, border: `1px solid ${C.line}`, borderRadius: 20,
+    padding: "28px 40px 36px", width: "100%", maxWidth: 400, textAlign: "center",
+    boxShadow: "0 8px 40px rgba(22,33,58,0.10)",
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT.body }}>
+      <div style={cardStyle}>
+        <div style={{ width: 48, height: 48, borderRadius: "50%", background: "#fffbe6", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px", border: "1.5px solid #f5c542" }}>
+          <Shield size={22} color="#7a5c00" strokeWidth={1.5} />
+        </div>
+        <h1 style={{ fontFamily: FONT.display, fontSize: 20, fontWeight: 700, color: C.ink, margin: "0 0 6px" }}>Strengthen your passphrase</h1>
+        <p style={{ fontSize: 13, color: C.ink3, margin: "0 0 22px", lineHeight: 1.6 }}>
+          Your current PIN is too short to resist offline attacks. Choose a new passphrase ({Sec.PASSPHRASE_HINT}) before continuing.
+        </p>
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 13 }}>
+          <div style={{ position: "relative" }}>
+            <input type={show ? "text" : "password"} value={pin} onChange={e => setPin(e.target.value)}
+              placeholder="New passphrase" autoFocus autoComplete="new-password"
+              style={{ ...passphraseInputStyle(!!(msg || error)), paddingRight: 56 }} />
+            <button type="button" onClick={() => setShow(s => !s)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 11, color: C.ink3, fontWeight: 600 }}>{show ? "HIDE" : "SHOW"}</button>
+          </div>
+          <input type={show ? "text" : "password"} value={confirm} onChange={e => setConfirm(e.target.value)}
+            placeholder="Confirm new passphrase" autoComplete="new-password"
+            style={passphraseInputStyle(!!(msg || error))} />
+          {(msg || error) && (
+            <div style={{ fontSize: 12.5, color: "#C0392B", background: hexA("#C0392B", 0.07),
+              borderRadius: 8, padding: "8px 12px", textAlign: "left", display: "flex", gap: 7, alignItems: "flex-start" }}>
+              <AlertCircle size={13} color="#C0392B" style={{ marginTop: 1, flexShrink: 0 }} /> {msg || error}
+            </div>
+          )}
+          <button type="submit" disabled={busy || !pin.trim()} style={{
+            padding: "13px", background: busy || !pin.trim() ? C.line : "#4A8C6F",
+            color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700,
+            cursor: busy || !pin.trim() ? "not-allowed" : "pointer",
+          }}>{busy ? "Saving…" : "Save & Continue"}</button>
+        </form>
       </div>
     </div>
   );
@@ -111,12 +196,13 @@ export function LockScreen({ onUnlock, error, initialising, users, onRecoveryVer
 
   const submitNewPin = async (e) => {
     e.preventDefault();
-    if (newPinVal.length < 6) { setNewPinError("PIN must be at least 6 characters."); return; }
-    if (newPinVal !== confirmPinVal) { setNewPinError("PINs don't match."); return; }
+    const check = Sec.validatePassphrase(newPinVal);
+    if (!check.ok) { setNewPinError(check.error); return; }
+    if (newPinVal !== confirmPinVal) { setNewPinError("Passphrases don't match."); return; }
     setBusy(true); setNewPinError("");
     const result = await onRecoverySetPin(recoveredKey.userId, newPinVal, recoveredKey.masterKeyRaw);
     setBusy(false);
-    if (!result.success) setNewPinError(result.error || "Failed to set new PIN.");
+    if (!result.success) setNewPinError(result.error || "Failed to set new passphrase.");
   };
 
   const resetRecovery = () => {
@@ -172,30 +258,32 @@ export function LockScreen({ onUnlock, error, initialising, users, onRecoveryVer
         </div>
       )}
 
-      {/* ── Recovery: set new PIN ── */}
+      {/* ── Recovery: set new passphrase ── */}
       {recoveryMode === "setPin" && (
         <div style={cardStyle}>
           <div style={{ width: 48, height: 48, borderRadius: "50%", background: "#eaf4ee", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
             <Check size={22} color="#4A8C6F" strokeWidth={2} />
           </div>
-          <h1 style={{ fontFamily: FONT.display, fontSize: 20, fontWeight: 700, color: C.ink, margin: "0 0 6px" }}>Set New PIN</h1>
+          <h1 style={{ fontFamily: FONT.display, fontSize: 20, fontWeight: 700, color: C.ink, margin: "0 0 6px" }}>Set New Passphrase</h1>
           <p style={{ fontSize: 13, color: C.ink3, margin: "0 0 22px", lineHeight: 1.6 }}>
-            Recovery code verified. Choose a new PIN — at least 6 characters. Your recovery code has been cleared; generate a new one after logging in.
+            Recovery code verified. Choose a new passphrase ({Sec.PASSPHRASE_HINT}). Your recovery code has been cleared; generate a new one after logging in.
           </p>
           <form onSubmit={submitNewPin} style={{ display: "flex", flexDirection: "column", gap: 13 }}>
             <div style={{ position: "relative" }}>
               <input type={showNewPin ? "text" : "password"} value={newPinVal} onChange={e => setNewPinVal(e.target.value)}
-                placeholder="New PIN" autoFocus style={{ ...inputStyle(!!newPinError), paddingRight: 56, fontFamily: "monospace", letterSpacing: ".3em" }} />
+                placeholder="New passphrase" autoFocus autoComplete="new-password"
+                style={{ ...passphraseInputStyle(!!newPinError), paddingRight: 56 }} />
               <button type="button" onClick={() => setShowNewPin(s => !s)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 11, color: C.ink3, fontWeight: 600 }}>{showNewPin ? "HIDE" : "SHOW"}</button>
             </div>
             <input type={showNewPin ? "text" : "password"} value={confirmPinVal} onChange={e => setConfirmPinVal(e.target.value)}
-              placeholder="Confirm new PIN" style={{ ...inputStyle(!!newPinError), fontFamily: "monospace", letterSpacing: ".3em" }} />
+              placeholder="Confirm new passphrase" autoComplete="new-password"
+              style={passphraseInputStyle(!!newPinError)} />
             {errBox(newPinError)}
             <button type="submit" disabled={busy || !newPinVal.trim()} style={{
               padding: "13px", background: busy || !newPinVal.trim() ? C.line : "#4A8C6F",
               color: "#fff", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 700,
               cursor: busy || !newPinVal.trim() ? "not-allowed" : "pointer",
-            }}>{busy ? "Saving…" : "Set PIN & Log In"}</button>
+            }}>{busy ? "Saving…" : "Set Passphrase & Log In"}</button>
           </form>
         </div>
       )}
@@ -251,7 +339,8 @@ export function LockScreen({ onUnlock, error, initialising, users, onRecoveryVer
               )}
               <div style={{ position: "relative" }}>
                 <input type={show ? "text" : "password"} value={pin} onChange={e => setPin(e.target.value)}
-                  placeholder="Enter PIN" autoFocus style={{ width: "100%", padding: "13px 44px 13px 16px", border: `1.5px solid ${error ? "#C0392B" : C.line}`, borderRadius: 10, fontSize: 16, outline: "none", fontFamily: "monospace", letterSpacing: show ? ".05em" : ".3em", color: C.ink, background: C.surface, boxSizing: "border-box" }}
+                  placeholder="Enter PIN" autoFocus autoComplete="off"
+                  style={{ width: "100%", padding: "13px 44px 13px 16px", border: `1.5px solid ${error ? "#C0392B" : C.line}`, borderRadius: 10, fontSize: 16, outline: "none", fontFamily: "monospace", letterSpacing: show ? ".05em" : ".15em", color: C.ink, background: C.surface, boxSizing: "border-box" }}
                   onFocus={e => e.target.style.borderColor = C.brand}
                   onBlur={e => e.target.style.borderColor = error ? "#C0392B" : C.line}
                 />

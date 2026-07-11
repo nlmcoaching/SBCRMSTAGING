@@ -1,1 +1,1 @@
-export { FirstRunSetup, LockScreen } from "./auth.jsx";
+export { FirstRunSetup, LockScreen, PassphraseUpgrade } from "./auth.jsx";

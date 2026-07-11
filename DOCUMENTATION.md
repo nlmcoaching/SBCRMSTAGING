@@ -58,9 +58,23 @@ The system is designed to answer three core daily questions:
 ### PIN-Based Lock Screen
 
 - The app launches into a full-screen lock screen on every visit.
-- Users select their name tile then enter their personal PIN.
+- Users select their name tile then enter their personal PIN / passphrase.
 - Single-user installs auto-select the user and go straight to PIN entry.
 - The heart-wave Simply Breathe logo is displayed prominently on the login screen.
+
+### Passphrase Policy
+
+Vault resistance against offline IndexedDB theft is bounded by wrapping-credential entropy (device key, salt, wrapped master key, and ciphertext are co-located). New and changed credentials must satisfy:
+
+| Rule | Requirement |
+|---|---|
+| Minimum length | 12 characters |
+| Character classes | At least one letter and one digit |
+| Validation | `Sec.validatePassphrase` in `src/lib/sec.js` |
+
+- Unlock still accepts any existing credential (including legacy short PINs).
+- Create / change / reset / recovery flows enforce the policy above.
+- After a successful unlock with a weak credential, the app blocks on a non-dismissible **Strengthen your passphrase** screen (`PassphraseUpgrade`) until the user sets a compliant passphrase and the master key + unlock secret are re-wrapped.
 
 ### Session Persistence
 
@@ -98,9 +112,10 @@ A rejected token is removed from `sessionStorage` and the user must re-enter the
 | Legacy plaintext meta (migrated away) | `sb:security:v1` |
 
 - All CRM data is encrypted at rest using the master key.
-- Each user's copy of the master key is wrapped with their individual PIN-derived key.
-- Adding a new user re-wraps the master key for them using their PIN.
+- Each user's copy of the master key is wrapped with their individual passphrase-derived key (PBKDF2).
+- Adding a new user re-wraps the master key for them using their passphrase.
 - Security metadata (user list, salts, wrapped keys, session hashes) is AES-GCM encrypted with a browser-local device key stored in IndexedDB (not dual-written to localStorage). Legacy plaintext `sb:security:v1` is migrated on first load and removed.
+- Offline resistance depends on passphrase entropy: an attacker who copies IndexedDB obtains the device key beside the ciphertext, so a short numeric PIN can be brute-forced offline even at 600k PBKDF2 iterations.
 - If the browser storage API is unavailable, the app falls back to unencrypted seed data mode.
 - PBKDF2 iterations are automatically upgraded to 600,000 on next login for any account created before v7.0. The upgrade is silent and transparent.
 
@@ -273,7 +288,11 @@ The `Calendly-Webhook-Signature` header is parsed using explicit `indexOf`-based
 
 ### GCM Tamper Detection — Fail Closed
 
-`_decryptQueue` now distinguishes format errors (old plaintext file before encryption was enabled → safe fallback) from GCM authentication failures (integrity check failed → possible tampering). A tampered queue file causes `readQueue()` to return an empty array rather than accepting the attacker's content.
+`_decryptQueue` distinguishes format errors (old plaintext file before encryption was enabled → safe fallback) from GCM authentication failures (integrity check failed → possible tampering). On decrypt/parse failure, `readQueue()` / `readNamedQueue()` **quarantine** the live file by renaming it to `*.corrupt.<ISO-timestamp>` (e.g. `pending-events.json.corrupt.2026-07-11T05-00-00-000Z`) and then return `[]`. The next webhook write therefore creates a fresh empty queue **without overwriting** the suspect ciphertext, preserving evidence and any chance of recovery. Non-array decrypted payloads are quarantined the same way.
+
+### Atomic Queue Writes
+
+`writeQueue` / `writeNamedQueue` write via `_atomicWriteUtf8`: content is written to a sibling temp file, then `rename`d into place (POSIX atomic replace; on Windows, unlink destination then rename). A crash mid-write cannot leave a half-written live queue file.
 
 ### Async Queue Mutex
 
@@ -1449,6 +1468,8 @@ When a save error occurs a full-width red banner appears below the navigation ba
 
 Configures dropdown options used throughout the CRM (lead sources, client types, package types, etc.) and the Calendly sync behaviour.
 
+**Persistence:** `saveCrmSettings` updates React state, `localStorage`, the encrypted `_settings` blob, and the module cache behind `getS()` (`setCrmSettings` from `src/lib/crmSettings.js`, imported in `App.jsx` as `setModuleCrmSettings`). Drawer/`FIELDS` select options call `getS()` at render time — without the module update, dropdown lists stay stale after Admin → Settings changes. The React `useState` setter is named `setCrmSettings` and must not shadow the module import.
+
 #### Calendly Sync Cutoff Date
 
 | Field | Key | Default | Description |
@@ -1787,8 +1808,10 @@ date, vendor, description, amount, category, paymentMethod, taxDeductible, recur
 - `date` — YYYY-MM-DD (e.g. `2026-06-15`)
 - `amount` — number only, no $ sign (e.g. `49.99`)
 - `category` — must exactly match one of the 10 allowed categories
-- `taxDeductible` / `recurring` — `true` or `false`
+- `taxDeductible` / `recurring` — `true` or `false` (also accepts `yes`/`no`, `1`/`0`; coerced to real booleans on import so the string `"false"` is not truthy)
 - `recurringFreq` — `One-time`, `Monthly`, `Quarterly`, or `Annual`
+
+`IMPORT_MAP.expenses` lists `bools: ["taxDeductible", "recurring"]` (and `nums: ["amount"]`). Both the Expenses Summary upload path and the global Import CSVs modal apply `bool()` / `num()` from `src/lib/format.js` during mapping.
 
 Compatible with CSV exports from QuickBooks, Wave, Xero, or any bank statement with renamed headers.
 
@@ -1883,7 +1906,8 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 - Request body size capped at 256 KB
 - Webhook HMAC-SHA256 signature verified with 5-minute timestamp replay protection
 - Queue file encrypted at rest with AES-256-GCM when `QUEUE_ENCRYPTION_KEY` is set
-- If the encryption key is lost or rotated without decrypting first, the backend may leave `*.bak` copies next to the live queue files under `backend/data/` (e.g. `pending-events.json.bak`). Those backups are ciphertext for the **old** key and cannot be recovered without it. **Retention decision:** keep them only while you still hope to recover the old key; otherwise delete the `.bak` files after confirming the live queue (`pending-events.json`, etc.) is healthy. They are gitignored and are not used by the running server.
+- Queue writes are atomic (temp file + rename). Decrypt/read failures quarantine the live file as `*.corrupt.<timestamp>` under `backend/data/` instead of letting the next write destroy it
+- If the encryption key is lost or rotated without decrypting first, the backend may leave `*.bak` or `*.corrupt.*` copies next to the live queue files under `backend/data/` (e.g. `pending-events.json.bak`, `pending-events.json.corrupt.…`). Those files are ciphertext for the **old** key (or tampered data) and cannot be recovered without the matching key. **Retention decision:** keep them only while you still hope to recover the old key or investigate tampering; otherwise delete them after confirming the live queue (`pending-events.json`, etc.) is healthy. They are gitignored and are not used by the running server.
 - `/pending` and `/acknowledge` require `x-frontend-secret` header injected by Vite proxy (never sent directly from browser code)
 - Webhook string fields sanitized via `Sec.sanitize()` before storage (strips HTML and formula injection)
 - SSRF guard: `fetchEventTypeDescription` rejects any `event_type` URI that does not begin with `https://api.calendly.com/`
@@ -2179,6 +2203,7 @@ Click the avatar in the top-right to open the dropdown:
 - Drag-and-drop or file picker via the global **Import CSVs** sidebar button
 - PapaParse used for CSV parsing
 - Formula injection and HTML stripped on import
+- Numeric fields coerced via `nums` + `num()`; boolean fields via `bools` + `bool()` (expense `taxDeductible` / `recurring` must not remain string `"false"`, which is truthy in JS)
 - Duplicate detection by name/email
 
 ### CSV Export
@@ -2206,7 +2231,7 @@ Accessed via the avatar dropdown → Edit Profile. Two tabs:
 - Phone
 
 **Security Tab**
-- Change PIN (requires current PIN, minimum 6 characters, confirmation match)
+- Change PIN / passphrase (requires current PIN, new passphrase meeting the 12+ letter+digit policy, confirmation match; also re-wraps the unlock secret)
 - On PIN change, master key is re-wrapped with the new PIN (requires `masterKeyRaw` in memory — refused if missing, so a new salt is never written against the old wrap)
 
 ### Where Photos Appear

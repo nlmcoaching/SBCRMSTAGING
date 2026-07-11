@@ -7,6 +7,25 @@ export const Sec = {
   newSalt() {
     return btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
   },
+  // Wrapping credential policy — vault resistance is bounded by passphrase entropy
+  // (device key, salt, wrapped key, and ciphertext are co-located in IndexedDB).
+  MIN_PASSPHRASE_LENGTH: 12,
+  PASSPHRASE_HINT: "12+ characters with at least one letter and one number",
+  validatePassphrase(pin) {
+    if (typeof pin !== "string" || pin.length < Sec.MIN_PASSPHRASE_LENGTH) {
+      return { ok: false, error: `Passphrase must be at least ${Sec.MIN_PASSPHRASE_LENGTH} characters.` };
+    }
+    if (!/[A-Za-z]/.test(pin)) {
+      return { ok: false, error: "Passphrase must include at least one letter." };
+    }
+    if (!/\d/.test(pin)) {
+      return { ok: false, error: "Passphrase must include at least one number." };
+    }
+    return { ok: true };
+  },
+  isWeakPassphrase(pin) {
+    return !Sec.validatePassphrase(pin).ok;
+  },
   PBKDF2_ITERATIONS: 600_000,   // OWASP 2024 recommendation
   async deriveKey(pin, saltB64, iterations) {
     const iters = iterations ?? Sec.PBKDF2_ITERATIONS;

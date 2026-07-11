@@ -57,13 +57,15 @@ When you open Simply Breathe OS, you'll see the login screen with the Simply Bre
 If more than one person uses the system, you'll see a tile for each user. Tap or click your name.
 
 **Step 2 — Enter your PIN**
-Type your PIN in the box and press Enter (or tap the arrow button).
+Type your PIN (or passphrase) in the box and press Enter (or tap the arrow button).
 
 If your PIN is correct, you'll go straight to the **Today — Command Center** dashboard. This happens every time you log in, so your daily action list is always the first thing you see. If you forget your PIN, use your **recovery code** (see Your Profile → Security tab) or ask an Owner or Admin to reset it in User Management.
 
 If you see **"Data integrity check failed"**, hard-refresh the page and try again — the app can usually repair missing table structure automatically. If it still fails, restore from a JSON backup (Admin → Storage & Backup → Download Backup).
 
-> **Note:** Your PIN protects your data. Don't share it with others.
+> **Note:** Your PIN protects your data. Don't share it with others. New passphrases must be at least **12 characters** and include a **letter and a number**.
+
+> **Strengthen your passphrase:** If you still use an older short PIN, after a successful login the app will ask you to choose a stronger passphrase before you can continue. This is a one-time step and cannot be skipped.
 
 > **Too many wrong PINs:** After 5 failed attempts the login screen locks for 5 minutes. This counter is stored securely and cannot be reset by clearing browser data — wait for the lockout to expire before trying again.
 
@@ -1170,7 +1172,7 @@ This is the fastest way to add expenses — export from your bank or accounting 
 - Dates must be in YYYY-MM-DD format (e.g. 2026-06-15)
 - Amount should be a number only — no $ sign
 - Category must exactly match one of: Equipment & Supplies, Software & Subscriptions, Marketing & Advertising, Travel & Transport, Education & Training, Professional Services, Insurance, Administrative, Studio & Venue, Other
-- Tax deductible and recurring should be `true` or `false`
+- Tax deductible and recurring should be `true` or `false` (you can also use yes/no or 1/0). The app converts these to real yes/no values on import, so a cell that says `false` is treated as not deductible — not as yes.
 
 ### Expense Categories Explained
 | Category | What goes here |
@@ -1305,12 +1307,12 @@ Click your **avatar circle** in the top-right corner of any page, then select **
 - **Title** — e.g. "Lead Facilitator", "Studio Manager"
 - **Email** and **Phone**
 
-**Security tab — changing your PIN:**
+**Security tab — changing your passphrase:**
 1. Enter your **Current PIN**.
-2. Enter a **New PIN** (minimum 6 characters).
-3. Confirm the new PIN.
-4. Save. If the app says the master key is not available, log out and back in first, then change the PIN — otherwise the save is blocked so your login cannot be broken.
-4. Click **Save Changes**.
+2. Enter a **New passphrase** (at least 12 characters, with a letter and a number).
+3. Confirm the new passphrase.
+4. Save. If the app says the master key is not available, log out and back in first, then change it — otherwise the save is blocked so your login cannot be broken.
+5. Click **Save Changes**.
 
 **Security tab — Recovery Code:**
 
@@ -1329,8 +1331,8 @@ To regenerate (invalidates the old code) or remove the code entirely, return to 
 If you are locked out and have a recovery code:
 1. On the lock screen, click **"Forgot your PIN? Use recovery code"** (this link only appears if a recovery code has been set).
 2. Enter your recovery code — dashes and capitalisation don't matter.
-3. If the code is correct, you'll be prompted to set a **new PIN**.
-4. After setting your new PIN you're logged straight in. The used recovery code is cleared — generate a new one from your Security tab.
+3. If the code is correct, you'll be prompted to set a **new passphrase** (12+ characters with a letter and a number).
+4. After setting your new passphrase you're logged straight in. The used recovery code is cleared — generate a new one from your Security tab.
 
 ---
 
@@ -1399,7 +1401,7 @@ Yes. Every time you save a record the header briefly shows "Saving…" while the
 Yes. CRM records are encrypted with AES-256-GCM. Your PIN is never stored — it unlocks a wrapped key. Account metadata (user list and key material) is also encrypted in the browser with a device-local key. Even if someone opened a casual localStorage dump, they would not see readable security metadata or CRM data without your PIN / this browser profile.
 
 **Someone else needs to access the system. What do I do?**
-By default the CRM is set up for **one person only**. Every extra account can unlock and read **all** client and financial data (not just what their role suggests). If you still want another account: go to **Admin → Settings**, turn on **Multi-user access**, then use **User Management** to add them with a name, PIN, and role. Prefer keeping a single Owner account when working with real client data.
+By default the CRM is set up for **one person only**. Every extra account can unlock and read **all** client and financial data (not just what their role suggests). If you still want another account: go to **Admin → Settings**, turn on **Multi-user access**, then use **User Management** to add them with a name, passphrase (12+ characters with a letter and a number), and role. Prefer keeping a single Owner account when working with real client data.
 
 **I made a mistake and entered wrong information. Can I fix it?**
 Yes. Click any record to open it, make your changes, and click Save. There is no version history, so take care when making bulk changes.
@@ -1421,6 +1423,8 @@ Try refreshing the page. If the problem persists, log out and log back in. If yo
 
 **A new Calendly booking isn't appearing in the CRM. What should I do?**
 The CRM syncs every 15 minutes automatically — wait a moment and check again. If it still doesn't appear, check that the backend server is running (double-click `start.bat` or run `.\start.ps1` from the project folder). If using ngrok for local testing, make sure the ngrok tunnel is still active — ngrok sessions expire after a few hours on the free plan.
+
+If an administrator sees files named like `pending-events.json.corrupt.…` under `backend/data/`, the backend found a damaged or unreadable webhook queue and moved it aside so new bookings can keep arriving. Leave those files for investigation (or delete them once the live queue is healthy again) — they are not used automatically.
 
 **Can I manually create a booking without Calendly?**
 Yes. Go to **Calendly Bookings** and click **New** to create a registration record manually. You'll need to link it to an existing client and session.

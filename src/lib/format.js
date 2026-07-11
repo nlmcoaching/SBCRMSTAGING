@@ -42,6 +42,15 @@ export const pct = (n) => (n === "" || n == null || isNaN(n) ? "—" : Math.roun
 export const onOrBefore = (iso, t) => !!iso && iso <= t;
 export const sameMonth = (iso, ref) => !!iso && iso.slice(0, 7) === ref.slice(0, 7);
 export const num = (v) => { const n = parseFloat(String(v).replace(/[^0-9.\-]/g, "")); return isNaN(n) ? "" : n; };
+/** Coerce CSV / form values to boolean. Strings like "false" must not stay truthy. */
+export const bool = (v) => {
+  if (typeof v === "boolean") return v;
+  const s = String(v ?? "").trim().toLowerCase();
+  if (!s) return false;
+  if (["true", "yes", "y", "1"].includes(s)) return true;
+  if (["false", "no", "n", "0"].includes(s)) return false;
+  return false;
+};
 export const norm = (s) => String(s || "").trim().toLowerCase();
 
 export function cleanName(n) { return String(n || "").replace(/^Sample\s*-\s*/i, ""); }

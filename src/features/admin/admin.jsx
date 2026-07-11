@@ -1569,7 +1569,10 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
       return;
     }
     if (!newName.trim() || !newPin.trim()) return;
-    if (newPin.length < 6) { flash("PIN must be at least 6 characters."); return; }
+    {
+      const check = Sec.validatePassphrase(newPin);
+      if (!check.ok) { flash(check.error); return; }
+    }
     if (!masterKeyRaw)    { flash("Session key unavailable — please log out and back in."); return; }
     setSaving(true);
     try {
@@ -1631,7 +1634,10 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
 
   const handleResetPin = async (userId, newPinVal) => {
     if (!newPinVal.trim() || !masterKeyRaw) return;
-    if (newPinVal.length < 6) { flash("New PIN must be at least 6 characters."); return; }
+    {
+      const check = Sec.validatePassphrase(newPinVal);
+      if (!check.ok) { flash(check.error); return; }
+    }
     setSaving(true);
     try {
       const pinSalt  = Sec.newSalt();
@@ -1727,10 +1733,11 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: 11.5, fontWeight: 600, color: C.ink3, marginBottom: 5 }}>Initial PIN</div>
+                <div style={{ fontSize: 11.5, fontWeight: 600, color: C.ink3, marginBottom: 5 }}>Initial passphrase</div>
                 <div style={{ position: "relative" }}>
                   <input type={showPin ? "text" : "password"} value={newPin} onChange={e => setNewPin(e.target.value)}
-                    placeholder="Set their login PIN"
+                    placeholder={`Passphrase (${Sec.PASSPHRASE_HINT})`}
+                    autoComplete="new-password"
                     style={{ width: "100%", padding: "9px 44px 9px 12px", border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 13, color: C.ink, boxSizing: "border-box" }} />
                   <button type="button" onClick={() => setShowPin(s => !s)} style={{
                     position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
@@ -1889,14 +1896,15 @@ export function EditUserPanel({ user, masterKeyRaw, onSave, onResetPin, saving }
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <div style={{ position: "relative", flex: 1 }}>
           <input type={showPin ? "text" : "password"} value={resetPin} onChange={e => setResetPin(e.target.value)}
-            placeholder="New PIN (leave blank to keep current)"
+            placeholder={`New passphrase (${Sec.MIN_PASSPHRASE_LENGTH}+ chars, letter + number)`}
+            autoComplete="new-password"
             style={{ width: "100%", padding: "8px 44px 8px 12px", border: `1px solid ${C.line}`, borderRadius: 8, fontSize: 12.5, color: C.ink, boxSizing: "border-box" }} />
           <button type="button" onClick={() => setShowPin(s => !s)} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 10, color: C.ink3, fontWeight: 600 }}>{showPin ? "HIDE" : "SHOW"}</button>
         </div>
         {resetPin && <button onClick={() => { onResetPin(resetPin); setResetPin(""); }} style={{
           padding: "8px 14px", background: "#D9892B", color: "#fff", border: "none", borderRadius: 8,
           cursor: "pointer", fontWeight: 700, fontSize: 12, whiteSpace: "nowrap",
-        }}>Reset PIN</button>}
+        }}>Reset passphrase</button>}
       </div>
       <button onClick={() => onSave(perm, role)} disabled={saving} style={{
         padding: "9px 20px", background: C.brand, color: "#fff",

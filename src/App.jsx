@@ -21,8 +21,8 @@ import {
 } from "./stripeMatching.js";
 
 import { C, FONT, hexA } from "./lib/theme.js";
-import { uid, todayISO, addDaysISO, addMonthsISO, MONTHS, fmtDate, money, pct, onOrBefore, sameMonth, num, norm, cleanName, preferLongerText, clientShort, sectionLabel, fmtStudioType } from "./lib/format.js";
-import { CRM_SETTINGS_KEY, DEFAULT_CRM_SETTINGS, parseCrmSettings, loadCrmSettings, _crmSettings, getS, setCrmSettings } from "./lib/crmSettings.js";
+import { uid, todayISO, addDaysISO, addMonthsISO, MONTHS, fmtDate, money, pct, onOrBefore, sameMonth, num, bool, norm, cleanName, preferLongerText, clientShort, sectionLabel, fmtStudioType } from "./lib/format.js";
+import { CRM_SETTINGS_KEY, DEFAULT_CRM_SETTINGS, parseCrmSettings, loadCrmSettings, _crmSettings, getS, setCrmSettings as setModuleCrmSettings } from "./lib/crmSettings.js";
 import * as constants from "./lib/constants.js";
 import { SESSION_CHECKLIST, EQUIP_CHECKLIST_PHASES, EQUIP_CHECKLIST, emptyEquipChecklist, VIRTUAL_PRE_SESSION_MOVED_EQUIP_IDS, virtualEquipPhaseItems, SESSION_CHECKLIST_PHASES, SESSION_PHASE_COLOR, emptySessionChecklist } from "./lib/checklists.js";
 import { STORE_KEY, STORE_KEY_ENC, AGREEMENT_BLOB_PREFIX, apiHeaders, CALENDLY_BACKEND, calendlyApiUrl, fetchWithTimeout, safeResJSON, isTruncatedPreview, resolveCalendlyDescription, sessionCalendlyLookupName, fetchCalendlyDescriptionForSession, applyCalendlyDescriptionToSessions, cancelCalendlyEvent } from "./lib/api.js";
@@ -39,7 +39,7 @@ import { extractTemplateVars, autoFillTemplateVars, applyTemplateVars, resolveRe
 
 import { BreathMark, Stat, Panel, Row, Dot, Tag, MiniChip, DateChip, Empty } from "./components/primitives.jsx";
 import { setAppComponents } from "./components/appBridge.jsx";
-import { FirstRunSetup, LockScreen } from "./features/auth";
+import { FirstRunSetup, LockScreen, PassphraseUpgrade } from "./features/auth";
 import { ReferralTreeView } from "./features/referrals";
 import { TestimonialLibraryView } from "./features/testimonials";
 import { ContentAnalyticsView } from "./features/content";
@@ -179,6 +179,7 @@ export default function App() {
   }, [section, view, locked]);
 
   const [needsSetup,   setNeedsSetup]  = useState(false); // true on first-ever launch
+  const [passphraseUpgrade, setPassphraseUpgrade] = useState(null); // { userId, masterKeyRaw, unlockSecret } when weak PIN must be strengthened
   const [cryptoKey,    setCryptoKey]   = useState(null);
   const [masterKeyRaw, setMasterKeyRaw] = useState(null); // raw b64 for user mgmt
   const [currentUser,  setCurrentUser]  = useState(null); // logged-in user object
@@ -359,7 +360,7 @@ export default function App() {
               if (dec._settings && typeof dec._settings === "object") {
                 const s = parseCrmSettings(dec._settings);
                 setCrmSettings(s);
-                setCrmSettings(s);
+                setModuleCrmSettings(s);
                 try { localStorage.setItem(CRM_SETTINGS_KEY, JSON.stringify(s)); } catch {}
               }
             }
@@ -369,8 +370,13 @@ export default function App() {
         setMasterKeyRaw(masterKeyB64);
         setCryptoKey(masterKey);
         setCurrentUser(owner);
-        try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, token: _migToken })); } catch (_) {}
         loaded.current = true;
+        if (Sec.isWeakPassphrase(pin)) {
+          // Defer session mint until passphrase is strengthened
+          setPassphraseUpgrade({ userId: owner.id, masterKeyRaw: masterKeyB64, unlockSecret: null, role: "Owner", canEdit: true });
+          return;
+        }
+        try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, token: _migToken })); } catch (_) {}
         setLocked(false);
         setSection("today"); setView(0);
         const { token } = await ensureUnlockAndMint(owner, pin, {
@@ -423,7 +429,7 @@ export default function App() {
             if (dec._settings && typeof dec._settings === "object") {
               const s = parseCrmSettings(dec._settings);
               setCrmSettings(s);
-              setCrmSettings(s);
+              setModuleCrmSettings(s);
               try { localStorage.setItem(CRM_SETTINGS_KEY, JSON.stringify(s)); } catch {}
             }
           } else {
@@ -497,8 +503,20 @@ export default function App() {
       _clearLockout();
       // Clean up legacy unencrypted storage
       try { localStorage.removeItem(STORE_KEY); } catch (_) {}
-      try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, token: _sessionToken })); } catch (_) {}
       loaded.current = true;
+
+      if (Sec.isWeakPassphrase(pin)) {
+        setPassphraseUpgrade({
+          userId,
+          masterKeyRaw: mkB64,
+          unlockSecret,
+          role: unlockedUser.role,
+          canEdit: !!unlockedUser.permissions?.edit,
+        });
+        return;
+      }
+
+      try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, token: _sessionToken })); } catch (_) {}
       setLocked(false);
       setSection("today"); setView(0);
       await ensureRegisteredAndMint(userId, unlockSecret, {
@@ -541,7 +559,7 @@ export default function App() {
             if (dec._settings && typeof dec._settings === "object") {
               const s = parseCrmSettings(dec._settings);
               setCrmSettings(s);
-              setCrmSettings(s);
+              setModuleCrmSettings(s);
               try { localStorage.setItem(CRM_SETTINGS_KEY, JSON.stringify(s)); } catch {}
             }
           }
@@ -558,6 +576,8 @@ export default function App() {
   /* ── Recovery: set new PIN + unlock (step 2 of 2) ── */
   const handleRecoverySetPin = async (userId, newPin, masterKeyRaw) => {
     try {
+      const check = Sec.validatePassphrase(newPin);
+      if (!check.ok) return { success: false, error: check.error };
       const sec = await loadSecMeta();
       if (!sec) return { success: false, error: "Security config not found." };
       // Re-wrap master key with new PIN, clear recovery code (consumed), mint session token
@@ -601,6 +621,7 @@ export default function App() {
       } catch {}
       try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, token: _sessionToken })); } catch (_) {}
       loaded.current = true;
+      setPassphraseUpgrade(null);
       setLocked(false);
       setSection("today"); setView(0);
       const token = await ensureRegisteredAndMint(userId, unlockSecret, {
@@ -614,9 +635,57 @@ export default function App() {
     }
   };
 
+  /* ── Forced passphrase strengthen after unlock with a weak (legacy) PIN ── */
+  const handlePassphraseUpgrade = async (newPin) => {
+    if (!passphraseUpgrade) return { success: false, error: "No upgrade in progress." };
+    const check = Sec.validatePassphrase(newPin);
+    if (!check.ok) return { success: false, error: check.error };
+    const { userId, masterKeyRaw: mkB64, unlockSecret: existingSecret, role, canEdit } = passphraseUpgrade;
+    try {
+      const sec = await loadSecMeta();
+      if (!sec) return { success: false, error: "Security config not found." };
+      const pinSalt = Sec.newSalt();
+      const wrappedMasterKey = await Sec.wrapKeyForUser(mkB64, newPin, pinSalt, Sec.PBKDF2_ITERATIONS);
+      const unlockSecret = existingSecret || Sec.generateUnlockSecret();
+      const wrappedUnlockSecret = await Sec.wrapUnlockSecret(unlockSecret, newPin, pinSalt, Sec.PBKDF2_ITERATIONS);
+      const _sessionToken = Sec.randomToken();
+      const _sessionTokenHash = await Sec.sessionTokenHash(_sessionToken);
+      const updatedUsers = (sec.users || []).map(u => {
+        if (u.id !== userId) return u;
+        return {
+          ...u,
+          pinSalt,
+          wrappedMasterKey,
+          wrappedUnlockSecret,
+          pbkdf2Iterations: Sec.PBKDF2_ITERATIONS,
+          sessionTokenHash: _sessionTokenHash,
+          lastLogin: todayISO(),
+        };
+      });
+      await saveSecMeta({ ...sec, users: updatedUsers });
+      setSecUsers(updatedUsers.filter(u => u.active !== false));
+      const upgradedUser = updatedUsers.find(u => u.id === userId);
+      setCurrentUser(upgradedUser);
+      try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, token: _sessionToken })); } catch (_) {}
+      setPassphraseUpgrade(null);
+      setLocked(false);
+      setSection("today"); setView(0);
+      const token = await ensureRegisteredAndMint(userId, unlockSecret, {
+        role: role || upgradedUser?.role,
+        canEdit: canEdit ?? !!upgradedUser?.permissions?.edit,
+      });
+      if (token) { setRefundSessionToken(token); setApiSessionToken(token); }
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: "Failed to update passphrase. Please try again." };
+    }
+  };
+
   /* ── First-launch owner account setup ── */
   const handleSetupOwner = async (name, pin) => {
     try {
+      const check = Sec.validatePassphrase(pin);
+      if (!check.ok) { setPinError(check.error); return; }
       // Guard: if encrypted data already exists, refuse to overwrite without a full page reload
       const existingEnc = await store.get(STORE_KEY_ENC);
       if (existingEnc?.value) {
@@ -648,6 +717,7 @@ export default function App() {
       try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId: owner.id, token: _setupToken })); } catch (_) {}
       loaded.current = true;
       setNeedsSetup(false);
+      setPassphraseUpgrade(null);
       setLocked(false);
       setSection("today"); setView(0);
       const token = await ensureRegisteredAndMint(owner.id, unlockSecret, { role: "Owner", canEdit: true });
@@ -660,6 +730,7 @@ export default function App() {
   /* ── Logout ── */
   const handleLogout = () => {
     setLocked(true);
+    setPassphraseUpgrade(null);
     setCryptoKey(null);
     setMasterKeyRaw(null);
     setCurrentUser(null);
@@ -1634,6 +1705,7 @@ export default function App() {
   }, [data, today]);
 
   if (needsSetup) return <FirstRunSetup onSetup={handleSetupOwner} error={pinError} />;
+  if (passphraseUpgrade) return <PassphraseUpgrade onSubmit={handlePassphraseUpgrade} error={pinError} />;
   if (locked) return <LockScreen onUnlock={handleUnlock} error={pinError} initialising={initialising} users={secUsers} onRecoveryVerify={handleRecoveryVerify} onRecoverySetPin={handleRecoverySetPin} />;
 
   const update = (db, fn) => setData((d) => ({ ...d, [db]: fn(d[db]) }));
@@ -1679,7 +1751,7 @@ export default function App() {
   const saveCrmSettings = (next) => {
     setCrmSettings(next);
     try { localStorage.setItem(CRM_SETTINGS_KEY, JSON.stringify(next)); } catch {}
-    setCrmSettings(next);
+    setModuleCrmSettings(next);
     // Also persist inside the encrypted data store so settings are protected at rest
     setData(d => ({ ...d, _settings: next }));
   };
@@ -3856,6 +3928,7 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
             let val = lower[csvKey] ?? "";
             val = Sec.sanitize(val);
             if (spec.nums && spec.nums.includes(field)) val = num(val);
+            if (spec.bools && spec.bools.includes(field)) val = bool(val);
             rec[field] = val;
           });
           return rec;
@@ -8578,7 +8651,7 @@ const IMPORT_MAP = {
   offers: { file: "04-Offers-Sales.csv", map: { offer: "name", "client name": "_client", "offer type": "offerType", price: "price", status: "status", "date offered": "dateOffered", "close date": "closeDate" }, nums: ["price"], rel: { field: "_client", to: "clients", set: "clientId" } },
   content: { file: "05-Content-Referral.csv", map: { "content title": "name", type: "type", platform: "platform", "date posted": "datePosted", engagement: "engagement", "leads generated": "leads", "sessions booked": "booked" }, nums: ["engagement", "leads", "booked"] },
   followups: { file: "06-Follow-Ups.csv", map: { "follow-up": "name", "client name": "_client", stage: "stage", "last contact date": "lastContact", "follow-up type": "futype", "next action date": "nextAction", outcome: "outcome" }, rel: { field: "_client", to: "clients", set: "clientId" } },
-  expenses: { file: "07-Expenses.csv", map: { date: "date", vendor: "vendor", description: "description", amount: "amount", category: "category", "payment method": "paymentMethod", "paymentmethod": "paymentMethod", "tax deductible": "taxDeductible", "taxdeductible": "taxDeductible", recurring: "recurring", "recurring freq": "recurringFreq", "recurringfreq": "recurringFreq", "linked session": "linkedSession", "linked partner": "linkedPartner", "receipt url": "receiptUrl", notes: "notes" }, nums: ["amount"] },
+  expenses: { file: "07-Expenses.csv", map: { date: "date", vendor: "vendor", description: "description", amount: "amount", category: "category", "payment method": "paymentMethod", "paymentmethod": "paymentMethod", "tax deductible": "taxDeductible", "taxdeductible": "taxDeductible", recurring: "recurring", "recurring freq": "recurringFreq", "recurringfreq": "recurringFreq", "linked session": "linkedSession", "linked partner": "linkedPartner", "receipt url": "receiptUrl", notes: "notes" }, nums: ["amount"], bools: ["taxDeductible", "recurring"] },
 };
 // Calendly bookings (`registrations`) are sync-only — not in IMPORT_MAP / not CSV-importable.
 const DB_ORDER = ["partners", "clients", "sessions", "offers", "content", "followups", "expenses"];
@@ -8992,8 +9065,11 @@ function EditProfileModal({ user, masterKeyRaw, onSave, onClose }) {
 
       if (tab === "security" && (curPin || newPin || confirmPin)) {
         if (!curPin)              { setPinMsg("Enter your current PIN."); setSaving(false); return; }
-        if (newPin.length < 6)    { setPinMsg("New PIN must be at least 6 characters."); setSaving(false); return; }
-        if (newPin !== confirmPin){ setPinMsg("New PINs don't match."); setSaving(false); return; }
+        {
+          const check = Sec.validatePassphrase(newPin);
+          if (!check.ok) { setPinMsg(check.error); setSaving(false); return; }
+        }
+        if (newPin !== confirmPin){ setPinMsg("New passphrases don't match."); setSaving(false); return; }
         // Verify current PIN using the stored iteration count (may be legacy 100k)
         const storedIter = user.pbkdf2Iterations ?? 100_000;
         try { await Sec.unwrapKeyForUser(user.wrappedMasterKey, curPin, user.pinSalt, storedIter); }
@@ -9007,7 +9083,15 @@ function EditProfileModal({ user, masterKeyRaw, onSave, onClose }) {
         }
         const pinSalt = Sec.newSalt();
         const wrappedMasterKey = await Sec.wrapKeyForUser(masterKeyRaw, newPin, pinSalt, Sec.PBKDF2_ITERATIONS);
-        Object.assign(updates, { pinSalt, wrappedMasterKey, pbkdf2Iterations: Sec.PBKDF2_ITERATIONS });
+        let unlockSecret = null;
+        if (user.wrappedUnlockSecret) {
+          try {
+            unlockSecret = await Sec.unwrapUnlockSecret(user.wrappedUnlockSecret, curPin, user.pinSalt, storedIter);
+          } catch (_) { unlockSecret = null; }
+        }
+        if (!unlockSecret) unlockSecret = Sec.generateUnlockSecret();
+        const wrappedUnlockSecret = await Sec.wrapUnlockSecret(unlockSecret, newPin, pinSalt, Sec.PBKDF2_ITERATIONS);
+        Object.assign(updates, { pinSalt, wrappedMasterKey, wrappedUnlockSecret, pbkdf2Iterations: Sec.PBKDF2_ITERATIONS });
         setPinMsg(""); setCurPin(""); setNewPin(""); setConfirmPin("");
       }
       await onSave(updates);
@@ -9129,19 +9213,20 @@ function EditProfileModal({ user, masterKeyRaw, onSave, onClose }) {
               <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12 }}>
                 <Shield size={18} color={C.brand} />
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>Change PIN</div>
-                  <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>Your PIN encrypts and protects your data. Use at least 6 characters.</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.ink }}>Change passphrase</div>
+                  <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>Your passphrase encrypts and protects your data. Use {Sec.PASSPHRASE_HINT}.</div>
                 </div>
               </div>
               {[
                 { label: "Current PIN", val: curPin, set: setCurPin },
-                { label: "New PIN",     val: newPin, set: setNewPin },
-                { label: "Confirm New PIN", val: confirmPin, set: setConfirmPin },
+                { label: "New passphrase",     val: newPin, set: setNewPin },
+                { label: "Confirm new passphrase", val: confirmPin, set: setConfirmPin },
               ].map(({ label, val, set }) => (
                 <div key={label}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: C.ink2, display: "block", marginBottom: 6 }}>{label}</label>
-                  <input type="password" value={val} onChange={e => set(e.target.value)} placeholder="••••••"
-                    style={{ width: "100%", padding: "10px 14px", border: `1px solid ${pinMsg ? "#EF4444" : C.line}`, borderRadius: 10, fontSize: 14, color: C.ink, background: C.bg, outline: "none", boxSizing: "border-box", letterSpacing: "0.2em" }} />
+                  <input type="password" value={val} onChange={e => set(e.target.value)} placeholder="••••••••••••"
+                    autoComplete="off"
+                    style={{ width: "100%", padding: "10px 14px", border: `1px solid ${pinMsg ? "#EF4444" : C.line}`, borderRadius: 10, fontSize: 14, color: C.ink, background: C.bg, outline: "none", boxSizing: "border-box" }} />
                 </div>
               ))}
               {pinMsg && <div style={{ fontSize: 12, color: "#EF4444", padding: "8px 12px", background: "#FEF2F2", borderRadius: 8 }}>{pinMsg}</div>}
@@ -9395,6 +9480,7 @@ function ImportModal({ data, setData, onClose }) {
             let val = lower[csvKey] ?? "";
             val = Sec.sanitize(val);                          // ← sanitize before coercing
             if (spec.nums && spec.nums.includes(field)) val = num(val);
+            if (spec.bools && spec.bools.includes(field)) val = bool(val);
             rec[field] = val;
           });
           return rec;
