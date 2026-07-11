@@ -2,7 +2,9 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { RefreshCw, Plus, Upload, Download, ChevronDown, Check, AlertCircle, Activity, Send, CheckCircle, Save, Lock } from "lucide-react";
 import { C, FONT, hexA } from "../../lib/theme.js";
 import { todayISO, fmtDate } from "../../lib/format.js";
-import { USER_ROLES, USER_ROLE_COLOR, USER_COLORS, ROLE_PERMISSIONS } from "../../lib/constants.js";
+import { USER_ROLES, USER_ROLE_COLOR, USER_COLORS, ROLE_PERMISSIONS,
+  CLOSED_OFFER_STATUSES, schemaValues, FIELD,
+} from "../../lib/constants.js";
 import { AGREEMENT_BLOB_PREFIX, apiHeaders, calendlyApiUrl, safeResJSON } from "../../lib/api.js";
 import { getApiSessionToken } from "../../lib/apiSession.js";
 import { registerUnlockCredential, setUnlockPermissions } from "../../lib/apiAuth.js";
@@ -12,254 +14,79 @@ import { Sec } from "../../lib/sec.js";
 import { DEFAULT_CRM_SETTINGS } from "../../lib/crmSettings.js";
 import { CRM_ARRAY_KEYS, normalizeCrmData } from "../../lib/normalizeData.js";
 import { Stat } from "../../components/primitives.jsx";
-import { AppComponent } from "../../components/appBridge.jsx";
+import { AppComponent, getAppFields } from "../../components/appBridge.jsx";
 
 const LAST_BACKUP_KEY      = "sb:last-backup:v1";
-
-function f(key, label, type, opts = {}) { return { key, label, type, ...opts }; }
 
 async function deleteAgreementBlob(agreementId) {
   if (!agreementId) return;
   await store.remove(AGREEMENT_BLOB_PREFIX + agreementId);
 }
 
-const DB_SCHEMA = [
-  {
-    table: "clients", label: "Clients", lane: "B2C",
-    description: "Individual clients — leads, attendees, members, and advocates.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "name",            type: "string",   required: true,  description: "Full name" },
-      { name: "email",           type: "email",    required: false, description: "Contact email address" },
-      { name: "phone",           type: "string",   required: false, description: "Phone number" },
-      { name: "source",          type: "select",   required: false, description: "How the client found Simply Breathe", values: "Referral · Instagram · Studio · Website · Direct · Event · Corporate · Other" },
-      { name: "type",            type: "select",   required: false, description: "Client classification", values: "First-time attendee · Repeat attendee · Member · Advocate · Referral source · Private client · Studio attendee · Virtual attendee · Corporate attendee · High-value lead · Past client – reactivate" },
-      { name: "tags",            type: "array",    required: false, description: "Intent / emotional tags", values: "Stress relief · Anxiety · Burnout · Performance · Grief · Letting go · Self-confidence · Nervous system reset · Transformation seeker · Spiritual growth · Corporate wellness" },
-      { name: "firstContact",    type: "date",     required: false, description: "Date of first contact (ISO 8601)" },
-      { name: "lastSession",     type: "date",     required: false, description: "Date of most recent session attended" },
-      { name: "nextFollowUp",    type: "date",     required: false, description: "Scheduled next follow-up date" },
-      { name: "status",          type: "select",   required: false, description: "Relationship status", values: "New lead · Active · Warm · VIP · Advocate · Inactive · Lost" },
-      { name: "referralSource",  type: "string",   required: false, description: "Name of the person who referred this client" },
-      { name: "referralPotential", type: "select", required: false, description: "Likelihood to refer others", values: "High · Medium · Low" },
-      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
-    ],
-  },
-  {
-    table: "partners", label: "Studio Partners", lane: "B2B",
-    description: "Studios, gyms, and wellness spaces that host breathwork events.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "name",            type: "string",   required: true,  description: "Studio or business name" },
-      { name: "owner",           type: "string",   required: false, description: "Owner or manager name" },
-      { name: "email",           type: "email",    required: false, description: "Primary contact email" },
-      { name: "phone",           type: "string",   required: false, description: "Phone number" },
-      { name: "location",        type: "string",   required: false, description: "City / address" },
-      { name: "type",            type: "select",   required: false, description: "Studio category", values: "Yoga · Gym · Meditation · Wellness · Pilates · Corporate · Other" },
-      { name: "communitySize",   type: "number",   required: false, description: "Estimated active member / follower count" },
-      { name: "bestJourney",     type: "string",   required: false, description: "Best-fit breathwork journey for this audience" },
-      { name: "revenuePotential",type: "currency",  required: false, description: "Estimated total revenue potential ($)" },
-      { name: "stage",           type: "select",   required: false, description: "Pipeline stage", values: "Target Identified · Researched · Initial Outreach Sent · Follow-Up Needed · Discovery Call Booked · Demo Session Offered · Demo Completed · Pilot Proposed · Agreement Sent · Agreement Signed · First Session Scheduled · Pilot Completed · Recurring Partner · Lost / Not a Fit" },
-      { name: "probability",     type: "number",   required: false, description: "Probability of closing (0–100%)" },
-      { name: "lastTouch",       type: "date",     required: false, description: "Date of last activity or contact" },
-      { name: "nextAction",      type: "string",   required: false, description: "Next required action" },
-      { name: "contractStatus",  type: "select",   required: false, description: "Agreement status", values: "None · Sent · Signed · Expired" },
-      { name: "insuranceReq",    type: "string",   required: false, description: "Insurance requirements noted" },
-      { name: "promotionCommit", type: "string",   required: false, description: "Agreed promotion commitments" },
-      { name: "notes",           type: "textarea", required: false, description: "Free-form notes and conversation history" },
-      { name: "checklist",       type: "object",   required: false, description: "Studio Launch Checklist — 4-phase, 23 boolean items (before_signing, after_signing, before_event, after_event)" },
-    ],
-  },
-  {
-    table: "sessions", label: "Sessions", lane: "B2C",
-    description: "Individual breathwork events — studio, virtual, or private.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "date",            type: "date",     required: true,  description: "Session date (ISO 8601)" },
-      { name: "time",            type: "string",   required: false, description: "Session start time" },
-      { name: "studio",          type: "string",   required: false, description: "Studio name or 'Virtual'" },
-      { name: "journey",         type: "string",   required: false, description: "Breathwork journey used" },
-      { name: "status",          type: "select",   required: false, description: "Lifecycle status", values: "Planned · Booking Open · Promotion Active · Almost Full · Completed · Follow-Up Pending · Closed Out" },
-      { name: "capacity",        type: "number",   required: false, description: "Maximum attendee capacity" },
-      { name: "registered",      type: "number",   required: false, description: "Number registered" },
-      { name: "paid",            type: "number",   required: false, description: "Number who paid" },
-      { name: "waivers",         type: "number",   required: false, description: "Number of waivers completed" },
-      { name: "noShows",         type: "number",   required: false, description: "Number of no-shows" },
-      { name: "grossRevenue",    type: "currency",  required: false, description: "Total gross revenue collected ($)" },
-      { name: "studioSplit",     type: "currency",  required: false, description: "Amount paid to studio ($)" },
-      { name: "netRevenue",      type: "currency",  required: false, description: "Net revenue after studio split ($)" },
-      { name: "roomSetup",       type: "select",   required: false, description: "Room setup status", values: "Not started · In progress · Complete" },
-      { name: "audioSetup",      type: "select",   required: false, description: "Music / headset setup status", values: "Not started · In progress · Complete" },
-      { name: "testimonialsCapt",type: "boolean",  required: false, description: "Were testimonials captured post-session?" },
-      { name: "followUpSent",    type: "boolean",  required: false, description: "Was the post-session follow-up email sent?" },
-      { name: "rebookOfferSent", type: "boolean",  required: false, description: "Was a rebook offer sent?" },
-      { name: "referralsReq",    type: "boolean",  required: false, description: "Were referrals requested?" },
-      { name: "breakthroughNoted", type: "boolean", required: false, description: "Was a client breakthrough noted? Triggers testimonial request alert." },
-      { name: "equipChecklist",  type: "object",   required: false, description: "Equipment checklist — 3 phases, 17 boolean items (audio_tech, room_supplies, admin_checkin)" },
-      { name: "conversionResult",type: "string",   required: false, description: "Outcome summary (e.g. '2 3-packs sold')" },
-      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
-    ],
-  },
-  {
-    table: "offers", label: "Offers", lane: "B2C",
-    description: "Sales offers made to clients or studios.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "client",          type: "string",   required: true,  description: "Client or studio name" },
-      { name: "type",            type: "select",   required: false, description: "Offer type", values: "Single session · 3-pack · 6-pack · 12-pack · Private session · Studio pilot · Studio recurring agreement · Corporate event · Group event · Referral partner offer" },
-      { name: "amount",          type: "currency",  required: false, description: "Offer value ($)" },
-      { name: "dateOffered",     type: "date",     required: false, description: "Date offer was sent" },
-      { name: "expiresOn",       type: "date",     required: false, description: "Offer expiration date" },
-      { name: "followUpDate",    type: "date",     required: false, description: "Scheduled follow-up date" },
-      { name: "status",          type: "select",   required: false, description: "Offer lifecycle status", values: "Drafted · Sent · Viewed · Follow-Up Due · Accepted · Paid · Declined · Expired" },
-      { name: "probability",     type: "number",   required: false, description: "Estimated close probability (0–100%)" },
-      { name: "source",          type: "select",   required: false, description: "Lead source for this offer", values: "Referral · Instagram · Studio · Website · Direct · Event · Corporate · Other" },
-      { name: "reasonLost",      type: "string",   required: false, description: "Reason if offer was declined or expired" },
-      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
-    ],
-  },
-  {
-    table: "revenue", label: "Revenue", lane: "B2C",
-    description: "Individual revenue line items for attribution and profitability analysis.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "date",            type: "date",     required: true,  description: "Revenue date" },
-      { name: "client",          type: "string",   required: false, description: "Linked client name" },
-      { name: "session",         type: "string",   required: false, description: "Linked session ID or name" },
-      { name: "channel",         type: "select",   required: false, description: "Revenue channel", values: "Studio session · Virtual session · Private client · Group package · Corporate event · Referral partner · Paid ad · Organic Instagram · Email list · Studio partner" },
-      { name: "gross",           type: "currency",  required: false, description: "Gross revenue ($)" },
-      { name: "stripeFee",       type: "currency",  required: false, description: "Payment processing fee ($)" },
-      { name: "studioSplit",     type: "currency",  required: false, description: "Studio share ($)" },
-      { name: "facilitatorCost", type: "currency",  required: false, description: "Facilitator / contractor cost ($)" },
-      { name: "refunds",         type: "currency",  required: false, description: "Refund amount ($)" },
-      { name: "net",             type: "currency",  required: false, description: "Net revenue after all deductions ($)" },
-      { name: "costCenter",      type: "string",   required: false, description: "Cost center or accounting category" },
-      { name: "source",          type: "string",   required: false, description: "Marketing source or campaign" },
-      { name: "campaign",        type: "string",   required: false, description: "Campaign name" },
-      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
-    ],
-  },
-  {
-    table: "expenses", label: "Expenses", lane: "Core",
-    description: "Business expenses — manually entered, or auto-generated from studio revenue splits and canceled bookings.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "date",            type: "date",     required: true,  description: "Expense date (ISO 8601)" },
-      { name: "vendor",          type: "string",   required: false, description: "Vendor or payee name" },
-      { name: "description",     type: "string",   required: false, description: "What the expense was for" },
-      { name: "amount",          type: "currency",  required: false, description: "Expense amount ($)" },
-      { name: "category",        type: "select",   required: false, description: "Expense category", values: "Equipment & Supplies · Software & Subscriptions · Marketing & Advertising · Travel & Transport · Education & Training · Professional Services · Insurance · Administrative · Studio & Venue · Studio Split · Refunds & Cancellations · Other" },
-      { name: "paymentMethod",   type: "select",   required: false, description: "How the expense was paid", values: "Credit Card · Bank Transfer · Cash · Check · Other" },
-      { name: "taxDeductible",   type: "boolean",  required: false, description: "Is this expense tax deductible?" },
-      { name: "recurring",       type: "boolean",  required: false, description: "Is this a recurring expense?" },
-      { name: "recurringFreq",   type: "select",   required: false, description: "Recurrence frequency", values: "One-time · Monthly · Quarterly · Annual" },
-      { name: "linkedSession",   type: "string",   required: false, description: "Linked session ID (if tied to a session)" },
-      { name: "linkedPartner",   type: "string",   required: false, description: "Linked studio partner ID (if tied to a partner)" },
-      { name: "receiptUrl",      type: "string",   required: false, description: "Link to a receipt or supporting document" },
-      { name: "stripeRefundId",  type: "string",   required: false, description: "Stripe refund ID (re_...) when the expense reflects an actual Stripe refund" },
-      { name: "refundedAt",      type: "date",     required: false, description: "When the Stripe refund was issued (ISO 8601)" },
-      { name: "auto",            type: "boolean",  required: false, description: "True for auto-generated rows (studio split / canceled booking) — read-only in the UI" },
-      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
-    ],
-  },
-  {
-    table: "referrals", label: "Referrals", lane: "B2C",
-    description: "Referral relationships — who referred whom and the resulting revenue.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "referrer",        type: "string",   required: true,  description: "Name of person who gave the referral" },
-      { name: "referred",        type: "string",   required: false, description: "Name of person referred" },
-      { name: "date",            type: "date",     required: false, description: "Date referral was received" },
-      { name: "status",          type: "select",   required: false, description: "Referral status", values: "Received · Contacted · Attended · Purchased · Thanked · Closed" },
-      { name: "attended",        type: "boolean",  required: false, description: "Did the referred person attend a session?" },
-      { name: "purchased",       type: "boolean",  required: false, description: "Did they purchase an offer?" },
-      { name: "revenue",         type: "currency",  required: false, description: "Revenue generated from this referral ($)" },
-      { name: "thankYouSent",    type: "boolean",  required: false, description: "Was a thank-you sent to the referrer?" },
-      { name: "rewardGiven",     type: "boolean",  required: false, description: "Was a referral reward given?" },
-      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
-    ],
-  },
-  {
-    table: "content", label: "Content Calendar", lane: "B2C",
-    description: "Social media and email content — ideas, drafts, scheduled, and published.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "title",           type: "string",   required: true,  description: "Post title or working title" },
-      { name: "body",            type: "textarea", required: false, description: "Caption or body copy" },
-      { name: "platform",        type: "select",   required: false, description: "Publishing platform", values: "Instagram · Facebook · LinkedIn · TikTok · YouTube · Email · Blog · Other" },
-      { name: "category",        type: "select",   required: false, description: "Content category", values: "Client transformation · Breathwork education · Nervous system regulation · Behind the scenes · Studio partner promotion · Founder story · Testimonials · FAQs · Contraindications/safety · Upcoming sessions" },
-      { name: "status",          type: "select",   required: false, description: "Content lifecycle status", values: "Idea · Draft · Scheduled · Published · Archived" },
-      { name: "scheduledDate",   type: "date",     required: false, description: "Scheduled publish date" },
-      { name: "reach",           type: "number",   required: false, description: "Total accounts reached" },
-      { name: "likes",           type: "number",   required: false, description: "Like count" },
-      { name: "comments",        type: "number",   required: false, description: "Comment count" },
-      { name: "shares",          type: "number",   required: false, description: "Share / repost count" },
-      { name: "saves",           type: "number",   required: false, description: "Save count" },
-      { name: "leads",           type: "number",   required: false, description: "Leads generated from this post" },
-      { name: "booked",          type: "number",   required: false, description: "Bookings attributed to this post" },
-      { name: "revenue",         type: "currency",  required: false, description: "Revenue attributed to this post ($)" },
-      { name: "sessionPromoted", type: "string",   required: false, description: "Session name promoted in this post" },
-      { name: "studioTagged",    type: "string",   required: false, description: "Studio partner tagged" },
-      { name: "reused",          type: "boolean",  required: false, description: "Is this repurposed content?" },
-      { name: "cta",             type: "string",   required: false, description: "Call to action text or link" },
-      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
-    ],
-  },
-  {
-    table: "outreach", label: "Outreach Hub", lane: "B2B",
-    description: "Proactive studio and referral outreach tracking.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "name",            type: "string",   required: true,  description: "Target name (studio or individual)" },
-      { name: "targetType",      type: "select",   required: false, description: "Type of outreach target", values: "Studio · Individual · Corporate · Event Space · Wellness Brand" },
-      { name: "contactStatus",   type: "select",   required: false, description: "Contact lifecycle status", values: "Not contacted · Contacted · Responded · Meeting booked · Demo offered · Negotiating · Closed · Not interested" },
-      { name: "messageUsed",     type: "textarea", required: false, description: "Outreach message or template used" },
-      { name: "lastContact",     type: "date",     required: false, description: "Date of last contact" },
-      { name: "nextFollowUp",    type: "date",     required: false, description: "Next scheduled follow-up date" },
-      { name: "responseStatus",  type: "select",   required: false, description: "Response received", values: "No response · Positive · Neutral · Negative · Bounced" },
-      { name: "warmth",          type: "select",   required: false, description: "Relationship warmth", values: "Cold · Warm · Hot" },
-      { name: "source",          type: "select",   required: false, description: "How this target was found", values: "Instagram · Referral · LinkedIn · Walk-in · Event · Website · Directory · Other" },
-      { name: "priority",        type: "number",   required: false, description: "Priority score (1–5)" },
-      { name: "revenuePotential",type: "currency",  required: false, description: "Estimated revenue potential ($)" },
-      { name: "partnerId",       type: "string",   required: false, description: "Linked Studio Partner record ID" },
-      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
-    ],
-  },
-  {
-    table: "testimonials", label: "Testimonials", lane: "Core",
-    description: "Client testimonials — written, video, and usage permissions.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "client",          type: "string",   required: true,  description: "Client name" },
-      { name: "session",         type: "string",   required: false, description: "Session or journey attended" },
-      { name: "written",         type: "textarea", required: false, description: "Full written testimonial text" },
-      { name: "videoUrl",        type: "string",   required: false, description: "Video testimonial URL" },
-      { name: "permissionRec",   type: "boolean",  required: false, description: "Was permission received to use this testimonial?" },
-      { name: "useWebsite",      type: "boolean",  required: false, description: "Permitted for website use?" },
-      { name: "useSocial",       type: "boolean",  required: false, description: "Permitted for social media use?" },
-      { name: "firstNameOnly",   type: "boolean",  required: false, description: "First name only permission?" },
-      { name: "theme",           type: "select",   required: false, description: "Testimonial theme", values: "Stress relief · Release · Clarity · Emotional breakthrough · Sleep · Performance · Transformation · Nervous system" },
-      { name: "bestQuote",       type: "string",   required: false, description: "Single best pull-quote for marketing" },
-      { name: "beforeSummary",   type: "textarea", required: false, description: "Client state before the session" },
-      { name: "afterSummary",    type: "textarea", required: false, description: "Client state after the session" },
-      { name: "status",          type: "select",   required: false, description: "Testimonial status", values: "Requested · Received · Approved · Published · Archived" },
-      { name: "date",            type: "date",     required: false, description: "Date testimonial was received" },
-    ],
-  },
-  {
-    table: "templates", label: "Templates", lane: "Core",
-    description: "Email and SMS communication templates.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "name",            type: "string",   required: true,  description: "Template display name" },
-      { name: "category",        type: "select",   required: false, description: "Template category", values: "B2B Outreach · Session · Follow-Up · Offer" },
-      { name: "channel",         type: "select",   required: false, description: "Delivery channel", values: "Email · SMS" },
-      { name: "subject",         type: "string",   required: false, description: "Email subject line (Email templates only)" },
-      { name: "body",            type: "textarea", required: false, description: "Template body — supports {{variable}} placeholders" },
-      { name: "linkedTo",        type: "select",   required: false, description: "Associated record type", values: "Client · Studio Partner · Session · Offer · General" },
-      { name: "notes",           type: "textarea", required: false, description: "Usage notes or variable descriptions" },
-    ],
-  },
-];
+/** Table labels/lanes for Schema Browser — field lists come from runtime FIELDS via getAppFields(). */
+const SCHEMA_META = {
+  clients:        { label: "Clients",           lane: "B2C",  description: "Individual clients — leads, attendees, members, and advocates." },
+  partners:       { label: "Studio Partners",   lane: "B2B",  description: "Studios, gyms, and wellness spaces that host breathwork events." },
+  sessions:       { label: "Sessions",          lane: "B2C",  description: "Individual breathwork events — studio, virtual, or private." },
+  offers:         { label: "Offers",            lane: "B2C",  description: "Sales offers made to clients or studios." },
+  revenue:        { label: "Revenue",           lane: "B2C",  description: "Individual revenue line items for attribution and profitability analysis." },
+  expenses:       { label: "Expenses",          lane: "Core", description: "Business expenses — manually entered, or auto-generated from studio revenue splits." },
+  followups:      { label: "Follow-Ups",        lane: "B2C",  description: "Client follow-up tracking and outcomes." },
+  referrals:      { label: "Referrals",         lane: "B2C",  description: "Referral relationships — who referred whom and the resulting revenue." },
+  content:        { label: "Content Calendar",  lane: "B2C",  description: "Social media and email content — ideas, drafts, scheduled, and published." },
+  outreach:       { label: "Outreach Hub",      lane: "B2B",  description: "Proactive studio and referral outreach tracking." },
+  testimonials:   { label: "Testimonials",      lane: "Core", description: "Client testimonials — written, video, and usage permissions." },
+  templates:      { label: "Templates",         lane: "Core", description: "Email and SMS communication templates." },
+  registrations:  { label: "Registrations",     lane: "B2C",  description: "Calendly bookings linked to sessions and Stripe payments." },
+};
+
+const FIELD_TYPE_MAP = {
+  text: "string", phone: "string", email: "email", number: "number",
+  currency: "currency", date: "date", textarea: "textarea",
+  select: "select", dropdown: "select", multiselect: "array",
+  tagselector: "array", checkbox: "boolean", relation: "string",
+};
+
+function resolveFieldOptions(options) {
+  if (options == null) return undefined;
+  try {
+    const raw = typeof options === "function" ? options() : options;
+    if (!Array.isArray(raw) || !raw.length) return undefined;
+    return schemaValues(raw);
+  } catch (_) {
+    return undefined;
+  }
+}
+
+function buildDbSchema(fields) {
+  const keys = Object.keys(SCHEMA_META);
+  return keys.map((table) => {
+    const meta = SCHEMA_META[table];
+    const defs = fields?.[table] || [];
+    return {
+      table,
+      ...meta,
+      fields: [
+        { name: "id", type: "string", required: true, description: "Auto-generated unique identifier" },
+        ...defs.map((fd) => {
+          const type = FIELD_TYPE_MAP[fd.type] || fd.type || "string";
+          const values = (type === "select" || type === "array") ? resolveFieldOptions(fd.options) : undefined;
+          return {
+            name: fd.key,
+            type,
+            required: !!fd.title,
+            description: fd.label || fd.key,
+            ...(values ? { values } : {}),
+          };
+        }),
+      ],
+    };
+  });
+}
+
+function getDbSchema() {
+  return buildDbSchema(getAppFields() || {});
+}
 
 const EMAIL_STATUS_COLOR = {
   sent:      "#2563EB",
@@ -519,11 +346,14 @@ export function ResetToProductionView({ data, setData, currentUser }) {
     if (currentUser?.role !== "Owner") throw new Error("Owner role required.");
     let queueCleared = false;
     try {
-      const res = await fetch(calendlyApiUrl("/api/integration/clear-queues"), {
-        method: "POST",
-        headers: apiHeaders(),
-      });
-      queueCleared = res.ok;
+      const tok = getApiSessionToken();
+      if (tok) {
+        const res = await fetch(calendlyApiUrl("/api/integration/clear-queues"), {
+          method: "POST",
+          headers: { ...apiHeaders(), "x-session-token": tok },
+        });
+        queueCleared = res.ok;
+      }
     } catch { /* backend offline — CRM wipe still proceeds */ }
 
     // Delete each agreement blob individually — a single IDB failure must not abort the rest
@@ -585,7 +415,7 @@ export function ResetToProductionView({ data, setData, currentUser }) {
         </div>
       ) : (
         <div style={{ marginTop: 20, padding: "12px 18px", background: hexA("#D9892B", 0.1), border: `1px solid ${hexA("#D9892B", 0.3)}`, borderRadius: 10, display: "inline-block", fontSize: 13, color: "#9A5D10", fontWeight: 600 }}>
-          Backend was unreachable — clear webhook queues manually: <code style={{ background: "#fff", padding: "1px 6px", borderRadius: 4, fontFamily: "monospace" }}>POST /api/integration/clear-queues</code> (or restart the backend with empty queue files) before syncing Calendly or Stripe.
+          Backend could not clear webhook queues (offline, or session expired — log out and back in). Clear manually: <code style={{ background: "#fff", padding: "1px 6px", borderRadius: 4, fontFamily: "monospace" }}>POST /api/integration/clear-queues</code> with <code style={{ background: "#fff", padding: "1px 6px", borderRadius: 4, fontFamily: "monospace" }}>x-frontend-secret</code> and <code style={{ background: "#fff", padding: "1px 6px", borderRadius: 4, fontFamily: "monospace" }}>x-session-token</code> (or restart the backend with empty queue files) before syncing Calendly or Stripe.
         </div>
       )}
       {done.blobFailures > 0 && (
@@ -701,6 +531,7 @@ export function ResetToProductionView({ data, setData, currentUser }) {
             onChange={e => { setPinValue(e.target.value); setPinErr(""); }}
             onKeyDown={e => { if (e.key === "Enter") handleVerifyPin(); }}
             placeholder="Your PIN"
+            autoComplete="off"
             autoFocus
             style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `2px solid ${pinErr ? "#C0392B" : C.line}`, fontSize: 14, fontWeight: 700, letterSpacing: "0.2em", color: C.ink, boxSizing: "border-box", outline: "none", marginBottom: pinErr ? 6 : 14 }}
           />
@@ -727,28 +558,47 @@ export function ResetToProductionView({ data, setData, currentUser }) {
 }
 
 export function AdminView({ tab, data, setData, secUsers, currentUser, today, crmSettings, onSaveSettings }) {
+  const DB_SCHEMA = getDbSchema();
   const [integrityResults, setIntegrityResults] = useState(null);
   const [runningCheck, setRunningCheck]         = useState(false);
-  const [schemaTable,  setSchemaTable]          = useState(DB_SCHEMA[0].table);
+  const [schemaTable,  setSchemaTable]          = useState(() => Object.keys(SCHEMA_META)[0]);
   const [exportMsg,    setExportMsg]            = useState("");
   const [expandedField, setExpandedField]       = useState(null);
   const [exportConfirm, setExportConfirm]       = useState(false);
   const [restorePreview, setRestorePreview]     = useState(null);
   const [restoreMsg,    setRestoreMsg]          = useState("");
   const [restoreError,  setRestoreError]        = useState("");
-  const [restoreConfirm, setRestoreConfirm]     = useState(false);
+  const [restoreStep,   setRestoreStep]         = useState(0); // 0 = closed, 1 = review, 2 = type RESTORE, 3 = PIN
+  const [restoreConfirmText, setRestoreConfirmText] = useState("");
+  const [restorePin,    setRestorePin]          = useState("");
+  const [restorePinErr, setRestorePinErr]       = useState("");
+  const [restoreVerifying, setRestoreVerifying] = useState(false);
   const restoreFileRef = useRef(null);
+
+  const closeRestoreFlow = () => {
+    setRestoreStep(0);
+    setRestoreConfirmText("");
+    setRestorePin("");
+    setRestorePinErr("");
+    setRestoreVerifying(false);
+  };
 
   const handleRestoreFile = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setRestoreMsg(""); setRestoreError(""); setRestorePreview(null);
+    setRestoreMsg(""); setRestoreError(""); setRestorePreview(null); closeRestoreFlow();
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
         const raw = JSON.parse(ev.target.result);
+        // Validate the raw file before normalizeCrmData fills missing arrays —
+        // otherwise any JSON object would pass Sec.validate after normalization.
+        if (!Sec.validate(raw)) {
+          setRestoreError("This file does not appear to be a valid SBCRM backup.");
+          return;
+        }
         const normalized = normalizeCrmData(raw);
-        if (!Sec.validate(normalized)) {
+        if (!normalized || !Sec.validate(normalized)) {
           setRestoreError("This file does not appear to be a valid SBCRM backup.");
           return;
         }
@@ -763,13 +613,45 @@ export function AdminView({ tab, data, setData, secUsers, currentUser, today, cr
 
   const applyRestore = () => {
     if (!restorePreview) return;
+    if (currentUser?.role !== "Owner") throw new Error("Owner role required.");
     const total = CRM_ARRAY_KEYS.reduce((s, k) => s + (restorePreview[k]?.length || 0), 0);
     setData(restorePreview);
     setRestorePreview(null);
-    setRestoreConfirm(false);
+    closeRestoreFlow();
     setRestoreMsg(`✓ Restored — ${total} records loaded`);
     setTimeout(() => setRestoreMsg(""), 10000);
   };
+
+  const handleRestoreVerifyPin = async () => {
+    if (currentUser?.role !== "Owner") { setRestorePinErr("Owner role required."); return; }
+    if (!restorePin) { setRestorePinErr("Enter your PIN."); return; }
+    if (!restorePreview) { setRestorePinErr("No backup loaded."); return; }
+    setRestoreVerifying(true); setRestorePinErr("");
+
+    // Phase 1 — verify PIN only; wrong PIN must not reach the restore logic
+    try {
+      const storedIter = currentUser?.pbkdf2Iterations ?? 100_000;
+      await Sec.unwrapKeyForUser(currentUser.wrappedMasterKey, restorePin, currentUser.pinSalt, storedIter);
+    } catch {
+      setRestorePinErr("Incorrect PIN. Try again.");
+      setRestoreVerifying(false);
+      return;
+    }
+
+    // Phase 2 — execute restore; failures here are restore errors, not PIN errors
+    try {
+      if (currentUser?.role !== "Owner") throw new Error("Owner role required.");
+      applyRestore();
+    } catch (e) {
+      setRestorePinErr(`Restore failed: ${e?.message || "unexpected error"}. Review CRM data before retrying.`);
+    } finally {
+      setRestoreVerifying(false);
+    }
+  };
+
+  const restorePreviewTotal = restorePreview
+    ? CRM_ARRAY_KEYS.reduce((s, k) => s + (restorePreview[k]?.length || 0), 0)
+    : 0;
 
   // ── record counts + sizes (memoized — JSON serialisation is expensive) ──
   const { tables, totalRecords, totalKB } = useMemo(() => {
@@ -812,18 +694,19 @@ export function AdminView({ tab, data, setData, secUsers, currentUser, today, cr
     // Sessions
     (data.sessions || []).forEach(r => {
       if (!r.date)               warn("sessions",     r.id, "date",    "Missing session date",          "high");
-      if (r.grossRevenue > 0 && !r.netRevenue)
-                                 warn("sessions",     r.id, "netRevenue","Gross revenue set but net missing","medium");
+      if (r[FIELD.sessionRevenue] > 0 && !r[FIELD.sessionNetRevenue])
+                                 warn("sessions",     r.id, FIELD.sessionNetRevenue,"Gross revenue set but net missing","medium");
       if (r.status === "Completed" && !r.followUpSent)
                                  warn("sessions",     r.id, "followUpSent","Completed session — follow-up not sent","low");
     });
-    // Offers
+    // Offers — use runtime field names (clientId / price / expireDate), not legacy aliases
     (data.offers || []).forEach(r => {
-      if (!r.client?.trim())     warn("offers",       r.id, "client",  "Offer has no linked client",    "high");
-      if (!r.amount || r.amount <= 0)
-                                 warn("offers",       r.id, "amount",  "Offer amount is zero or missing","medium");
-      if (r.expiresOn && r.expiresOn < today && !["Accepted","Paid","Declined","Expired"].includes(r.status))
-                                 warn("offers",       r.id, "expiresOn","Offer past expiry but still open","medium");
+      if (!r[FIELD.offerClientId]?.trim())
+                                 warn("offers",       r.id, FIELD.offerClientId, "Offer has no linked client",    "high");
+      if (!r[FIELD.offerPrice] || r[FIELD.offerPrice] <= 0)
+                                 warn("offers",       r.id, FIELD.offerPrice,  "Offer amount is zero or missing","medium");
+      if (r[FIELD.offerExpireDate] && r[FIELD.offerExpireDate] < today && !CLOSED_OFFER_STATUSES.includes(r.status))
+                                 warn("offers",       r.id, FIELD.offerExpireDate,"Offer past expiry but still open","medium");
     });
     // Revenue
     (data.revenue || []).forEach(r => {
@@ -832,13 +715,15 @@ export function AdminView({ tab, data, setData, secUsers, currentUser, today, cr
     });
     // Referrals
     (data.referrals || []).forEach(r => {
-      if (!r.referrer?.trim())   warn("referrals",    r.id, "referrer","Missing referrer name",         "high");
+      if (!r[FIELD.referrerId]?.trim())
+                                 warn("referrals",    r.id, FIELD.referrerId,"Missing referrer client",  "high");
     });
     // Testimonials
     (data.testimonials || []).forEach(r => {
-      if (!r.client?.trim())     warn("testimonials", r.id, "client",  "Missing client name",           "high");
-      if (r.status === "Approved" && !r.permissionRec)
-                                 warn("testimonials", r.id, "permissionRec","Approved but no permission recorded","high");
+      if (!r[FIELD.testimonialClientId]?.trim())
+                                 warn("testimonials", r.id, FIELD.testimonialClientId, "Missing linked client", "high");
+      if (r.status === "Approved" && !r[FIELD.permissionReceived])
+                                 warn("testimonials", r.id, FIELD.permissionReceived,"Approved but no permission recorded","high");
     });
     // Templates
     (data.templates || []).forEach(r => {
@@ -1125,12 +1010,12 @@ export function AdminView({ tab, data, setData, secUsers, currentUser, today, cr
             <div style={{ background: C.surface, borderRadius: 16, border: `1px solid ${C.line}`, padding: "22px 24px" }}>
               <div style={{ fontWeight: 700, fontSize: 15, color: C.ink, marginBottom: 6 }}>Restore from Backup</div>
               <div style={{ fontSize: 13, color: C.ink3, marginBottom: 12, lineHeight: 1.6 }}>
-                Load a previously exported <code>.json</code> backup file. All current data will be replaced.
+                Load a previously exported <code>.json</code> backup file. All current data will be replaced — including the email audit log.
               </div>
               <div style={{ display: "flex", alignItems: "flex-start", gap: 8, background: "#FFF2F0", border: "1px solid #F5C4BC", borderRadius: 8, padding: "10px 12px", marginBottom: 18 }}>
                 <span style={{ fontSize: 15, lineHeight: 1 }}>🔴</span>
                 <div style={{ fontSize: 12, color: "#7A2E1E", lineHeight: 1.5 }}>
-                  <strong>This replaces everything.</strong> All current records will be overwritten by the backup. This cannot be undone — export a backup of the current data first if needed.
+                  <strong>This replaces everything.</strong> All current records — including the email audit log — will be overwritten by the backup. This cannot be undone. Export a backup of the current data first, then complete typed confirmation and PIN re-entry to restore.
                 </div>
               </div>
 
@@ -1144,7 +1029,7 @@ export function AdminView({ tab, data, setData, secUsers, currentUser, today, cr
                     onChange={handleRestoreFile}
                   />
                   <button
-                    onClick={() => { setRestorePreview(null); setRestoreMsg(""); setRestoreError(""); restoreFileRef.current?.click(); }}
+                    onClick={() => { setRestorePreview(null); setRestoreMsg(""); setRestoreError(""); closeRestoreFlow(); restoreFileRef.current?.click(); }}
                     style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px", borderRadius: 10, border: `1px solid ${C.line}`, background: C.surfaceAlt, color: C.ink, fontSize: 13, fontWeight: 600, cursor: "pointer", marginBottom: restorePreview ? 14 : 0 }}>
                     <Upload size={14} /> Choose backup file…
                   </button>
@@ -1173,7 +1058,7 @@ export function AdminView({ tab, data, setData, secUsers, currentUser, today, cr
                         })}
                       </div>
                       <button
-                        onClick={() => setRestoreConfirm(true)}
+                        onClick={() => { setRestoreConfirmText(""); setRestorePin(""); setRestorePinErr(""); setRestoreStep(1); }}
                         style={{ width: "100%", padding: "10px", borderRadius: 9, border: "none", background: "#C0573F", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
                         Restore this backup
                       </button>
@@ -1227,24 +1112,106 @@ export function AdminView({ tab, data, setData, secUsers, currentUser, today, cr
             })}
           </div>
 
-          {/* Restore confirmation modal */}
-          {restoreConfirm && (
+          {/* Restore confirmation — 3-step flow (review → type RESTORE → PIN), same pattern as Reset to Production */}
+          {restoreStep > 0 && restorePreview && (
             <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 4000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-              <div style={{ background: C.surface, borderRadius: 16, boxShadow: "0 8px 40px rgba(0,0,0,.2)", width: "100%", maxWidth: 440, padding: "28px 28px 24px" }}>
-                <div style={{ fontWeight: 700, fontSize: 16, color: C.ink, marginBottom: 10 }}>Restore this backup?</div>
-                <div style={{ fontSize: 13.5, color: C.ink2, lineHeight: 1.6, marginBottom: 20 }}>
-                  This will <strong>permanently replace all current CRM data</strong> with the backup. There is no undo. Make sure you have exported a copy of the current data if you might need it.
-                </div>
-                <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                  <button onClick={() => setRestoreConfirm(false)}
-                    style={{ padding: "9px 20px", borderRadius: 9, border: `1px solid ${C.line}`, background: "none", fontSize: 13.5, cursor: "pointer", color: C.ink2 }}>
-                    Cancel
-                  </button>
-                  <button onClick={applyRestore}
-                    style={{ padding: "9px 22px", borderRadius: 9, border: "none", background: "#C0573F", color: "#fff", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>
-                    Yes, restore backup
-                  </button>
-                </div>
+              <div style={{ background: C.surface, borderRadius: 16, boxShadow: "0 8px 40px rgba(0,0,0,.2)", width: "100%", maxWidth: 460, padding: "28px 28px 24px" }}>
+                {restoreStep === 1 && (
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                      <AlertCircle size={18} color="#C0392B" />
+                      <div style={{ fontWeight: 700, fontSize: 16, color: C.ink }}>Restore this backup?</div>
+                    </div>
+                    <div style={{ fontSize: 13.5, color: C.ink2, lineHeight: 1.6, marginBottom: 14 }}>
+                      This will <strong>permanently replace all current CRM data</strong> ({restorePreviewTotal} records in the backup) — including the <strong>email audit log</strong>. There is no undo. Export a copy of the current data first if you might need it.
+                    </div>
+                    <div style={{ fontSize: 12.5, color: C.ink3, marginBottom: 20, lineHeight: 1.55 }}>
+                      Next you will type <strong>RESTORE</strong> and re-enter your Owner PIN — the same confirmation pattern as Reset to Production.
+                    </div>
+                    <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                      <button onClick={closeRestoreFlow}
+                        style={{ padding: "9px 20px", borderRadius: 9, border: `1px solid ${C.line}`, background: "none", fontSize: 13.5, cursor: "pointer", color: C.ink2 }}>
+                        Cancel
+                      </button>
+                      <button onClick={() => setRestoreStep(2)}
+                        style={{ padding: "9px 22px", borderRadius: 9, border: "none", background: "#C0573F", color: "#fff", fontSize: 13.5, fontWeight: 700, cursor: "pointer" }}>
+                        I understand — continue
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {restoreStep === 2 && (
+                  <>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: C.ink, marginBottom: 6 }}>Type RESTORE to confirm</div>
+                    <div style={{ fontSize: 12.5, color: C.ink3, marginBottom: 14, lineHeight: 1.55 }}>
+                      This will permanently replace <strong>{restorePreviewTotal} records</strong> across all CRM tables, including the email audit log.
+                    </div>
+                    <input
+                      value={restoreConfirmText}
+                      onChange={e => setRestoreConfirmText(e.target.value)}
+                      placeholder="Type RESTORE here"
+                      autoFocus
+                      style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `2px solid ${restoreConfirmText === "RESTORE" ? "#4A8C6F" : C.line}`, fontSize: 14, fontWeight: 700, letterSpacing: "0.1em", color: C.ink, boxSizing: "border-box", outline: "none", marginBottom: 14 }}
+                    />
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <button onClick={() => { setRestoreStep(1); setRestoreConfirmText(""); }}
+                        style={{ padding: "10px 20px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", color: C.ink2, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+                        Back
+                      </button>
+                      <button onClick={() => { if (restoreConfirmText === "RESTORE") setRestoreStep(3); }} disabled={restoreConfirmText !== "RESTORE"}
+                        style={{
+                          padding: "10px 24px", borderRadius: 9, border: "none", fontWeight: 700, fontSize: 13.5,
+                          cursor: restoreConfirmText === "RESTORE" ? "pointer" : "not-allowed",
+                          background: restoreConfirmText === "RESTORE" ? "#C0392B" : C.line,
+                          color: restoreConfirmText === "RESTORE" ? "#fff" : C.ink3,
+                        }}>
+                        Continue →
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {restoreStep === 3 && (
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <Lock size={15} color="#C0392B" />
+                      <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>Confirm your PIN</div>
+                    </div>
+                    <div style={{ fontSize: 12.5, color: C.ink3, marginBottom: 14, lineHeight: 1.55 }}>
+                      Enter your Owner PIN to authorize replacing all current data with this backup (<strong>{restorePreviewTotal} records</strong>).
+                    </div>
+                    <input
+                      type="password"
+                      value={restorePin}
+                      onChange={e => { setRestorePin(e.target.value); setRestorePinErr(""); }}
+                      onKeyDown={e => { if (e.key === "Enter") handleRestoreVerifyPin(); }}
+                      placeholder="Your PIN"
+                      autoComplete="off"
+                      autoFocus
+                      style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `2px solid ${restorePinErr ? "#C0392B" : C.line}`, fontSize: 14, fontWeight: 700, letterSpacing: "0.2em", color: C.ink, boxSizing: "border-box", outline: "none", marginBottom: restorePinErr ? 6 : 14 }}
+                    />
+                    {restorePinErr && <div style={{ fontSize: 12, color: "#C0392B", marginBottom: 10 }}>{restorePinErr}</div>}
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <button onClick={() => { setRestoreStep(2); setRestorePin(""); setRestorePinErr(""); }}
+                        style={{ padding: "10px 20px", borderRadius: 9, border: `1px solid ${C.line}`, background: "transparent", color: C.ink2, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+                        Back
+                      </button>
+                      <button onClick={handleRestoreVerifyPin} disabled={restoreVerifying || !restorePin}
+                        style={{
+                          padding: "10px 24px", borderRadius: 9, border: "none", fontWeight: 700, fontSize: 13.5,
+                          cursor: restoreVerifying || !restorePin ? "not-allowed" : "pointer",
+                          background: !restorePin ? C.line : "#C0392B",
+                          color: !restorePin ? C.ink3 : "#fff",
+                          display: "flex", alignItems: "center", gap: 7,
+                        }}>
+                        {restoreVerifying
+                          ? <><RefreshCw size={13} style={{ animation: "spin 1s linear infinite" }} /> Verifying…</>
+                          : <>Restore {restorePreviewTotal} records</>}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -1252,7 +1219,9 @@ export function AdminView({ tab, data, setData, secUsers, currentUser, today, cr
       )}
 
       {tab === "settings" && crmSettings && (
-        <CrmSettingsView settings={crmSettings} onSave={onSaveSettings} />
+        (currentUser?.role === "Owner" || currentUser?.role === "Admin")
+          ? <CrmSettingsView settings={crmSettings} onSave={onSaveSettings} />
+          : <div style={{ padding: "40px 24px", textAlign: "center", color: C.ink2, fontSize: 14 }}>Owner or Admin access required for CRM settings.</div>
       )}
 
       {tab === "journeys" && crmSettings && (
@@ -1555,6 +1524,18 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
   const canManage = currentUser?.role === "Owner" || currentUser?.permissions?.manage;
   const allowMultiUser = crmSettings?.allowMultiUser === true;
   const initials  = (name) => name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
+
+  if (!canManage) {
+    return (
+      <div style={{ padding: "40px 24px", textAlign: "center", maxWidth: 480, margin: "0 auto" }}>
+        <Lock size={36} color={C.ink3} style={{ marginBottom: 14 }} />
+        <div style={{ fontSize: 16, fontWeight: 700, color: C.ink, marginBottom: 8 }}>Owner access required</div>
+        <div style={{ fontSize: 13.5, color: C.ink2, lineHeight: 1.6 }}>
+          User Management is only available to the Owner account. Ask your Owner if you need a role or permission change.
+        </div>
+      </div>
+    );
+  }
 
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(""), 2800); };
 

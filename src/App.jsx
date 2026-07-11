@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback, Fragment } from "react";
+﻿import React, { useState, useEffect, useMemo, useRef, useCallback, Fragment } from "react";
 import Papa from "papaparse";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, ComposedChart, Bar, Line, Legend } from "recharts";
 import {
@@ -21,7 +21,7 @@ import {
 } from "./stripeMatching.js";
 
 import { C, FONT, hexA } from "./lib/theme.js";
-import { uid, todayISO, addDaysISO, addMonthsISO, MONTHS, fmtDate, money, pct, onOrBefore, sameMonth, num, bool, norm, cleanName, preferLongerText, clientShort, sectionLabel, fmtStudioType } from "./lib/format.js";
+import { uid, todayISO, addDaysISO, addMonthsISO, MONTHS, fmtDate, money, pct, onOrBefore, sameMonth, num, bool, norm, cleanName, preferLongerText, clientShort, sectionLabel, fmtStudioType, isValidISODate } from "./lib/format.js";
 import { CRM_SETTINGS_KEY, DEFAULT_CRM_SETTINGS, parseCrmSettings, loadCrmSettings, _crmSettings, getS, setCrmSettings as setModuleCrmSettings } from "./lib/crmSettings.js";
 import * as constants from "./lib/constants.js";
 import { SESSION_CHECKLIST, EQUIP_CHECKLIST_PHASES, EQUIP_CHECKLIST, emptyEquipChecklist, VIRTUAL_PRE_SESSION_MOVED_EQUIP_IDS, virtualEquipPhaseItems, SESSION_CHECKLIST_PHASES, SESSION_PHASE_COLOR, emptySessionChecklist } from "./lib/checklists.js";
@@ -35,10 +35,10 @@ import { Sec } from "./lib/sec.js";
 import { CRM_REQUIRED_ARRAY_KEYS, CRM_ARRAY_KEYS, SAMPLE_SEED_REVENUE_IDS, normalizeCrmData, healStudioPartners, healStudioPartnersData } from "./lib/normalizeData.js";
 import * as revenue from "./lib/revenue.js";
 import { SEED } from "./lib/seed.js";
-import { extractTemplateVars, autoFillTemplateVars, applyTemplateVars, resolveRelationshipActionRecipient, suggestEmailTemplatesForAction, outreachScore } from "./lib/templates.js";
+import { extractTemplateVars, autoFillTemplateVars, applyTemplateVars, findUnreplacedTemplateTokens, unreplacedTokensMessage, resolveRelationshipActionRecipient, suggestEmailTemplatesForAction, outreachScore } from "./lib/templates.js";
 
 import { BreathMark, Stat, Panel, Row, Dot, Tag, MiniChip, DateChip, Empty } from "./components/primitives.jsx";
-import { setAppComponents } from "./components/appBridge.jsx";
+import { setAppComponents, setAppFields } from "./components/appBridge.jsx";
 import { FirstRunSetup, LockScreen, PassphraseUpgrade } from "./features/auth";
 import { ReferralTreeView } from "./features/referrals";
 import { TestimonialLibraryView } from "./features/testimonials";
@@ -51,7 +51,7 @@ import { RevenueAttributionView, RevenueThisMonthView, OfferConversionView, Expe
 import { PaymentReconciliationView, ChargeDetails, paymentStatusLabel, registrationSessionMeta } from "./features/stripe";
 import { AdminView, CrmSettingsView, JourneyDescriptionsView, EmailLogsView, ResetToProductionView, UserManagementView, EditUserPanel } from "./features/admin";
 
-const { STATUS, STATUS_COLOR, CLIENT_TYPE, CLIENT_TYPE_COLOR, INTENT_TAGS, TAG_COLOR, STAGE, STAGE_COLOR, STUDIO_TYPE, CLOSE_PROB, CLOSE_PROB_COLOR, CONTRACT_STATUS, PARTNER_CHECKLIST_PHASES, PARTNER_CHECKLIST, emptyChecklist, FUTYPE, FUTYPE_COLOR, SOURCE, SOURCE_COLOR, PACKAGE, REFERRAL, REFERRAL_COLOR, OFFER_TYPE, OFFER_STATUS, OFFER_STATUS_COLOR, OFFER_PROB, OPEN_STATUSES, WON_STATUSES, LOST_STATUSES, REF_STATUS, REF_STATUS_COLOR, OUTREACH_STATUS, OUTREACH_STATUS_COLOR, OUTREACH_WARMTH, OUTREACH_WARMTH_COLOR, OUTREACH_TARGET_TYPE, OUTREACH_RESPONSE, OUTREACH_SOURCE, OUTREACH_PRIORITY, OUTREACH_PRIORITY_COLOR, TESTIMONIAL_STATUS, TESTIMONIAL_STATUS_COLOR, TESTIMONIAL_TYPE, TESTIMONIAL_THEMES, TMPL_CATEGORY, TMPL_CATEGORY_COLOR, TMPL_CHANNEL, TMPL_CHANNEL_COLOR, TMPL_LINKED_TO, EXPENSE_CATEGORY, EXPENSE_CATEGORY_COLOR, EXPENSE_PAYMENT_METHOD, EXPENSE_RECUR_FREQ, REV_CHANNEL, REV_CHANNEL_COLOR, COST_CENTER, CONTENT_TYPE, PLATFORM, PLATFORM_COLOR, CONTENT_STATUS, CONTENT_STATUS_COLOR, CONTENT_CATEGORY, CONTENT_CAT_COLOR, CONTENT_CTA, SESSION_STATUS, SESSION_STATUS_COLOR, JOURNEY_TYPES, SETUP_STATUS, FU_STEPS, FU_TEMPLATES, interpolateTemplate, addDays, makeSequenceSteps, USER_ROLES, USER_ROLE_COLOR, USER_COLORS, ROLE_PERMISSIONS } = constants;
+const { STATUS, STATUS_COLOR, CLIENT_TYPE, CLIENT_TYPE_COLOR, INTENT_TAGS, TAG_COLOR, STAGE, STAGE_COLOR, STUDIO_TYPE, CLOSE_PROB, CLOSE_PROB_COLOR, CONTRACT_STATUS, PARTNER_CHECKLIST_PHASES, PARTNER_CHECKLIST, emptyChecklist, FUTYPE, FUTYPE_COLOR, SOURCE, SOURCE_COLOR, PACKAGE, REFERRAL, REFERRAL_COLOR, OFFER_TYPE, OFFER_STATUS, OFFER_STATUS_COLOR, OFFER_PROB, OPEN_STATUSES, WON_STATUSES, LOST_STATUSES, REF_STATUS, REF_STATUS_COLOR, OUTREACH_STATUS, OUTREACH_STATUS_COLOR, OUTREACH_WARMTH, OUTREACH_WARMTH_COLOR, OUTREACH_TARGET_TYPE, OUTREACH_RESPONSE, OUTREACH_SOURCE, OUTREACH_PRIORITY, OUTREACH_PRIORITY_COLOR, OUTREACH_CLOSED_STATUSES, OUTREACH_NO_RESPONSE, TESTIMONIAL_STATUS, TESTIMONIAL_STATUS_COLOR, TESTIMONIAL_TYPE, TESTIMONIAL_THEMES, TESTIMONIAL_ACTION_STATUSES, TMPL_CATEGORY, TMPL_CATEGORY_COLOR, TMPL_CHANNEL, TMPL_CHANNEL_COLOR, TMPL_LINKED_TO, EXPENSE_CATEGORY, EXPENSE_CATEGORY_COLOR, EXPENSE_PAYMENT_METHOD, EXPENSE_RECUR_FREQ, REV_CHANNEL, REV_CHANNEL_COLOR, COST_CENTER, CONTENT_TYPE, PLATFORM, PLATFORM_COLOR, CONTENT_STATUS, CONTENT_STATUS_COLOR, CONTENT_CATEGORY, CONTENT_CAT_COLOR, CONTENT_CTA, SESSION_STATUS, SESSION_STATUS_COLOR, JOURNEY_TYPES, SETUP_STATUS, FU_STEPS, FU_TEMPLATES, interpolateTemplate, addDays, makeSequenceSteps, USER_ROLES, USER_ROLE_COLOR, USER_COLORS, ROLE_PERMISSIONS, canAccessSection, canAccessAdminTab } = constants;
 const { _c, readAmt, calcNet, deriveRegistrationPaymentStatus, applyRegistrationPaymentLookup, stripePaymentExists, buildStripePaymentRecord, applyStripePaymentToRegistration, stripePaymentFromRecord, applyPaymentReconciliation, reconcileAmountMismatches, processStripeWebhookEvents, LTV_OFFER_STATUSES, formatRegistrationAmount, resolveSessionListPrice, formatBookingAmount, resolveActualBookingAmount, formatActualBookingAmount, calendlyBookingAmount, backfillRegistrationPaymentsForRegs, registrationPaymentForLtv, sessionBookingRevenue, applySessionRevenueFromRegistrations, studioSessionFinance, sessionFinanceFor, refreshCalendlySessionRevenue, buildSessionMap, registrationRevenueForMonth, registrationRevenueByMonth, buildSessionListPriceMap, registrationRevenueChannel, offerRevenueChannel, buildPaidPaymentsByBooking, bookingStripeCharge, buildRegistrationRevenueRows, buildOfferRevenueRows, AUTO_REV_ID_PREFIX, AUTO_CXL_EXP_ID_PREFIX, AUTO_SPLIT_EXP_ID_PREFIX, isAutoRevenueRecord, isAutoExpenseRecord, buildBookingLedgerRecords, syncBookingLedgers, buildRevenueViewRows, applyStudioSessionSplit, openRevenueViewRow, computeClientLifetimeValue, applyRegistrationLifetimeValues, issueStripeRefund } = revenue;
 
 /* ============================================================
@@ -120,11 +120,11 @@ class DrawerErrorBoundary extends React.Component {
 
 export default function App() {
   setAppComponents({ Today, TableView, RecordTableView, ConfirmModal });
+  setAppFields(FIELDS);
   const [data, setData] = useState(SEED);
   const [section, setSection] = useState("today");
   const [view, setView] = useState(0);
   const [open, setOpen] = useState(null);   // record drawer { db, record }
-  const [importing, setImporting] = useState(false);
   const [query, setQuery] = useState("");
   const [navOpen, setNavOpen] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
@@ -208,26 +208,9 @@ export default function App() {
             const activeUsers = parsed.users.filter(u => u.active !== false);
             if (alive) setSecUsers(activeUsers);
 
-            // ── Session restore: if a valid sessionStorage session exists, skip PIN ──
-            try {
-              const sessionRaw = sessionStorage.getItem("sb:session:v1");
-              if (sessionRaw && alive) {
-                const session = JSON.parse(sessionRaw);
-                const restoredUser = activeUsers.find(u => u.id === session.userId);
-                // Validate the restore token against THIS user's stored hash. The token is
-                // bound per-user via a one-way hash, so a lower-privilege user cannot mint a
-                // token that validates for a different (e.g. Owner) userId.
-                const tokenValid = (session.token && restoredUser?.sessionTokenHash)
-                  ? (await Sec.sessionTokenHash(session.token)) === restoredUser.sessionTokenHash
-                  : false; // reject legacy/unsigned tokens — forces one PIN entry after upgrade
-                // masterKeyRaw is no longer persisted to sessionStorage (key-in-memory-only policy).
-                // A valid token confirms identity but the PIN must be re-entered to re-derive the
-                // master key — sessionStorage holds only userId + token for user-tile pre-selection.
-                sessionStorage.removeItem("sb:session:v1");
-              }
-            } catch (_) {
-              sessionStorage.removeItem("sb:session:v1");
-            }
+            // masterKeyRaw is no longer persisted to sessionStorage (key-in-memory-only).
+            // Clear any leftover session tile state — PIN must be re-entered to re-derive the key.
+            try { sessionStorage.removeItem("sb:session:v1"); } catch (_) {}
           } else {
             // v1 single-user format — show a placeholder tile so the screen is interactive
             // handleUnlock will auto-migrate to v2 on successful PIN entry
@@ -1299,7 +1282,12 @@ export default function App() {
           } else if (evt.eventType === "invitee_no_show.deleted") {
             const regIdx = registrations.findIndex(r => r.calendlyInviteeUri === evt.calendlyInviteeUri && evt.calendlyInviteeUri);
             if (regIdx >= 0) {
-              registrations[regIdx] = { ...registrations[regIdx], noShow: false, status: "booked" };
+              const prev = registrations[regIdx];
+              // Clear the no-show flag, but only revert status when it was still "no_show".
+              // Manual attendance (attended / booked / etc.) must not be clobbered.
+              const patch = { noShow: false };
+              if (prev.status === "no_show") patch.status = "booked";
+              registrations[regIdx] = { ...prev, ...patch };
               const reg = registrations[regIdx];
               const sessIdx = sessions.findIndex(s => s.id === reg.sessionId);
               if (sessIdx >= 0 && sessions[sessIdx].noShows > 0) {
@@ -1692,11 +1680,15 @@ export default function App() {
     const mtdRows = buildRevenueViewRows(data)
       .filter(r => ((r.bookedAt || r.date) || "").startsWith(mo))
       .map(applyStudioSessionSplit(data));
-    const grossRevMTD = mtdRows.reduce((s, r) => s + (r.gross || 0), 0);
+    const grossRevMTD = mtdRows.reduce((s, r) => s + Math.max(0, Number(r.gross) || 0), 0);
     const netRevMTD   = mtdRows.reduce((s, r) => s + calcNet(r), 0);
     const expensesMTDForOp = (data.expenses || [])
       .filter(e => (e.date || "").startsWith(mo))
-      .filter(e => !(isAutoExpenseRecord(e) && String(e.id || "").startsWith(AUTO_SPLIT_EXP_ID_PREFIX)))
+      .filter(e => !(isAutoExpenseRecord(e) && (
+        String(e.id || "").startsWith(AUTO_SPLIT_EXP_ID_PREFIX)
+        || String(e.id || "").startsWith(AUTO_CXL_EXP_ID_PREFIX)
+        || e.category === "Refunds & Cancellations"
+      )))
       .reduce((s, e) => s + (+e.amount || 0), 0);
     const opProfit    = netRevMTD - expensesMTDForOp;
     const opMargin    = netRevMTD > 0 ? Math.round((opProfit / netRevMTD) * 100) : null;
@@ -1715,6 +1707,15 @@ export default function App() {
     delete: currentUser?.permissions?.delete ?? false,
     manage: currentUser?.role === "Owner" || !!(currentUser?.permissions?.manage),
   };
+
+  // Bounce off role-restricted sections (e.g. User Management) if nav state is stale.
+  useEffect(() => {
+    if (!canAccessSection(section, currentUser)) {
+      setSection("today");
+      setView(0);
+    }
+  }, [section, currentUser]);
+
   const saveRecord = (db, rec) => {
     const toSave = db === "partners" ? { ...rec, agreements: stripAgreementForStore(rec.agreements) } : rec;
     setData(d => {
@@ -1797,6 +1798,9 @@ export default function App() {
     { id: "users",     label: "User Management",    Icon: Users,       lane: "core", parent: "admin" },
   ];
 
+  // Role-filter sidebar items; in-view Owner/edit checks remain defense-in-depth.
+  const visibleSections = sections.filter(s => canAccessSection(s.id, currentUser));
+
   const go = (id, view = 0) => { setSection(id); setView(view); setQuery(""); setNavOpen(false); };
 
   return (
@@ -1815,7 +1819,7 @@ export default function App() {
           </div>
           <nav style={{ padding: "6px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
             {/* Command center first */}
-            {sections.filter(s => s.id === "today").map(s => {
+            {visibleSections.filter(s => s.id === "today").map(s => {
               const active = section === s.id;
               return (
                 <button key={s.id} onClick={() => go(s.id)} className="sb-navbtn"
@@ -1827,7 +1831,7 @@ export default function App() {
             })}
 
             {/* Sessions — pinned above B2B */}
-            {sections.filter(s => s.id === "sessions").map(s => {
+            {visibleSections.filter(s => s.id === "sessions").map(s => {
               const active = section === s.id;
               const count = (data[s.id] || []).length;
               return (
@@ -1843,7 +1847,8 @@ export default function App() {
             {/* Lane groups */}
             {[{ key: "b2b", label: "B2B  ·  Studios" }, { key: "b2c", label: "B2C  ·  Clients" }].map(({ key, label }) => {
               const lane = LANE[key];
-              const laneSections = sections.filter(s => s.lane === key);
+              const laneSections = visibleSections.filter(s => s.lane === key);
+              if (!laneSections.length) return null;
               return (
                 <div key={key} style={{ marginTop: 10 }}>
                   {/* Lane divider label */}
@@ -1889,10 +1894,10 @@ export default function App() {
             {/* Shared / core at bottom */}
             <div style={{ marginTop: 10 }}>
               <div style={{ height: 1, background: C.line, margin: "2px 6px 6px" }} />
-              {sections.filter(s => s.lane === "core" && s.id !== "today" && s.id !== "sessions" && !s.parent).map(s => {
+              {visibleSections.filter(s => s.lane === "core" && s.id !== "today" && s.id !== "sessions" && !s.parent).map(s => {
                 const active = section === s.id;
                 const count = (data[s.id] || []).length;
-                const children = sections.filter(c => c.parent === s.id);
+                const children = visibleSections.filter(c => c.parent === s.id);
                 const anyChildActive = children.some(c => c.id === section);
                 // Groups expand when a child is active; clicking the parent toggles collapse.
                 // collapsedGroups tracks manual overrides so the user can hide the sub-items.
@@ -1943,7 +1948,7 @@ export default function App() {
               <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 8, maxHeight: 280, overflowY: "auto", fontSize: 11 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px 6px", borderBottom: `1px solid ${C.border}`, fontWeight: 600, color: C.ink2 }}>
                   <span>Last sync — {calendlyStatus.items.length} event{calendlyStatus.items.length !== 1 ? "s" : ""}</span>
-                  <button onClick={() => setShowSyncDetail(false)} style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, fontSize: 14, lineHeight: 1, padding: "0 2px" }}>×</button>
+                  <button onClick={() => setShowSyncDetail(false)} style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, fontSize: 14, lineHeight: 1, padding: "0 2px" }}>Ã—</button>
                 </div>
                 {calendlyStatus.items.map((item, i) => {
                   const typeColor = item.type === "Booked" ? C.green : item.type === "Updated" ? C.brand : item.type === "Canceled" || item.type === "No-show" ? C.red : C.ink3;
@@ -2032,7 +2037,7 @@ export default function App() {
               <button
                 onClick={() => setBackupBannerDismissed(true)}
                 style={{ background: "none", border: "none", color: "#92400E", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 4px", flexShrink: 0 }}
-                title="Dismiss">×</button>
+                title="Dismiss">Ã—</button>
             </div>
           )}
           {saved === "error" && (
@@ -2040,7 +2045,7 @@ export default function App() {
               <span style={{ fontWeight: 700, flexShrink: 0 }}>⚠ Save failed</span>
               <span style={{ flex: 1 }}>Your last change could not be saved. This may be a storage quota issue. Export a backup from <strong>Admin → Storage</strong> immediately, then reload the page.</span>
               <button onClick={() => { go("admin"); setSaved("idle"); }} style={{ background: "#DC2626", color: "#fff", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>Go to Admin</button>
-              <button onClick={() => setSaved("idle")} style={{ background: "none", border: "none", color: "#7F1D1D", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 4px", flexShrink: 0 }} title="Dismiss">×</button>
+              <button onClick={() => setSaved("idle")} style={{ background: "none", border: "none", color: "#7F1D1D", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 4px", flexShrink: 0 }} title="Dismiss">Ã—</button>
             </div>
           )}
           {staleDetected && (
@@ -2048,7 +2053,7 @@ export default function App() {
               <span style={{ fontWeight: 700, flexShrink: 0 }}>⚠ Another window has newer data</span>
               <span style={{ flex: 1 }}>This window's data is out of date — another browser tab or window has saved changes more recently. <strong>Refresh this window</strong> to get the latest data before making edits here, or your changes may overwrite the other window's saves.</span>
               <button onClick={() => window.location.reload()} style={{ background: "#D97706", color: "#fff", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>Refresh Now</button>
-              <button onClick={() => setStaleDetected(false)} style={{ background: "none", border: "none", color: "#78350F", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 4px", flexShrink: 0 }} title="Dismiss">×</button>
+              <button onClick={() => setStaleDetected(false)} style={{ background: "none", border: "none", color: "#78350F", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 4px", flexShrink: 0 }} title="Dismiss">Ã—</button>
             </div>
           )}
           <header className="sb-header">
@@ -2268,7 +2273,6 @@ export default function App() {
       )}
 
       {showOrphans && <OrphanedRecordsModal data={data} setData={setData} onClose={() => setShowOrphans(false)} />}
-      {importing && <ImportModal data={data} setData={setData} onClose={() => setImporting(false)} />}
       {showEditProfile && (
         <EditProfileModal
           user={currentUser}
@@ -2445,7 +2449,7 @@ function buildActions(data, derived, today) {
 
   // Open offers
   offers
-    .filter((o) => o.status === "Offered")
+    .filter((o) => OPEN_STATUSES.includes(o.status))
     .forEach((o) => {
       const client = data.clients.find((c) => c.id === o.clientId);
       const d = daysBetween(o.dateOffered, today);
@@ -2606,7 +2610,7 @@ function LaneSplitPanel({ data, today }) {
   const registrations = data.registrations || [];
   const mo            = today.slice(0, 7);
 
-  // Built once, shared by all three uses below (Operating profit tile ×2 + lane rows).
+  // Built once, shared by all three uses below (Operating profit tile Ã—2 + lane rows).
   const allRevRows    = useMemo(() => buildRevenueViewRows(data), [data]);
 
   // ── Shared MTD revenue rows (same source of truth as Revenue This Month tab) ──
@@ -2964,7 +2968,7 @@ function OrphanedRecordsModal({ data, setData, onClose }) {
               {orphanIds.length === 0 ? "No orphaned records found." : `${orphanIds.length} deleted client${orphanIds.length !== 1 ? "s" : ""} found with linked records. Assign each group to a new client.`}
             </div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.ink3, lineHeight: 1 }}>×</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.ink3, lineHeight: 1 }}>Ã—</button>
         </div>
 
         <div style={body}>
@@ -3080,7 +3084,7 @@ function AlertsPanel({ data, today, onOpen, compact, dismissed: dismissedProp, s
                 })} style={{
                   fontSize: 11.5, padding: "3px 8px", borderRadius: 6, cursor: "pointer",
                   background: "transparent", color: C.ink3, border: `1px solid ${C.line}`,
-                }} title="Dismiss">×</button>
+                }} title="Dismiss">Ã—</button>
               </div>
             </div>
           );
@@ -3168,10 +3172,15 @@ function PipelineSnapshot({ data, today }) {
     [data, mo],
   );
   const opProfitMTD = useMemo(() => {
-    // Exclude auto Studio Split expenses — calcNet already deducts studioSplit from net.
+    // Exclude auto Studio Split / legacy cancellation expenses — refunds are negative revenue rows;
+    // calcNet already deducts studioSplit on charge rows.
     const exp = (data.expenses || [])
       .filter(e => (e.date || "").startsWith(mo))
-      .filter(e => !(isAutoExpenseRecord(e) && String(e.id || "").startsWith(AUTO_SPLIT_EXP_ID_PREFIX)))
+      .filter(e => !(isAutoExpenseRecord(e) && (
+        String(e.id || "").startsWith(AUTO_SPLIT_EXP_ID_PREFIX)
+        || String(e.id || "").startsWith(AUTO_CXL_EXP_ID_PREFIX)
+        || e.category === "Refunds & Cancellations"
+      )))
       .reduce((s, e) => s + (+e.amount || 0), 0);
     const net = allRevRowsMTD.map(applyStudioSessionSplit(data)).reduce((s, r) => s + calcNet(r), 0);
     return net - exp;
@@ -3353,11 +3362,16 @@ function ActionEmailModal({ action, data, setData, currentUser, onClose, onSent 
 
   const send = async () => {
     if (!template || !recipient?.email || sending) return;
+    const finalSubject = subjectEdit || applyTemplateVars(template.subject || template.name, vars);
+    const finalBody = bodyOverride ?? populatedBody;
+    const leftover = findUnreplacedTemplateTokens(finalSubject, finalBody);
+    if (leftover.length) {
+      setError(unreplacedTokensMessage(leftover));
+      return;
+    }
     setSending(true);
     setError("");
     const today = new Date().toISOString().slice(0, 10);
-    const finalSubject = subjectEdit || applyTemplateVars(template.subject || template.name, vars);
-    const finalBody = bodyOverride ?? populatedBody;
 
     const recipientName = recipient._type === "partner"
       ? (recipient.contact || recipient.name || "")
@@ -3702,7 +3716,7 @@ function Today({ data, derived, today, onOpen, onGo, setData, currentUser, canEd
                         }}
                         onMouseEnter={e => e.currentTarget.style.opacity = "1"}
                         onMouseLeave={e => e.currentTarget.style.opacity = "0.5"}
-                      >×</button>
+                      >Ã—</button>
                     </div>
                   ))}
                 </div>
@@ -3860,22 +3874,32 @@ function SourceBreakdown({ data }) {
    SECTION (per database, with views)
    ============================================================ */
 function Section({ section, data, derived, today, view, setView, query, onOpen, currentUser, secUsers, masterKeyRaw, setSecUsers, setData, canEdit, setConfirm, crmSettings, saveCrmSettings, syncStripe, stripeStatus, refundToken }) {
-  const cfg = useMemo(() => {
-    const base = VIEWS[section];
-    if (!base) return base;
-    // Hide Owner-only destructive admin tabs from non-Owners (defense in depth with view gates).
-    if (section === "admin" && currentUser?.role !== "Owner") {
-      return {
-        ...base,
-        views: base.views.filter(vv => vv.layout !== "admin-reset"),
-      };
+  const cfg = useMemo(() => VIEWS[section], [section]);
+
+  // Keep full VIEWS.admin indices stable (session restore / "Back up now" use setView(5)).
+  // Filter tab buttons by role; bounce off restricted layouts.
+  useEffect(() => {
+    if (section !== "admin" || !cfg) return;
+    const layout = cfg.views[view]?.layout;
+    if (layout && !canAccessAdminTab(layout, currentUser)) {
+      const first = cfg.views.findIndex(vv => canAccessAdminTab(vv.layout, currentUser));
+      if (first >= 0) setView(first);
     }
-    return base;
-  }, [section, currentUser?.role]);
+  }, [section, view, cfg, currentUser, setView]);
+
   // Must run before any early return — conditional hooks white-screen the whole app.
   const revenueRows = useMemo(() => buildRevenueViewRows(data), [data]);
   if (!cfg) return null;
-  const v = cfg.views[Math.min(view, cfg.views.length - 1)];
+
+  let activeView = Math.min(view, cfg.views.length - 1);
+  if (section === "admin") {
+    const layout = cfg.views[activeView]?.layout;
+    if (layout && !canAccessAdminTab(layout, currentUser)) {
+      const first = cfg.views.findIndex(vv => canAccessAdminTab(vv.layout, currentUser));
+      if (first >= 0) activeView = first;
+    }
+  }
+  const v = cfg.views[activeView];
   let rows = data[section] || [];
   if (section === "revenue") rows = revenueRows;
 
@@ -3919,26 +3943,30 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
           const msgs = res.errors.slice(0, 3).map(e => e.message).join("; ");
           alert(`CSV parse warning — some rows may be skipped: ${msgs}`);
         }
-        const spec = IMPORT_MAP.expenses;
-        const rows = res.data.map((raw) => {
-          const rec = { id: uid("exp") };
-          const lower = {};
-          Object.keys(raw).forEach((k) => { lower[norm(k)] = raw[k]; });
-          Object.entries(spec.map).forEach(([csvKey, field]) => {
-            let val = lower[csvKey] ?? "";
-            val = Sec.sanitize(val);
-            if (spec.nums && spec.nums.includes(field)) val = num(val);
-            if (spec.bools && spec.bools.includes(field)) val = bool(val);
-            rec[field] = val;
+        setData((d) => {
+          const { rows, skippedDates, skippedDupes } = parseImportRows("expenses", res.data, {
+            existing: d.expenses || [],
+            idPrefix: "exp",
           });
-          return rec;
-        }).filter((r) => r.date || r.vendor || r.amount);
-        if (rows.length > 0) {
-          setData((d) => ({ ...d, expenses: [...(d.expenses || []), ...rows] }));
-          alert(`Imported ${rows.length} expense record${rows.length !== 1 ? "s" : ""} successfully.`);
-        } else {
-          alert("No valid rows found. Check that your CSV headers match the required format.");
-        }
+          const valid = rows.filter((r) => r.date || r.vendor || r.amount);
+          if (valid.length > 0) {
+            const skipNote = [
+              skippedDates ? `${skippedDates} bad date` : "",
+              skippedDupes ? `${skippedDupes} duplicate` : "",
+            ].filter(Boolean).join(", ");
+            setTimeout(() => alert(
+              `Imported ${valid.length} expense record${valid.length !== 1 ? "s" : ""} successfully.`
+              + (skipNote ? ` Skipped ${skipNote}.` : "")
+            ), 0);
+            return { ...d, expenses: [...(d.expenses || []), ...valid] };
+          }
+          setTimeout(() => alert(
+            skippedDates || skippedDupes
+              ? `No new rows imported (${skippedDates} bad date, ${skippedDupes} duplicate). Dates must be YYYY-MM-DD.`
+              : "No valid rows found. Check that your CSV headers match the required format."
+          ), 0);
+          return d;
+        });
       },
     });
   };
@@ -3947,9 +3975,12 @@ function Section({ section, data, derived, today, view, setView, query, onOpen, 
     <div>
       {cfg.views.length > 1 && (
         <div className="sb-tabs">
-          {cfg.views.map((vv, i) => (
-            <button key={vv.name} className={"sb-tab" + (i === view ? " sb-tab-on" : "")} onClick={() => setView(i)}>{vv.name}</button>
-          ))}
+          {cfg.views.map((vv, i) => {
+            if (section === "admin" && !canAccessAdminTab(vv.layout, currentUser)) return null;
+            return (
+              <button key={vv.name} className={"sb-tab" + (i === activeView ? " sb-tab-on" : "")} onClick={() => setView(i)}>{vv.name}</button>
+            );
+          })}
         </div>
       )}
       {v.layout === "board" && section === "content" && (data.content || []).length === 0 && (
@@ -4711,7 +4742,7 @@ const VIEWS = {
           col("status",   "Status",       (r) => <Tag color={TESTIMONIAL_STATUS_COLOR[r.status]} soft>{r.status}</Tag>),
           col("notes",    "Notes",        (r) => r.notes),
         ],
-        run: (rows) => ({ rows: rows.filter(r => ["Breakthrough noted","Request sent"].includes(r.status)) }) },
+        run: (rows) => ({ rows: rows.filter(r => TESTIMONIAL_ACTION_STATUSES.includes(r.status)) }) },
       { name: "By theme", layout: "board",
         card: ["clientId","status","bestQuote"],
         run: (rows) => ({
@@ -4757,10 +4788,10 @@ const VIEWS = {
         run: (rows, { today }) => ({ rows: rows.filter(r => r.warmth === "Hot") }) },
       { name: "Overdue",            layout: "outreach-hub",
         run: (rows, { today }) => ({ rows: rows.filter(r =>
-          r.nextFollowUp && r.nextFollowUp < today && !["Won","Declined","Inactive"].includes(r.status)
+          r.nextFollowUp && r.nextFollowUp < today && !OUTREACH_CLOSED_STATUSES.includes(r.status)
         )}) },
       { name: "No response",        layout: "outreach-hub",
-        run: (rows) => ({ rows: rows.filter(r => ["No response","Ghosted"].includes(r.responseStatus)) }) },
+        run: (rows) => ({ rows: rows.filter(r => OUTREACH_NO_RESPONSE.includes(r.responseStatus)) }) },
       { name: "Demo stage",          layout: "outreach-hub",
         run: (rows) => ({ rows: rows.filter(r => ["Demo offered","Demo scheduled"].includes(r.status)) }) },
       { name: "Agreement pending",   layout: "outreach-hub",
@@ -6560,7 +6591,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
 function SessionPerfView({ rows, derived, data = {}, onOpen }) {
   if (!rows.length) return <Empty pad>No sessions logged yet.</Empty>;
 
-  // Studio sessions derive gross/split/net from actual Stripe revenue × studio share %.
+  // Studio sessions derive gross/split/net from actual Stripe revenue Ã— studio share %.
   // Virtual sessions keep their booking-derived figures (no studio split).
   const partnersById = Object.fromEntries((data.partners || []).map((p) => [p.id, p]));
   const revenueRows = buildRegistrationRevenueRows(data);
@@ -6670,122 +6701,6 @@ function SessionPerfView({ rows, derived, data = {}, onOpen }) {
 /* ============================================================
    SESSION CHECKLIST
    ============================================================ */
-/* ── EQUIPMENT & SETUP CHECKLIST COMPONENT ── */
-function EquipmentChecklist({ equipChecklist, onChange, sessionName, sessionDate, isVirtual }) {
-  const toggle = (id) => onChange({ ...equipChecklist, [id]: !equipChecklist[id] });
-
-  const activePhases = EQUIP_CHECKLIST_PHASES
-    .map(p => ({ ...p, items: p.items.filter(i => isVirtual ? i.virtual : !i.virtual) }))
-    .filter(p => p.items.length > 0);
-  const allActiveItems = activePhases.flatMap(p => p.items);
-
-  const done  = allActiveItems.filter(i => equipChecklist[i.id]).length;
-  const total = allActiveItems.length;
-  const pct   = total ? Math.round((done / total) * 100) : 0;
-
-  const criticalIds = isVirtual
-    ? ["eq_zoom_account","eq_zoom_tested","eq_headset_v","eq_do_not_disturb","eq_contraindication"]
-    : ["eq_headsets","eq_backup_headset","eq_playlist","eq_waiver_qr","eq_emergency","eq_contraindication"];
-  const criticalMissing = criticalIds.filter(id => !equipChecklist[id]);
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-
-      {/* Progress header */}
-      <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: "16px 18px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>
-              {sessionName} — {isVirtual ? "Virtual Setup" : "Equipment & Setup"}
-            </div>
-            <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>
-              {sessionDate ? `Session: ${sessionDate}  ·  ` : ""}{done} of {total} items ready
-            </div>
-          </div>
-          <div style={{ fontFamily: FONT.display, fontSize: 28, fontWeight: 700, color: pct === 100 ? "#4A8C6F" : pct >= 60 ? C.brand : C.gold }}>
-            {pct}%
-          </div>
-        </div>
-        <div style={{ height: 8, background: C.line, borderRadius: 8, overflow: "hidden" }}>
-          <div style={{ height: "100%", borderRadius: 8, transition: "width .3s", width: pct + "%",
-            background: pct === 100 ? "#4A8C6F" : pct >= 60 ? C.brand : C.gold }} />
-        </div>
-      </div>
-
-      {/* Critical items alert */}
-      {criticalMissing.length > 0 && (
-        <div style={{ background: hexA("#D9892B", 0.1), border: `1px solid ${hexA("#D9892B", 0.35)}`, borderRadius: 10, padding: "10px 14px" }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#9A5D10", marginBottom: 5 }}>⚠️ Critical items not yet checked</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-            {criticalMissing.map(id => {
-              const item = allActiveItems.find(i => i.id === id);
-              return item ? <span key={id} style={{ fontSize: 11, background: "#fff", border: `1px solid ${hexA("#D9892B", 0.4)}`, borderRadius: 5, padding: "2px 8px", color: "#9A5D10", fontWeight: 600 }}>{item.label}</span> : null;
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Phase sections */}
-      {activePhases.map(phase => {
-        const phaseDone = phase.items.filter(i => equipChecklist[i.id]).length;
-        const allDone   = phaseDone === phase.items.length;
-        return (
-          <div key={phase.id}>
-            {/* Phase header */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "6px 10px", borderRadius: 8, background: hexA(phase.color, 0.07) }}>
-              <span style={{ fontSize: 16 }}>{phase.Icon ? <phase.Icon size={16} color={phase.color} strokeWidth={1.5} /> : null}</span>
-              <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color: phase.color, flex: 1 }}>{phase.label}</span>
-              {allDone
-                ? <span style={{ fontSize: 11, fontWeight: 700, color: "#4A8C6F" }}>✓ All done</span>
-                : <span style={{ fontSize: 11, color: C.ink3 }}>{phaseDone}/{phase.items.length}</span>
-              }
-            </div>
-
-            {/* Items */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              {phase.items.map(item => {
-                const checked   = !!equipChecklist[item.id];
-                const isCritical = criticalIds.includes(item.id);
-                return (
-                  <button key={item.id} onClick={() => toggle(item.id)} style={{
-                    display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
-                    background: checked ? hexA(phase.color, 0.07) : "transparent",
-                    border: "none", borderRadius: 8, padding: "9px 10px",
-                    cursor: "pointer", transition: "background .12s",
-                  }}>
-                    <div style={{
-                      width: 20, height: 20, borderRadius: 5, flexShrink: 0, transition: "all .12s",
-                      border: `2px solid ${checked ? phase.color : isCritical && !checked ? "#D9892B" : C.line}`,
-                      background: checked ? phase.color : C.surface,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                    }}>
-                      {checked && <Check size={12} color="#fff" strokeWidth={3} />}
-                    </div>
-                    <span style={{ fontSize: 13.5, flex: 1, fontWeight: checked ? 500 : 400, color: checked ? C.ink3 : C.ink, textDecoration: checked ? "line-through" : "none" }}>
-                      {item.label}
-                    </span>
-                    {isCritical && !checked && (
-                      <span style={{ fontSize: 10, fontWeight: 700, color: "#D9892B", background: hexA("#D9892B", 0.12), borderRadius: 4, padding: "1px 6px" }}>CRITICAL</span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })}
-
-      {/* All clear state */}
-      {pct === 100 && (
-        <div style={{ background: hexA("#4A8C6F", 0.1), border: `1px solid ${hexA("#4A8C6F", 0.3)}`, borderRadius: 10, padding: "14px 16px", textAlign: "center" }}>
-          <div style={{ fontSize: 22, marginBottom: 6 }}><CheckCircle size={28} color="#4A8C6F" strokeWidth={1.5} /></div>
-          <div style={{ fontWeight: 700, fontSize: 14, color: "#2D6A50" }}>You're fully set up</div>
-          <div style={{ fontSize: 12, color: "#4A8C6F", marginTop: 3 }}>All equipment and setup items are confirmed. Go hold space. 🌿</div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // Sort items so critical ones appear first within any section
 function sortCriticalFirst(items, criticalIds) {
@@ -7390,7 +7305,7 @@ function PartnerSessionsTab({ record, data, onOpenRelated, today }) {
     .filter(s => s.studioId === record.id)
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
-  // Studio finance per session: actual Stripe revenue received × this studio's share %.
+  // Studio finance per session: actual Stripe revenue received Ã— this studio's share %.
   const partnersById = { [record.id]: record };
   const revenueRows = buildRegistrationRevenueRows(data);
   const finBySession = Object.fromEntries(sessions.map(s => [s.id, studioSessionFinance(s, data, { partnersById, revenueRows })]));
@@ -7677,84 +7592,12 @@ function SessionBookingsTab({ record, data, onOpenRelated, setData }) {
   );
 }
 
-function SessionChecklist({ checklist, onChange, sessionName, status, isVirtual }) {
-  const toggle = (id) => onChange({ ...checklist, [id]: !checklist[id] });
-  const activeItems = SESSION_CHECKLIST.filter(i => isVirtual ? i.virtual : !i.virtual);
-  const done = activeItems.filter(i => checklist[i.id]).length;
-  const total = activeItems.length;
-  const pctDone = total ? Math.round((done / total) * 100) : 0;
-  const isCompleted = ["Completed", "Follow-up pending", "Closed out"].includes(status);
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Progress */}
-      <div style={{ background: C.surfaceAlt, borderRadius: 12, padding: "16px 18px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{sessionName} — Run Checklist</div>
-            <div style={{ fontSize: 12, color: C.ink3, marginTop: 2 }}>{done} of {total} items complete</div>
-          </div>
-          <div style={{ fontFamily: FONT.display, fontSize: 28, fontWeight: 700, color: pctDone === 100 ? "#4A8C6F" : pctDone >= 50 ? C.brand : C.gold }}>
-            {pctDone}%
-          </div>
-        </div>
-        <div style={{ height: 8, background: C.line, borderRadius: 8, overflow: "hidden" }}>
-          <div style={{ height: "100%", borderRadius: 8, transition: "width .3s", width: pctDone + "%",
-            background: pctDone === 100 ? "#4A8C6F" : pctDone >= 50 ? C.brand : C.gold }} />
-        </div>
-      </div>
-
-      {SESSION_CHECKLIST_PHASES.map((phase) => {
-        const items = activeItems.filter((i) => i.phase === phase);
-        if (!items.length) return null;
-        const phaseDone = items.filter((i) => checklist[i.id]).length;
-        const color = SESSION_PHASE_COLOR[phase];
-        const isPost = phase === "Post-Session";
-        return (
-          <div key={phase} style={{ opacity: isPost && !isCompleted ? 0.55 : 1 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <div style={{ width: 10, height: 10, borderRadius: "50%", background: color, flexShrink: 0 }} />
-              <span style={{ fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".07em", color }}>{phase}</span>
-              {isPost && !isCompleted && <span style={{ fontSize: 11, color: C.ink3 }}>(available after session is Completed)</span>}
-              <span style={{ fontSize: 11, color: C.ink3, marginLeft: "auto" }}>{phaseDone}/{items.length}</span>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              {items.map((item) => {
-                const checked = !!checklist[item.id];
-                const disabled = isPost && !isCompleted;
-                return (
-                  <button key={item.id} onClick={() => !disabled && toggle(item.id)} disabled={disabled} style={{
-                    display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left",
-                    background: checked ? hexA(color, 0.07) : "transparent",
-                    border: "none", borderRadius: 8, padding: "9px 10px",
-                    cursor: disabled ? "not-allowed" : "pointer", transition: "background .12s",
-                  }}>
-                    <div style={{
-                      width: 20, height: 20, borderRadius: 5, border: `2px solid ${checked ? color : C.line}`,
-                      background: checked ? color : C.surface, display: "flex", alignItems: "center",
-                      justifyContent: "center", flexShrink: 0, transition: "all .12s",
-                    }}>
-                      {checked && <Check size={12} color="#fff" strokeWidth={3} />}
-                    </div>
-                    <span style={{ fontSize: 13.5, fontWeight: checked ? 500 : 400, color: checked ? C.ink3 : C.ink, textDecoration: checked ? "line-through" : "none" }}>
-                      {item.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 /* ============================================================
    SESSION PERFORMANCE (drawer tab)
    ============================================================ */
 function SessionPerformance({ record: r, derived, data }) {
-  // Studio sessions: gross/split/net derive from actual Stripe revenue received × studio share %.
+  // Studio sessions: gross/split/net derive from actual Stripe revenue received Ã— studio share %.
   const fin = r.studioId
     ? studioSessionFinance(r, data, { revenueRows: buildRegistrationRevenueRows(data) })
     : { seatPrice: 0, gross: Number(r.revenue) || 0, studioSplit: 0, net: Number(r.netRevenue) || 0, sharePct: 0 };
@@ -8513,7 +8356,7 @@ function TagSelectorInput({ fld, value, onChange }) {
       {selected.map(tag => (
         <span key={tag} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px 4px 12px", borderRadius: 20, background: C.brandSoft, color: C.brandDeep, fontSize: 12.5, fontWeight: 600, border: `1px solid ${C.brand}` }}>
           {tag}
-          <button onClick={() => onChange(selected.filter(t => t !== tag))} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 1, color: C.brand, fontSize: 13, marginLeft: 2 }}>×</button>
+          <button onClick={() => onChange(selected.filter(t => t !== tag))} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 1, color: C.brand, fontSize: 13, marginLeft: 2 }}>Ã—</button>
         </span>
       ))}
       {available.length > 0 && (
@@ -8644,17 +8487,51 @@ function FieldInput({ fld, value, onChange, data }) {
 /* ============================================================
    CSV IMPORT
    ============================================================ */
+// Expense CSV import only (Revenue → Expenses → Upload Expense CSV). Other tables are not CSV-importable.
 const IMPORT_MAP = {
-  partners: { file: "02-Studio-Partners.csv", map: { "studio name": "name", location: "location", "contact name": "contact", role: "role", email: "email", phone: "phone", "partnership stage": "stage", "studio revenue share %": "studioSharePct", "avg attendance": "avgAttendance", "sessions per month": "sessionsPerMonth", notes: "notes" }, nums: ["studioSharePct", "avgAttendance", "sessionsPerMonth"] },
-  clients: { file: "01-Clients.csv", map: { name: "name", phone: "phone", email: "email", source: "source", status: "status", "first session date": "firstSession", "sessions attended": "sessionsAttended", "last session date": "lastSession", "next session date": "nextSession", "package type": "packageType", "lifetime value": "lifetimeValue", "emotional notes": "notes", "referral potential": "referral" }, nums: ["sessionsAttended", "lifetimeValue"] },
-  sessions: { file: "03-Sessions.csv", map: { "session name": "name", studio: "_studio", date: "date", "attendance count": "attendance", revenue: "revenue", "your net revenue": "netRevenue", "conversion rate": "conversion", "packages sold": "packagesSold", "referrals generated": "referralsGenerated", notes: "notes" }, nums: ["attendance", "revenue", "netRevenue", "conversion", "packagesSold", "referralsGenerated"], rel: { field: "_studio", to: "partners", set: "studioId" } },
-  offers: { file: "04-Offers-Sales.csv", map: { offer: "name", "client name": "_client", "offer type": "offerType", price: "price", status: "status", "date offered": "dateOffered", "close date": "closeDate" }, nums: ["price"], rel: { field: "_client", to: "clients", set: "clientId" } },
-  content: { file: "05-Content-Referral.csv", map: { "content title": "name", type: "type", platform: "platform", "date posted": "datePosted", engagement: "engagement", "leads generated": "leads", "sessions booked": "booked" }, nums: ["engagement", "leads", "booked"] },
-  followups: { file: "06-Follow-Ups.csv", map: { "follow-up": "name", "client name": "_client", stage: "stage", "last contact date": "lastContact", "follow-up type": "futype", "next action date": "nextAction", outcome: "outcome" }, rel: { field: "_client", to: "clients", set: "clientId" } },
-  expenses: { file: "07-Expenses.csv", map: { date: "date", vendor: "vendor", description: "description", amount: "amount", category: "category", "payment method": "paymentMethod", "paymentmethod": "paymentMethod", "tax deductible": "taxDeductible", "taxdeductible": "taxDeductible", recurring: "recurring", "recurring freq": "recurringFreq", "recurringfreq": "recurringFreq", "linked session": "linkedSession", "linked partner": "linkedPartner", "receipt url": "receiptUrl", notes: "notes" }, nums: ["amount"], bools: ["taxDeductible", "recurring"] },
+  expenses: { file: "07-Expenses.csv", map: { date: "date", vendor: "vendor", description: "description", amount: "amount", category: "category", "payment method": "paymentMethod", "paymentmethod": "paymentMethod", "tax deductible": "taxDeductible", "taxdeductible": "taxDeductible", recurring: "recurring", "recurring freq": "recurringFreq", "recurringfreq": "recurringFreq", "linked session": "linkedSession", "linked partner": "linkedPartner", "receipt url": "receiptUrl", notes: "notes" }, nums: ["amount"], bools: ["taxDeductible", "recurring"], dates: ["date"], dedupe: (r) => `${r.date}|${norm(r.vendor)}|${r.amount}|${norm(r.description)}` },
 };
-// Calendly bookings (`registrations`) are sync-only — not in IMPORT_MAP / not CSV-importable.
-const DB_ORDER = ["partners", "clients", "sessions", "offers", "content", "followups", "expenses"];
+
+/** Map PapaParse rows through IMPORT_MAP: sanitize, coerce, validate dates, dedupe. */
+function parseImportRows(db, rawRows, { existing = [], idPrefix } = {}) {
+  const spec = IMPORT_MAP[db];
+  if (!spec) return { rows: [], skippedDates: 0, skippedDupes: 0 };
+  const seen = new Set();
+  if (spec.dedupe) {
+    for (const ex of existing) {
+      const k = spec.dedupe(ex);
+      if (k) seen.add(k);
+    }
+  }
+  let skippedDates = 0, skippedDupes = 0;
+  const rows = [];
+  for (const raw of rawRows) {
+    const rec = { id: uid(idPrefix || db) };
+    const lower = {};
+    Object.keys(raw).forEach((k) => { lower[norm(k)] = raw[k]; });
+    Object.entries(spec.map).forEach(([csvKey, field]) => {
+      let val = lower[csvKey] ?? "";
+      val = Sec.sanitize(val);
+      if (spec.nums && spec.nums.includes(field)) val = num(val);
+      if (spec.bools && spec.bools.includes(field)) val = bool(val);
+      rec[field] = val;
+    });
+    if (spec.dates) {
+      let badDate = false;
+      for (const f of spec.dates) {
+        if (rec[f] != null && rec[f] !== "" && !isValidISODate(rec[f])) { badDate = true; break; }
+      }
+      if (badDate) { skippedDates++; continue; }
+    }
+    if (spec.dedupe) {
+      const key = spec.dedupe(rec);
+      if (key && seen.has(key)) { skippedDupes++; continue; }
+      if (key) seen.add(key);
+    }
+    rows.push(rec);
+  }
+  return { rows, skippedDates, skippedDupes };
+}
 
 /* ============================================================
    EDIT PROFILE MODAL
@@ -8668,243 +8545,6 @@ const DB_ORDER = ["partners", "clients", "sessions", "offers", "content", "follo
    ============================================================ */
 
 
-const DB_SCHEMA = [
-  {
-    table: "clients", label: "Clients", lane: "B2C",
-    description: "Individual clients — leads, attendees, members, and advocates.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "name",            type: "string",   required: true,  description: "Full name" },
-      { name: "email",           type: "email",    required: false, description: "Contact email address" },
-      { name: "phone",           type: "string",   required: false, description: "Phone number" },
-      { name: "source",          type: "select",   required: false, description: "How the client found Simply Breathe", values: "Referral · Instagram · Studio · Website · Direct · Event · Corporate · Other" },
-      { name: "type",            type: "select",   required: false, description: "Client classification", values: "First-time attendee · Repeat attendee · Member · Advocate · Referral source · Private client · Studio attendee · Virtual attendee · Corporate attendee · High-value lead · Past client – reactivate" },
-      { name: "tags",            type: "array",    required: false, description: "Intent / emotional tags", values: "Stress relief · Anxiety · Burnout · Performance · Grief · Letting go · Self-confidence · Nervous system reset · Transformation seeker · Spiritual growth · Corporate wellness" },
-      { name: "firstContact",    type: "date",     required: false, description: "Date of first contact (ISO 8601)" },
-      { name: "lastSession",     type: "date",     required: false, description: "Date of most recent session attended" },
-      { name: "nextFollowUp",    type: "date",     required: false, description: "Scheduled next follow-up date" },
-      { name: "status",          type: "select",   required: false, description: "Relationship status", values: "New lead · Active · Warm · VIP · Advocate · Inactive · Lost" },
-      { name: "referralSource",  type: "string",   required: false, description: "Name of the person who referred this client" },
-      { name: "referralPotential", type: "select", required: false, description: "Likelihood to refer others", values: "High · Medium · Low" },
-      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
-    ],
-  },
-  {
-    table: "partners", label: "Studio Partners", lane: "B2B",
-    description: "Studios, gyms, and wellness spaces that host breathwork events.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "name",            type: "string",   required: true,  description: "Studio or business name" },
-      { name: "owner",           type: "string",   required: false, description: "Owner or manager name" },
-      { name: "email",           type: "email",    required: false, description: "Primary contact email" },
-      { name: "phone",           type: "string",   required: false, description: "Phone number" },
-      { name: "location",        type: "string",   required: false, description: "City / address" },
-      { name: "type",            type: "select",   required: false, description: "Studio category", values: "Yoga · Gym · Meditation · Wellness · Pilates · Corporate · Other" },
-      { name: "communitySize",   type: "number",   required: false, description: "Estimated active member / follower count" },
-      { name: "bestJourney",     type: "string",   required: false, description: "Best-fit breathwork journey for this audience" },
-      { name: "revenuePotential",type: "currency",  required: false, description: "Estimated total revenue potential ($)" },
-      { name: "stage",           type: "select",   required: false, description: "Pipeline stage", values: "Target Identified · Researched · Initial Outreach Sent · Follow-Up Needed · Discovery Call Booked · Demo Session Offered · Demo Completed · Pilot Proposed · Agreement Sent · Agreement Signed · First Session Scheduled · Pilot Completed · Recurring Partner · Lost / Not a Fit" },
-      { name: "probability",     type: "number",   required: false, description: "Probability of closing (0–100%)" },
-      { name: "lastTouch",       type: "date",     required: false, description: "Date of last activity or contact" },
-      { name: "nextAction",      type: "string",   required: false, description: "Next required action" },
-      { name: "contractStatus",  type: "select",   required: false, description: "Agreement status", values: "None · Sent · Signed · Expired" },
-      { name: "insuranceReq",    type: "string",   required: false, description: "Insurance requirements noted" },
-      { name: "promotionCommit", type: "string",   required: false, description: "Agreed promotion commitments" },
-      { name: "notes",           type: "textarea", required: false, description: "Free-form notes and conversation history" },
-      { name: "checklist",       type: "object",   required: false, description: "Studio Launch Checklist — 4-phase, 23 boolean items (before_signing, after_signing, before_event, after_event)" },
-    ],
-  },
-  {
-    table: "sessions", label: "Sessions", lane: "B2C",
-    description: "Individual breathwork events — studio, virtual, or private.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "date",            type: "date",     required: true,  description: "Session date (ISO 8601)" },
-      { name: "time",            type: "string",   required: false, description: "Session start time" },
-      { name: "studio",          type: "string",   required: false, description: "Studio name or 'Virtual'" },
-      { name: "journey",         type: "string",   required: false, description: "Breathwork journey used" },
-      { name: "status",          type: "select",   required: false, description: "Lifecycle status", values: "Planned · Booking Open · Promotion Active · Almost Full · Completed · Follow-Up Pending · Closed Out" },
-      { name: "capacity",        type: "number",   required: false, description: "Maximum attendee capacity" },
-      { name: "registered",      type: "number",   required: false, description: "Number registered" },
-      { name: "paid",            type: "number",   required: false, description: "Number who paid" },
-      { name: "waivers",         type: "number",   required: false, description: "Number of waivers completed" },
-      { name: "noShows",         type: "number",   required: false, description: "Number of no-shows" },
-      { name: "grossRevenue",    type: "currency",  required: false, description: "Total gross revenue collected ($)" },
-      { name: "studioSplit",     type: "currency",  required: false, description: "Amount paid to studio ($)" },
-      { name: "netRevenue",      type: "currency",  required: false, description: "Net revenue after studio split ($)" },
-      { name: "roomSetup",       type: "select",   required: false, description: "Room setup status", values: "Not started · In progress · Complete" },
-      { name: "audioSetup",      type: "select",   required: false, description: "Music / headset setup status", values: "Not started · In progress · Complete" },
-      { name: "testimonialsCapt",type: "boolean",  required: false, description: "Were testimonials captured post-session?" },
-      { name: "followUpSent",    type: "boolean",  required: false, description: "Was the post-session follow-up email sent?" },
-      { name: "rebookOfferSent", type: "boolean",  required: false, description: "Was a rebook offer sent?" },
-      { name: "referralsReq",    type: "boolean",  required: false, description: "Were referrals requested?" },
-      { name: "breakthroughNoted", type: "boolean", required: false, description: "Was a client breakthrough noted? Triggers testimonial request alert." },
-      { name: "equipChecklist",  type: "object",   required: false, description: "Equipment checklist — 3 phases, 17 boolean items (audio_tech, room_supplies, admin_checkin)" },
-      { name: "conversionResult",type: "string",   required: false, description: "Outcome summary (e.g. '2 3-packs sold')" },
-      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
-    ],
-  },
-  {
-    table: "offers", label: "Offers", lane: "B2C",
-    description: "Sales offers made to clients or studios.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "client",          type: "string",   required: true,  description: "Client or studio name" },
-      { name: "type",            type: "select",   required: false, description: "Offer type", values: "Single session · 3-pack · 6-pack · 12-pack · Private session · Studio pilot · Studio recurring agreement · Corporate event · Group event · Referral partner offer" },
-      { name: "amount",          type: "currency",  required: false, description: "Offer value ($)" },
-      { name: "dateOffered",     type: "date",     required: false, description: "Date offer was sent" },
-      { name: "expiresOn",       type: "date",     required: false, description: "Offer expiration date" },
-      { name: "followUpDate",    type: "date",     required: false, description: "Scheduled follow-up date" },
-      { name: "status",          type: "select",   required: false, description: "Offer lifecycle status", values: "Drafted · Sent · Viewed · Follow-Up Due · Accepted · Paid · Declined · Expired" },
-      { name: "probability",     type: "number",   required: false, description: "Estimated close probability (0–100%)" },
-      { name: "source",          type: "select",   required: false, description: "Lead source for this offer", values: "Referral · Instagram · Studio · Website · Direct · Event · Corporate · Other" },
-      { name: "reasonLost",      type: "string",   required: false, description: "Reason if offer was declined or expired" },
-      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
-    ],
-  },
-  {
-    table: "revenue", label: "Revenue", lane: "B2C",
-    description: "Individual revenue line items for attribution and profitability analysis.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "date",            type: "date",     required: true,  description: "Revenue date" },
-      { name: "client",          type: "string",   required: false, description: "Linked client name" },
-      { name: "session",         type: "string",   required: false, description: "Linked session ID or name" },
-      { name: "channel",         type: "select",   required: false, description: "Revenue channel", values: "Studio session · Virtual session · Private client · Group package · Corporate event · Referral partner · Paid ad · Organic Instagram · Email list · Studio partner" },
-      { name: "gross",           type: "currency",  required: false, description: "Gross revenue ($)" },
-      { name: "stripeFee",       type: "currency",  required: false, description: "Payment processing fee ($)" },
-      { name: "studioSplit",     type: "currency",  required: false, description: "Studio share ($)" },
-      { name: "facilitatorCost", type: "currency",  required: false, description: "Facilitator / contractor cost ($)" },
-      { name: "refunds",         type: "currency",  required: false, description: "Refund amount ($)" },
-      { name: "net",             type: "currency",  required: false, description: "Net revenue after all deductions ($)" },
-      { name: "costCenter",      type: "string",   required: false, description: "Cost center or accounting category" },
-      { name: "source",          type: "string",   required: false, description: "Marketing source or campaign" },
-      { name: "campaign",        type: "string",   required: false, description: "Campaign name" },
-      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
-    ],
-  },
-  {
-    table: "expenses", label: "Expenses", lane: "Core",
-    description: "Business expenses — manually entered, or auto-generated from studio revenue splits and canceled bookings.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "date",            type: "date",     required: true,  description: "Expense date (ISO 8601)" },
-      { name: "vendor",          type: "string",   required: false, description: "Vendor or payee name" },
-      { name: "description",     type: "string",   required: false, description: "What the expense was for" },
-      { name: "amount",          type: "currency",  required: false, description: "Expense amount ($)" },
-      { name: "category",        type: "select",   required: false, description: "Expense category", values: "Equipment & Supplies · Software & Subscriptions · Marketing & Advertising · Travel & Transport · Education & Training · Professional Services · Insurance · Administrative · Studio & Venue · Studio Split · Refunds & Cancellations · Other" },
-      { name: "paymentMethod",   type: "select",   required: false, description: "How the expense was paid", values: "Credit Card · Bank Transfer · Cash · Check · Other" },
-      { name: "taxDeductible",   type: "boolean",  required: false, description: "Is this expense tax deductible?" },
-      { name: "recurring",       type: "boolean",  required: false, description: "Is this a recurring expense?" },
-      { name: "recurringFreq",   type: "select",   required: false, description: "Recurrence frequency", values: "One-time · Monthly · Quarterly · Annual" },
-      { name: "linkedSession",   type: "string",   required: false, description: "Linked session ID (if tied to a session)" },
-      { name: "linkedPartner",   type: "string",   required: false, description: "Linked studio partner ID (if tied to a partner)" },
-      { name: "receiptUrl",      type: "string",   required: false, description: "Link to a receipt or supporting document" },
-      { name: "stripeRefundId",  type: "string",   required: false, description: "Stripe refund ID (re_...) when the expense reflects an actual Stripe refund" },
-      { name: "refundedAt",      type: "date",     required: false, description: "When the Stripe refund was issued (ISO 8601)" },
-      { name: "auto",            type: "boolean",  required: false, description: "True for auto-generated rows (studio split / canceled booking) — read-only in the UI" },
-      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
-    ],
-  },
-  {
-    table: "referrals", label: "Referrals", lane: "B2C",
-    description: "Referral relationships — who referred whom and the resulting revenue.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "referrer",        type: "string",   required: true,  description: "Name of person who gave the referral" },
-      { name: "referred",        type: "string",   required: false, description: "Name of person referred" },
-      { name: "date",            type: "date",     required: false, description: "Date referral was received" },
-      { name: "status",          type: "select",   required: false, description: "Referral status", values: "Received · Contacted · Attended · Purchased · Thanked · Closed" },
-      { name: "attended",        type: "boolean",  required: false, description: "Did the referred person attend a session?" },
-      { name: "purchased",       type: "boolean",  required: false, description: "Did they purchase an offer?" },
-      { name: "revenue",         type: "currency",  required: false, description: "Revenue generated from this referral ($)" },
-      { name: "thankYouSent",    type: "boolean",  required: false, description: "Was a thank-you sent to the referrer?" },
-      { name: "rewardGiven",     type: "boolean",  required: false, description: "Was a referral reward given?" },
-      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
-    ],
-  },
-  {
-    table: "content", label: "Content Calendar", lane: "B2C",
-    description: "Social media and email content — ideas, drafts, scheduled, and published.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "title",           type: "string",   required: true,  description: "Post title or working title" },
-      { name: "body",            type: "textarea", required: false, description: "Caption or body copy" },
-      { name: "platform",        type: "select",   required: false, description: "Publishing platform", values: "Instagram · Facebook · LinkedIn · TikTok · YouTube · Email · Blog · Other" },
-      { name: "category",        type: "select",   required: false, description: "Content category", values: "Client transformation · Breathwork education · Nervous system regulation · Behind the scenes · Studio partner promotion · Founder story · Testimonials · FAQs · Contraindications/safety · Upcoming sessions" },
-      { name: "status",          type: "select",   required: false, description: "Content lifecycle status", values: "Idea · Draft · Scheduled · Published · Archived" },
-      { name: "scheduledDate",   type: "date",     required: false, description: "Scheduled publish date" },
-      { name: "reach",           type: "number",   required: false, description: "Total accounts reached" },
-      { name: "likes",           type: "number",   required: false, description: "Like count" },
-      { name: "comments",        type: "number",   required: false, description: "Comment count" },
-      { name: "shares",          type: "number",   required: false, description: "Share / repost count" },
-      { name: "saves",           type: "number",   required: false, description: "Save count" },
-      { name: "leads",           type: "number",   required: false, description: "Leads generated from this post" },
-      { name: "booked",          type: "number",   required: false, description: "Bookings attributed to this post" },
-      { name: "revenue",         type: "currency",  required: false, description: "Revenue attributed to this post ($)" },
-      { name: "sessionPromoted", type: "string",   required: false, description: "Session name promoted in this post" },
-      { name: "studioTagged",    type: "string",   required: false, description: "Studio partner tagged" },
-      { name: "reused",          type: "boolean",  required: false, description: "Is this repurposed content?" },
-      { name: "cta",             type: "string",   required: false, description: "Call to action text or link" },
-      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
-    ],
-  },
-  {
-    table: "outreach", label: "Outreach Hub", lane: "B2B",
-    description: "Proactive studio and referral outreach tracking.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "name",            type: "string",   required: true,  description: "Target name (studio or individual)" },
-      { name: "targetType",      type: "select",   required: false, description: "Type of outreach target", values: "Studio · Individual · Corporate · Event Space · Wellness Brand" },
-      { name: "contactStatus",   type: "select",   required: false, description: "Contact lifecycle status", values: "Not contacted · Contacted · Responded · Meeting booked · Demo offered · Negotiating · Closed · Not interested" },
-      { name: "messageUsed",     type: "textarea", required: false, description: "Outreach message or template used" },
-      { name: "lastContact",     type: "date",     required: false, description: "Date of last contact" },
-      { name: "nextFollowUp",    type: "date",     required: false, description: "Next scheduled follow-up date" },
-      { name: "responseStatus",  type: "select",   required: false, description: "Response received", values: "No response · Positive · Neutral · Negative · Bounced" },
-      { name: "warmth",          type: "select",   required: false, description: "Relationship warmth", values: "Cold · Warm · Hot" },
-      { name: "source",          type: "select",   required: false, description: "How this target was found", values: "Instagram · Referral · LinkedIn · Walk-in · Event · Website · Directory · Other" },
-      { name: "priority",        type: "number",   required: false, description: "Priority score (1–5)" },
-      { name: "revenuePotential",type: "currency",  required: false, description: "Estimated revenue potential ($)" },
-      { name: "partnerId",       type: "string",   required: false, description: "Linked Studio Partner record ID" },
-      { name: "notes",           type: "textarea", required: false, description: "Free-form notes" },
-    ],
-  },
-  {
-    table: "testimonials", label: "Testimonials", lane: "Core",
-    description: "Client testimonials — written, video, and usage permissions.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "client",          type: "string",   required: true,  description: "Client name" },
-      { name: "session",         type: "string",   required: false, description: "Session or journey attended" },
-      { name: "written",         type: "textarea", required: false, description: "Full written testimonial text" },
-      { name: "videoUrl",        type: "string",   required: false, description: "Video testimonial URL" },
-      { name: "permissionRec",   type: "boolean",  required: false, description: "Was permission received to use this testimonial?" },
-      { name: "useWebsite",      type: "boolean",  required: false, description: "Permitted for website use?" },
-      { name: "useSocial",       type: "boolean",  required: false, description: "Permitted for social media use?" },
-      { name: "firstNameOnly",   type: "boolean",  required: false, description: "First name only permission?" },
-      { name: "theme",           type: "select",   required: false, description: "Testimonial theme", values: "Stress relief · Release · Clarity · Emotional breakthrough · Sleep · Performance · Transformation · Nervous system" },
-      { name: "bestQuote",       type: "string",   required: false, description: "Single best pull-quote for marketing" },
-      { name: "beforeSummary",   type: "textarea", required: false, description: "Client state before the session" },
-      { name: "afterSummary",    type: "textarea", required: false, description: "Client state after the session" },
-      { name: "status",          type: "select",   required: false, description: "Testimonial status", values: "Requested · Received · Approved · Published · Archived" },
-      { name: "date",            type: "date",     required: false, description: "Date testimonial was received" },
-    ],
-  },
-  {
-    table: "templates", label: "Templates", lane: "Core",
-    description: "Email and SMS communication templates.",
-    fields: [
-      { name: "id",              type: "string",   required: true,  description: "Auto-generated unique identifier" },
-      { name: "name",            type: "string",   required: true,  description: "Template display name" },
-      { name: "category",        type: "select",   required: false, description: "Template category", values: "B2B Outreach · Session · Follow-Up · Offer" },
-      { name: "channel",         type: "select",   required: false, description: "Delivery channel", values: "Email · SMS" },
-      { name: "subject",         type: "string",   required: false, description: "Email subject line (Email templates only)" },
-      { name: "body",            type: "textarea", required: false, description: "Template body — supports {{variable}} placeholders" },
-      { name: "linkedTo",        type: "select",   required: false, description: "Associated record type", values: "Client · Studio Partner · Session · Offer · General" },
-      { name: "notes",           type: "textarea", required: false, description: "Usage notes or variable descriptions" },
-    ],
-  },
-];
 
 /* ── EMAIL LOGS ── */
 const EMAIL_STATUS_COLOR = {
@@ -9457,107 +9097,6 @@ function CancelCalendlyModal({ isStudio, activeCount, busy: parentBusy, onConfir
   );
 }
 
-function ImportModal({ data, setData, onClose }) {
-  const [staged, setStaged] = useState({});  // db -> parsed rows
-  const [busy, setBusy] = useState(false);
-
-  const handleFile = (db, file) => {
-    if (file.size > 10 * 1024 * 1024) { alert("CSV file must be under 10 MB."); return; }
-    Papa.parse(file, {
-      header: true, skipEmptyLines: true,
-      error: (err) => { alert(`Could not read CSV file: ${err.message || err}`); },
-      complete: (res) => {
-        if (res.errors.length) {
-          const msgs = res.errors.slice(0, 3).map(e => e.message).join("; ");
-          alert(`CSV parse warning — some rows may be skipped: ${msgs}`);
-        }
-        const spec = IMPORT_MAP[db];
-        const rows = res.data.map((raw) => {
-          const rec = { id: uid(db) };
-          const lower = {};
-          Object.keys(raw).forEach((k) => { lower[norm(k)] = raw[k]; });
-          Object.entries(spec.map).forEach(([csvKey, field]) => {
-            let val = lower[csvKey] ?? "";
-            val = Sec.sanitize(val);                          // ← sanitize before coercing
-            if (spec.nums && spec.nums.includes(field)) val = num(val);
-            if (spec.bools && spec.bools.includes(field)) val = bool(val);
-            rec[field] = val;
-          });
-          return rec;
-        }).filter((r) => Object.values(r).some((v) => v !== "" && v !== 0 && v != null && String(v) !== r.id));
-        setStaged((s) => ({ ...s, [db]: rows }));
-      },
-    });
-  };
-
-  const apply = () => {
-    setBusy(true);
-    setData((cur) => {
-      const next = { ...cur };
-      // import partners & clients first so relations can resolve
-      DB_ORDER.forEach((db) => { if (staged[db]) next[db] = staged[db].map((r) => ({ ...r })); });
-      // wire relations
-      DB_ORDER.forEach((db) => {
-        const spec = IMPORT_MAP[db];
-        if (!spec) return;
-        if (spec.rel && next[db]) {
-          const targetRows = next[spec.rel.to];
-          next[db] = next[db].map((r) => {
-            const wanted = norm(r[spec.rel.field]);
-            const match = targetRows.find((t) => norm(t.name) === wanted);
-            const { [spec.rel.field]: _omit, ...rest } = r;
-            return { ...rest, [spec.rel.set]: match ? match.id : "" };
-          });
-        } else if (next[db]) {
-          next[db] = next[db].map((r) => { const { _studio, _client, ...rest } = r; return rest; });
-        }
-      });
-      return next;
-    });
-    setTimeout(onClose, 200);
-  };
-
-  const stagedCount = Object.values(staged).reduce((a, r) => a + r.length, 0);
-
-  return (
-    <div className="sb-drawerwrap" onMouseDown={onClose}>
-      <div className="sb-modal" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="sb-drawerhead">
-          <span className="sb-eyebrow">Import CSVs</span>
-          <button className="sb-iconbtn" onClick={onClose}><X size={18} /></button>
-        </div>
-        <div style={{ padding: "16px 20px", overflowY: "auto" }}>
-          <p style={{ fontSize: 13, color: C.ink2, marginTop: 0, lineHeight: 1.5 }}>
-            Drop in any of the six files to replace that table. Studio and client names are matched automatically to
-            re-link Sessions, Offers, and Follow-Ups. Headers are matched by name, so the exact column order doesn't matter.
-          </p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }}>
-            {DB_ORDER.filter((db) => IMPORT_MAP[db]).map((db) => (
-              <div key={db} className="sb-importrow">
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13.5 }}>{sectionLabel(db)}</div>
-                  <div style={{ fontSize: 11.5, color: C.ink3 }}>{IMPORT_MAP[db].file}</div>
-                </div>
-                {staged[db] ? <span className="sb-importok"><Check size={13} /> {staged[db].length} rows ready</span> : <span style={{ fontSize: 12, color: C.ink3 }}>current: {(data[db] || []).length}</span>}
-                <label className="sb-ghost" style={{ cursor: "pointer" }}>
-                  <Upload size={14} /> Choose
-                  <input type="file" accept=".csv" style={{ display: "none" }} onChange={(e) => e.target.files[0] && handleFile(db, e.target.files[0])} />
-                </label>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="sb-drawerfoot">
-          <div style={{ flex: 1, fontSize: 12.5, color: C.ink3 }}>{stagedCount ? `${stagedCount} rows staged` : "No files chosen"}</div>
-          <button className="sb-ghost" onClick={onClose}>Cancel</button>
-          <button className="sb-primary" onClick={apply} disabled={!stagedCount || busy} style={{ opacity: !stagedCount ? 0.5 : 1 }}>
-            Import & re-link
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ============================================================
    PRIMITIVES
@@ -9606,262 +9145,6 @@ const DESC_PANEL_BODY_STYLE = {
 
 
 
-/* ── STARTER TEMPLATES ── */
-const STARTER_TEMPLATES = [
-  {
-    name: "Session Booking Confirmation",
-    category: "Session",
-    channel: "Email",
-    linkedTo: "Client",
-    subject: "You're booked! Your breathwork session on {{sessionDate}}",
-    body: `Hi {{firstName}},
-
-You're all set! Here are your booking details:
-
-📅 Date & Time: {{sessionDate}}
-📍 Location / Link: {{sessionLink}}
-
-A few things to help you prepare:
-- Wear comfortable, loose-fitting clothing
-- Avoid heavy meals for 2 hours before the session
-- Have a blanket and pillow nearby if you're joining virtually
-- Come with an open mind and willingness to breathe deeply
-
-If you have any questions or need to reschedule, just reply to this email.
-
-Looking forward to breathing with you soon.
-
-Warm regards,
-{{yourName}}`,
-    notes: "Sent immediately after a new booking is confirmed.",
-  },
-  {
-    name: "Pre-Session Reminder (24-Hour)",
-    category: "Session",
-    channel: "Email",
-    linkedTo: "Client",
-    subject: "Your breathwork session is tomorrow — a few reminders",
-    body: `Hi {{firstName}},
-
-Just a friendly reminder that your breathwork session is tomorrow at {{sessionTime}}.
-
-Here's what to expect:
-- The session typically runs {{sessionDuration}} minutes
-- You may experience tingling, emotional releases, or deep relaxation — all normal
-- Have water nearby and plan to rest quietly for 10–15 minutes after
-
-📍 Location / Link: {{sessionLink}}
-
-If anything comes up and you need to reschedule, please let me know as soon as possible so I can open the spot for someone else.
-
-See you tomorrow!
-
-{{yourName}}`,
-    notes: "Send the day before the session.",
-  },
-  {
-    name: "Post-Session Check-In (Same Day)",
-    category: "Follow-Up",
-    channel: "Email",
-    linkedTo: "Client",
-    subject: "How are you feeling after today's session?",
-    body: `Hi {{firstName}},
-
-Thank you so much for showing up and doing the work today — it was a honour to hold space for you.
-
-Breathwork can continue working in your body and mind for the next 24–72 hours. Here are a few suggestions:
-- Drink plenty of water
-- Rest if you feel tired
-- Journal anything that came up for you
-- Be gentle with yourself
-
-I'd love to hear how you're feeling — just hit reply and let me know. Your feedback helps me tailor future sessions to serve you better.
-
-Looking forward to hearing from you.
-
-With gratitude,
-{{yourName}}`,
-    notes: "Send within a few hours of the session ending.",
-  },
-  {
-    name: "72-Hour Rebooking Offer",
-    category: "Follow-Up",
-    channel: "Email",
-    linkedTo: "Client",
-    subject: "Ready for your next session, {{firstName}}?",
-    body: `Hi {{firstName}},
-
-I hope the past few days have been good to you since our session together.
-
-Many clients find the most powerful shifts happen when they practice consistently. I'd love to support you in building that momentum.
-
-Here are a few ways we can continue:
-
-🌿 Single Session — Book at your own pace
-📦 Package — Save when you commit to a journey (ask me about current options)
-🏢 Studio Group — Join an upcoming group session for a shared experience
-
-If you're ready to book your next session, you can do so here: {{bookingLink}}
-
-If you have any questions or want to chat about what's right for you, just reply to this email.
-
-Looking forward to our next session together.
-
-{{yourName}}`,
-    notes: "Send 72 hours after session. Personalize the package section if relevant.",
-  },
-  {
-    name: "Package / Offer Proposal",
-    category: "Offer",
-    channel: "Email",
-    linkedTo: "Client",
-    subject: "A personalised offer for you, {{firstName}}",
-    body: `Hi {{firstName}},
-
-Based on our work together, I wanted to reach out with a personalised offer I think would be a great fit for where you are right now.
-
-{{offerDetails}}
-
-This offer is available until {{offerExpiry}}.
-
-Here's what's included:
-- {{packageItem1}}
-- {{packageItem2}}
-- {{packageItem3}}
-
-Investment: {{offerPrice}}
-
-If you have questions or want to talk it through, I'm happy to jump on a quick call. Just reply to this email or book a call here: {{bookingLink}}
-
-I believe in this work and I believe in your capacity to transform. I'd love to support you further.
-
-Warmly,
-{{yourName}}`,
-    notes: "Personalise the offerDetails and package items before sending.",
-  },
-  {
-    name: "New Client Welcome",
-    category: "Session",
-    channel: "Email",
-    linkedTo: "Client",
-    subject: "Welcome to Simply Breathe — so glad you're here",
-    body: `Hi {{firstName}},
-
-Welcome! I'm so glad you found your way here.
-
-Simply Breathe is a space for you to slow down, reconnect with your breath, and access the deep healing and clarity that lives inside you. Whether you're here to manage stress, process emotions, or simply explore — you're in the right place.
-
-Here's what to expect as a new client:
-- Your first session is about building trust and finding your rhythm
-- There's no right or wrong way to breathe — just show up as you are
-- I'll guide you through everything; you just need to follow the breath
-
-Your first session is booked for {{sessionDate}} at {{sessionTime}}.
-📍 Location / Link: {{sessionLink}}
-
-If you have any questions before we meet, please don't hesitate to reach out. I read every reply personally.
-
-Looking forward to breathing with you soon.
-
-With warmth,
-{{yourName}}`,
-    notes: "Send to brand new clients after their first booking.",
-  },
-  {
-    name: "Studio Partner — Initial Outreach",
-    category: "B2B Outreach",
-    channel: "Email",
-    linkedTo: "Studio Partner",
-    subject: "Partnering to bring transformative breathwork to {{studioName}}",
-    body: `Hi {{contactName}},
-
-My name is {{yourName}} and I run Simply Breathe — a breathwork practice focused on helping people manage stress, process emotions, and access deep physical and mental renewal.
-
-I've been following {{studioName}} and I think your community would genuinely benefit from what we offer. Breathwork is a natural complement to yoga, mindfulness, and wellness practices, and it tends to attract exactly the kind of client your studio already serves.
-
-I'd love to explore hosting a session at your studio on a revenue-share basis — low risk for you, high value for your members.
-
-Here's a quick overview of what a partnership looks like:
-- I bring everything needed to run the session
-- We split revenue based on attendance
-- Your community gets an experience they'll talk about
-
-Would you be open to a short call this week to see if it's a fit? I'm flexible on timing.
-
-Looking forward to connecting.
-
-{{yourName}}`,
-    notes: "First outreach to a potential studio partner.",
-  },
-  {
-    name: "Studio Partner — Follow-Up After No Reply",
-    category: "B2B Outreach",
-    channel: "Email",
-    linkedTo: "Studio Partner",
-    subject: "Following up — breathwork at {{studioName}}",
-    body: `Hi {{contactName}},
-
-I wanted to follow up on my previous email about bringing breathwork sessions to {{studioName}}.
-
-I know things get busy, so I'll keep this short — I genuinely believe your community would love this experience, and I'd love to make it easy for you to say yes.
-
-If now isn't the right time, no problem at all — just let me know and I'll check back in a few months. If you're curious, I'm happy to answer any questions or send over more details.
-
-Either way, thanks for the work you do at {{studioName}}.
-
-{{yourName}}`,
-    notes: "Send 5–7 days after no reply to the initial outreach.",
-  },
-  {
-    name: "Testimonial Request",
-    category: "Follow-Up",
-    channel: "Email",
-    linkedTo: "Client",
-    subject: "Would you share your experience, {{firstName}}?",
-    body: `Hi {{firstName}},
-
-I hope you're continuing to feel the effects of our work together.
-
-I have a small favour to ask. If your experience with Simply Breathe has meant something to you, I'd be so grateful if you'd share a short testimonial. It helps other people who are searching for this kind of support find their way here.
-
-You could share:
-- What you were feeling before your session
-- What shifted or what you noticed during / after
-- What you'd say to someone thinking about trying breathwork
-
-You can reply directly to this email, or if it's easier, write a quick Google review here: {{reviewLink}}
-
-Even just two or three sentences would mean a lot. Thank you for trusting me with your journey.
-
-With gratitude,
-{{yourName}}`,
-    notes: "Send 1–2 weeks after a completed session or package.",
-  },
-  {
-    name: "Re-Engagement (Lapsed Client)",
-    category: "Follow-Up",
-    channel: "Email",
-    linkedTo: "Client",
-    subject: "Checking in — how have you been, {{firstName}}?",
-    body: `Hi {{firstName}},
-
-It's been a while since we last connected and I've been thinking about you.
-
-Life gets full, and it's easy to let the practices that support us slip. I just wanted to reach out and say — there's no judgment here. The breath is always waiting for you when you're ready.
-
-If you're feeling the pull to reconnect — whether it's stress, a transition you're navigating, or just a desire to feel more like yourself — I'd love to hold space for you again.
-
-I have a few spots open over the next couple of weeks. If you'd like to book, you can do so here: {{bookingLink}}
-
-Or if you just want to chat about where you're at, hit reply. I read every message personally.
-
-Either way, I hope you're well.
-
-Warmly,
-{{yourName}}`,
-    notes: "For clients who haven't booked in 60+ days. Personalise as needed.",
-  },
-];
 
 /* ── STARTER CONTENT ── */
 

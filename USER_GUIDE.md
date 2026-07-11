@@ -123,9 +123,9 @@ System-wide tools that support everything else.
 | Content Calendar | Your content calendar and social post planning |
 | Templates | Pre-written email and SMS templates ready to use |
 | Admin | System health, database info, and backup tools |
-| ↳ User Management | Nested under Admin — add or manage system users |
+| ↳ User Management | Nested under Admin — Owner only; add or manage system users |
 
-> **Tip:** Revenue and Expenses are grouped under a **P&L** sidebar item. Click **P&L** to go straight to Revenue and expand the group, then click **Expenses** to switch. User Management is similarly nested under Admin.
+> **Tip:** Revenue and Expenses are grouped under a **P&L** sidebar item. Click **P&L** to go straight to Revenue and expand the group, then click **Expenses** to switch. User Management appears under Admin only for the Owner account.
 
 ### The Header
 
@@ -241,7 +241,7 @@ The **All Clients** view is sorted **A–Z by client name** automatically when y
 | Member | On an active package or recurring plan |
 | Advocate | Refers others, shares posts, actively promotes you |
 | High-value lead | Strong interest but hasn't bought yet |
-| Past client – reactivate | Someone you worked with before who went quiet |
+| Past client — reactivate | Someone you worked with before who went quiet |
 
 ### Opening a Client Record
 
@@ -291,7 +291,7 @@ Every studio goes through a set of stages from first awareness to long-term part
 
 The stages are:
 
-> Target Identified → Researched → Initial Outreach Sent → Follow-Up Needed → Discovery Call Booked → Demo Session Offered → Demo Completed → Pilot Proposed → Agreement Sent → Agreement Signed → First Session Scheduled → Pilot Completed → **Recurring Partner** → Lost / Not a Fit → **Nurture Later**
+> Target identified → Researched → Initial outreach sent → Follow-up needed → Discovery call booked → Demo session offered → Demo completed → Pilot proposed → Agreement sent → Agreement signed → First session scheduled → Pilot completed → **Recurring partner** → Lost / not a fit → **Nurture later**
 
 Move a studio to the next stage by opening their record and updating the **Stage** field.
 
@@ -573,7 +573,7 @@ When a client books through your Calendly link, the CRM automatically:
 
 At the bottom of the sidebar you'll see a **Calendly sync status indicator**. The CRM syncs automatically every **15 minutes** in the background — no action needed. Background sync always builds on your latest saved edits (it will not undo changes you made since you logged in).
 
-Each sync also **pulls recent bookings and cancellations directly from Calendly** (not just webhooks), so new bookings — and any cancellations — appear even if a webhook was missed while ngrok or the backend was offline. Cancellations are checked first on every sync, so a session canceled in Calendly is marked canceled in the CRM (and moves to the Cancellations and Reschedules view) on the very next sync, automatically. This works for **both** a one-on-one virtual session that someone cancels **and** a single participant who drops out of a **studio group class** (where the class itself stays on the calendar but that person's spot is freed) — both kinds of cancellation now come through reliably.
+Each sync also **pulls recent bookings and cancellations directly from Calendly** (not just webhooks), so new bookings — and any cancellations — appear even if a webhook was missed while ngrok or the backend was offline. Cancellations are checked first on every sync, so a session canceled in Calendly is marked canceled in the CRM (and moves to the Cancellations and Reschedules view) on the very next sync, automatically. This works for **both** a one-on-one virtual session that someone cancels **and** a single participant who drops out of a **studio group class** (where the class itself stays on the calendar but that person's spot is freed) — both kinds of cancellation now come through reliably. If Calendly retries the same webhook (for example after a slow network response), the backend records it only once, so you will not get duplicate bookings from retries.
 
 Recent bookings (created in the last few days) are also **re-checked** on sync so they can reappear if they were acknowledged but missing from your local CRM data. Fake signature-test bookings (names like “Sig Test” with TEST links) are ignored and will not be imported.
 
@@ -624,16 +624,16 @@ To cancel the **entire Calendly event** (including every participant on a studio
 
 When a booking arrives, the system automatically fetches the event type description from Calendly and stores it on the session record. This description powers the **ⓘ popup** on virtual session cards.
 
-Payment amounts show the event type’s configured **session price** (Internal Note in Calendly). When someone books a paid session, **payment status** starts as **Pending verification** until Stripe confirms the charge (see the Stripe sidebar item).
+Payment amounts show the event type’s configured **session price** (Internal Note in Calendly). When someone books a paid session, **payment status** starts as **Pending verification** until Stripe confirms the charge (see the Stripe sidebar item). If a price is looked up by event name (for older bookings without a stored event-type link), the name must match the Calendly event type **exactly** — a similar or partial name will not be used, so the wrong class price cannot be applied by accident.
 
-> **Setup required:** Descriptions and session prices need a Calendly Personal Access Token. Stripe payment matching needs a Stripe webhook — ask your administrator to configure both (see Tracking Revenue).
+> **Setup required:** Descriptions and session prices need a Calendly Personal Access Token. Stripe payment matching needs a Stripe webhook — ask your administrator to configure both (see Tracking Revenue). The webhook backend needs **Node.js 18 or newer**.
 
 ### Booking Record Fields
 
 Each booking record captures everything from the Calendly confirmation:
 - When the booking was created (**Scheduled On**) and session date/time
 - **Amount paid** — Stripe-verified amount once matched; **Expected price** is the Calendly session price until then
-- Status (booked, attended, canceled, rescheduled, no-show)
+- Status (booked, attended, canceled, rescheduled, no-show). If Calendly clears a no-show mark, your manual **attended** status is kept — the CRM only resets status when it was still marked no-show.
 - Waiver status (auto-signed for Calendly bookings) and payment status (`Pending verification` → `Paid` after Stripe match)
 - Location type and Zoom link (for virtual sessions)
 - Custom question answers: how they heard about you, health concerns, prior breathwork experience, referral source
@@ -703,8 +703,9 @@ Each item in the queue has a **Send Email** button (all steps are sent by email 
 
 1. Choose a template from the dropdown — all templates from your **Template Library** plus the Follow-Up Engine's own sequence templates are listed.
 2. The subject and body are pre-filled and interpolated with the client's name and session details.
-3. Edit the body if needed, then click **Send Email** to dispatch immediately.
-4. The step is marked complete and logged to the client's timeline.
+3. Edit the body if needed. If any `{{placeholders}}` are still showing (for example a booking link or offer price the system couldn't fill), replace or remove them — **Send Email** stays disabled until they are gone.
+4. Click **Send Email** to dispatch immediately.
+5. The step is marked complete and logged to the client's timeline.
 
 ### Message Templates Tab — Managing Sequence Templates
 
@@ -731,7 +732,7 @@ The **Due Today** and **All Follow-Ups** tabs both show your follow-up items as 
 1. Click **Send Email** on any follow-up item.
 2. A compose window opens showing the client's name and email.
 3. Pick a template from the dropdown — your full Template Library and the Follow-Up Engine sequence templates are both listed.
-4. The subject and body are pre-filled. Edit them freely before sending.
+4. The subject and body are pre-filled. Edit them freely before sending. If yellow warning text lists leftover `{{placeholders}}`, fill those in or delete them first — Send stays locked until the message is clean.
 5. Click **Send Email** to dispatch.
 
 **After sending:**
@@ -792,7 +793,7 @@ This is fully automatic — there is no manual matching to do.
 
 **The Payment reconciliation page has:**
 
-1. **Payment exceptions** (only appears when there are any) — bookings that look paid (or unmatched) with an expected price but have **no Stripe charge**. 100%-off coupon bookings often land here because Calendly still shows the list price and Stripe is never involved. Expand the row, enter the **coupon code** that was used, and click **Confirm free coupon**. The booking is marked free ($0), the coupon is saved on the record, and it moves into the Stripe charges list as a **Free** row. Failed charges stay here for investigation (no coupon confirm).
+1. **Payment exceptions** (only appears when there are any) — bookings that look paid (or unmatched) with an expected price but have **no Stripe charge**. This often means the Stripe receipt used a different email than Calendly, or a 100%-off coupon was used. The CRM does **not** automatically treat these as free (that would hide real revenue). Expand the row, enter the **coupon code** that was used, and click **Confirm free coupon**. The booking is marked free ($0), the coupon is saved on the record, and it moves into the Stripe charges list as a **Free** row. Failed charges stay here for investigation (no coupon confirm). For email mismatches, fix the client email or wait until Sync Stripe can match the charge.
 2. **Unmatched Stripe transactions** (only appears when there are any) — Stripe charges that could not be tied to a Calendly booking (no booking within 2 days for that participant). These are usually test charges, duplicate payments, or a charge made under a different email than the Calendly booking.
 3. **Stripe charges** — every matched Stripe payment, tied to its Calendly session, with the amounts above. **Free sessions** (no Stripe charge — including bookings you confirmed with a coupon code) show here as a **$0.00** row with a **Free** badge. Confirmed coupon codes appear in the expanded details. If a payment later comes in for that session, the row turns into a normal charge on the next sync. **Click any row** to expand full charge details.
 4. **Bookings awaiting a Stripe charge** — sessions booked but with no charge pulled yet (they appear here until the next sync ties a charge to them).
@@ -800,7 +801,7 @@ This is fully automatic — there is no manual matching to do.
 
 Use the **search box** at the top of the page to filter every list here by name, email, session, or description.
 
-**Important:** Calendly email and Stripe checkout email must match. A booking under `jeff@simplybreathe.ai` will not match a Stripe payment for `jeffreywmason@yahoo.com`.
+**Important:** Calendly email and Stripe checkout email must match. A booking under `client@example.com` will not match a Stripe payment for `other@example.com`.
 
 Click **Sync Stripe now** to pull new payments immediately (the CRM also checks every 15 minutes). Sync reloads the full Stripe ledger from the backend so payments are not lost after a refresh.
 
@@ -811,7 +812,7 @@ Click **Sync Stripe now** to pull new payments immediately (the CRM also checks 
 You don't have to log session revenue or cancellations by hand — the CRM does it for you:
 
 - **Every new booking** (virtual or studio) automatically creates a **revenue record** set to the **actual amount charged in Stripe** — the same figure you see on the Stripe page. Until a Stripe charge is confirmed, and for **free / coupon** bookings, the amount is **$0** (the Calendly list price is never used), and it updates automatically when the matching payment arrives. The record's channel is set to **Virtual session** or **Studio session** to match the booking.
-- **Every canceled booking** automatically creates an **expense record** in the **Refunds & Cancellations** category for the amount that was **actually refunded to the client through Stripe**. If no refund was issued (a late cancel, a free/coupon booking, or a refund you haven't sent yet), the record shows **$0** — so your profit numbers only drop when money really left your account. Once you issue the refund from the **Refunds** tab, the record updates to the refunded amount and keeps the Stripe refund reference for your records. (A **reschedule** is not treated as a cancellation — the payment just moves to the new time, so no expense is created.)
+- **Every canceled booking that was refunded** automatically creates a **negative revenue record** (shown as a refund line on Revenue) for the amount that was **actually refunded to the client through Stripe**. Profit only drops when money really left your account — and that amount is counted once (not again as an expense). (A **reschedule** is not treated as a cancellation — the payment just moves to the new time.)
 - **Every studio session with a studio split** automatically creates an **expense record** in the **Studio Split** category for the amount owed to that studio — calculated as the total Stripe payments actually received for that session (minus any refunds) × the studio's revenue share % (see *Studio Split — Paying the Studio Their Share* under Sessions). It's linked to the session and updates automatically as payments arrive or refunds occur.
 
 These automatic records keep themselves up to date as Stripe payments settle, as bookings are canceled, and as studio attendance is recorded. You can still add your own revenue and expense entries by hand (see below) — those are always kept and never overwritten.
@@ -870,7 +871,7 @@ When a session is canceled, the CRM works out whether the client is owed their m
 1. Go to **Revenue → Refunds**. If any refunds are waiting, a banner at the top tells you how many.
 2. Look through the **Refunds due** list. Each row shows the client, the session, when it was canceled and by whom, the amount paid, and why the policy says a refund is due. A ⚠ warning appears if the CRM couldn't fully verify the situation (for example it doesn't know who canceled) — double-check those before refunding.
 3. Click **Refund $X** on the row and confirm. The full amount is sent back to the client's card through Stripe. **This cannot be undone**, so read the confirmation carefully.
-4. The row moves to **Refund history**, which keeps the date, amount, and the Stripe refund reference for every refund you've issued. The matching expense record updates automatically so your profit numbers stay accurate.
+4. The row moves to **Refund history**, which keeps the date, amount, and the Stripe refund reference for every refund you've issued. A matching **negative revenue** line is recorded automatically so your profit numbers stay accurate without double-counting.
 
 The **No refund due** list shows canceled bookings that don't qualify (late cancels, free bookings) and the reason — nothing to do there, it's just so you can see the CRM's reasoning.
 
@@ -969,11 +970,12 @@ The best time to ask is within 5–7 days of a powerful session. When you check 
 
 | Status | What It Means |
 |---|---|
-| Requested | You've asked the client |
+| Breakthrough noted | A breakthrough was noted in session — request a testimonial |
+| Request sent | You've asked the client for a testimonial |
 | Received | They've sent you something |
-| Approved | You've reviewed and it's ready to use |
+| Approved | You've reviewed it and permission is in place |
 | Published | It's live on your website or socials |
-| Archived | No longer in active use |
+| Declined | Client declined or you chose not to use it |
 
 > **Important:** Never publish a testimonial without setting **Permission Received** to true first. The Data Integrity check in Admin will flag any that are approved without permission.
 
@@ -1002,7 +1004,7 @@ Clicking **Email** opens a compose window that sends the email without leaving S
 3. The system automatically fills in every variable it can from their record — things like their name, email, studio name, contact name, location, revenue split, and your own first name.
 4. Any variables that can't be auto-filled (like `{{bookingLink}}` or `{{proposedDate}}`) appear as text fields below the search so you can fill them in manually. These fields stay visible while you type.
 5. A live preview shows the complete, personalized message. **The body is fully editable** — make any last-minute tweaks directly in the preview before sending. A "Reset to template" link restores the original text if needed.
-6. Click **Send Email** to dispatch the message immediately via the CRM's email system. A green "✓ Sent!" confirmation appears in the button.
+6. Click **Send Email** to dispatch the message immediately via the CRM's email system. A green "✓ Sent!" confirmation appears in the button. If any `{{placeholders}}` are still unfilled, send is blocked until you complete or remove them.
 7. Click **Copy message** to copy the fully populated text and paste it into an external email app instead.
 
 > **After sending:** The email is automatically logged to the recipient's Contact Timeline and to the Admin → Email Logs tab. If the recipient is a studio partner, their Last Touch date updates. You can check delivery status (delivered, bounced, etc.) in the Email Logs tab.
@@ -1164,12 +1166,12 @@ This is the fastest way to add expenses — export from your bank or accounting 
 
 1. Export your expenses from your bank, credit card portal, QuickBooks, Wave, or Xero as a CSV file
 2. Rename the columns to match these headers: `date, vendor, description, amount, category, paymentMethod, taxDeductible, recurring, recurringFreq, notes`
-3. In Simply Breathe OS, click **Import CSVs** in the sidebar
-4. Choose **Expenses** as the section
-5. Upload your file
+3. Go to **P&L → Expenses → Summary**
+4. Click **Upload Expense CSV** and choose your file
 
 **Important format notes:**
-- Dates must be in YYYY-MM-DD format (e.g. 2026-06-15)
+- Dates must be in YYYY-MM-DD format (e.g. 2026-06-15). Other formats are skipped — you will see a count of skipped rows.
+- Duplicate expenses (same date, vendor, amount, and description as an existing or earlier row) are skipped automatically.
 - Amount should be a number only — no $ sign
 - Category must exactly match one of: Equipment & Supplies, Software & Subscriptions, Marketing & Advertising, Travel & Transport, Education & Training, Professional Services, Insurance, Administrative, Studio & Venue, Other
 - Tax deductible and recurring should be `true` or `false` (you can also use yes/no or 1/0). The app converts these to real yes/no values on import, so a cell that says `false` is treated as not deductible — not as yes.
@@ -1187,7 +1189,7 @@ This is the fastest way to add expenses — export from your bank or accounting 
 | Administrative | Website hosting, domain name, bank fees |
 | Studio & Venue | Room hire, venue deposits (separate from revenue splits) |
 | Studio Split | Added automatically for each studio session's revenue share owed to the studio. Calculated from the actual Stripe payments received for that session × the studio's revenue share %. Updates automatically as payments come in or refunds occur. You don't need to enter these yourself. |
-| Refunds & Cancellations | Added automatically when a booking is canceled. The amount is what was **actually refunded through Stripe** — $0 until a refund is issued (or when none is due, e.g. a late cancel or free booking). Records with a real refund also carry the Stripe refund reference. You don't need to enter these yourself. |
+| Refunds & Cancellations | Optional **manual** expense category. Stripe refunds themselves appear as negative lines on **Revenue** (not as auto expenses), so they are not counted twice against profit. |
 | Other | Anything that doesn't fit above |
 
 ### Expense Table tab — see every stored expense
@@ -1214,11 +1216,20 @@ The system automatically uses your expense data in:
 
 **Navigate to:** Sidebar → Admin
 
-The Admin section has several tabs. Here are the ones you'll use most often:
+The Admin section has several tabs. What you see depends on your role:
+
+- **Everyone** can open Overview, Schema Browser, Data Integrity, Storage & Backup, Email Logs, and Journey Descriptions.
+- **Owners and Admins** also see **Settings**.
+- **Owners** also see **Reset to Production**, and can export/restore backups and clear the email log.
+- **User Management** appears as a nested sidebar item under Admin for the **Owner** only.
+
+Here are the tabs you'll use most often:
 
 ### Settings Tab
 
-System-wide options for Owners and Admins. (The Breathwork Journeys list is no longer managed here — see Journey Descriptions below.)
+**Navigate to:** Sidebar → Admin → Settings
+
+**Owners and Admins only.** This tab is hidden for Editors and Viewers. Use it for system-wide options such as the Calendly sync cutoff and multi-user access. (The Breathwork Journeys list is managed under Journey Descriptions.)
 
 #### Calendly Sync Cutoff Date
 
@@ -1228,6 +1239,12 @@ Controls which Calendly bookings the CRM will import during a sync. Any booking 
 - To change it, pick a new date from the date picker and click **Save Changes**.
 - To remove the filter and sync all bookings regardless of age, click **Clear** next to the date, then save.
 - This setting is saved and encrypted with the rest of your CRM data.
+
+### Data Integrity Tab
+
+**Navigate to:** Sidebar → Admin → Data Integrity
+
+Click **Run Check** to scan your records for missing links and incomplete fields (for example, an offer without a linked client, or an approved testimonial without permission). Fix anything flagged before relying on analytics or publishing testimonials.
 
 ### Email Logs Tab
 
@@ -1270,6 +1287,21 @@ This is where you manage the list of breathwork journeys available in session dr
 
 > **Why this matters:** The journey descriptions you add here power the **ⓘ popup** on virtual session cards. When a client books a virtual session, you can tap the ⓘ on that session card to instantly see the full description of the journey — useful for preparing notes or refreshing your memory before the session.
 
+### Storage & Backup Tab
+
+**Navigate to:** Sidebar → Admin → Storage & Backup tab
+
+**Download Backup (Owner only):** Saves a full JSON copy of all CRM data to your computer. You will see a security reminder first — the file is plain text, so store it somewhere safe.
+
+**Restore from Backup (Owner only):** Replaces all current CRM data with a previously exported backup file. This includes the email audit log. There is no undo.
+
+1. Click **Choose backup file…** and select a valid `.json` backup. Review the preview counts (backup vs. current).
+2. Click **Restore this backup**.
+3. Confirm you understand the replace, then type the word `RESTORE`.
+4. Re-enter your Owner PIN and click **Restore records**.
+
+Only after all three confirmation steps will any data be replaced. Export a backup of the current data first if you might need it.
+
 ### Reset to Production Tab
 
 **Navigate to:** Sidebar → Admin → Reset to Production tab
@@ -1282,7 +1314,7 @@ This is where you manage the list of breathwork journeys available in session dr
 
 **What is kept:** Message templates, follow-up template customisations, Content Calendar posts, Testimonials, Outreach Hub records, CRM settings and dropdown lists, journey descriptions, user accounts and PINs, and the email log (permanent audit trail).
 
-**Integrations are not disconnected:** Your Calendly and Stripe webhook URLs, API keys, and Resend email setup stay as they are. The reset also clears pending webhook queues on the backend so old test bookings and payments do not come back on the next sync.
+**Integrations are not disconnected:** Your Calendly and Stripe webhook URLs, API keys, and Resend email setup stay as they are. The reset also clears pending webhook queues on the backend (using the same logged-in Edit session as refunds) so old test bookings and payments do not come back on the next sync. If queue clearing fails (for example your unlock session expired), log out and back in, then clear queues before the next Calendly/Stripe sync — or ask an administrator.
 
 **The process has three confirmation steps to prevent accidents:**
 
@@ -1391,7 +1423,7 @@ This means your last change could not be written to browser storage (most often 
 1. Click **Go to Admin** in the red banner (or navigate to Admin → Storage & Backup).
 2. Click **Download Backup** to save a JSON copy of all your data.
 3. Reload the page. Your data will reload from the last successfully saved point.
-4. Restore the backup via **Admin → Storage & Backup → Choose backup file…** if the reload lost recent changes (Owner only — choose the file, review the preview, then click **Restore this backup** and confirm).
+4. Restore the backup via **Admin → Storage & Backup → Choose backup file…** if the reload lost recent changes (Owner only — choose the file, review the preview, then complete the three-step confirmation: review, type `RESTORE`, enter your PIN).
 5. If the error keeps happening, your browser storage may be full — try clearing cached files for other sites, or switch to a different browser profile.
 
 **The header shows "Saving…" — is that normal?**
@@ -1413,7 +1445,7 @@ Open the offer record and update the **Status** to Accepted, Paid, or Declined a
 Open the session record and go to the **Equipment** tab. Completed items have a checkmark. The session list also shows a setup status indicator.
 
 **I can't see the New button or Save button on some pages. Why?**
-Your account may have Viewer or Editor permissions that restrict certain actions. Viewers can still browse records and view details (including fetched Calendly session descriptions), but changes are not saved to shared data. Refunds and sending email from the CRM also require **Edit** permission on the server — logging in as a Viewer will not let those go through. Contact your Owner or Admin to update your permissions if you need more access.
+Your account may have Viewer or Editor permissions that restrict certain actions. Some Admin tabs and User Management are also hidden by role (Settings is Owner/Admin; Reset and User Management are Owner-only). Viewers can still browse records and view details (including fetched Calendly session descriptions), but changes are not saved to shared data. Refunds and sending email from the CRM also require **Edit** permission on the server — logging in as a Viewer will not let those go through. Contact your Owner or Admin to update your permissions if you need more access.
 
 **How do I back up my data?**
 Go to **Admin** in the sidebar, click the **Storage & Backup** tab, and click **Download Backup**. This saves a JSON file to your computer. Keep it somewhere safe.
@@ -1425,6 +1457,10 @@ Try refreshing the page. If the problem persists, log out and log back in. If yo
 The CRM syncs every 15 minutes automatically — wait a moment and check again. If it still doesn't appear, check that the backend server is running (double-click `start.bat` or run `.\start.ps1` from the project folder). If using ngrok for local testing, make sure the ngrok tunnel is still active — ngrok sessions expire after a few hours on the free plan.
 
 If an administrator sees files named like `pending-events.json.corrupt.…` under `backend/data/`, the backend found a damaged or unreadable webhook queue and moved it aside so new bookings can keep arriving. Leave those files for investigation (or delete them once the live queue is healthy again) — they are not used automatically.
+
+If login or refunds start failing with an “Auth user store unavailable” message, `backend/data/auth-users.json` is present but damaged (wrong encryption key, truncated file, etc.). The backend deliberately does **not** treat that as a fresh install — otherwise anyone with the frontend secret could claim Owner. Restore the file from backup, or only delete it if you intentionally want to re-run first-time Owner setup.
+
+If the backend refuses to start in production and logs a malformed `QUEUE_ENCRYPTION_KEY`, the key must be exactly 64 hex characters (`openssl rand -hex 32`). A short or non-hex value is rejected so booking data is never stored unencrypted by mistake.
 
 **Can I manually create a booking without Calendly?**
 Yes. Go to **Calendly Bookings** and click **New** to create a registration record manually. You'll need to link it to an existing client and session.
@@ -1442,7 +1478,7 @@ Your browser may be blocking pop-ups. Look for a pop-up blocked notification in 
 Each row shows the **actual Stripe charge** for that booking (or **Free** if nothing was charged). The total is the sum of those charges across all non-canceled bookings, which matches how **LTV** and the **Revenue** tab are calculated. Bookings that haven’t been charged yet show as Free/$0 until the Stripe payment comes through.
 
 **I clicked Send Email on a template but nothing was sent. What happened?**
-Check the Admin → Email Logs tab. If the row shows a red "Failed" status, the email service may have rejected the send — this usually means the recipient email address is invalid or the email service configuration needs attention. Contact your system administrator if the issue persists.
+If a yellow warning lists leftover `{{placeholders}}` (like `{{sessionLink}}` or `{{offerPrice}}`), replace or remove those in the message first — the CRM blocks send so customers never see raw template tokens. Otherwise check Admin → Email Logs: a red "Failed" status usually means the recipient address is invalid or the email service needs attention.
 
 **The Send Email button shows "✓ Email sent" but I'm not sure the email arrived. How do I check?**
 Go to Admin → Email Logs. Find the email in the list — the **Delivery Status** column shows whether Resend confirmed delivery. If it shows "unknown", click **Refresh all statuses** — the system will check the current delivery state from Resend's records.

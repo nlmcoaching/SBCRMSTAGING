@@ -1,7 +1,7 @@
 ﻿# Simply Breathe OS — CRM Documentation
 
 > **Version:** 9.2 (June 2026)
-> **Stack:** React 18 · Vite · Recharts · Lucide React · PapaParse · Node.js/Express (backend)
+> **Stack:** React 18 · Vite · Recharts · Lucide React · PapaParse · Node.js ≥18 / Express (backend)
 > **Storage:** Browser **IndexedDB** (encrypted) + Cursor canvas `window.storage`, with `localStorage` as a last-resort fallback
 > **Security:** AES-256-GCM encryption · PBKDF2 key derivation · PIN-based auth
 
@@ -53,7 +53,7 @@ The system is designed to answer three core daily questions:
 
 ## Authentication & Security
 
-> **Deployment model:** Simply Breathe OS is a **single-operator local app** by default. Additional user accounts are disabled until an Owner enables **Multi-user access** in Admin → Settings. Even then, roles are **not a data boundary**: all PIN users share one AES master key and can decrypt the full CRM after unlock. What *is* enforced server-side: refund and send-email APIs require a PIN-minted session whose `canEdit` bit was registered with the backend (Viewers cannot call those endpoints). Do not expose the CRM or backend to untrusted users or the public internet without additional hardening.
+> **Deployment model:** Simply Breathe OS is a **single-operator local app** by default. Additional user accounts are disabled until an Owner enables **Multi-user access** in Admin → Settings. Even then, roles are **not a data boundary**: all PIN users share one AES master key and can decrypt the full CRM after unlock. What *is* enforced server-side: refund, send-email, and clear-queues APIs require a PIN-minted session whose `canEdit` bit was registered with the backend (Viewers cannot call those endpoints). Do not expose the CRM or backend to untrusted users or the public internet without additional hardening.
 
 ### PIN-Based Lock Screen
 
@@ -210,18 +210,28 @@ Deleting any CRM record requires confirmation via a modal dialog ("Delete this r
 
 Downloading a JSON backup displays a security reminder that the file is unencrypted plain text containing sensitive client and financial data. The user must confirm before the download proceeds.
 
+### Backup Restore — Owner-only, 3-Step PIN Re-Challenge
+
+**Restore from Backup** (Admin → Storage & Backup) is **Owner-only** and uses the same confirmation pattern as Reset to Production to prevent accidental full-dataset replacement from an unattended session:
+
+1. **Review** — after a valid backup file is chosen and previewed, the Owner confirms they understand the restore will permanently replace all current CRM data, including the email audit log.
+2. **Confirm** — user must type `RESTORE` exactly.
+3. **PIN challenge** — Owner must re-enter their PIN (verified via PBKDF2 `unwrapKeyForUser`, same cryptographic path as login). Only on successful PIN verification is `setData(normalized)` called.
+
+Backup files are validated with `Sec.validate` on the **raw** JSON **before** `normalizeCrmData` fills missing arrays (validating after normalize would accept any object). Restore still replaces the entire dataset, including `emailLog`.
+
 ### Backend Startup Validation
 
-On startup, the Express backend validates that required environment variables are present:
+On startup, the Express backend validates that required environment variables are present **and well-formed**:
 
-| Variable | Behaviour if missing |
+| Variable | Behaviour if missing / invalid |
 |---|---|
 | `CALENDLY_WEBHOOK_SIGNING_KEY` | **Production:** server exits with code 1. **Dev:** loud console warning, server continues. |
-| `QUEUE_ENCRYPTION_KEY` | **Production:** server exits with code 1. **Dev:** loud console warning, server continues. |
+| `QUEUE_ENCRYPTION_KEY` | Must match `/^[0-9a-f]{64}$/i` (exactly 64 hex chars from `openssl rand -hex 32`). **Production:** missing **or malformed** → exit 1 (a short/non-hex value must not silently disable at-rest encryption). **Dev:** loud warning; encryption stays off until a valid key is set. |
 | `STRIPE_WEBHOOK_SECRET` | **Production:** server exits with code 1. **Dev:** loud console warning; unsigned Stripe webhooks accepted only in dev. |
 | `FRONTEND_SECRET` | **Production:** server exits with code 1. **Dev:** loud console warning; `/pending` and `/acknowledge` unauthenticated. |
 
-This prevents accidentally running an unprotected production instance.
+This prevents accidentally running an unprotected production instance. `FRONTEND_SECRET` and `ADMIN_SECRET` header checks use `crypto.timingSafeEqual` (via `secretsEqual`) — the same constant-time pattern as webhook HMAC verification.
 
 ### Reverse Proxy — `TRUST_PROXY`
 
@@ -259,7 +269,7 @@ The **Reset to Production** admin feature is **Owner-only** (tab hidden for othe
 2. **Confirm** — user must type `RESET` exactly.
 3. **PIN challenge** — Owner must re-enter their PIN (verified via PBKDF2 `unwrapKeyForUser`, same cryptographic path as login). Only on successful PIN verification is the wipe executed.
 
-On success, the CRM also calls `POST /api/integration/clear-queues` to empty Calendly and Stripe webhook pending queues so test events cannot re-import. Server-side integration configuration (webhook URLs, API keys, Resend) is not modified.
+On success, the CRM also calls `POST /api/integration/clear-queues` (requires `x-frontend-secret` + Edit-capable `x-session-token`, same gate as Stripe refunds) to empty Calendly and Stripe webhook pending queues so test events cannot re-import. Server-side integration configuration (webhook URLs, API keys, Resend) is not modified.
 
 **Email Logs → Clear log** is likewise Owner-only; other roles can view and refresh delivery status but cannot wipe the audit trail.
 
@@ -290,6 +300,16 @@ The `Calendly-Webhook-Signature` header is parsed using explicit `indexOf`-based
 
 `_decryptQueue` distinguishes format errors (old plaintext file before encryption was enabled → safe fallback) from GCM authentication failures (integrity check failed → possible tampering). On decrypt/parse failure, `readQueue()` / `readNamedQueue()` **quarantine** the live file by renaming it to `*.corrupt.<ISO-timestamp>` (e.g. `pending-events.json.corrupt.2026-07-11T05-00-00-000Z`) and then return `[]`. The next webhook write therefore creates a fresh empty queue **without overwriting** the suspect ciphertext, preserving evidence and any chance of recovery. Non-array decrypted payloads are quarantined the same way.
 
+**Auth-user store (`auth-users.json`)** uses the same encryption helpers but **must not** fail open to `{ users: {} }` on read/decrypt errors — that would re-enable Owner bootstrap for any caller holding `FRONTEND_SECRET`. `readAuthUsers()` therefore:
+
+| Condition | Behaviour |
+|---|---|
+| File absent | Return `{ users: {} }` — legitimate first-run bootstrap |
+| File present but unreadable, decrypt/GCM failure, JSON parse error, or invalid shape | Throw `AuthUsersStoreError`; `/api/auth/register-unlock` and `/api/auth/session` respond **503** |
+| File left in place | Corrupt file is **not** quarantine-renamed (removing it would look like “file absent” and re-open bootstrap). Admin must restore a good copy or deliberately delete the file to re-bootstrap. |
+
+Writes use `_atomicWriteUtf8` (same as webhook queues).
+
 ### Atomic Queue Writes
 
 `writeQueue` / `writeNamedQueue` write via `_atomicWriteUtf8`: content is written to a sibling temp file, then `rename`d into place (POSIX atomic replace; on Windows, unlink destination then rename). A crash mid-write cannot leave a half-written live queue file.
@@ -314,7 +334,9 @@ All user-supplied strings (session name, studio name, notes, time, journey) inte
 
 ## User Management
 
-**Navigation:** Sidebar → Admin → User Management (nested sub-item; expands when Admin is active)
+**Navigation:** Sidebar → Admin → User Management (nested sub-item; Owner-only — hidden for other roles)
+
+**Access:** Owner only (`can.manage`). The sidebar item is role-filtered; the view also re-checks manage permission as defense-in-depth.
 
 ### Features
 
@@ -329,6 +351,8 @@ All user-supplied strings (session name, studio name, notes, time, journey) inte
 | Admin | ✓ | ✓ | ✓ | — |
 | Editor | ✓ | ✓ | — | — |
 | Viewer | ✓ | — | — | — |
+
+Sidebar and Admin tab visibility is also role-filtered (`SECTION_ACCESS` / `ADMIN_TAB_ACCESS`): User Management is Owner-only; Admin → Settings is Owner/Admin; Admin → Reset to Production is Owner-only. CRM data sections remain visible to all roles; edit/delete/export actions stay gated in-view.
 
 Viewers can open session records and view the studio event description (ⓘ), but auto-saving a fetched description to shared CRM data requires **Edit** permission (`onSave` must be present — same gate as agreement uploads, the NBA email compose flow, and the background Calendly description backfill during sync).
 
@@ -463,7 +487,7 @@ Each action row has a **× dismiss button** (right side, fades in on hover). Dis
 | Email | Email |
 | Phone | Phone |
 | Source | Dropdown: Referral, Instagram, Studio, Website, Direct, Event, Corporate, Other |
-| Client Type | Dropdown: First-time attendee, Repeat attendee, Member, Advocate, Referral source, Private client, Studio attendee, Virtual attendee, Corporate attendee, High-value lead, Past client – reactivate |
+| Client Type | Dropdown: First-time attendee, Repeat attendee, Member, Advocate, Referral source, Private client, Studio attendee, Virtual attendee, Corporate attendee, High-value lead, Past client — reactivate |
 | Intent Tags | Multi-select: Stress relief, Anxiety, Burnout, Performance, Grief, Letting go, Self-confidence, Nervous system reset, Transformation seeker, Spiritual growth, Corporate wellness |
 | First Contact Date | Date |
 | Last Session | Date |
@@ -533,7 +557,7 @@ Client records include a **Sessions Attended** tab (badge shows the count). It l
 
 ### Pipeline Stages
 
-Target Identified → Researched → Initial Outreach Sent → Follow-Up Needed → Discovery Call Booked → Demo Session Offered → Demo Completed → Pilot Proposed → Agreement Sent → Agreement Signed → First Session Scheduled → Pilot Completed → Recurring Partner → Lost / Not a Fit → Nurture Later
+Target identified → Researched → Initial outreach sent → Follow-up needed → Discovery call booked → Demo session offered → Demo completed → Pilot proposed → Agreement sent → Agreement signed → First session scheduled → Pilot completed → Recurring partner → Lost / not a fit → Nurture later
 
 ### Fields Tracked
 
@@ -927,6 +951,7 @@ Each item in the **Message Queue** has a **Send Email** button. All sequence ste
 
 - Template picker dropdown listing all **Template Library** templates (email channel) and all **Follow-Up Engine sequence templates** (custom overrides + FU_STEPS defaults).
 - Editable subject and body, pre-populated from the selected template with client variables interpolated.
+- **Unreplaced-token guard:** before send, `findUnreplacedTemplateTokens` (`src/lib/templates.js`) scans subject + body for remaining `{{…}}` placeholders (e.g. `{{sessionLink}}`, `{{offerPrice}}`). If any remain, send is blocked, the tokens are listed in a warning, and the Send button stays disabled until they are filled or removed. Same guard applies to Due Today / All Follow-Ups (`FollowUpSendButton`), FU Message Templates email modal, Template Library Email compose, and the Command Center relationship-action email modal.
 - On send: email is dispatched via Resend, logged to `data.emailLog`, added to the client's `emailHistory`, and the step is marked complete.
 
 ### Follow-Up Section ("Follow-Ups" in sidebar)
@@ -1012,7 +1037,9 @@ Use **Sync Stripe now** to load charges from the backend ledger and run reconcil
 
 The page header **search box** (the global `query`, passed into `PaymentReconciliationView`) filters every list on this page — Stripe charges, unmatched transactions, refunded payments, and bookings awaiting a charge — matching on name, email, session, and description.
 
-**Matching rule (time-based):** A Stripe charge is created the moment a participant books, so the charge time equals the booking time. For each participant (matched by **email**), each unlinked charge is tied to the booking whose time (`createdAt`) is **closest** to the charge time, within a window of `STRIPE_MATCH_WINDOW_MS` (2 days, to absorb webhook/sync lag). The Stripe `amountGross` becomes that booking's `paidAmount` and session amount. List price is kept as *expected*. There is **no manual override** — matching is automatic.
+**Matching rule (email + time, amount first-pass):** A Stripe charge is created the moment a participant books, so the charge time equals the booking time. For each participant (matched by **email**), each unlinked charge is considered against bookings within `STRIPE_MATCH_WINDOW_MS` (2 days). **First-pass tiebreaker:** prefer a booking whose Calendly list price `amountsMatch`es the Stripe gross; among that class (or when no amount match exists), pick the **closest** booking time. The Stripe `amountGross` becomes that booking's `paidAmount` and session amount. List price is kept as *expected*. There is **no manual override** — matching is automatic.
+
+**No auto-free for priced bookings:** A booking with a positive list price and no Stripe charge for the same client email is marked `paymentStatus: "unmatched"` (surfaces under Payment exceptions) — **not** silently recorded as a free $0 session. That prevents revenue undercount when the Stripe receipt email differs from the Calendly email. Genuine free / 100%-off coupon bookings are marked free only when the list price is zero/blank, or when an operator confirms a coupon code.
 
 **Self-healing:** Each reconciliation run (on Sync Stripe and on opening the panel) first clears automatic links, then re-matches with the rule above, so a mis-tied charge corrects itself. Links with `matchStatus: "manual"` (legacy) and payments already in `refunded` / `partial_refund` status keep their booking links — re-link only considers `paid` charges, so clearing those would permanently orphan the refund and zero the registration.
 
@@ -1020,7 +1047,7 @@ Each Stripe sync calls `GET /api/stripe/ledger` to reload processed webhook even
 
 **Calendly API backfill:** Each Calendly sync calls `POST /api/calendly/pull-recent` (requires `CALENDLY_API_TOKEN`) to fetch recent scheduled events from the Calendly API and queue any invitees missing from the webhook queue — e.g. when ngrok was down or a webhook was never delivered. The pull fetches **both active and canceled** scheduled events. Cancellations are scanned first (without payment enrichment) so they queue within ~1–2 seconds — well inside the sync's pull timeout — and are reconciled on the same sync; canceled invitees are queued as `invitee.canceled` events.
 
-**Re-queue after acknowledge (CRM heal):** Queue dedup is by `calendlyInviteeUri` + `eventType`. Unprocessed duplicates are skipped. **Processed** events are re-queued when (a) name, email, event name, or start/end time changed on Calendly, or (b) the booking was created within the last **72 hours**. That heals registrations lost after acknowledge (e.g. after a local data wipe) and picks up invitee edits without re-processing the entire history every sync.
+**Re-queue after acknowledge (CRM heal):** Queue dedup is by `calendlyInviteeUri` + `eventType` (webhook receipt and pull-recent share this key). Unprocessed duplicates are skipped — including Calendly webhook retries after a slow response. **Processed** events are re-queued by pull-recent when (a) name, email, event name, or start/end time changed on Calendly, or (b) the booking was created within the last **72 hours**. That heals registrations lost after acknowledge (e.g. after a local data wipe) and picks up invitee edits without re-processing the entire history every sync.
 
 **Synthetic TEST payloads:** Webhook and pull ignore Calendly URIs containing `/scheduled_events/TEST` or `/invitees/TEST` (signature-verification fixtures). The CRM sync also acknowledges and skips those events so they never create "Sig Test" bookings.
 
@@ -1044,9 +1071,9 @@ Dates use the **booked date** for bookings — the registration's `createdAt` ("
 
 The **Revenue** and **Expense** tables are kept in sync with bookings automatically (no manual entry needed for sessions):
 
-- **Revenue table** — every **active** virtual or studio booking is materialised as a revenue record (`id` prefixed `regrev_`, `auto: true`, `channel` = `Virtual session` / `Studio session`). The record's `gross` is the booking's **actual matched Stripe charge** (`amountGross`), with `refunds` = `amountRefunded` and `net` = gross − refunds; a booking with **no Stripe charge** (free / coupon) is `$0` — the Calendly list price is never used, so these values match the Stripe page row-for-row. Records regenerate from the current bookings on every change, so amounts track Stripe reconciliation and canceled/rescheduled bookings drop out automatically.
-- **Expense table** — every **canceled** booking is materialised as an expense record (`id` prefixed `cxlexp_`, `auto: true`, `category` = `Refunds & Cancellations`). The `amount` is the money that **actually left via Stripe** — the registration's `amountRefunded` — so a late cancel, free/coupon booking, or not-yet-refunded cancellation books a **$0** expense (the cancellation stays visible without distorting the P&L). When a Stripe refund has been issued, the record also carries `stripeRefundId` and `refundedAt`, and its `date` becomes the refund date. Reschedules are **not** expensed (the payment simply follows the booking to its new time). These records feed Expenses MTD / Operating Profit, so each refunded cancellation reduces profit by its refunded amount.
-- **Studio split expenses** — every **studio session** that owes its partner a revenue share is materialised as one expense record (`id` prefixed `studiosplit_`, `auto: true`, `category` = `Studio Split`, `vendor` = the studio partner name, `linkedSession` / `linkedPartner` set). The `amount` is computed (`studioSessionFinance`) as the **sum of actual Stripe charges received for that session** (from the matching `regrev_*` revenue rows, gross minus refunds) **× the partner's revenue share %**. The split updates automatically whenever payments come in, refunds occur, or the partner's share % changes — no manual entry needed. See *Studio split tracking* below. **Preservation rule:** if a previously-recorded positive-amount studio split expense would recompute to $0 (e.g. no paid bookings yet), the record is retained rather than silently deleted. The user must manually delete stale records if needed.
+- **Revenue table** — every virtual or studio booking with a Stripe charge is materialised as a revenue record (`id` prefixed `regrev_`, `auto: true`, `channel` = `Virtual session` / `Studio session`). The record's `gross` is the booking's **actual matched Stripe charge** (`amountGross`). **Refunds** are separate auto revenue rows with **negative `gross`** (`id` `regrev_<id>_refund`, `isRefund: true`) — not a parallel expense — so P&L never subtracts the same money twice. `net` = `gross` on each row (`refunds` field stays `0` on auto rows). Free / coupon bookings with no charge are `$0`. Canceled bookings keep their charge row and add a negative refund row when `amountRefunded` > 0. Records regenerate from the current bookings on every change.
+- **Expense table** — **Studio split** expenses only for auto booking economics (`id` prefixed `studiosplit_`, `auto: true`). Legacy auto `cxlexp_*` "Refunds & Cancellations" rows are no longer generated and are purged on the next ledger sync (refunds live on the revenue ledger). Manual expenses in any category, including Refunds & Cancellations, are preserved.
+- **Studio split expenses** — every **studio session** that owes its partner a revenue share is materialised as one expense record (`id` prefixed `studiosplit_`, `auto: true`, `category` = `Studio Split`, `vendor` = the studio partner name, `linkedSession` / `linkedPartner` set). The `amount` is computed (`studioSessionFinance`) as the **sum of actual Stripe charges received for that session** (from the matching `regrev_*` revenue rows, including negative refund rows) **× the partner's revenue share %**. The split updates automatically whenever payments come in, refunds occur, or the partner's share % changes — no manual entry needed. See *Studio split tracking* below. **Preservation rule:** if a previously-recorded positive-amount studio split expense would recompute to $0 (e.g. no paid bookings yet), the record is retained rather than silently deleted. The user must manually delete stale records if needed.
 
 Manually-entered revenue/expense rows are always preserved; only the `auto` records are regenerated. To avoid double-counting, client **Lifetime Value** and the Revenue tab exclude the `auto` revenue records (the underlying registrations/live booking rows already represent them).
 
@@ -1098,13 +1125,13 @@ Manual **Revenue** records (gross, Stripe fee, studio split, etc.) are part of t
 
 - **Revenue Attribution** (tab 0) — stat cards and analytics driven directly by the **revenue and expense ledgers**, filtered by **booking/payment date** (`r.bookedAt`, falling back to `r.date`). Revenue counts in the month money was actually collected. Layout: `revenue-analytics-booked`, rendered by `<RevenueAttributionView dateMode="booked" />`:
   - Stat cards: **Gross revenue MTD**, **Net revenue MTD**, **YTD Revenue**, **YTD Net Revenue**
-  - **Revenue waterfall — month to date**: Gross (sum of `data.revenue` gross) → Studio splits (sum of `data.expenses` where `category = "Studio Split"`) → Processing fees → Refunds (revenue refunds + cancellation expenses) → Net. All figures limited to the current calendar month.
+  - **Revenue waterfall — month to date**: Gross (sum of positive `data.revenue` gross) → Studio splits (sum of `data.expenses` where `category = "Studio Split"`) → Processing fees → Refunds (absolute value of negative / `isRefund` revenue rows) → Net. Refunds are **not** also taken from auto cancellation expenses.
   - **P&L by channel — MTD**: Gross and fees from `data.revenue` grouped by channel; studio split expenses attributed to "Studio session"; cancellation expenses routed to the channel of the linked session. Net = Gross − Fees − Split − Refunds per channel.
   - **Recently Charged Sessions**: Mirrors the Stripe page — every paid Stripe charge **plus** every active booking with no charge (free/coupon) shown as a `$0` **Free** row. Sorted newest-first by charge time. Columns: Booked, Client, Session, Channel, Amount.
 
 - **This month** (tab 1) — rebuilt around the actual ledgers (`revenue-this-month` layout, `RevenueThisMonthView`). It no longer derives figures from registrations or applies a 70/30 split. Instead:
   - **Gross Revenue** = sum of the **Stripe amounts stored on records in the `revenue` table** (`gross`) whose `bookedAt` (booking/payment date, falling back to `date`) falls in the current month — reflects money actually collected. Includes both auto booking records (`regrev_*`) and manually-entered revenue rows.
-  - **Expenses** = sum of `amount` across records in the `expenses` table dated in the current month (auto cancellation records + manual expenses).
+  - **Expenses** = sum of `amount` across records in the `expenses` table dated in the current month (studio splits + manual expenses; auto refunds are revenue rows, not expenses).
   - **Net Revenue** = Gross Revenue − revenue refunds − Expenses. Margin % = Net ÷ Gross.
   - Three stat cards (Gross Revenue, Expenses, Net Revenue) each show a **% change vs the previous month** (the Expenses card inverts the favourable colour, since a rise in expenses is unfavourable).
   - Below the cards, two sortable/expandable `RecordTableView` listings show the month's **revenue records** (with Stripe amounts) and **expense records**. The page **search box** filters both listings (the `query` is passed through to each `RecordTableView`); the summary cards continue to reflect the full month.
@@ -1112,7 +1139,7 @@ Manual **Revenue** records (gross, Stripe fee, studio split, etc.) are part of t
 - **Refunds** (tab 4, Calendly Bookings section) — the Stripe refund queue and audit trail (`refunds` layout, `RefundsView`). Moved here from Revenue so it sits alongside the Cancellations and Reschedules tab where the underlying canceled bookings live. See **Stripe Refunds for Canceled Bookings** in the Revenue Attribution section for the full policy matrix and flow. Three lists:
   - **Refunds due** — canceled bookings that pass the `refundEligibility` policy matrix. Columns: Client, Session, Session time, Canceled on, Canceled by, Paid, Policy check, and a **Refund $X** button (Edit permission required; viewers see "View only"). Eligible-but-uncertain rows (unknown initiator or missing timing data) show a ⚠ caution under the policy check. Clicking a row opens the registration record; clicking Refund opens a confirm dialog before anything is sent to Stripe. A banner above the lists shows the count of refunds due.
   - **No refund due** — canceled bookings that do **not** qualify (late cancel, free booking, no Stripe payment on file), each with the reason. Already-refunded bookings are not repeated here — they live in Refund history.
-  - **Refund history** — the auto `Refunds & Cancellations` expense records that carry a `stripeRefundId`. Columns: Date, Client, Description, Refunded amount, Stripe refund ID; footer shows the total refunded.
+  - **Refund history** — auto revenue rows with `isRefund: true` and a `stripeRefundId` (negative gross). Columns: Date, Client, Description, Refunded amount, Stripe refund ID; footer shows the total refunded.
 
 - **Revenue Table** (tab 3) — a raw listing of **every record stored in the `revenue` table** (including auto booking records `regrev_*` and manually-entered rows), rendered with the `record-table` layout (`RecordTableView`). Unlike the derived views above, this reads `data.revenue` directly and does not apply the studio split. Behaviour:
   - **Sortable column headings** — click any header (Date, Description, Channel, Source, Gross, Refunds, Net, Type) to sort; click again to toggle ascending/descending. The active column shows a ▲/▼ indicator. Sort columns are defined by `revenueTableCols()` (each column carries a `sortVal` accessor). The **Date** column displays the record's **booked-at date** (`bookedAt`, falling back to `date`) rather than the session date. Full ISO timestamps are formatted as date **and** time via `formatRegistrationDateTime` (e.g. `Jun 23, 2026, 03:14 PM`); bare `YYYY-MM-DD` values show the date only.
@@ -1142,9 +1169,9 @@ Additional guards: a booking whose `stripeRefundId` is set, whose `paymentStatus
 
 1. User clicks **Refund $X** (Refunds tab) or accepts the refund prompt offered immediately after a manual **Cancel booking** (see below), then confirms in a dialog.
 2. Frontend `issueStripeRefund(reg, setData)` calls `POST /api/stripe/refund` with `stripePaymentIntentId` / `stripeChargeId`, required `registrationId`, and a `policy` attestation (`cancelerType`, `canceledAt`, `sessionAt`).
-3. The backend (guarded by `requireFrontendSecret` + Edit session) looks up the PaymentIntent/Charge in Stripe, rejects zero-amount or already-refunded charges, rejects when Stripe `metadata.registrationId` conflicts with the request, evaluates the 24-hour policy server-side (Owner may send `policy.override: true`), then calls Stripe `POST /v1/refunds` (full refund). An encrypted audit entry is appended to `backend/data/refund-audit.json`.
+3. The backend (guarded by `requireFrontendSecret` + Edit session) looks up the PaymentIntent/Charge in Stripe, rejects zero-amount or already-refunded charges, rejects when Stripe `metadata.registrationId` conflicts with the request, evaluates the 24-hour policy server-side (Owner may send `policy.override: true`), then calls Stripe `POST /v1/refunds` (full refund). An encrypted audit entry is appended to `backend/data/refund-audit.json` under the same queue mutex as webhook queue writes.
 4. On success the registration is stamped with `paymentStatus: "refunded"`, `amountRefunded`, `stripeRefundId` (`re_...`), and `refundedAt`; the linked `payments` record is updated the same way.
-5. The next booking-ledger sync regenerates the booking's auto cancellation expense (`cxlexp_*`) with the refunded amount, the Stripe refund ID, and the refund date — this is what the **Refund history** list shows.
+5. The next booking-ledger sync regenerates a **negative revenue row** (`regrev_<id>_refund`) for the refunded amount (with the Stripe refund ID) — this is what the **Refund history** list shows. Auto `cxlexp_*` cancellation expenses are no longer created.
 6. Stripe later sends the `charge.refunded` webhook, which flows through the existing webhook queue and reconciliation as confirmation (idempotent — the records are already marked refunded).
 
 **Host-cancel prompt:** after confirming the red **Cancel booking** button in a bookings list (All Bookings / Cancellations expanded panel), if the booking has a Stripe payment and has not been refunded, a second confirm dialog immediately offers the full refund — host cancels always qualify. Declining is safe; the booking remains in **Revenue → Refunds → Refunds due**.
@@ -1395,7 +1422,7 @@ Visualises the five core business workflows as living pipelines so the CRM runs 
 
 **Navigation:** Sidebar → Admin (Core section)
 
-**Access:** Available to all roles. Owner-only destructive actions (e.g. reset) are gated separately.
+**Access:** Admin is visible to all authenticated roles. Tab visibility is role-filtered (`ADMIN_TAB_ACCESS` in `constants.js`): **Settings** is Owner/Admin only; **Reset to Production** is Owner only. Other tabs (Overview, Schema, Integrity, Storage, Email Logs, Journey Descriptions) remain visible to all roles. Owner-only destructive actions inside those tabs (export/restore backup, clear email log) stay gated in-view as defense-in-depth.
 
 The Admin section is the system health and maintenance hub. It gives administrators a live view of database state, full schema documentation, data quality scanning, and storage management — without needing to leave the CRM.
 
@@ -1409,7 +1436,7 @@ A real-time snapshot of the entire system.
 
 | Card | Value |
 |---|---|
-| Total Records | Sum of all records across all 11 tables |
+| Total Records | Sum of all records across all schema tables (derived from runtime `FIELDS`) |
 | Active Users | Number of active user accounts in the security config |
 | Data Size | Uncompressed JSON size of all CRM data (KB) |
 | Storage Used | Size of the encrypted store entry (KB) |
@@ -1487,7 +1514,7 @@ A full, interactive reference for every database table and field in the CRM. No 
 
 #### Table Selector
 
-Toggle buttons for all 11 tables. Each button shows the table label and field count. The selected table is highlighted.
+Toggle buttons for every table in runtime `FIELDS` (including Follow-Ups and Registrations). Each button shows the table label and field count. The selected table is highlighted.
 
 #### Field Listing
 
@@ -1523,21 +1550,23 @@ Per-table counts: total fields · required fields · dropdown fields · checkbox
 
 #### Tables Covered
 
-| Table Key | Display Name | Lane | Fields |
+| Table Key | Display Name | Lane | Notes |
 |---|---|---|---|
-| `clients` | Clients | B2C | 14 |
-| `partners` | Studio Partners | B2B | 19 |
-| `sessions` | Sessions | B2C | 23 |
-| `offers` | Offers | B2C | 11 |
-| `revenue` | Revenue | B2C | 15 |
-| `expenses` | Expenses | Core | 15 |
-| `referrals` | Referrals | B2C | 11 |
-| `content` | Content Calendar | B2C | 20 |
-| `outreach` | Outreach Hub | B2B | 14 |
-| `testimonials` | Testimonials | Core | 15 |
-| `templates` | Templates | Core | 8 |
+| `clients` | Clients | B2C | Runtime drawer fields |
+| `partners` | Studio Partners | B2B | Runtime drawer fields |
+| `sessions` | Sessions | B2C | Runtime drawer fields |
+| `offers` | Offers | B2C | Runtime drawer fields |
+| `revenue` | Revenue | B2C | Runtime drawer fields |
+| `expenses` | Expenses | Core | Runtime drawer fields |
+| `followups` | Follow-Ups | B2C | Runtime drawer fields |
+| `referrals` | Referrals | B2C | Runtime drawer fields |
+| `content` | Content Calendar | B2C | Runtime drawer fields |
+| `outreach` | Outreach Hub | B2B | Runtime drawer fields |
+| `testimonials` | Testimonials | Core | Runtime drawer fields |
+| `templates` | Templates | Core | Runtime drawer fields |
+| `registrations` | Registrations | B2C | Calendly bookings (sync-only) |
 
-**Total: 165 documented fields across 11 tables.**
+Field lists and counts are generated from the runtime `FIELDS` constant in `src/App.jsx` (plus a synthetic `id` column). Labels and lane badges come from `SCHEMA_META` in `admin.jsx`.
 
 ---
 
@@ -1558,16 +1587,16 @@ Click **Run Check**. The scanner inspects every record and returns a list of iss
 | partners | Missing `name` | High |
 | partners | No `stage` set | Medium |
 | sessions | Missing `date` | High |
-| sessions | Gross revenue set but `netRevenue` is empty | Medium |
+| sessions | `revenue` set but `netRevenue` is empty | Medium |
 | sessions | Status = Completed but `followUpSent` = false | Low |
-| offers | No linked `client` | High |
-| offers | `amount` is zero or missing | Medium |
-| offers | `expiresOn` is in the past and status is still open | Medium |
+| offers | No linked `clientId` | High |
+| offers | `price` is zero or missing | Medium |
+| offers | `expireDate` is in the past and status is still open (`CLOSED_OFFER_STATUSES`) | Medium |
 | revenue | Missing `date` | High |
 | revenue | Neither `gross` nor `net` has a value | Medium |
-| referrals | Missing `referrer` name | High |
-| testimonials | Missing `client` name | High |
-| testimonials | Status = Approved but `permissionRec` is false | High |
+| referrals | Missing `referrerId` | High |
+| testimonials | Missing linked `clientId` | High |
+| testimonials | Status = Approved but `permissionReceived` is false | High |
 | templates | Missing `name` | High |
 | templates | `body` is empty | Medium |
 
@@ -1594,13 +1623,16 @@ Downloads a full JSON backup of all CRM data to the local machine.
 
 #### Restore from Backup
 
-Loads a previously exported `.json` backup file and replaces all current CRM data.
+Loads a previously exported `.json` backup file and replaces all current CRM data — including the email audit log.
 
 - Owner-only. Non-owner users see a "View only" message.
 - Clicking **Choose backup file…** opens a file picker filtered to `.json`.
-- The file is parsed and validated client-side (`normalizeCrmData` + `Sec.validate`). If the file is not a valid SBCRM backup, an error is shown and nothing is changed.
+- The file is parsed and validated client-side: `Sec.validate(raw)` runs on the raw JSON **before** `normalizeCrmData` (so missing required tables are rejected rather than auto-filled into a false pass). A second `Sec.validate` runs on the normalized payload. If either check fails, an error is shown and nothing is changed.
 - A **backup preview** is displayed showing the record count per collection in the backup vs. the current live count, highlighted in amber where they differ.
-- Clicking **Restore this backup** opens a confirmation modal. Confirming calls `setData(normalized)`, which triggers the persist effect to re-encrypt and save to IndexedDB automatically.
+- Clicking **Restore this backup** opens a 3-step confirmation flow (same pattern as Reset to Production):
+  1. **Review** — warns that all current data including the email audit log will be permanently replaced.
+  2. **Confirm** — user must type `RESTORE` exactly.
+  3. **PIN challenge** — Owner re-enters their PIN (`unwrapKeyForUser`). Only on success does the app call `setData(normalized)`, which triggers the persist effect to re-encrypt and save to IndexedDB automatically.
 - The restore is irreversible. Users are advised to export a backup of the current data before restoring.
 
 #### Storage Details Panel
@@ -1627,7 +1659,7 @@ Horizontal bar chart showing each table's share of total storage:
 
 ### Tab 5 — Settings
 
-System-wide configuration managed by Owners and Admins.
+System-wide configuration managed by **Owners and Admins** only. The tab is hidden from Editor and Viewer roles (`ADMIN_TAB_ACCESS["admin-settings"]`); the view also re-checks role before rendering.
 
 > **Note:** The Breathwork Journeys card that previously appeared here has been removed. Journey management is now handled exclusively in **Tab 6 — Journey Descriptions**.
 
@@ -1635,7 +1667,7 @@ System-wide configuration managed by Owners and Admins.
 
 ### Tab 6 — Email Logs
 
-A system-wide log of every email attempted from the CRM via Resend — including both successful sends and failures. All five email send paths (Action Email Modal, Follow-Up record inline send, RecordDrawer/Outreach send, Follow-Up Engine step send, FUTemplateEmailModal) write to this log. Failed sends are recorded with `sendStatus: "failed"` and include an `errorMsg` field displayed as a ⚠ indicator in the Send column. The log is a permanent audit trail and is **excluded from Reset to Production**.
+A system-wide log of every email attempted from the CRM via Resend — including both successful sends and failures. All five email send paths (Action Email Modal, Follow-Up record inline send, RecordDrawer/Outreach send, Follow-Up Engine step send, FUTemplateEmailModal) write to this log. Log entry IDs are generated with `uid("em")` (cryptographically random) so rapid successive sends cannot collide. Failed sends are recorded with `sendStatus: "failed"` and include an `errorMsg` field displayed as a ⚠ indicator in the Send column. The log is a permanent audit trail and is **excluded from Reset to Production**.
 
 #### Columns
 
@@ -1699,7 +1731,7 @@ Permanently wipes all test/seed data to prepare the app for real production use.
 
 **What is preserved:** `templates`, `fuTemplates` (follow-up template overrides), `content` (Content Calendar posts), `testimonials`, `outreach` (Outreach Hub records), `emailLog` (permanent audit trail), `_settings` (journey descriptions, CRM configuration, dropdown lists), and user accounts/PINs (`secUsers`).
 
-**Integration safety:** Calendly and Stripe webhook subscriptions, backend `.env` secrets, and Resend configuration are unchanged. Pending Calendly and Stripe webhook queues are cleared via `POST /api/integration/clear-queues` so old test events do not re-import on the next sync.
+**Integration safety:** Calendly and Stripe webhook subscriptions, backend `.env` secrets, and Resend configuration are unchanged. Pending Calendly and Stripe webhook queues are cleared via `POST /api/integration/clear-queues` (Edit session required, same as refunds) so old test events do not re-import on the next sync.
 
 **3-Step confirmation flow:**
 
@@ -1707,7 +1739,7 @@ Permanently wipes all test/seed data to prepare the app for real production use.
 2. **Type RESET** — User must type the word `RESET` exactly in the confirmation field before proceeding.
 3. **Enter PIN** — User must re-enter their admin PIN, verified cryptographically via PBKDF2 `unwrapKeyForUser`. Only on success is the wipe executed.
 
-If the backend is offline during reset, CRM data is still wiped but queue clearing must be done manually (`POST /api/integration/clear-queues` with `x-frontend-secret`, or `DELETE /api/calendly/events` and `DELETE /api/stripe/events` with `x-admin-token`).
+If the backend is offline during reset, CRM data is still wiped but queue clearing must be done manually (`POST /api/integration/clear-queues` with `x-frontend-secret` and an Edit-capable `x-session-token`, or `DELETE /api/calendly/events` and `DELETE /api/stripe/events` with `x-admin-token`).
 
 ---
 
@@ -1715,9 +1747,10 @@ If the backend is offline during reset, CRM data is still wiped but queue cleari
 
 | Requirement | Detail |
 |---|---|
-| Access control | All authenticated users can view Admin. Only Owners can export data or reset production. |
+| Access control | Sidebar and Admin tabs are role-filtered via `SECTION_ACCESS` / `ADMIN_TAB_ACCESS` in `constants.js`. User Management is Owner-only; Settings is Owner/Admin; Reset is Owner-only. In-view gates remain for export, restore, clear log, and user CRUD. |
 | Integrity checks | Non-destructive read-only scan — no data is modified |
-| Schema data | Defined in the `DB_SCHEMA` constant in `App.jsx` — must be updated when new fields are added |
+| Schema data | Built at runtime from `FIELDS` in `src/App.jsx` via `getAppFields()` / `buildDbSchema()` in `admin.jsx` — select values resolve from each field’s `options` (same source as the record drawer) |
+| Field names | Canonical runtime keys are listed in `FIELD` in `constants.js` (e.g. offers use `clientId` / `price` / `expireDate`; testimonials use `clientId` / `permissionReceived`; referrals use `referrerId`) |
 | Export format | JSON (not encrypted) — suitable for manual backup and disaster recovery |
 | Storage calculation | Encrypted size read from the encrypted store directly; uncompressed size computed via `TextEncoder` |
 
@@ -1741,10 +1774,10 @@ Track all business-related expenditures, import them in bulk via CSV, and have t
 | Administrative | Website hosting, domain, banking fees |
 | Studio & Venue | Room hire fees, venue deposits (separate from revenue splits) |
 | Studio Split | Auto-recorded studio revenue share — amount = sum of actual Stripe payments received for the session (gross − refunds) × the partner's revenue share %. Updates automatically as payments come in or refunds occur. One linked record per studio session |
-| Refunds & Cancellations | Auto-recorded when a Calendly booking is canceled — amount = the amount **actually refunded via Stripe** (`amountRefunded`; $0 for late cancels, free/coupon bookings, or cancellations with no refund issued). Carries `stripeRefundId` / `refundedAt` when a Stripe refund was issued from the Revenue → Refunds tab |
+| Refunds & Cancellations | Manual expense category only. Stripe refunds are recorded as **negative revenue rows** (`regrev_*_refund`), not auto expenses. Legacy `cxlexp_*` auto rows are purged on ledger sync. |
 | Other | Miscellaneous business costs |
 
-Auto-recorded expense records (id prefix `cxlexp_` for cancellations, `studiosplit_` for studio splits, both `auto: true`) are generated automatically and regenerate on every change; do not edit them by hand. Manually-entered expenses are always preserved.
+Auto-recorded expense records (id prefix `studiosplit_` for studio splits, `auto: true`) are generated automatically and regenerate on every change; do not edit them by hand. Manually-entered expenses are always preserved. Legacy `cxlexp_*` cancellation expenses are removed on sync.
 
 ### Fields Tracked
 | Field | Type | Description |
@@ -1797,7 +1830,7 @@ Auto-recorded expense records (id prefix `cxlexp_` for cancellations, `studiospl
 - Operating Margin % — profit as a percentage of gross revenue
 
 ### CSV Import
-Expenses can be bulk-imported monthly via the **Import CSVs** sidebar button. Select **Expenses** as the target section.
+Expenses can be bulk-imported monthly via **Upload Expense CSV** on the Expenses → Summary page (appends rows; does not replace existing data).
 
 **Required columns (any order):**
 ```
@@ -1805,13 +1838,13 @@ date, vendor, description, amount, category, paymentMethod, taxDeductible, recur
 ```
 
 **Column formats:**
-- `date` — YYYY-MM-DD (e.g. `2026-06-15`)
+- `date` — **YYYY-MM-DD only** (e.g. `2026-06-15`). Rows with other formats (e.g. `06/15/2026`) are skipped.
 - `amount` — number only, no $ sign (e.g. `49.99`)
 - `category` — must exactly match one of the 10 allowed categories
 - `taxDeductible` / `recurring` — `true` or `false` (also accepts `yes`/`no`, `1`/`0`; coerced to real booleans on import so the string `"false"` is not truthy)
 - `recurringFreq` — `One-time`, `Monthly`, `Quarterly`, or `Annual`
 
-`IMPORT_MAP.expenses` lists `bools: ["taxDeductible", "recurring"]` (and `nums: ["amount"]`). Both the Expenses Summary upload path and the global Import CSVs modal apply `bool()` / `num()` from `src/lib/format.js` during mapping.
+`IMPORT_MAP.expenses` lists `bools: ["taxDeductible", "recurring"]`, `nums: ["amount"]`, and `dates: ["date"]`. The Expenses Summary upload path applies `bool()` / `num()` / `isValidISODate()` from `src/lib/format.js` during mapping. Duplicate expense rows (same date + vendor + amount + description) are skipped — against existing data on append, and within the file.
 
 Compatible with CSV exports from QuickBooks, Wave, Xero, or any bank statement with renamed headers.
 
@@ -1842,14 +1875,15 @@ Simply Breathe OS integrates with Calendly via a lightweight Node.js/Express web
 
 ```
 Calendly → POST /api/webhooks/calendly (backend/server.js)
-         → pending-events.json queue
+         → pending-events.json queue (dedup by invitee URI + event type; 200 before enrichment)
+         → async enrichment (event-type description + payment via Calendly API)
          → React CRM polls GET /api/calendly/pending every 15 min
          → Runs retroactive studio-matching pass on all sessions
          → Processes new events → updates data state
          → POST /api/calendly/acknowledge (marks events done)
 
 Stripe   → POST /api/webhooks/stripe (backend/server.js)
-         → stripe-pending-events.json queue
+         → stripe-pending-events.json queue (dedup by stripeEventId)
          → React CRM polls GET /api/stripe/pending every 15 min
          → Matches payments to Calendly bookings (email + amount + 30 min window)
          → POST /api/stripe/acknowledge (marks events done)
@@ -1863,7 +1897,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/api/webhooks/calendly` | POST | Receives Calendly events; verifies HMAC-SHA256 signature if signing key is configured |
+| `/api/webhooks/calendly` | POST | Receives Calendly events; verifies HMAC-SHA256 signature if signing key is configured. **Queues immediately** (idempotent on `calendlyInviteeUri` + `eventType`), returns 200, then enriches description/payment asynchronously so Calendly timeout-retries cannot duplicate the queue entry. |
 | `/api/calendly/pending` | GET | Returns unprocessed events for the CRM to consume |
 | `/api/calendly/acknowledge` | POST | Marks event IDs as processed. Each `id` element validated as non-empty string ≤ 100 chars. |
 | `/api/calendly/payment-lookup` | POST | Fetches invitee payment amounts from Calendly API for up to 25 invitee URIs (used to backfill **Amount** on existing bookings) |
@@ -1872,7 +1906,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 | `/api/stripe/acknowledge` | POST | Marks Stripe queue event IDs as processed |
 | `/api/stripe/refund` | POST | Issues a **full Stripe refund** (`POST /v1/refunds`, `amount` omitted) for a canceled booking. Body: `paymentIntentId` (`pi_...`) or `chargeId` (`ch_...`), plus `registrationId` (stored as Stripe metadata) and optional `reason`. Requires `x-frontend-secret` and `STRIPE_SECRET_KEY`; returns the refund ID, amount (dollars), status, and timestamp |
 | `/api/calendly/cancel-booking` | POST | Cancels an **entire** Calendly scheduled event (all invitees) as the host. Body: `eventUri` (`https://api.calendly.com/scheduled_events/<uuid>`) and optional `reason` (max 500 chars; included in Calendly cancellation emails). Requires `x-frontend-secret` + `x-session-token` and `CALENDLY_API_TOKEN`. Returns `{ status: "canceled", eventUuid }`. Does not mutate CRM state — `invitee.canceled` webhooks + `syncCalendly()` converge registrations |
-| `/api/integration/clear-queues` | POST | Clears Calendly and Stripe pending webhook queues (Reset to Production; requires `x-frontend-secret`) |
+| `/api/integration/clear-queues` | POST | Clears Calendly and Stripe pending webhook queues (Reset to Production). Requires `x-frontend-secret` + Edit-capable `x-session-token` (same gate as `/api/stripe/refund`) |
 | `/api/calendly/events` | GET | All events (debug/admin) |
 | `/api/calendly/events` | DELETE | Clear Calendly queue (admin) |
 | `/api/stripe/events` | DELETE | Clear Stripe queue (admin) |
@@ -1887,7 +1921,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 - `FRONTEND_SECRET` — shared secret for CRM-facing endpoints. **Required** (server exits in production if missing; in dev, endpoints return 503 unless `ALLOW_INSECURE_DEV_AUTH=true`). Generate with `openssl rand -hex 32`. Injected server-side by the Vite proxy (dev) or reverse proxy (production).
 - `ALLOW_INSECURE_DEV_AUTH` — local-only; allows CRM APIs without `FRONTEND_SECRET`. `start.ps1` **refuses to start ngrok** when this is true.
 - `ADMIN_SECRET` — token required for debug endpoints (`GET/DELETE /api/calendly/events`, `GET/DELETE /api/stripe/events`). Pass as `x-admin-token` header.
-- `QUEUE_ENCRYPTION_KEY` — 32-byte hex key for AES-256-GCM encryption of `pending-events.json` at rest. Generate with `openssl rand -hex 32`. **Required in production** (server refuses to start without it); if blank in dev, queue is stored as plaintext with a loud warning.
+- `QUEUE_ENCRYPTION_KEY` — 32-byte hex key for AES-256-GCM encryption of `pending-events.json` at rest. Generate with `openssl rand -hex 32` (exactly **64 hex characters**). **Required in production** (server refuses to start if missing or malformed); if blank/invalid in dev, queue is stored as plaintext with a loud warning. Runtime `_queueKey()` also requires `/^[0-9a-f]{64}$/i` so a bad key cannot silently disable encryption.
 - `CALENDLY_API_TOKEN` — Calendly Personal Access Token (from Calendly → Integrations → API & Webhooks). Required for event type description fetching and payment amount backfill. See `backend/.env.example`.
 - `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret (`whsec_...`) from Stripe Dashboard → Developers → Webhooks. **Required in production** (server exits if missing). In dev, unsigned Stripe webhooks are **rejected** unless `ALLOW_UNSIGNED_STRIPE_WEBHOOKS=true` (never enable with a public ngrok URL; `start.ps1` refuses ngrok when set).
 - `STRIPE_SECRET_KEY` — Stripe secret API key (`sk_live_...` / `sk_test_...`) from Stripe Dashboard → Developers → API keys. Used by `POST /api/stripe/refund` to issue refunds. Optional — without it the refund endpoint returns 503 and the CRM's Refund buttons report that refunds are not configured.
@@ -1905,23 +1939,27 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 - CORS: browser `Origin` must be in `ALLOWED_ORIGINS`; requests with no `Origin` (webhooks, `/health`) are allowed — authenticity is HMAC, not Origin
 - Request body size capped at 256 KB
 - Webhook HMAC-SHA256 signature verified with 5-minute timestamp replay protection
-- Queue file encrypted at rest with AES-256-GCM when `QUEUE_ENCRYPTION_KEY` is set
+- `FRONTEND_SECRET` / `ADMIN_SECRET` compared with `crypto.timingSafeEqual` (same as webhook HMAC checks)
+- **Calendly webhook idempotency:** enqueue is keyed by `calendlyInviteeUri` + `eventType` (same key as pull-recent dedup). Description and payment enrichment run **after** the 200 response so slow Calendly API calls cannot cause timeout-then-retry duplicates. Stripe webhooks similarly dedup on `stripeEventId`.
+- Queue file encrypted at rest with AES-256-GCM when `QUEUE_ENCRYPTION_KEY` is a valid 64-char hex string
 - Queue writes are atomic (temp file + rename). Decrypt/read failures quarantine the live file as `*.corrupt.<timestamp>` under `backend/data/` instead of letting the next write destroy it
+- **In-process queue mutex (`withQueueLock`):** all read-modify-write paths for Calendly/Stripe queues, the Stripe webhook receipt log, and the refund audit log are serialized so concurrent webhook/refund bursts cannot lose appends
+- Console logs use invitee/event IDs only — customer emails are never written to stdout (PII stays in encrypted queue/audit files)
 - If the encryption key is lost or rotated without decrypting first, the backend may leave `*.bak` or `*.corrupt.*` copies next to the live queue files under `backend/data/` (e.g. `pending-events.json.bak`, `pending-events.json.corrupt.…`). Those files are ciphertext for the **old** key (or tampered data) and cannot be recovered without the matching key. **Retention decision:** keep them only while you still hope to recover the old key or investigate tampering; otherwise delete them after confirming the live queue (`pending-events.json`, etc.) is healthy. They are gitignored and are not used by the running server.
 - `/pending` and `/acknowledge` require `x-frontend-secret` header injected by Vite proxy (never sent directly from browser code)
 - Webhook string fields sanitized via `Sec.sanitize()` before storage (strips HTML and formula injection)
 - SSRF guard: `fetchEventTypeDescription` rejects any `event_type` URI that does not begin with `https://api.calendly.com/`
 - Queue capped at **1,000 events**; processed events older than **7 days** are automatically purged on each write
-- Startup validation: server exits with code 1 in production if `CALENDLY_WEBHOOK_SIGNING_KEY`, `QUEUE_ENCRYPTION_KEY`, `STRIPE_WEBHOOK_SECRET`, or `FRONTEND_SECRET` are missing
+- Startup validation: server exits with code 1 in production if `CALENDLY_WEBHOOK_SIGNING_KEY`, `QUEUE_ENCRYPTION_KEY` (must be `/^[0-9a-f]{64}$/i`), `STRIPE_WEBHOOK_SECRET`, or `FRONTEND_SECRET` are missing or malformed
 - Calendly webhook handler rejects unsigned requests in production when the signing key is unset (same fail-closed pattern as Stripe)
 - Refund / API session mint (`POST /api/auth/session`) requires a one-shot challenge from `GET /api/auth/session-challenge` plus a **server-verified HMAC** `unlockProof` over a per-user unlock secret registered via `POST /api/auth/register-unlock`. Tokens expire in 1 hour, are bound to `userId`, and carry server-side `role` / `canEdit`.
-- `POST /api/stripe/refund` and `POST /api/send-email` require an API session with `canEdit: true` (not merely `FRONTEND_SECRET`).
+- `POST /api/stripe/refund`, `POST /api/send-email`, and `POST /api/integration/clear-queues` require an API session with `canEdit: true` (not merely `FRONTEND_SECRET`).
 - `POST /api/calendly/cancel-booking` requires an API session token (`requireSessionToken`) plus `FRONTEND_SECRET`; cancels the whole Calendly event for all invitees.
-- Per-user unlock secrets are PIN-wrapped in security metadata (`wrappedUnlockSecret`) and stored encrypted at rest on the backend in `backend/data/auth-users.json`.
+- Per-user unlock secrets are PIN-wrapped in security metadata (`wrappedUnlockSecret`) and stored encrypted at rest on the backend in `backend/data/auth-users.json`. **Fail closed:** only a missing file allows Owner bootstrap; a present but unreadable/corrupt store returns 503 on auth endpoints (never treated as an empty registry).
 - Multi-user account creation is gated by CRM setting `allowMultiUser` (default `false`) because all users share one master encryption key.
 - Server PIN lockout (`POST /api/auth/pin-attempt`) requires a one-shot challenge from `GET /api/auth/pin-status` so lockouts cannot be forged with only `FRONTEND_SECRET`
 - `/api/auth/*` is rate-limited (30 requests / 15 min / IP)
-- Stripe payment auto-match uses **email + booking time** (not amount); Stripe gross always becomes session price on match. Run `npm run test:stripe-match` to verify.
+- Stripe payment auto-match uses **email + booking time**, with list-price `amountsMatch` as a first-pass tiebreaker within the window; Stripe gross always becomes session price on match. Priced bookings with no charge for that email stay `unmatched` (not auto-free). Run `npm run test:stripe-match` to verify.
 
 ### Supported Calendly Events
 
@@ -1930,7 +1968,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 | `invitee.created` | **Skipped entirely** if a registration with the same invitee URI is already `canceled`/`rescheduled` in the CRM (CRM status wins — see Cancellation protection). Otherwise: create/update client · upsert session · create/update registration · create 3 follow-up tasks (new regs only). On **redelivery** of an existing invitee: preserve `checkedIn` / `attended` / `noShow` / `notes` and attendance statuses (`attended` / `no_show`); do not reset them to false/empty. Session `registered` recount excludes this invitee's own existing row before adding 1 (avoids double-count). |
 | `invitee.canceled` | Set registration status to `canceled` (or `rescheduled` if `payload.rescheduled = true`). If the linked session is **virtual** (no `studioId`) and has no remaining active registrations, the session is **deleted** from the session list/calendar (the canceled registration still shows on the Cancellations and Reschedules tab). **Studio** (group) sessions are kept and only have their `registered` count decremented. |
 | `invitee_no_show.created` | Set registration `noShow: true`, status `no_show` · increment session noShows |
-| `invitee_no_show.deleted` | Revert no-show flag · decrement noShows |
+| `invitee_no_show.deleted` | Clear `noShow: false` · decrement session noShows. Status reverts to `booked` **only** when it was still `no_show` — manual `attended` (or other) attendance is preserved |
 
 ### Client Deduplication
 Email address (normalized to lowercase) is the primary deduplication key. On `invitee.created`:
@@ -1958,7 +1996,7 @@ Each individual Calendly booking is stored as a `registration` record:
 | `status` | `booked` · `attended` · `canceled` · `rescheduled` · `no_show` |
 | `paymentAmount` | Session list price — the Calendly **Payment required amount** for that event type. Calendly’s API does not expose this field directly; the CRM reads it from the event type **Internal Note** (e.g. `Studio` + `$55`) via the Calendly API, matching how studio cards on the website show price |
 | `paidAmount` | Actual amount paid — from **Stripe** once matched; Calendly invitee `payment.amount` is unreliable when Stripe checkout is external |
-| `paymentStatus` | `paid` · `pending_verification` · `unmatched` · `unpaid` · `partial_refund` · `refunded` · `failed` · `unknown` — paid sessions start as `pending_verification` until Stripe confirms; `unmatched` when no Stripe charge exists for the client email |
+| `paymentStatus` | `paid` · `pending_verification` · `unmatched` · `unpaid` · `partial_refund` · `refunded` · `failed` · `unknown` — paid sessions start as `pending_verification` until Stripe confirms; `unmatched` when a positive list price has no Stripe charge for the client email (not auto-marked free — confirm a coupon or fix the email mismatch) |
 | `stripeVerified` | Boolean — true when a Stripe payment has been linked to this booking |
 | `stripePaymentIntentId` | Stripe PaymentIntent ID (`pi_...`) when matched |
 | `stripeChargeId` | Stripe Charge ID (`ch_...`) when matched |
@@ -2008,7 +2046,7 @@ Each Stripe payment event processed by the CRM is stored as a `payment` record:
 | `currency` | ISO currency code (default `usd`) |
 | `status` | `paid` · `failed` · `refunded` · `partial_refund` |
 | `matchStatus` | `auto` · `manual` · `needs_review` · `unmatched` |
-| `matchScore` | Confidence score (email + booking time window) |
+| `matchScore` | Confidence score (email + booking time window; amount tiebreaker) |
 | `paidAt` | Payment timestamp from Stripe |
 | `receiptUrl` | Stripe receipt URL when available |
 
@@ -2034,17 +2072,18 @@ When a webhook arrives, the backend calls `GET /event_types/{uuid}` on the Calen
 **On-demand fetch:** `GET /api/calendly/event-description` accepts any of:
 - `eventTypeUri` — direct Calendly event type URI (stored on session as `calendlyEventTypeUri`)
 - `eventUri` — scheduled event URI (resolved to event type on the backend)
-- `eventName` — fallback match against your Calendly event type names (e.g. `Indiga Yoga - Walnut Creek, CA`)
+- `eventName` — fallback **exact** match (case-insensitive) against your Calendly event type names (e.g. `Indiga Yoga - Walnut Creek, CA`). Substring / fuzzy matching is not used — a partial name must not bind a different event type's description or list price.
 
 Requires `CALENDLY_API_TOKEN` in `backend/.env`. Restart the backend after changing env vars or deploying code changes.
 
 | Detail | Value |
 |---|---|
 | Trigger | Each `invitee.created` or `invitee.canceled` webhook; also when opening the ⓘ panel in the session drawer |
-| API call | `GET https://api.calendly.com/event_types/{uuid}` (or list + name match) |
+| API call | `GET https://api.calendly.com/event_types/{uuid}` (or list + exact name match) |
 | Auth | Bearer `CALENDLY_API_TOKEN` |
 | Caching | In-memory per event type UUID — successful fetches only; failures are not cached |
 | Env var required | `CALENDLY_API_TOKEN` in `backend/.env` (see `backend/.env.example`) |
+| Runtime | Node.js **≥ 18** (`engines` in `backend/package.json`; uses native `fetch`) |
 
 If `CALENDLY_API_TOKEN` is not set, the description is left blank and no API call is made.
 
@@ -2094,7 +2133,7 @@ Two scripts in the project root start all services in one step:
 | `start.ps1` | Run `.\start.ps1` in a PowerShell terminal |
 
 Both scripts:
-1. Check Node.js is installed; abort with instructions if not
+1. Check Node.js is installed (backend requires **≥ 18**); abort with instructions if not
 2. Check ngrok is installed; skip tunnel gracefully if not (prints install command)
 3. Auto-copy `backend/.env.example` → `backend/.env` if missing
 4. Run `npm install` in both root and `backend/` if `node_modules` is absent
@@ -2147,9 +2186,21 @@ Sections are grouped into three visual lanes rendered in this order:
 - Workflows
 - Templates
 - Admin
-  - User Management *(nested sub-item, expands when Admin is active)*
+  - User Management *(nested sub-item; Owner-only — hidden for other roles)*
 
-> **Note:** Revenue and Expenses are collapsible children of the **P&L** nav item. Clicking P&L navigates to Revenue (first child) and expands the group. User Management is similarly nested under Admin. Both parent items show a chevron indicator that rotates when the group is open.
+> **Note:** Revenue and Expenses are collapsible children of the **P&L** nav item. Clicking P&L navigates to Revenue (first child) and expands the group. User Management is similarly nested under Admin for Owners. Both parent items show a chevron indicator that rotates when the group is open.
+
+### Role-filtered navigation
+
+Sidebar sections and Admin tabs are filtered by role before render (`canAccessSection` / `canAccessAdminTab` in `src/lib/constants.js`). CRM data sections stay visible to all roles (action permissions still gate edit/delete). Restricted items:
+
+| Nav item | Viewer | Editor | Admin | Owner |
+|---|---|---|---|---|
+| User Management (sidebar) | — | — | — | ✓ |
+| Admin → Settings | — | — | ✓ | ✓ |
+| Admin → Reset to Production | — | — | — | ✓ |
+
+Stale session/nav state that points at a restricted section or tab is redirected to a safe default. Per-action checks inside views remain as defense-in-depth.
 
 ### Record Editing — Modal Popup
 
@@ -2181,7 +2232,7 @@ All destructive or irreversible actions (logout, deactivate user) use a **custom
 Click the avatar in the top-right to open the dropdown:
 - User name, title/role, email, last login
 - **Edit Profile** — opens profile modal
-- **Manage Users** — shortcut (Owner/Admin only)
+- **Manage Users** — shortcut (Owner only; same `can.manage` gate as the sidebar item)
 - **Log Out** — with confirmation prompt
 
 ### Responsive Design
@@ -2197,14 +2248,14 @@ Click the avatar in the top-right to open the dropdown:
 
 ### CSV Import
 
-- Available for: Clients, Studio Partners, Sessions, Offers, Content, Follow-Ups, **Expenses**
-- **Not CSV-importable:** Calendly bookings (`registrations`) — those arrive only via Calendly sync / webhooks (`DB_ORDER` / `IMPORT_MAP` stay aligned; a missing map entry would crash Import CSVs on open)
-- Expenses can also be imported directly via the **Upload Expense CSV** button on the Expenses → Summary page (appends rows; does not replace existing data)
-- Drag-and-drop or file picker via the global **Import CSVs** sidebar button
+- Available for: **Expenses** only (via **Upload Expense CSV** on Expenses → Summary)
+- **Not CSV-importable:** Clients, Partners, Sessions, Offers, Content, Follow-Ups, and Calendly bookings (`registrations`) — bookings arrive only via Calendly sync / webhooks
 - PapaParse used for CSV parsing
 - Formula injection and HTML stripped on import
 - Numeric fields coerced via `nums` + `num()`; boolean fields via `bools` + `bool()` (expense `taxDeductible` / `recurring` must not remain string `"false"`, which is truthy in JS)
-- Duplicate detection by name/email
+- Date fields listed in each map’s `dates` array must be empty or strict `YYYY-MM-DD` (validated by `isValidISODate`); invalid dates skip the row
+- Duplicate rows skipped via per-section `dedupe` keys (expense date+vendor+amount+description); expense append also dedupes against existing records
+- Shared parser: `parseImportRows()` in `App.jsx` (`IMPORT_MAP.expenses` only)
 
 ### CSV Export
 
@@ -2304,7 +2355,7 @@ simply-breathe-app/
 │   ├── App.jsx                  # Root state, routing, drawers, and shared views
 │   ├── components/
 │   │   ├── primitives.jsx       # Reusable presentational primitives
-│   │   └── appBridge.jsx        # Access to App-owned shared views kept in App.jsx
+│   │   └── appBridge.jsx        # Shared App views + runtime FIELDS for Schema Browser
 │   ├── features/
 │   │   ├── auth/                # First-run setup and lock screen
 │   │   ├── admin/               # Admin settings and user management views
@@ -2320,10 +2371,10 @@ simply-breathe-app/
 │   ├── lib/
 │   │   ├── theme.js             # Colors, fonts, hexA
 │   │   ├── format.js            # money, dates, uid, cleanName
-│   │   ├── constants.js         # Domain enums, RBAC, FU steps/templates
+│   │   ├── constants.js         # Domain enums, status groupings, FIELD map, schemaValues()
 │   │   ├── crmSettings.js       # Configurable CRM lists
 │   │   ├── checklists.js        # Session/equipment checklist defs
-│   │   ├── templates.js         # Template var helpers, outreachScore
+│   │   ├── templates.js         # Template var helpers, unreplaced-token scan, outreachScore
 │   │   ├── api.js               # API headers, Calendly helpers (`cancelCalendlyEvent`, description fetch)
 │   │   ├── email.js             # sendCrmEmail + email log helpers
 │   │   ├── store.js             # IndexedDB / localStorage facade
@@ -2409,10 +2460,9 @@ All state is managed via React `useState` and `useMemo` in the root `App` compon
 | `FollowUpEngine` | Sequence management and message queue |
 | `PartnerLaunchChecklist` | 4-phase studio onboarding checklist |
 | `PartnerAgreementsTab` | Agreements tab in partner drawer — validated upload/view/remove of PDF or Word agreements (magic-byte checks; blob URL open for PDFs) |
-| `EquipmentChecklist` | Per-session gear and setup checklist |
+| `SessionChecklistPanel` | Merged virtual/studio session equipment + run checklist |
 | `PipelineSnapshot` | 9-metric business overview panel |
 | `AlertsPanel` | Smart alert list with severity and actions |
-| `ImportModal` | CSV import with parsing and validation |
 
 ### Security Utilities (`Sec` object in `src/lib/sec.js`)
 
