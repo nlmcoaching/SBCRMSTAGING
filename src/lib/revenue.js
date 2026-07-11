@@ -7,13 +7,56 @@ import { patchAmountMismatches } from "./patchAmountMismatches.js";
 export { patchAmountMismatches };
 
 export const _c = (v) => Math.round((Number(v) || 0) * 100);
-// Read amountGross / amountRefunded from a Stripe payment record.
-// Records with _centsFormat:true store integer cents (new format from backend);
-// older records already stored as dollar floats are handled transparently.
+// Read amountGross / amountRefunded from a Stripe payment/queue record.
+// Queue/ledger events use integer cents with _centsFormat:true; CRM payment
+// records store dollar floats (flag stripped at ingestion / on rewrite).
 export const readAmt = (rec, field) => {
   const raw = Number(rec?.[field]) || 0;
   return rec?._centsFormat ? raw / 100 : raw;
 };
+
+/** Convert a queue/ledger Stripe event to dollar floats and drop _centsFormat. */
+export function stripeEventInDollars(evt) {
+  if (!evt || !evt._centsFormat) return evt;
+  const { _centsFormat, ...rest } = evt;
+  return {
+    ...rest,
+    amountGross: readAmt(evt, "amountGross"),
+    amountRefunded: readAmt(evt, "amountRefunded"),
+  };
+}
+
+/** CRM payment records always store dollar floats — normalize and drop _centsFormat. */
+export function paymentInDollars(p) {
+  if (!p) return p;
+  if (!p._centsFormat) {
+    if (!("_centsFormat" in p)) return p;
+    const { _centsFormat, ...rest } = p;
+    return rest;
+  }
+  const { _centsFormat, ...rest } = p;
+  return {
+    ...rest,
+    amountGross: readAmt(p, "amountGross"),
+    amountRefunded: readAmt(p, "amountRefunded"),
+  };
+}
+
+/**
+ * Refund API returns `amount` in dollars (server centsToDollars).
+ * If a cents integer was stored by mistake, convert when it matches paid±1¢.
+ */
+export function refundAmountDollars(apiAmount, fallbackDollars = 0) {
+  if (apiAmount == null || apiAmount === "") return fallbackDollars;
+  const n = Number(apiAmount);
+  if (!Number.isFinite(n) || n < 0) return fallbackDollars;
+  const paid = Number(fallbackDollars) || 0;
+  if (paid > 0 && Number.isInteger(n) && n >= 100 && n > paid + 0.01
+      && Math.abs(n / 100 - paid) <= 0.01) {
+    return Math.round(n) / 100;
+  }
+  return n;
+}
 export const calcNet = (r) =>
   (_c(r.gross) - _c(r.stripeFee) - _c(r.studioSplit) - _c(r.facilitatorCost) - _c(r.refunds)) / 100;
 
@@ -53,30 +96,32 @@ export function stripePaymentExists(payments, stripeEvt) {
   return false;
 }
 export function buildStripePaymentRecord(stripeEvt, extra = {}) {
+  const evt = stripeEventInDollars(stripeEvt) || stripeEvt || {};
+  // Always dollar floats in the CRM store — never copy _centsFormat onto payments.
   return {
     id: uid("pay"),
     clientId: extra.clientId || "",
     bookingId: extra.bookingId || "",
     sessionId: extra.sessionId || "",
     provider: "stripe",
-    stripePaymentIntentId: stripeEvt.stripePaymentIntentId || "",
-    stripeChargeId: stripeEvt.stripeChargeId || "",
-    stripeCheckoutSessionId: stripeEvt.stripeCheckoutSessionId || "",
-    stripeEventId: stripeEvt.stripeEventId || "",
-    stripeQueueId: stripeEvt.id || "",
-    customerEmail: stripeEvt.customerEmail || "",
-    description: stripeEvt.description || "",
-    amountGross: readAmt(stripeEvt, "amountGross"),
-    amountRefunded: readAmt(stripeEvt, "amountRefunded"),
-    currency: stripeEvt.currency || "usd",
-    status: extra.status || stripeEvt.status || "paid",
+    stripePaymentIntentId: evt.stripePaymentIntentId || "",
+    stripeChargeId: evt.stripeChargeId || "",
+    stripeCheckoutSessionId: evt.stripeCheckoutSessionId || "",
+    stripeEventId: evt.stripeEventId || "",
+    stripeQueueId: evt.id || "",
+    customerEmail: evt.customerEmail || "",
+    description: evt.description || "",
+    amountGross: Number(evt.amountGross) || 0,
+    amountRefunded: Number(evt.amountRefunded) || 0,
+    currency: evt.currency || "usd",
+    status: extra.status || evt.status || "paid",
     matchScore: extra.matchScore ?? null,
     matchStatus: extra.matchStatus || "unmatched",
-    paidAt: stripeEvt.paidAt || stripeEvt.receivedAt || "",
+    paidAt: evt.paidAt || evt.receivedAt || "",
     refundedAt: extra.refundedAt || "",
-    receiptUrl: stripeEvt.receiptUrl || "",
-    paymentMethodType: stripeEvt.paymentMethodType || "",
-    failureMessage: stripeEvt.failureMessage || "",
+    receiptUrl: evt.receiptUrl || "",
+    paymentMethodType: evt.paymentMethodType || "",
+    failureMessage: evt.failureMessage || "",
     createdAt: new Date().toISOString(),
     notes: extra.notes || "",
   };
@@ -113,9 +158,9 @@ export function stripePaymentFromRecord(p) {
   };
 }
 export function applyPaymentReconciliation(prevData) {
-  // Clear prior automatic links first so payments re-match against the best booking
-  // (by Calendly event / amount), self-healing any stale FIFO mismatches. Manual links kept.
-  const reset = resetStripeAutoMatches(prevData.payments || [], prevData.registrations || []);
+  // Heal any mixed-unit payment rows, then clear auto links and re-match.
+  const paymentsIn = (prevData.payments || []).map(paymentInDollars);
+  const reset = resetStripeAutoMatches(paymentsIn, prevData.registrations || []);
   const { payments, registrations } = reconcileStripePayments(
     reset.payments,
     reset.registrations,
@@ -155,11 +200,13 @@ export function reconcileAmountMismatches(prevData) {
 }
 export function processStripeWebhookEvents(prevData, events) {
   const ackIds = [];
-  let payments = [...(prevData.payments || [])];
+  let payments = (prevData.payments || []).map(paymentInDollars);
   let registrations = [...(prevData.registrations || [])];
   const clients = prevData.clients || [];
 
-  for (const stripeEvt of events) {
+  for (const rawEvt of events) {
+    // Ingestion boundary: queue/ledger cents → dollars before any merge/write.
+    const stripeEvt = stripeEventInDollars(rawEvt) || rawEvt;
     ackIds.push(stripeEvt.id);
     const dupIdx = payments.findIndex(p =>
       p.stripeEventId && p.stripeEventId === stripeEvt.stripeEventId,
@@ -170,14 +217,17 @@ export function processStripeWebhookEvents(prevData, events) {
       ? payments.findIndex(p => p.stripePaymentIntentId === stripeEvt.stripePaymentIntentId && p.status === stripeEvt.status && ["paid", "failed"].includes(stripeEvt.status))
       : -1;
     if (piIdx >= 0) {
-      payments[piIdx] = {
-        ...payments[piIdx],
-        customerEmail: payments[piIdx].customerEmail || stripeEvt.customerEmail || "",
-        description: payments[piIdx].description || stripeEvt.description || "",
-        amountGross: readAmt(stripeEvt, "amountGross") || payments[piIdx].amountGross,
-        stripeChargeId: payments[piIdx].stripeChargeId || stripeEvt.stripeChargeId || "",
-        receiptUrl: payments[piIdx].receiptUrl || stripeEvt.receiptUrl || "",
-      };
+      const prevPay = payments[piIdx];
+      payments[piIdx] = paymentInDollars({
+        ...prevPay,
+        customerEmail: prevPay.customerEmail || stripeEvt.customerEmail || "",
+        description: prevPay.description || stripeEvt.description || "",
+        amountGross: stripeEvt.amountGross != null
+          ? (Number(stripeEvt.amountGross) || 0)
+          : readAmt(prevPay, "amountGross"),
+        stripeChargeId: prevPay.stripeChargeId || stripeEvt.stripeChargeId || "",
+        receiptUrl: prevPay.receiptUrl || stripeEvt.receiptUrl || "",
+      });
       continue;
     }
 
@@ -187,12 +237,15 @@ export function processStripeWebhookEvents(prevData, events) {
         || (stripeEvt.stripePaymentIntentId && p.stripePaymentIntentId === stripeEvt.stripePaymentIntentId),
       );
       if (payIdx >= 0) {
-        payments[payIdx] = {
-          ...payments[payIdx],
+        const prevPay = payments[payIdx];
+        payments[payIdx] = paymentInDollars({
+          ...prevPay,
           status: stripeEvt.status,
-          amountRefunded: readAmt(stripeEvt, "amountRefunded") || payments[payIdx].amountRefunded,
+          amountRefunded: stripeEvt.amountRefunded != null
+            ? (Number(stripeEvt.amountRefunded) || 0)
+            : readAmt(prevPay, "amountRefunded"),
           refundedAt: stripeEvt.paidAt || new Date().toISOString(),
-        };
+        });
         if (payments[payIdx].bookingId) {
           const regIdx = registrations.findIndex(r => r.id === payments[payIdx].bookingId);
           if (regIdx >= 0) {
@@ -795,11 +848,14 @@ export async function issueStripeRefund(reg, setData, sessionToken, opts = {}) {
   if (!res.ok) throw new Error(j.error || `Refund request failed (${res.status})`);
 
   const refundedAt = j.createdAt || new Date().toISOString();
+  const paidFallback = Number(reg.paidAmount) || 0;
+  // API contract: j.amount is dollars (server centsToDollars). Assert/normalize before store.
+  const refundedDollars = refundAmountDollars(j.amount, paidFallback);
   setData(prev => {
     const registrations = (prev.registrations || []).map(r => r.id === reg.id ? {
       ...r,
       paymentStatus: "refunded",
-      amountRefunded: j.amount ?? (Number(r.paidAmount) || 0),
+      amountRefunded: refundedDollars,
       stripeRefundId: j.refundId || "",
       refundedAt,
     } : r);
@@ -807,13 +863,13 @@ export async function issueStripeRefund(reg, setData, sessionToken, opts = {}) {
       const match = (reg.paymentId && p.id === reg.paymentId)
         || (reg.stripePaymentIntentId && p.stripePaymentIntentId === reg.stripePaymentIntentId)
         || (reg.stripeChargeId && p.stripeChargeId === reg.stripeChargeId);
-      return match ? {
+      return match ? paymentInDollars({
         ...p,
         status: "refunded",
-        amountRefunded: j.amount ?? readAmt(p, "amountGross"),
+        amountRefunded: refundedDollars,
         stripeRefundId: j.refundId || "",
         refundedAt,
-      } : p;
+      }) : paymentInDollars(p);
     });
     return { ...prev, registrations, payments };
   });

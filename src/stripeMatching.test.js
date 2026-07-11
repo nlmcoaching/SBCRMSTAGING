@@ -127,6 +127,60 @@ describe("reconcileStripePayments", () => {
     assert.equal(outPay.find(p => p.id === "p29").bookingId, "r9d");
     assert.equal(outPay.find(p => p.id === "p29").matchStatus, "manual");
   });
+
+  it("preserves a refunded payment link through reset + re-match (sync)", () => {
+    const registrations = [
+      { ...reg("r1", "c1", 55, "2026-06-22T08:30:00.000Z"),
+        stripeVerified: false, paymentStatus: "refunded", paidAmount: 55,
+        paymentId: "p1", amountRefunded: 55, refundedAt: "2026-06-23T10:00:00.000Z" },
+    ];
+    const payments = [
+      pay("p1", "jeffreywmason@yahoo.com", 55, "2026-06-22T08:39:00.000Z", {
+        bookingId: "r1", matchStatus: "auto", status: "refunded",
+        amountRefunded: 55, refundedAt: "2026-06-23T10:00:00.000Z",
+      }),
+    ];
+    const reset = resetStripeAutoMatches(payments, registrations);
+    assert.equal(reset.payments.find(p => p.id === "p1").bookingId, "r1");
+    assert.equal(reset.registrations.find(r => r.id === "r1").paymentStatus, "refunded");
+    assert.equal(reset.registrations.find(r => r.id === "r1").amountRefunded, 55);
+
+    const { registrations: outReg, payments: outPay } = reconcileStripePayments(
+      reset.payments, reset.registrations, clients,
+    );
+    const r1 = outReg.find(r => r.id === "r1");
+    const p1 = outPay.find(p => p.id === "p1");
+    assert.equal(p1.bookingId, "r1");
+    assert.equal(p1.status, "refunded");
+    assert.equal(p1.amountRefunded, 55);
+    assert.equal(r1.paymentStatus, "refunded");
+    assert.equal(r1.paidAmount, 55);
+    assert.equal(r1.amountRefunded, 55);
+    assert.equal(r1.paymentId, "p1");
+  });
+
+  it("preserves a partial_refund payment link through reset + re-match (sync)", () => {
+    const registrations = [
+      { ...reg("r1", "c1", 55, "2026-06-22T08:30:00.000Z"),
+        stripeVerified: true, paymentStatus: "partial_refund", paidAmount: 55,
+        paymentId: "p1", amountRefunded: 20 },
+    ];
+    const payments = [
+      pay("p1", "jeffreywmason@yahoo.com", 55, "2026-06-22T08:39:00.000Z", {
+        bookingId: "r1", matchStatus: "auto", status: "partial_refund", amountRefunded: 20,
+      }),
+    ];
+    const reset = resetStripeAutoMatches(payments, registrations);
+    const { registrations: outReg, payments: outPay } = reconcileStripePayments(
+      reset.payments, reset.registrations, clients,
+    );
+    assert.equal(outPay.find(p => p.id === "p1").bookingId, "r1");
+    const r1 = outReg.find(r => r.id === "r1");
+    assert.equal(r1.paymentStatus, "partial_refund");
+    assert.equal(r1.paidAmount, 55);
+    assert.equal(r1.amountRefunded, 20);
+    assert.equal(r1.stripeVerified, true);
+  });
 });
 
 describe("confirmRegistrationFreeCoupon", () => {

@@ -569,7 +569,7 @@ When a client books through your Calendly link, the CRM automatically:
 
 ### Staying in Sync
 
-At the bottom of the sidebar you'll see a **Calendly sync status indicator**. The CRM syncs automatically every **5 minutes** in the background — no action needed.
+At the bottom of the sidebar you'll see a **Calendly sync status indicator**. The CRM syncs automatically every **15 minutes** in the background — no action needed. Background sync always builds on your latest saved edits (it will not undo changes you made since you logged in).
 
 Each sync also **pulls recent bookings and cancellations directly from Calendly** (not just webhooks), so new bookings — and any cancellations — appear even if a webhook was missed while ngrok or the backend was offline. Cancellations are checked first on every sync, so a session canceled in Calendly is marked canceled in the CRM (and moves to the Cancellations and Reschedules view) on the very next sync, automatically. This works for **both** a one-on-one virtual session that someone cancels **and** a single participant who drops out of a **studio group class** (where the class itself stays on the calendar but that person's spot is freed) — both kinds of cancellation now come through reliably.
 
@@ -800,9 +800,9 @@ Use the **search box** at the top of the page to filter every list here by name,
 
 **Important:** Calendly email and Stripe checkout email must match. A booking under `jeff@simplybreathe.ai` will not match a Stripe payment for `jeffreywmason@yahoo.com`.
 
-Click **Sync Stripe now** to pull new payments immediately (the CRM also checks every 5 minutes). Sync reloads the full Stripe ledger from the backend so payments are not lost after a refresh.
+Click **Sync Stripe now** to pull new payments immediately (the CRM also checks every 15 minutes). Sync reloads the full Stripe ledger from the backend so payments are not lost after a refresh.
 
-**Administrator setup:** In Stripe Dashboard → Developers → Webhooks, add endpoint `https://YOUR-BACKEND-URL/api/webhooks/stripe` and subscribe to: `checkout.session.completed`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.refund.updated`. Copy the signing secret into `STRIPE_WEBHOOK_SECRET` in `backend/.env`. For production, also set `FRONTEND_SECRET` and `TRUST_PROXY=1` when the backend sits behind ngrok or your reverse proxy.
+**Administrator setup:** In Stripe Dashboard → Developers → Webhooks, add endpoint `https://YOUR-BACKEND-URL/api/webhooks/stripe` and subscribe to: `checkout.session.completed`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.refund.updated`. Copy the signing secret into `STRIPE_WEBHOOK_SECRET` in `backend/.env`. For production, also set `FRONTEND_SECRET` and `TRUST_PROXY=1` when the backend sits behind ngrok or your reverse proxy. Stripe (and Calendly) webhook POSTs do not send a browser Origin header — the backend accepts those server-to-server calls; the signing secret is what authenticates them.
 
 ### Revenue and expenses are recorded automatically
 
@@ -1420,7 +1420,7 @@ Go to **Admin** in the sidebar, click the **Storage & Backup** tab, and click **
 Try refreshing the page. If the problem persists, log out and log back in. If you continue to see issues, contact your system administrator.
 
 **A new Calendly booking isn't appearing in the CRM. What should I do?**
-The CRM syncs every 5 minutes automatically — wait a moment and check again. If it still doesn't appear, check that the backend server is running (double-click `start.bat` or run `.\start.ps1` from the project folder). If using ngrok for local testing, make sure the ngrok tunnel is still active — ngrok sessions expire after a few hours on the free plan.
+The CRM syncs every 15 minutes automatically — wait a moment and check again. If it still doesn't appear, check that the backend server is running (double-click `start.bat` or run `.\start.ps1` from the project folder). If using ngrok for local testing, make sure the ngrok tunnel is still active — ngrok sessions expire after a few hours on the free plan.
 
 **Can I manually create a booking without Calendly?**
 Yes. Go to **Calendly Bookings** and click **New** to create a registration record manually. You'll need to link it to an existing client and session.

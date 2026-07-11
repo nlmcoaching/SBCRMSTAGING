@@ -739,10 +739,18 @@ export default function App() {
       const syncedItems = []; // summary rows shown in the sync detail modal
       const sessionsNeedingDesc = [];
       const paymentLookupUris = [];
-      // Compute new state once, outside React updater, so ids/processed/syncedItems
-      // are populated exactly once and acknowledge is never called on a discarded render.
-      const _nextCalendlyState = (() => {
-        let next = { ...data };
+      let postSyncRegistrations = [];
+      // Apply against latest React state inside the updater — never from a closed-over
+      // `data` snapshot. A poll interval that only depends on [locked] would otherwise
+      // keep the unlock-time sync fn and silently revert every post-unlock edit.
+      // Accumulators are reset each updater run so Strict Mode double-invoke stays safe.
+      setData(prev => {
+        processed = 0;
+        ids.length = 0;
+        syncedItems.length = 0;
+        sessionsNeedingDesc.length = 0;
+        paymentLookupUris.length = 0;
+        let next = { ...prev };
         const clients       = [...(next.clients       || [])];
         const registrations = [...(next.registrations || [])];
         const sessions      = [...(next.sessions      || [])];
@@ -1235,20 +1243,9 @@ export default function App() {
 
         const refreshedSessions = refreshCalendlySessionRevenue(sessions, registrations);
         const ltvData = { registrations, revenue: next.revenue || [], offers: next.offers || [] };
+        postSyncRegistrations = registrations;
         return { ...next, clients: applyRegistrationLifetimeValues(clients, ltvData), registrations, sessions: refreshedSessions, followups, partners };
-      })();
-      // Merge sync-owned collections into latest state so concurrent edits to
-      // unrelated keys (templates, settings, etc.) are not overwritten. Sync
-      // still runs outside the updater so acknowledge ids are computed once
-      // (React Strict Mode can discard updater results).
-      setData(prev => ({
-        ...prev,
-        clients: _nextCalendlyState.clients,
-        registrations: _nextCalendlyState.registrations,
-        sessions: _nextCalendlyState.sessions,
-        followups: _nextCalendlyState.followups,
-        partners: _nextCalendlyState.partners,
-      }));
+      });
 
       // Acknowledge processed events
       if (ids.length) {
@@ -1282,7 +1279,7 @@ export default function App() {
       if (sessionsNeedingDesc.length && currentUser?.permissions?.edit) {
         Promise.all(sessionsNeedingDesc.slice(0, 10).map(async (s) => {
           try {
-            const { description: desc, error } = await fetchCalendlyDescriptionForSession(s, data.registrations || []);
+            const { description: desc, error } = await fetchCalendlyDescriptionForSession(s, postSyncRegistrations);
             if (error || !desc || isTruncatedPreview(desc)) return;
             setData(prev => ({
               ...prev,
@@ -1297,7 +1294,7 @@ export default function App() {
       }
 
       // Backfill missing payment amounts from Calendly invitee API (async, non-blocking)
-      const missingRegs = (data.registrations || [])
+      const missingRegs = postSyncRegistrations
         .filter(r => r.paymentAmount == null || r.paymentAmount === "");
       const missingPaymentUris = [...new Set([
         ...paymentLookupUris,
@@ -1379,15 +1376,16 @@ export default function App() {
       });
       let processed = 0;
       let ackIds = [];
-      // Compute new state once outside React updater — see Calendly sync comment above.
-      const _nextStripeState = (() => {
-        let next = data;
+      // Apply against latest React state inside the updater — same stale-closure
+      // guard as Calendly sync (poll interval must not overwrite post-unlock edits).
+      setData(prev => {
+        let next = prev;
         if (events?.length) {
-          const result = processStripeWebhookEvents(data, events);
+          const result = processStripeWebhookEvents(prev, events);
           processed = pendingEvents?.length || 0;
           ackIds = result.ackIds.filter(id => (pendingEvents || []).some(e => e.id === id));
           next = {
-            ...data,
+            ...prev,
             payments: result.payments,
             registrations: result.registrations,
             sessions: result.sessions,
@@ -1411,15 +1409,7 @@ export default function App() {
           sessions: amountFix.sessions,
           clients: amountFix.clients,
         };
-      })();
-      // Merge sync-owned collections into latest state (see Calendly sync comment).
-      setData(prev => ({
-        ...prev,
-        payments: _nextStripeState.payments,
-        registrations: _nextStripeState.registrations,
-        sessions: _nextStripeState.sessions,
-        clients: _nextStripeState.clients,
-      }));
+      });
       if (ackIds.length) {
         await fetch(calendlyApiUrl("/api/stripe/acknowledge"), {
           method: "POST",
@@ -1449,14 +1439,20 @@ export default function App() {
     }
   };
 
-  // Poll for pending Calendly + Stripe events every 5 minutes when logged in
+  // Keep latest sync fns in refs so the poll interval (deps: [locked] only) never
+  // calls unlock-time closures that rebuild from a stale `data` snapshot.
+  const syncCalendlyRef = useRef(syncCalendly);
+  const syncStripeRef = useRef(syncStripe);
+  syncCalendlyRef.current = syncCalendly;
+  syncStripeRef.current = syncStripe;
+
+  // Poll for pending Calendly + Stripe events every 15 minutes when logged in
   useEffect(() => {
     if (locked) return;
-    syncCalendly();
-    syncStripe();
-    const interval = setInterval(() => { syncCalendly(); syncStripe(); }, 15 * 60 * 1000);
+    const tick = () => { syncCalendlyRef.current(); syncStripeRef.current(); };
+    tick();
+    const interval = setInterval(tick, 15 * 60 * 1000);
     return () => clearInterval(interval);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locked]);
 
   // Auto-lock after 15 minutes of inactivity — same wipe as logout (key + decrypted data out of memory).
@@ -1904,10 +1900,10 @@ export default function App() {
                     : calendlyStatus?.synced != null
                       ? lastCalendlyReceived
                         ? `Last received: ${lastCalendlyReceived.atFull}\n${lastCalendlyReceived.count} booking${lastCalendlyReceived.count !== 1 ? "s" : ""} received from Calendly`
-                        : "No bookings received yet this session — syncs every 5 minutes"
+                        : "No bookings received yet this session — syncs every 15 minutes"
                       : calendlyStatus?.pending > 0
-                        ? `${calendlyStatus.pending} booking${calendlyStatus.pending !== 1 ? "s" : ""} queued — will sync within 5 minutes`
-                        : "Syncs automatically every 5 minutes"
+                        ? `${calendlyStatus.pending} booking${calendlyStatus.pending !== 1 ? "s" : ""} queued — will sync within 15 minutes`
+                        : "Syncs automatically every 15 minutes"
                 }
                 style={{ marginBottom: 8, padding: "6px 10px", display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: C.ink3, cursor: "default" }}>
                 <RefreshCw size={11} strokeWidth={1.5}

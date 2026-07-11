@@ -168,6 +168,12 @@ The app uses a **stale-write guard** to prevent one browser tab from silently ov
 
 **Single-tab usage:** There is no performance or UX impact. On single-tab sessions, `dataLoadedAtRef` is always current after each save, so the check is a no-op.
 
+### Sync Poll — Fresh State (No Stale Closure)
+
+The Calendly/Stripe background poll runs every **15 minutes** while unlocked (`useEffect` deps: `[locked]` only). Sync function references are held in refs updated each render so the interval always calls the latest `syncCalendly` / `syncStripe`.
+
+More importantly, both syncs apply webhook/ledger events **inside** `setData(prev => …)` starting from the latest React state — not from a closed-over `data` snapshot taken at unlock. Replacing whole collections (`clients`, `registrations`, `sessions`, etc.) from an unlock-time copy would silently revert every edit made after login, then persist the revert. Acknowledge ids and sync status are still taken from the updater’s final run (Strict Mode may invoke the updater twice in development).
+
 ### Legacy Account Upgrade Banner
 
 If the app detects a v1 PIN account (pre-PBKDF2, unsalted SHA-256 hash), a yellow banner is displayed on the lock screen: **"Security upgrade required — please log in to automatically upgrade to enhanced security (PBKDF2)."** Logging in once completes the migration silently; the old hash is permanently removed.
@@ -257,9 +263,9 @@ On success, the CRM also calls `POST /api/integration/clear-queues` to empty Cal
 
 Application configuration (journey descriptions, package types, lead sources, etc.) stored under `sb:crm-settings:v1` is now also written into the AES-256-GCM encrypted data store on every save. On login, the encrypted version takes precedence over the localStorage cache, protecting business configuration metadata from unencrypted exposure.
 
-### CORS — Null-Origin Blocked in Production
+### CORS — Browser Origins Only
 
-The backend CORS handler now rejects requests with no `Origin` header in `NODE_ENV=production`. Null-origin pass-through is only allowed in dev mode (where the Vite proxy may omit the header).
+The backend CORS handler validates the `Origin` header against `ALLOWED_ORIGINS` when present. Requests with **no** `Origin` header (Calendly/Stripe webhook POSTs, `/health` probes, curl, and other server-to-server calls) are allowed through — CORS is a browser policy and does not protect those routes. Webhook authenticity is enforced by HMAC signature verification, not by Origin.
 
 ### Webhook Signature Parsing
 
@@ -981,7 +987,7 @@ Revenue views derive each booking's amount from its **actual matched Stripe char
 | Bookings awaiting a Stripe charge | Calendly bookings still in `pending_verification` (booked but no charge tied yet). |
 | Refunds | Stripe refund events affecting revenue. |
 
-Use **Sync Stripe now** to load charges from the backend ledger and run reconciliation (also polls every 5 minutes).
+Use **Sync Stripe now** to load charges from the backend ledger and run reconciliation (also polls every 15 minutes).
 
 `reconcileAmountMismatches` / `patchAmountMismatches` correct Stripe-verified bookings whose Calendly list price (`paymentAmount`) is missing or differs from `paidAmount`. On a no-op it returns the **same** `registrations` array reference so `PaymentReconciliationView`'s identity guard can stop the effect; missing list prices are filled from Stripe (not skipped), which prevents an endless `setData` / re-encrypt loop.
 
@@ -989,7 +995,7 @@ The page header **search box** (the global `query`, passed into `PaymentReconcil
 
 **Matching rule (time-based):** A Stripe charge is created the moment a participant books, so the charge time equals the booking time. For each participant (matched by **email**), each unlinked charge is tied to the booking whose time (`createdAt`) is **closest** to the charge time, within a window of `STRIPE_MATCH_WINDOW_MS` (2 days, to absorb webhook/sync lag). The Stripe `amountGross` becomes that booking's `paidAmount` and session amount. List price is kept as *expected*. There is **no manual override** — matching is automatic.
 
-**Self-healing:** Each reconciliation run (on Sync Stripe and on opening the panel) first clears automatic links, then re-matches with the rule above, so a mis-tied charge corrects itself. Any link with `matchStatus: "manual"` (legacy) is preserved.
+**Self-healing:** Each reconciliation run (on Sync Stripe and on opening the panel) first clears automatic links, then re-matches with the rule above, so a mis-tied charge corrects itself. Links with `matchStatus: "manual"` (legacy) and payments already in `refunded` / `partial_refund` status keep their booking links — re-link only considers `paid` charges, so clearing those would permanently orphan the refund and zero the registration.
 
 Each Stripe sync calls `GET /api/stripe/ledger` to reload processed webhook events so payments are not lost after a browser refresh.
 
@@ -1814,14 +1820,14 @@ Simply Breathe OS integrates with Calendly via a lightweight Node.js/Express web
 ```
 Calendly → POST /api/webhooks/calendly (backend/server.js)
          → pending-events.json queue
-         → React CRM polls GET /api/calendly/pending every 5 min
+         → React CRM polls GET /api/calendly/pending every 15 min
          → Runs retroactive studio-matching pass on all sessions
          → Processes new events → updates data state
          → POST /api/calendly/acknowledge (marks events done)
 
 Stripe   → POST /api/webhooks/stripe (backend/server.js)
          → stripe-pending-events.json queue
-         → React CRM polls GET /api/stripe/pending every 5 min
+         → React CRM polls GET /api/stripe/pending every 15 min
          → Matches payments to Calendly bookings (email + amount + 30 min window)
          → POST /api/stripe/acknowledge (marks events done)
 ```
@@ -1873,6 +1879,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 **Backend Security Features:**
 - Rate limiting: 60 req/min on all `/api/` endpoints; 30 req/min on the webhook endpoint; **10 req/min on `/api/send-email`** (dedicated email limiter)
 - Helmet middleware with explicit CSP, HSTS (production), CORP, COOP on every response
+- CORS: browser `Origin` must be in `ALLOWED_ORIGINS`; requests with no `Origin` (webhooks, `/health`) are allowed — authenticity is HMAC, not Origin
 - Request body size capped at 256 KB
 - Webhook HMAC-SHA256 signature verified with 5-minute timestamp replay protection
 - Queue file encrypted at rest with AES-256-GCM when `QUEUE_ENCRYPTION_KEY` is set
@@ -1971,9 +1978,9 @@ Each Stripe payment event processed by the CRM is stored as a `payment` record:
 | `stripeCheckoutSessionId` | Stripe Checkout Session ID (when applicable) |
 | `stripeEventId` | Stripe webhook event ID |
 | `customerEmail` | Payer email from Stripe |
-| `amountGross` | Amount paid. **New records (after the integer-cents migration):** integer cents (e.g. `1050` = $10.50), flag `_centsFormat: true`. **Legacy records:** USD dollar float. Use `readAmt(record, "amountGross")` in the frontend to handle both. |
-| `amountRefunded` | Cumulative refunded amount (same dual-format as `amountGross`). |
-| `_centsFormat` | `true` on records extracted after the 2026-07 migration; absent on legacy dollar-float records. |
+| `amountGross` | Amount paid. **Queue/ledger events** (from `extractStripePayment`): integer cents with `_centsFormat: true`. **CRM `payments` records:** always USD dollar floats — cents are normalized and `_centsFormat` is dropped at ingestion / on every merge rewrite (`stripeEventInDollars` / `paymentInDollars` in `src/lib/revenue.js`). |
+| `amountRefunded` | Cumulative refunded amount (same dual-format rules as `amountGross` on the queue; dollar floats in the CRM store). |
+| `_centsFormat` | `true` on queue/ledger extraction only. Never persisted on CRM payment rows after sync. |
 | `currency` | ISO currency code (default `usd`) |
 | `status` | `paid` · `failed` · `refunded` · `partial_refund` |
 | `matchStatus` | `auto` · `manual` · `needs_review` · `unmatched` |
@@ -2038,7 +2045,7 @@ On each new `invitee.created` event, 3 follow-up tasks are created for the clien
 3. "Send 72-hour rebooking or package offer" — due 3 days after session
 
 ### Sync Status Indicator
-A read-only status line at the bottom of the sidebar auto-syncs every **5 minutes**. Hovering it shows a tooltip with the exact record count and time of the last sync.
+A read-only status line at the bottom of the sidebar auto-syncs every **15 minutes**. Hovering it shows a tooltip with the exact record count and time of the last sync.
 
 On the **Calendly Bookings** page header, a **refresh icon** (↻) manually pulls pending bookings from Calendly immediately. The icon spins while a sync is in progress and is disabled until the sync completes.
 
@@ -2046,9 +2053,9 @@ On the **Calendly Bookings** page header, a **refresh icon** (↻) manually pull
 |---|---|---|
 | Syncing | Spinning icon + "Syncing Calendly…" | "Sync in progress…" |
 | Synced with new data | "**N records synced**" + last sync time | "Last received: [full date/time] · N bookings received from Calendly" |
-| Synced, nothing new | "Calendly up to date" + last sync time | Last-received info persists from previous non-zero sync; if none yet: "No bookings received yet this session — syncs every 5 minutes" |
-| Events queued | "**N bookings pending…**" | "N bookings queued — will sync within 5 minutes" |
-| Initial load | "Calendly sync active" | "Syncs automatically every 5 minutes" |
+| Synced, nothing new | "Calendly up to date" + last sync time | Last-received info persists from previous non-zero sync; if none yet: "No bookings received yet this session — syncs every 15 minutes" |
+| Events queued | "**N bookings pending…**" | "N bookings queued — will sync within 15 minutes" |
+| Initial load | "Calendly sync active" | "Syncs automatically every 15 minutes" |
 
 The "last received" timestamp only updates when bookings are actually received (count > 0), so it always reflects the most recent time new data came in — not the last time a sync ran.
 
@@ -2319,9 +2326,12 @@ All dollar amounts in the frontend are accumulated using **integer-cents math** 
 | `_c(v)` | `src/lib/revenue.js` | Converts a dollar float to integer cents: `Math.round(v * 100)`. Used as a building block everywhere amounts are summed. |
 | `calcNet(r)` | `src/lib/revenue.js` | Computes net for a revenue row in cents, then divides by 100: `(_c(gross) − _c(fee) − _c(split) − _c(cost) − _c(refunds)) / 100`. |
 | `sum(rows, k)` | `App.jsx` (table helpers) | Sums a dollar field across an array in cents then divides: `rows.reduce((a,r) => a + _c(r[k]), 0) / 100`. |
-| `readAmt(rec, field)` | `src/lib/revenue.js` | Reads `amountGross` / `amountRefunded` from a Stripe payment record. Divides by 100 when `rec._centsFormat` is `true` (new integer-cents records); passes through dollar floats on legacy records. |
+| `readAmt(rec, field)` | `src/lib/revenue.js` | Reads `amountGross` / `amountRefunded`. Divides by 100 when `rec._centsFormat` is `true` (queue/ledger cents); passes through dollar floats on CRM payment records. |
+| `stripeEventInDollars(evt)` | `src/lib/revenue.js` | Ingestion helper: converts a `_centsFormat` queue event to dollar floats and drops the flag before merge/write. |
+| `paymentInDollars(p)` | `src/lib/revenue.js` | Ensures a CRM payment row stores dollar floats and has no `_centsFormat` (heals mixed-unit rows on sync/refund rewrite). |
+| `refundAmountDollars(amount, fallback)` | `src/lib/revenue.js` | Asserts refund API `amount` is dollars; converts a mistaken cents integer when it matches `fallback` paid±1¢. |
 
-**Stripe payment record format migration (2026-07):** `backend/stripe-handlers.js` `extractStripePayment` now stores `amountGross` and `amountRefunded` as **integer cents** (e.g. `1050` for $10.50) and sets `_centsFormat: true`. Older records already in the encrypted store remain as dollar floats. The `readAmt()` helper in the frontend handles both transparently; no re-migration of existing records is needed.
+**Stripe payment record format migration (2026-07):** `backend/stripe-handlers.js` `extractStripePayment` stores queue/ledger `amountGross` / `amountRefunded` as **integer cents** with `_centsFormat: true`. The frontend normalizes to **dollar floats at the ingestion boundary** (`processStripeWebhookEvents` / `buildStripePaymentRecord`) and **drops `_centsFormat` on every payment rewrite**, so CRM store rows never mix units. `readAmt()` remains for reading raw queue events and any legacy mixed rows. Refunds from `POST /api/stripe/refund` return `amount` in dollars (`centsToDollars`); `refundAmountDollars` guards against a cents value being written into `paidAmount − amountRefunded` (which would go negative and clamp to $0).
 
 ### Key Constants
 

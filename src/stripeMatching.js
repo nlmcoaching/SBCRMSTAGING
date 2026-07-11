@@ -172,6 +172,8 @@ export function finalizeRegistrationPaymentStatuses(registrations, payments, cli
 
   for (const reg of regs) {
     if (reg.stripeVerified || reg.status === "canceled" || reg.status === "rescheduled") continue;
+    // Refunded bookings keep their Stripe link/amounts — do not reclassify as free.
+    if (reg.paymentStatus === "refunded" || reg.paymentStatus === "partial_refund") continue;
     // Operator-confirmed free coupon — keep $0 / paid; do not reclassify as pending.
     if (String(reg.couponCode || "").trim()) {
       const idxKeep = regs.findIndex(x => x.id === reg.id);
@@ -290,10 +292,14 @@ export function hasStripePaymentForEmail(email, payments) {
   );
 }
 
-/** Clear auto-matched links so reconciliation can run fresh (keeps manual links). */
+/** Clear auto-matched links so reconciliation can run fresh.
+ * Keeps manual links and refunded/partial_refund links (re-link only considers paid). */
 export function resetStripeAutoMatches(paymentsIn, registrationsIn) {
   const payments = (paymentsIn || []).map(p => {
     if (p.matchStatus === "manual") return { ...p };
+    // Refunded charges are not re-linked (reconcile only matches status === "paid").
+    // Clearing their bookingId would permanently orphan them and zero the registration.
+    if (p.status === "refunded" || p.status === "partial_refund") return { ...p };
     return {
       ...p,
       bookingId: "",
@@ -301,12 +307,12 @@ export function resetStripeAutoMatches(paymentsIn, registrationsIn) {
       sessionId: "",
       matchStatus: p.status === "paid" ? "unmatched" : p.matchStatus,
       matchScore: 0,
-      notes: p.matchStatus === "manual" ? p.notes : "",
+      notes: "",
     };
   });
   const registrations = (registrationsIn || []).map(r => {
-    const manualPay = payments.some(p => p.bookingId === r.id && p.matchStatus === "manual");
-    if (manualPay) return { ...r };
+    // Any payment that still points here (manual or refunded) keeps the registration intact.
+    if (payments.some(p => p.bookingId === r.id)) return { ...r };
     if (r.stripeVerified || r.paymentId) return clearRegistrationStripeVerification(r);
     return { ...r };
   });

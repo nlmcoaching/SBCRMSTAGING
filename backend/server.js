@@ -178,15 +178,12 @@ app.use("/api/auth/", authLimiter);
 app.use("/api/", generalLimiter);
 
 // ── CORS: only allow explicitly listed origins ──
+// Requests with no Origin (Calendly/Stripe webhooks, health checks, curl) are
+// allowed through — CORS is a browser policy; HMAC signatures auth those routes.
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:5173").split(",");
 app.use(cors({
   origin: (origin, cb) => {
-    // Require an Origin header in production; allow null-origin only in dev
-    // (Vite proxy and server-to-server calls don't send Origin in dev).
-    if (!origin) {
-      if (!isProd) return cb(null, true);
-      return cb(new Error("Origin header required"));
-    }
+    if (!origin) return cb(null, true);
     if (allowedOrigins.includes(origin)) return cb(null, true);
     cb(new Error("Not allowed by CORS"));
   },

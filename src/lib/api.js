@@ -11,7 +11,7 @@ export const apiHeaders = (json = true) => {
   if (json) h["Content-Type"] = "application/json";
   return h;
 };
-export const CALENDLY_BACKEND = import.meta.env.VITE_CALENDLY_BACKEND || "";
+export const CALENDLY_BACKEND = import.meta.env?.VITE_CALENDLY_BACKEND || "";
 export const calendlyApiUrl = (path) => `${CALENDLY_BACKEND}${path}`;
 
 // fetch with an abort timeout so a slow/hung backend can't stall a sync forever.

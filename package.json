@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "test:stripe-match": "node --test src/stripeMatching.test.js",
-    "test:reconcile": "node --test src/lib/revenue.reconcile.test.js"
+    "test:reconcile": "node --test src/lib/revenue.reconcile.test.js src/lib/revenue.money.test.js"
   },
   "dependencies": {
     "lucide-react": "^1.18.0",
