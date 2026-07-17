@@ -53,7 +53,7 @@ The system is designed to answer three core daily questions:
 
 ## Authentication & Security
 
-> **Deployment model:** Simply Breathe OS is a **single-operator local app** by default. Additional user accounts are disabled until an Owner enables **Multi-user access** in Admin → Settings. Even then, roles are **not a data boundary**: all PIN users share one AES master key and can decrypt the full CRM after unlock. What *is* enforced server-side: refund, send-email, and clear-queues APIs require a PIN-minted session whose `canEdit` bit was registered with the backend (Viewers cannot call those endpoints). Do not expose the CRM or backend to untrusted users or the public internet without additional hardening.
+> **Deployment model:** Simply Breathe OS is a **single-operator local app** by default. Additional user accounts are disabled until an Owner enables **Multi-user access** in Admin → Settings. Even then, roles are **not a data boundary**: all PIN users share one AES master key and can decrypt the full CRM after unlock. What *is* enforced server-side: refund, send-email, clear-queues, and Calendly cancel-booking APIs require a PIN-minted session whose `canEdit` bit was registered with the backend (Viewers cannot call those endpoints). Do not expose the CRM or backend to untrusted users or the public internet without additional hardening.
 
 ### PIN-Based Lock Screen
 
@@ -836,17 +836,18 @@ A small **ⓘ button** appears in the top-right corner of the session name on **
 
 #### Cancel in Calendly (host-initiated)
 
-Virtual and studio session drawers show a red **Cancel in Calendly** button in the footer (next to Cancel / Save) when any linked registration has a `calendlyEventUri`. Locally created sessions without a Calendly URI do not show the button — use the per-booking **Cancel booking** flow instead.
+Virtual and studio session drawers show a red **Cancel in Calendly** button in the footer (next to Cancel / Save) when any linked registration has a `calendlyEventUri` and the user has Edit permission. Locally created sessions without a Calendly URI do not show the button — use the per-booking **Cancel booking** flow instead. Viewers cannot cancel Calendly events (UI hidden; API returns 403).
 
 | Behavior | Detail |
 |---|---|
-| Visibility | Hidden when no linked registration has `calendlyEventUri` |
+| Visibility | Hidden when no linked registration has `calendlyEventUri`, or when the user lacks Edit permission (`onSave` is null) |
 | Disabled | When every linked registration is already `status === "canceled"` (tooltip: "Already canceled") |
 | Confirm modal | Required multiline reason (max 500 chars; sent to Calendly and included in cancellation emails). Confirm disabled until non-empty. Studio warning counts **active** (non-canceled) registrations only |
-| API | `cancelCalendlyEvent` (`src/lib/api.js`) → `POST /api/calendly/cancel-booking` with `x-session-token` (same token as Stripe refunds) |
+| API | `cancelCalendlyEvent` (`src/lib/api.js`) → `POST /api/calendly/cancel-booking` with Edit-capable `x-session-token` (same gate as Stripe refunds) |
 | Success path | Does **not** mutate registration/session status locally. Calls `syncCalendly()` so `invitee.canceled` webhooks flip bookings to `canceled` and surface refund prompts |
 | Soft success | HTTP 404 → "Already canceled in Calendly", then sync |
 | Auth expiry | HTTP 401 → "Your unlock session expired — log out and back in, then retry." |
+| Forbidden | HTTP 403 → "Edit permission required to cancel sessions in Calendly." |
 
 Canceling a **studio** (group) event cancels the entire Calendly event for all participants — intended behavior.
 
@@ -1905,7 +1906,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 | `/api/stripe/pending` | GET | Returns unprocessed Stripe payment events for the CRM to consume |
 | `/api/stripe/acknowledge` | POST | Marks Stripe queue event IDs as processed |
 | `/api/stripe/refund` | POST | Issues a **full Stripe refund** (`POST /v1/refunds`, `amount` omitted) for a canceled booking. Body: `paymentIntentId` (`pi_...`) or `chargeId` (`ch_...`), plus `registrationId` (stored as Stripe metadata) and optional `reason`. Requires `x-frontend-secret` and `STRIPE_SECRET_KEY`; returns the refund ID, amount (dollars), status, and timestamp |
-| `/api/calendly/cancel-booking` | POST | Cancels an **entire** Calendly scheduled event (all invitees) as the host. Body: `eventUri` (`https://api.calendly.com/scheduled_events/<uuid>`) and optional `reason` (max 500 chars; included in Calendly cancellation emails). Requires `x-frontend-secret` + `x-session-token` and `CALENDLY_API_TOKEN`. Returns `{ status: "canceled", eventUuid }`. Does not mutate CRM state — `invitee.canceled` webhooks + `syncCalendly()` converge registrations |
+| `/api/calendly/cancel-booking` | POST | Cancels an **entire** Calendly scheduled event (all invitees) as the host. Body: `eventUri` (`https://api.calendly.com/scheduled_events/<uuid>`) and optional `reason` (max 500 chars; included in Calendly cancellation emails). Requires `x-frontend-secret` + Edit-capable `x-session-token` (`requireEditSession`, same as refunds) and `CALENDLY_API_TOKEN`. Returns `{ status: "canceled", eventUuid }`. Does not mutate CRM state — `invitee.canceled` webhooks + `syncCalendly()` converge registrations |
 | `/api/integration/clear-queues` | POST | Clears Calendly and Stripe pending webhook queues (Reset to Production). Requires `x-frontend-secret` + Edit-capable `x-session-token` (same gate as `/api/stripe/refund`) |
 | `/api/calendly/events` | GET | All events (debug/admin) |
 | `/api/calendly/events` | DELETE | Clear Calendly queue (admin) |
@@ -1953,8 +1954,7 @@ The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoi
 - Startup validation: server exits with code 1 in production if `CALENDLY_WEBHOOK_SIGNING_KEY`, `QUEUE_ENCRYPTION_KEY` (must be `/^[0-9a-f]{64}$/i`), `STRIPE_WEBHOOK_SECRET`, or `FRONTEND_SECRET` are missing or malformed
 - Calendly webhook handler rejects unsigned requests in production when the signing key is unset (same fail-closed pattern as Stripe)
 - Refund / API session mint (`POST /api/auth/session`) requires a one-shot challenge from `GET /api/auth/session-challenge` plus a **server-verified HMAC** `unlockProof` over a per-user unlock secret registered via `POST /api/auth/register-unlock`. Tokens expire in 1 hour, are bound to `userId`, and carry server-side `role` / `canEdit`.
-- `POST /api/stripe/refund`, `POST /api/send-email`, and `POST /api/integration/clear-queues` require an API session with `canEdit: true` (not merely `FRONTEND_SECRET`).
-- `POST /api/calendly/cancel-booking` requires an API session token (`requireSessionToken`) plus `FRONTEND_SECRET`; cancels the whole Calendly event for all invitees.
+- `POST /api/stripe/refund`, `POST /api/send-email`, `POST /api/integration/clear-queues`, and `POST /api/calendly/cancel-booking` require an API session with `canEdit: true` (not merely `FRONTEND_SECRET`).
 - Per-user unlock secrets are PIN-wrapped in security metadata (`wrappedUnlockSecret`) and stored encrypted at rest on the backend in `backend/data/auth-users.json`. **Fail closed:** only a missing file allows Owner bootstrap; a present but unreadable/corrupt store returns 503 on auth endpoints (never treated as an empty registry).
 - Multi-user account creation is gated by CRM setting `allowMultiUser` (default `false`) because all users share one master encryption key.
 - Server PIN lockout (`POST /api/auth/pin-attempt`) requires a one-shot challenge from `GET /api/auth/pin-status` so lockouts cannot be forged with only `FRONTEND_SECRET`

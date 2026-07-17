@@ -2013,7 +2013,7 @@ app.post("/api/stripe/refund", requireFrontendSecret, requireEditSession, async 
 // POST /api/calendly/cancel-booking
 // Cancels an ENTIRE scheduled event (all invitees). Gate like refunds: destructive + customer-facing.
 // Body: { eventUri: "https://api.calendly.com/scheduled_events/<uuid>", reason?: string }
-app.post("/api/calendly/cancel-booking", requireFrontendSecret, requireSessionToken, async (req, res) => {
+app.post("/api/calendly/cancel-booking", requireFrontendSecret, requireEditSession, async (req, res) => {
   res.set("Cache-Control", "no-store");
   const token = process.env.CALENDLY_API_TOKEN;
   if (!token) return res.status(503).json({ error: "CALENDLY_API_TOKEN not configured" });

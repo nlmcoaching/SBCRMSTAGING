@@ -6522,7 +6522,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
             ) : null;
           })()}
           <div style={{ flex: 1 }} />
-          {db === "sessions" && !isNew && (() => {
+          {db === "sessions" && !isNew && onSave && (() => {
             const linkedRegs = (data.registrations || []).filter(r => r.sessionId === draft.id);
             const eventUri = linkedRegs.find(r => r.calendlyEventUri)?.calendlyEventUri || "";
             if (!eventUri) return null;
@@ -6554,7 +6554,7 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
           <button className="sb-ghost" onClick={onClose}>Cancel</button>
           {tab !== "timeline" && onSave && <button className="sb-primary" onClick={() => onSave(draft)}>Save</button>}        </div>
       </div>
-      {showCancelCalendly && db === "sessions" && (() => {
+      {showCancelCalendly && db === "sessions" && onSave && (() => {
         const linkedRegs = (data.registrations || []).filter(r => r.sessionId === draft.id);
         const eventUri = linkedRegs.find(r => r.calendlyEventUri)?.calendlyEventUri || "";
         const activeCount = linkedRegs.filter(r => r.status !== "canceled" && r.status !== "rescheduled").length;
@@ -6574,7 +6574,9 @@ function RecordDrawer({ db, record, data, derived, today, crmSettings, onClose, 
               } catch (err) {
                 const msg = err?.status === 401
                   ? "Your unlock session expired — log out and back in, then retry."
-                  : (err?.message || "Cancel failed.");
+                  : err?.status === 403
+                    ? "Edit permission required to cancel sessions in Calendly."
+                    : (err?.message || "Cancel failed.");
                 throw Object.assign(new Error(msg), { status: err?.status });
               } finally {
                 setCancelCalendlyBusy(false);

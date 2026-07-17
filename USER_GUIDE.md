@@ -446,10 +446,10 @@ Click any pill to open that session's record drawer.
 
 ### Canceling a session in Calendly
 
-When a session was booked through Calendly, open it from the calendar (or any Sessions list) and use the red **Cancel in Calendly** button at the bottom of the drawer — next to Cancel / Save.
+When a session was booked through Calendly, open it from the calendar (or any Sessions list) and use the red **Cancel in Calendly** button at the bottom of the drawer — next to Cancel / Save. You need **Edit** permission; Viewers do not see this button.
 
 1. Open the virtual or studio session.
-2. Click **Cancel in Calendly** (only shown when the session is linked to Calendly).
+2. Click **Cancel in Calendly** (only shown when the session is linked to Calendly and you can edit).
 3. Enter a **reason** — this is required and is sent to Calendly and included in the cancellation email clients receive.
 4. Confirm with **Cancel session in Calendly**.
 
@@ -1445,7 +1445,7 @@ Open the offer record and update the **Status** to Accepted, Paid, or Declined a
 Open the session record and go to the **Equipment** tab. Completed items have a checkmark. The session list also shows a setup status indicator.
 
 **I can't see the New button or Save button on some pages. Why?**
-Your account may have Viewer or Editor permissions that restrict certain actions. Some Admin tabs and User Management are also hidden by role (Settings is Owner/Admin; Reset and User Management are Owner-only). Viewers can still browse records and view details (including fetched Calendly session descriptions), but changes are not saved to shared data. Refunds and sending email from the CRM also require **Edit** permission on the server — logging in as a Viewer will not let those go through. Contact your Owner or Admin to update your permissions if you need more access.
+Your account may have Viewer or Editor permissions that restrict certain actions. Some Admin tabs and User Management are also hidden by role (Settings is Owner/Admin; Reset and User Management are Owner-only). Viewers can still browse records and view details (including fetched Calendly session descriptions), but changes are not saved to shared data. Refunds, sending email, and **Cancel in Calendly** also require **Edit** permission on the server — logging in as a Viewer will not let those go through. Contact your Owner or Admin to update your permissions if you need more access.
 
 **How do I back up my data?**
 Go to **Admin** in the sidebar, click the **Storage & Backup** tab, and click **Download Backup**. This saves a JSON file to your computer. Keep it somewhere safe.
