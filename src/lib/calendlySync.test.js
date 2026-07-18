@@ -80,22 +80,24 @@ describe("applyCalendlyEvents — booking", () => {
 
   it("does not resurrect a canceled registration on redelivery", () => {
     seq = 0;
+    const evt = createdEvt();
     const prev = emptyData({
       clients: [{ id: "c1", email: "alex@example.com", name: "Alex", status: "Booked" }],
       registrations: [{
         id: "reg1",
         clientId: "c1",
         sessionId: "",
-        calendlyInviteeUri: createdEvt().calendlyInviteeUri,
+        calendlyInviteeUri: evt.calendlyInviteeUri,
         status: "canceled",
         canceledAt: "2026-07-16T00:00:00.000Z",
         cancelerType: "invitee",
       }],
       sessions: [],
     });
-    const { data, processed, ids } = applyCalendlyEvents(prev, [createdEvt()], opts);
+    const { data, processed, ids } = applyCalendlyEvents(prev, [evt], opts);
     assert.equal(processed, 0);
-    assert.deepEqual(ids, []);
+    // Ack the event so the pending queue drains; do not leave it to refetch forever.
+    assert.deepEqual(ids, [evt.id]);
     assert.equal(data.registrations[0].status, "canceled");
     assert.equal(data.sessions.length, 0);
   });

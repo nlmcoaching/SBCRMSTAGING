@@ -11,6 +11,7 @@ import { refreshCalendlySessionRevenue } from "./revenue/ltv.js";
 import { paymentInDollars } from "./revenue/money.js";
 import { applyRegistrationPaymentLookup } from "./registrationPaymentLookup.js";
 import { confirmRegistrationFreeCoupon } from "./stripeMatching.js";
+import { isActiveRegistration } from "./registrationStatus.js";
 
 /** Collections deleted when a client is cascade-deleted. */
 export const CLIENT_CASCADE_DELETE_COLS = [
@@ -39,7 +40,7 @@ export function refreshAfterRegistrations(data, registrations) {
   const refreshed = refreshCalendlySessionRevenue(data.sessions || [], regs);
   const sessions = refreshed.map(s => {
     if (!s.studioId) return s;
-    const regCount = regs.filter(r => r.sessionId === s.id && r.status !== "canceled").length;
+    const regCount = regs.filter(r => r.sessionId === s.id && isActiveRegistration(r)).length;
     return { ...s, registered: regCount };
   });
   return {

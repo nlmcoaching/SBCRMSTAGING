@@ -203,4 +203,21 @@ describe("refunds as negative revenue rows", () => {
     assert.equal(expenses.filter(e => e.category === "Refunds & Cancellations").length, 0);
     assert.ok(revenue.some(r => r.isRefund && r.gross === -55));
   });
+
+  it("does not emit $0 free rows for priced unknown (pre-Stripe-sync) bookings", async () => {
+    const { buildRegistrationRevenueRows } = await import("./revenue/index.js");
+    const data = {
+      clients: [{ id: "c1", name: "Ada", email: "a@b.com", source: "Calendly" }],
+      sessions: [{ id: "s1", name: "Virtual", date: "2026-07-10", locationType: "zoom" }],
+      payments: [],
+      registrations: [{
+        id: "r1", clientId: "c1", sessionId: "s1", status: "booked",
+        paymentStatus: "unknown", paymentAmount: 55, paidAmount: null,
+        stripeVerified: false,
+        scheduledAt: "2026-07-10T18:00:00.000Z", createdAt: "2026-07-01T10:00:00.000Z",
+      }],
+    };
+    const rows = buildRegistrationRevenueRows(data);
+    assert.equal(rows.length, 0);
+  });
 });

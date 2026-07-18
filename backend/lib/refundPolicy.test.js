@@ -1,6 +1,6 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
-const { REFUND_POLICY_HOURS, evaluateRefundPolicy } = require("./refundPolicy");
+const { REFUND_POLICY_HOURS, evaluateRefundPolicy, attestRefundPolicy, findCalendlyCancellation } = require("./refundPolicy");
 
 describe("evaluateRefundPolicy", () => {
   it("refunds host cancels any time", () => {
@@ -51,5 +51,46 @@ describe("evaluateRefundPolicy", () => {
     });
     assert.equal(r.eligible, true);
     assert.match(r.flag || "", /review/i);
+  });
+});
+
+describe("attestRefundPolicy", () => {
+  it("ignores unattested host claims (cannot bypass 24h window)", () => {
+    const r = attestRefundPolicy({
+      cancelerType: "host",
+      canceledAt: "2026-07-17T11:00:00.000Z",
+      sessionAt: "2026-07-17T12:00:00.000Z",
+    }, null);
+    assert.equal(r.eligible, false);
+  });
+
+  it("prefers server-stored cancelerType over body hint", () => {
+    const r = attestRefundPolicy(
+      { cancelerType: "host", canceledAt: "2026-07-17T11:00:00.000Z", sessionAt: "2026-07-17T12:00:00.000Z" },
+      { cancelerType: "invitee", canceledAt: "2026-07-17T11:00:00.000Z", startTime: "2026-07-17T12:00:00.000Z" },
+    );
+    assert.equal(r.eligible, false);
+    assert.match(r.reason, /Late cancel/);
+  });
+
+  it("honors attested host cancels", () => {
+    const r = attestRefundPolicy(
+      { cancelerType: "invitee" },
+      { cancelerType: "host", canceledAt: "2026-07-17T11:00:00.000Z", startTime: "2026-07-17T12:00:00.000Z" },
+    );
+    assert.equal(r.eligible, true);
+    assert.match(r.reason, /host/i);
+  });
+});
+
+describe("findCalendlyCancellation", () => {
+  it("returns the latest invitee.canceled for a URI", () => {
+    const uri = "https://api.calendly.com/scheduled_events/e/invitees/i";
+    const found = findCalendlyCancellation([
+      { eventType: "invitee.created", calendlyInviteeUri: uri },
+      { eventType: "invitee.canceled", calendlyInviteeUri: uri, cancelerType: "invitee" },
+      { eventType: "invitee.canceled", calendlyInviteeUri: uri, cancelerType: "host" },
+    ], uri);
+    assert.equal(found.cancelerType, "host");
   });
 });

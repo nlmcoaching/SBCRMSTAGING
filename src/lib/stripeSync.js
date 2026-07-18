@@ -4,7 +4,6 @@
 import {
   processStripeWebhookEvents,
   applyPaymentReconciliation,
-  reconcileAmountMismatches,
 } from "./revenue/index.js";
 
 /** Deduplicate pending + ledger events by stripeEventId || id (pending first). */
@@ -20,6 +19,7 @@ export function mergeStripeSyncEvents(pendingEvents = [], ledgerEvents = []) {
 
 /**
  * Apply Stripe pending/ledger events, then payment reconciliation + amount fixes.
+ * processStripeWebhookEvents already runs applyPaymentReconciliation — do not call it again.
  * @returns {{ data, processed, ackIds }}
  */
 export function applyStripeSyncEvents(prevData, events, pendingEvents = []) {
@@ -38,24 +38,13 @@ export function applyStripeSyncEvents(prevData, events, pendingEvents = []) {
       sessions: result.sessions,
       clients: result.clients,
     };
+  } else {
+    // Empty event list still heals matches (e.g. bookings arrived after Stripe).
+    next = applyPaymentReconciliation(next);
   }
 
-  const reconciled = applyPaymentReconciliation(next);
-  next = {
-    ...next,
-    payments: reconciled.payments ?? next.payments,
-    registrations: reconciled.registrations ?? next.registrations,
-    sessions: reconciled.sessions ?? next.sessions,
-    clients: reconciled.clients ?? next.clients,
-  };
-  const amountFix = reconcileAmountMismatches(next);
   return {
-    data: {
-      ...next,
-      registrations: amountFix.registrations,
-      sessions: amountFix.sessions,
-      clients: amountFix.clients,
-    },
+    data: next,
     processed,
     ackIds,
   };

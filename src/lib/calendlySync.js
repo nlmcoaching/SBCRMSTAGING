@@ -208,7 +208,11 @@ export function applyCalendlyEvents(prevData, events, options = {}) {
       const crmCanceledReg = registrations.find(r =>
         r.calendlyInviteeUri && r.calendlyInviteeUri === evt.calendlyInviteeUri
         && (r.status === "canceled" || r.status === "rescheduled"));
-      if (crmCanceledReg) return;
+      if (crmCanceledReg) {
+        // Ack so rebooked-after-cancel redeliveries do not stay in the pending queue forever.
+        processedIds.push(evt.id);
+        return;
+      }
 
       const emailNorm = (evt.email || "").toLowerCase();
       let client = clients.find(c => (c.email || "").toLowerCase() === emailNorm);

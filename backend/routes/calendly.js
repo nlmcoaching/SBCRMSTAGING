@@ -14,6 +14,7 @@ const {
   fetchEventTypeDescriptionByName,
   fetchEventTypePriceByName,
   fetchInviteePayment,
+  resolveInviteeForNoShow,
   enqueueCalendlyWebhookEvent,
   enrichQueuedCalendlyEvent,
   isSyntheticCalendlyUri,
@@ -57,7 +58,21 @@ router.post("/webhooks/calendly", async (req, res) => {
     return res.status(200).json({ status: "ignored", event });
   }
 
-  const extracted = extractEvent(event, payload);
+  let extracted = extractEvent(event, payload);
+
+  // invitee_no_show.* arrives with invitee as a URI string — resolve before the email gate.
+  if (String(event).startsWith("invitee_no_show.") && !extracted.email) {
+    const inviteeUri = extracted.calendlyInviteeUri
+      || (typeof payload.invitee === "string" ? payload.invitee : "");
+    if (inviteeUri) {
+      try {
+        extracted = await resolveInviteeForNoShow(extracted, inviteeUri);
+      } catch (err) {
+        console.warn("[WARN] No-show invitee resolve failed:", err.message);
+      }
+    }
+  }
+
   if (!extracted.email && event !== "routing_form_submission") {
     console.warn("[WARN] Event has no email — skipping");
     return res.status(200).json({ status: "skipped", reason: "no email" });

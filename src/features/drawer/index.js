@@ -1,1 +1,1 @@
-export { RecordDrawer, dataForEncryptedStore, stripAgreementForStore } from "./drawer.jsx";
+export { RecordDrawer, dataForEncryptedStore, stripAgreementForStore, persistAllAgreementBlobs } from "./drawer.jsx";

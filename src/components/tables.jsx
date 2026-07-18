@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, Fragment } from "react";
-import { ChevronDown, Plus } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { C, FONT, hexA } from "../lib/theme.js";
 import { money, cleanName, norm, fmtDate } from "../lib/format.js";
+import { calcNet } from "../lib/revenue/index.js";
 import { Empty } from "./primitives.jsx";
 
 /* ============================================================

@@ -1,5 +1,6 @@
 import { registrationSessionAmount } from "../stripeMatching.js";
 import { money } from "../format.js";
+import { isActiveRegistration, isInactiveRegistration } from "../registrationStatus.js";
 
 export const LTV_OFFER_STATUSES = new Set(["Paid", "Accepted"]);
 
@@ -67,7 +68,7 @@ export function calendlyBookingAmount(reg) {
 // fallback: a booking with no confirmed Stripe charge (free/coupon, pending, unmatched) is $0, so
 // LTV, session-card revenue, and the dashboard B2B/B2C split all agree with the Revenue tab.
 export function registrationPaymentForLtv(reg) {
-  if (!reg || reg.status === "canceled" || reg.status === "rescheduled") return 0;
+  if (isInactiveRegistration(reg)) return 0;
   if (["unpaid", "failed", "refunded"].includes(reg.paymentStatus)) return 0;
   // Stripe-verified: the actual charged amount, net of refunds.
   if (reg.stripeVerified && reg.paidAmount != null) {
@@ -86,13 +87,13 @@ export function registrationPaymentForLtv(reg) {
 
 export function sessionBookingRevenue(sessionId, registrations) {
   return (registrations || [])
-    .filter(r => r.sessionId === sessionId && r.status !== "canceled" && r.status !== "rescheduled")
+    .filter(r => r.sessionId === sessionId && isActiveRegistration(r))
     .reduce((sum, r) => sum + registrationPaymentForLtv(r), 0);
 }
 
 export function applySessionRevenueFromRegistrations(session, registrations) {
   if (!session?.id) return session;
-  const activeRegs = (registrations || []).filter(r => r.sessionId === session.id && r.status !== "canceled");
+  const activeRegs = (registrations || []).filter(r => r.sessionId === session.id && isActiveRegistration(r));
   const gross = sessionBookingRevenue(session.id, registrations);
   const isVirtual = !session.studioId && (session.locationType === "zoom" || session.locationType === "custom" || !session.locationType);
   const paidCount = activeRegs.filter(r => registrationPaymentForLtv(r) > 0).length;

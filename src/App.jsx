@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useMemo, useRef } from "react";
 import {
   LayoutGrid, Users, Building2, CalendarDays, DollarSign, Megaphone,
-  RefreshCw, Plus, X, Search, ChevronRight, Menu, Link2, ArrowUpRight, Check,
+  RefreshCw, Plus, X, ChevronRight, Menu, Link2, ArrowUpRight, Check,
   Zap, Copy, TrendingUp, BarChart2, Send, BellRing, Milestone,
   LogOut, UserCircle, Shield, Receipt, CalendarCheck, Scale,
 } from "lucide-react";
@@ -38,28 +38,47 @@ import { newRecord } from "./lib/schema/defaults.js";
 import { BreathMark } from "./components/primitives.jsx";
 import { DrawerErrorBoundary, ConfirmModal, EditProfileModal } from "./components/modals.jsx";
 import { FirstRunSetup, LockScreen, PassphraseUpgrade } from "./features/auth";
-import { Today, OrphanedRecordsModal, findOrphanedGroups, buildAlerts, AlertsPanel, LANE } from "./features/today";
-import { Section } from "./features/section";
-import { RecordDrawer, dataForEncryptedStore, stripAgreementForStore } from "./features/drawer";
-import { FollowUpEngine } from "./features/followup";
+import { OrphanedRecordsModal, findOrphanedGroups, buildAlerts, AlertsPanel, LANE } from "./features/today";
+import { RecordDrawer, dataForEncryptedStore, stripAgreementForStore, persistAllAgreementBlobs } from "./features/drawer";
 import { CrmProvider } from "./lib/crmContext.jsx";
 import { notify } from "./lib/notify.js";
 import { applyCalendlyEvents } from "./lib/calendlySync.js";
 import { mergeStripeSyncEvents, applyStripeSyncEvents } from "./lib/stripeSync.js";
+import { SearchScope } from "./features/shell/HeaderSearch.jsx";
 import { buildAppCss } from "./styles/appCss.js";
 
 const DISMISSED_ALERTS_KEY = "sb:dismissed-alerts:v1";
 const LAST_BACKUP_KEY      = "sb:last-backup:v1";
 const BACKUP_REMINDER_DAYS = 7;
+const NAV_KEY = "sb:nav:v1";
 
 const CSS = buildAppCss();
+
+/** Restore last-visited section/view from sessionStorage (written while unlocked). */
+function restoreNavFromSession() {
+  try {
+    const raw = sessionStorage.getItem(NAV_KEY);
+    if (!raw) return { section: "today", view: 0 };
+    const parsed = JSON.parse(raw);
+    const section = typeof parsed?.section === "string" && parsed.section ? parsed.section : "today";
+    const view = Number.isFinite(Number(parsed?.view)) ? Number(parsed.view) : 0;
+    return { section, view: Math.max(0, view) };
+  } catch {
+    return { section: "today", view: 0 };
+  }
+}
+
+function applyRestoredNav(setSection, setView) {
+  const nav = restoreNavFromSession();
+  setSection(nav.section);
+  setView(nav.view);
+}
 
 export default function App() {
   const [data, setData] = useState(SEED);
   const [section, setSection] = useState("today");
   const [view, setView] = useState(0);
   const [open, setOpen] = useState(null);   // record drawer { db, record }
-  const [query, setQuery] = useState("");
   const [navOpen, setNavOpen] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState(new Set());
   const [showProfile, setShowProfile] = useState(false);
@@ -94,6 +113,8 @@ export default function App() {
   const [stripeStatus, setStripeStatus] = useState(null);
   const [lastCalendlyReceived, setLastCalendlyReceived] = useState(null); // { count, atFull } — only set when bookings > 0
   const loaded = useRef(false);
+  const dataRef = useRef(data);
+  dataRef.current = data;
   const agreementsMigrated = useRef(false);
   // Cross-tab stale-write guard: records the localStorage timestamp at which this tab last
   // loaded or saved data. If another tab saves a newer version before we do, we skip our write
@@ -109,7 +130,7 @@ export default function App() {
   // the saved value before the session restore has a chance to read it.
   useEffect(() => {
     if (locked) return;
-    try { sessionStorage.setItem("sb:nav:v1", JSON.stringify({ section, view })); } catch {}
+    try { sessionStorage.setItem(NAV_KEY, JSON.stringify({ section, view })); } catch {}
   }, [section, view, locked]);
 
   const [needsSetup,   setNeedsSetup]  = useState(false); // true on first-ever launch
@@ -295,7 +316,7 @@ export default function App() {
         }
         try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, token: _migToken })); } catch (_) {}
         setLocked(false);
-        setSection("today"); setView(0);
+        applyRestoredNav(setSection, setView);
         const { token } = await ensureUnlockAndMint(owner, pin, {
           role: "Owner",
           canEdit: true,
@@ -435,7 +456,7 @@ export default function App() {
 
       try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, token: _sessionToken })); } catch (_) {}
       setLocked(false);
-      setSection("today"); setView(0);
+      applyRestoredNav(setSection, setView);
       await ensureRegisteredAndMint(userId, unlockSecret, {
         role: unlockedUser.role,
         canEdit: !!unlockedUser.permissions?.edit,
@@ -540,7 +561,7 @@ export default function App() {
       loaded.current = true;
       setPassphraseUpgrade(null);
       setLocked(false);
-      setSection("today"); setView(0);
+      applyRestoredNav(setSection, setView);
       const token = await ensureRegisteredAndMint(userId, unlockSecret, {
         role: recoveredUser?.role,
         canEdit: !!recoveredUser?.permissions?.edit,
@@ -586,7 +607,7 @@ export default function App() {
       try { sessionStorage.setItem("sb:session:v1", JSON.stringify({ userId, token: _sessionToken })); } catch (_) {}
       setPassphraseUpgrade(null);
       setLocked(false);
-      setSection("today"); setView(0);
+      applyRestoredNav(setSection, setView);
       const token = await ensureRegisteredAndMint(userId, unlockSecret, {
         role: role || upgradedUser?.role,
         canEdit: canEdit ?? !!upgradedUser?.permissions?.edit,
@@ -636,7 +657,7 @@ export default function App() {
       setNeedsSetup(false);
       setPassphraseUpgrade(null);
       setLocked(false);
-      setSection("today"); setView(0);
+      applyRestoredNav(setSection, setView);
       const token = await ensureRegisteredAndMint(owner.id, unlockSecret, { role: "Owner", canEdit: true });
       if (token) { setRefundSessionToken(token); setApiSessionToken(token); }
     } catch (e) {
@@ -654,7 +675,7 @@ export default function App() {
     setData({}); // clear decrypted data from memory
     setRefundSessionToken(null);
     clearApiSessionToken();
-    try { sessionStorage.removeItem("sb:session:v1"); sessionStorage.removeItem("sb:nav:v1"); } catch (_) {}
+    try { sessionStorage.removeItem("sb:session:v1"); sessionStorage.removeItem(NAV_KEY); } catch (_) {}
     setOpen(null);
     loaded.current = false;
     setPinError("");
@@ -700,30 +721,19 @@ export default function App() {
       }
       const { events } = await res.json();
 
-      let processed = 0;
-      const ids = [];
-      const syncedItems = []; // summary rows shown in the sync detail modal
-      let sessionsNeedingDesc = [];
-      let paymentLookupUris = [];
-      let postSyncRegistrations = [];
-      // Apply against latest React state inside the updater — never from a closed-over
-      // `data` snapshot. A poll interval that only depends on [locked] would otherwise
-      // keep the unlock-time sync fn and silently revert every post-unlock edit.
-      // Accumulators are reset each updater run so Strict Mode double-invoke stays safe.
-      setData(prev => {
-        const applied = applyCalendlyEvents(prev, events || [], {
-          calendlySyncFromDate: crmSettings?.calendlySyncFromDate || "",
-        });
-        processed = applied.processed;
-        ids.length = 0;
-        ids.push(...applied.ids);
-        syncedItems.length = 0;
-        syncedItems.push(...applied.syncedItems);
-        sessionsNeedingDesc = applied.sessionsNeedingDesc;
-        paymentLookupUris = applied.paymentLookupUris;
-        postSyncRegistrations = applied.data.registrations || [];
-        return applied.data;
+      // Compute against latest-data ref OUTSIDE the updater — React may skip running
+      // the updater synchronously when another update is already queued.
+      const applied = applyCalendlyEvents(dataRef.current, events || [], {
+        calendlySyncFromDate: crmSettings?.calendlySyncFromDate || "",
       });
+      const processed = applied.processed;
+      const ids = [...applied.ids];
+      const syncedItems = [...applied.syncedItems];
+      const sessionsNeedingDesc = applied.sessionsNeedingDesc;
+      const paymentLookupUris = applied.paymentLookupUris;
+      const postSyncRegistrations = applied.data.registrations || [];
+      dataRef.current = applied.data;
+      setData(applied.data);
 
       // Acknowledge processed events
       if (ids.length) {
@@ -739,7 +749,8 @@ export default function App() {
       if (processed > 0) setLastCalendlyReceived({ count: processed, atFull: now.toLocaleString() });
 
       // New Calendly bookings may arrive after Stripe webhooks — retry payment matching.
-      setData(prev => {
+      {
+        const prev = dataRef.current;
         const reconciled = applyPaymentReconciliation(prev);
         const next = {
           ...prev,
@@ -749,8 +760,10 @@ export default function App() {
           clients: reconciled.clients ?? prev.clients,
         };
         const amountFix = reconcileAmountMismatches(next);
-        return { ...next, registrations: amountFix.registrations, sessions: amountFix.sessions, clients: amountFix.clients };
-      });
+        const after = { ...next, registrations: amountFix.registrations, sessions: amountFix.sessions, clients: amountFix.clients };
+        dataRef.current = after;
+        setData(after);
+      }
 
       // Backfill truncated session descriptions from Calendly event types (async, non-blocking)
       // Requires Edit — same gate as the studio event description panel (Viewers may fetch/read only).
@@ -833,16 +846,12 @@ export default function App() {
       const { events: pendingEvents, total } = await pendingRes.json();
       const ledgerJson = ledgerRes.ok ? await ledgerRes.json() : { events: [] };
       const events = mergeStripeSyncEvents(pendingEvents || [], ledgerJson.events || []);
-      let processed = 0;
-      let ackIds = [];
-      // Apply against latest React state inside the updater — same stale-closure
-      // guard as Calendly sync (poll interval must not overwrite post-unlock edits).
-      setData(prev => {
-        const applied = applyStripeSyncEvents(prev, events, pendingEvents || []);
-        processed = applied.processed;
-        ackIds = applied.ackIds;
-        return applied.data;
-      });
+      // Ack ids from latest-data ref — do not harvest inside the setData updater.
+      const applied = applyStripeSyncEvents(dataRef.current, events, pendingEvents || []);
+      const processed = applied.processed;
+      const ackIds = applied.ackIds;
+      dataRef.current = applied.data;
+      setData(applied.data);
       if (ackIds.length) {
         await fetch(calendlyApiUrl("/api/stripe/acknowledge"), {
           method: "POST",
@@ -1169,13 +1178,13 @@ export default function App() {
   // Role-filter sidebar items; in-view Owner/edit checks remain defense-in-depth.
   const visibleSections = sections.filter(s => canAccessSection(s.id, currentUser));
 
-  const go = (id, view = 0) => { setSection(id); setView(view); setQuery(""); setNavOpen(false); };
+  const go = (id, view = 0) => { setSection(id); setView(view); setNavOpen(false); };
 
-  const crmValue = {
+  const crmValue = useMemo(() => ({
     data, setData, derived, canEdit: can.edit, currentUser, crmSettings,
     today, setConfirm, saveCrmSettings, secUsers, setSecUsers, masterKeyRaw,
     syncStripe, stripeStatus, refundToken: refundSessionToken,
-  };
+  }), [data, derived, can.edit, currentUser, crmSettings, today, secUsers, masterKeyRaw, syncStripe, stripeStatus, refundSessionToken]);
 
   return (
     <CrmProvider value={crmValue}>
@@ -1389,7 +1398,9 @@ export default function App() {
         </aside>
         {navOpen && <div className="sb-scrim" onClick={() => setNavOpen(false)} />}
 
-        {/* Main */}
+        {/* Main — SearchScope owns query so keystrokes skip App/sidebar re-renders */}
+        <SearchScope section={section} view={view} setView={setView} onOpen={setOpen} onGo={go}>
+          {({ searchInput, content, localGo }) => (
         <main className="sb-main">
           {/* Lane accent stripe */}
           {(() => {
@@ -1457,12 +1468,7 @@ export default function App() {
             </div>
             {section !== "today" && (
               <>
-                {!(section === "sessions" && view === 0) && (
-                  <div className="sb-search">
-                    <Search size={15} color={C.ink3} />
-                    <input placeholder="Search…" value={query} onChange={(e) => setQuery(e.target.value)} />
-                  </div>
-                )}
+                {searchInput}
                 {section === "registrations" && (
                   <button
                     type="button"
@@ -1590,7 +1596,7 @@ export default function App() {
                     </button>
 
                     {can.manage && (
-                      <button onClick={() => { go("users"); setShowProfile(false); }}
+                      <button onClick={() => { localGo("users"); setShowProfile(false); }}
                         style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "8px 12px", border: "none", borderRadius: 8, background: "transparent", cursor: "pointer", fontSize: 13, color: C.ink, textAlign: "left" }}
                         onMouseEnter={e => e.currentTarget.style.background = C.brandMist}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
@@ -1614,13 +1620,11 @@ export default function App() {
           </header>
 
           <div className="sb-content">
-            {section === "today"
-              ? <Today onOpen={setOpen} onGo={go} />
-              : section === "engine"
-              ? <FollowUpEngine onOpen={setOpen} />
-              : <Section section={section} view={view} setView={setView} query={query} onOpen={setOpen} />}
+            {content}
           </div>
         </main>
+          )}
+        </SearchScope>
       </div>
 
       {open && (

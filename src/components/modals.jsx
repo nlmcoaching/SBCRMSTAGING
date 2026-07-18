@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, Fragment } from "react";
-import { X, AlertCircle, KeyRound, Shield, UserCircle, CheckCircle, Save, Lock } from "lucide-react";
+import { X, AlertCircle, KeyRound, Shield, UserCircle, CheckCircle, Save, Lock, Upload, RefreshCw, Check, LogOut, Info } from "lucide-react";
 import { C, FONT, hexA } from "../lib/theme.js";
 import { Sec } from "../lib/sec.js";
 import { loadSecMeta, saveSecMeta } from "../lib/secMeta.js";

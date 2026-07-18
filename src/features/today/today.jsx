@@ -10,7 +10,7 @@ import {
 import { C, FONT, hexA } from "../../lib/theme.js";
 import { uid, todayISO, addDaysISO, addMonthsISO, MONTHS, fmtDate, money, pct, onOrBefore, sameMonth, num, bool, norm, cleanName, preferLongerText, clientShort, sectionLabel, fmtStudioType, isValidISODate } from "../../lib/format.js";
 import * as constants from "../../lib/constants.js";
-import { emptySessionChecklist, emptyEquipChecklist, SESSION_CHECKLIST, EQUIP_CHECKLIST, VIRTUAL_PRE_SESSION_MOVED_EQUIP_IDS } from "../../lib/checklists.js";
+import { emptySessionChecklist, emptyEquipChecklist, SESSION_CHECKLIST, EQUIP_CHECKLIST, VIRTUAL_PRE_SESSION_MOVED_EQUIP_IDS, virtualEquipPhaseItems } from "../../lib/checklists.js";
 import { sendCrmEmail, makeEmailFailEntry, cappedLog, EMAIL_LOG_CAP, slimHistEntry } from "../../lib/email.js";
 import { extractTemplateVars, autoFillTemplateVars, applyTemplateVars, findUnreplacedTemplateTokens, unreplacedTokensMessage, resolveRelationshipActionRecipient, suggestEmailTemplatesForAction } from "../../lib/templates.js";
 import { BreathMark, Stat, Panel, Row, Dot, Tag, MiniChip, DateChip, Empty } from "../../components/primitives.jsx";
@@ -20,9 +20,20 @@ import {
   buildRegistrationRevenueRows,
   registrationRevenueForMonth,
   computeClientLifetimeValue,
+  buildRevenueViewRows,
+  sessionBookingRevenue,
+  registrationRevenueByMonth,
+  isAutoExpenseRecord,
+  AUTO_SPLIT_EXP_ID_PREFIX,
+  AUTO_CXL_EXP_ID_PREFIX,
+  applyStudioSessionSplit,
+  calcNet,
 } from "../../lib/revenue/index.js";
 import { refundEligibility } from "../../lib/refundPolicy.js";
-const { OPEN_STATUSES, WON_STATUSES, LOST_STATUSES, STAGE, STAGE_COLOR, SESSION_STATUS, SESSION_STATUS_COLOR, CLIENT_TYPE, STATUS, STATUS_COLOR, FUTYPE, FUTYPE_COLOR, REF_STATUS, OUTREACH_STATUS, TESTIMONIAL_ACTION_STATUSES, OUTREACH_CLOSED_STATUSES, OUTREACH_NO_RESPONSE } = constants;
+import { partnerHasAgreementPdf } from "../../lib/schema/views.jsx";
+const { OPEN_STATUSES, WON_STATUSES, LOST_STATUSES, STAGE, STAGE_COLOR, SESSION_STATUS, SESSION_STATUS_COLOR, CLIENT_TYPE, STATUS, STATUS_COLOR, FUTYPE, FUTYPE_COLOR, REF_STATUS, OUTREACH_STATUS, TESTIMONIAL_ACTION_STATUSES, OUTREACH_CLOSED_STATUSES, OUTREACH_NO_RESPONSE, SOURCE, SOURCE_COLOR } = constants;
+
+const DISMISSED_ALERTS_KEY = "sb:dismissed-alerts:v1";
 
 /* ============================================================
    TODAY DASHBOARD — Command Center

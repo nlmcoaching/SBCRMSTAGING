@@ -45,6 +45,9 @@ function pickText(...candidates) {
 }
 
 function extractStripePayment(event) {
+  // Dedup keys require a real Stripe event id — reject id-less payloads (unsigned-dev hazard).
+  if (!event?.id || typeof event.id !== "string") return null;
+
   const obj = event?.data?.object || {};
   const type = event?.type || "unknown";
   const base = {
@@ -52,7 +55,7 @@ function extractStripePayment(event) {
     provider: "stripe",
     eventType: type,
     receivedAt: new Date().toISOString(),
-    stripeEventId: event.id || "",
+    stripeEventId: event.id,
     currency: String(obj.currency || "usd").toLowerCase(),
     rawEventType: type,
     _centsFormat: true, // amountGross/amountRefunded are integer cents; use readAmt() in frontend

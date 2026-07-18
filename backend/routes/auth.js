@@ -35,7 +35,7 @@ router.get("/session-challenge", requireFrontendSecret, (req, res) => {
 // - Empty registry: bootstrap (first Owner setup) — requires unlockSecret; trusts canEdit
 // - Owner session: create/update anyone (unlockSecret required only when creating or rotating)
 // - Existing user + valid HMAC proof: rotate secret only (role unchanged)
-// - New userId without Owner session: allowed with unlockSecret; canEdit forced false
+// - New userId without Owner session: allowed with unlockSecret; canEdit forced false, role forced Viewer
 router.post("/register-unlock", requireFrontendSecret, (req, res) => {
   const { userId, unlockSecret, role, canEdit, nonce, unlockProof } = req.body ?? {};
   if (!userId || typeof userId !== "string" || userId.length > 80) {
@@ -90,10 +90,11 @@ router.post("/register-unlock", requireFrontendSecret, (req, res) => {
     nextCanEdit = existing.canEdit === true;
     nextRole = existing.role || nextRole;
   } else {
+    // Self-registration: never trust client-supplied role/canEdit (privilege escalation).
     if (!hasSecret) return res.status(400).json({ error: "unlockSecret required" });
     nextSecret = unlockSecret;
     nextCanEdit = false;
-    nextRole = typeof role === "string" && role.length <= 40 ? role : "Viewer";
+    nextRole = "Viewer";
   }
 
   if (!nextSecret) {

@@ -59,7 +59,7 @@ If more than one person uses the system, you'll see a tile for each user. Tap or
 **Step 2 — Enter your PIN**
 Type your PIN (or passphrase) in the box and press Enter (or tap the arrow button).
 
-If your PIN is correct, you'll go straight to the **Today — Command Center** dashboard. This happens every time you log in, so your daily action list is always the first thing you see. If you forget your PIN, use your **recovery code** (see Your Profile → Security tab) or ask an Owner or Admin to reset it in User Management.
+If your PIN is correct, you'll return to the **same page you were on** in that browser tab (for example Sessions or Clients). If you logged out or the app auto-locked, you'll land on the **Today — Command Center** dashboard instead. If you forget your PIN, use your **recovery code** (see Your Profile → Security tab) or ask an Owner or Admin to reset it in User Management.
 
 If you see **"Data integrity check failed"**, hard-refresh the page and try again — the app can usually repair missing table structure automatically. If it still fails, restore from a JSON backup (Admin → Storage & Backup → Download Backup).
 
@@ -1444,7 +1444,7 @@ Those are short system notices (import results, file errors, refund failures, an
 Yes. CRM records are encrypted with AES-256-GCM. Your PIN is never stored — it unlocks a wrapped key. Account metadata (user list and key material) is also encrypted in the browser with a device-local key. Even if someone opened a casual localStorage dump, they would not see readable security metadata or CRM data without your PIN / this browser profile.
 
 **Someone else needs to access the system. What do I do?**
-By default the CRM is set up for **one person only**. Every extra account can unlock and read **all** client and financial data (not just what their role suggests). If you still want another account: go to **Admin → Settings**, turn on **Multi-user access**, then use **User Management** to add them with a name, passphrase (12+ characters with a letter and a number), and role. Prefer keeping a single Owner account when working with real client data.
+By default the CRM is set up for **one person only**. Every extra account can unlock and read **all** client and financial data (not just what their role suggests). If you still want another account: go to **Admin → Settings**, turn on **Multi-user access**, then use **User Management** to add them with a name, passphrase (12+ characters with a letter and a number), and role. New accounts that are not created by an Owner start as Viewer with no Edit access — only an Owner can raise someone’s role. Prefer keeping a single Owner account when working with real client data.
 
 **I made a mistake and entered wrong information. Can I fix it?**
 Yes. Click any record to open it, make your changes, and click Save. There is no version history, so take care when making bulk changes.

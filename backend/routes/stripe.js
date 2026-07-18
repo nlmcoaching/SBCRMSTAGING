@@ -1,19 +1,16 @@
 // Stripe webhooks, ledger/pending/ack, refunds, and admin queue clear.
 const express = require("express");
-const path = require("path");
-const fs = require("fs");
 const {
-  DATA_DIR,
   STRIPE_QUEUE_FILE,
   readNamedQueue,
   writeNamedQueue,
   appendWebhookLog,
+  appendRefundAudit,
   withQueueLock,
-  encryptPayload,
-  decryptPayload,
+  readQueue,
 } = require("../lib/queue");
 const { SUPPORTED_EVENTS, extractStripePayment, verifyStripeSignature, centsToDollars } = require("../stripe-handlers");
-const { evaluateRefundPolicy } = require("../lib/refundPolicy");
+const { attestRefundPolicy, findCalendlyCancellation } = require("../lib/refundPolicy");
 const {
   requireFrontendSecret,
   requireEditSession,
@@ -45,6 +42,11 @@ router.post("/webhooks/stripe", async (req, res) => {
     event = JSON.parse(req.rawBody.toString("utf8"));
   } catch {
     return res.status(400).json({ error: "Invalid JSON body" });
+  }
+
+  // Reject id-less events — otherwise dedup collapses to stripe_undefined / "" and drops peers.
+  if (!event?.id || typeof event.id !== "string") {
+    return res.status(400).json({ error: "Stripe event missing id" });
   }
 
   const eventType = event?.type;
@@ -143,28 +145,6 @@ router.post("/stripe/acknowledge", requireFrontendSecret, async (req, res) => {
   res.json({ acknowledged: ids.length });
 });
 
-// Shared with CRM UI — backend/lib/refundPolicy.js (keep in sync with src/lib/refundPolicy.js).
-const REFUND_AUDIT_FILE = path.join(DATA_DIR, "refund-audit.json");
-
-function appendRefundAudit(entry) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    let log = [];
-    if (fs.existsSync(REFUND_AUDIT_FILE)) {
-      try {
-        const raw = fs.readFileSync(REFUND_AUDIT_FILE, "utf8");
-        log = JSON.parse(decryptPayload(raw));
-        if (!Array.isArray(log)) log = [];
-      } catch { log = []; }
-    }
-    log.push(entry);
-    if (log.length > 500) log = log.slice(-500);
-    fs.writeFileSync(REFUND_AUDIT_FILE, encryptPayload(JSON.stringify(log, null, 2)), "utf8");
-  } catch (err) {
-    console.warn("[WARN] Could not write refund audit log:", err.message);
-  }
-}
-
 async function stripeGet(pathSuffix, apiKey) {
   const resp = await fetch(`https://api.stripe.com/v1/${pathSuffix}`, {
     headers: { "Authorization": `Basic ${Buffer.from(`${apiKey}:`).toString("base64")}` },
@@ -180,7 +160,7 @@ router.post("/stripe/refund", requireFrontendSecret, requireEditSession, async (
     return res.status(503).json({ error: "STRIPE_SECRET_KEY not configured — refunds cannot be issued from the CRM" });
   }
 
-  const { paymentIntentId, chargeId, registrationId, reason, policy } = req.body || {};
+  const { paymentIntentId, chargeId, registrationId, reason, policy, calendlyInviteeUri } = req.body || {};
   const validId = (v, prefix) => typeof v === "string" && v.startsWith(prefix) && v.length <= 100 && /^[\w]+$/.test(v);
   const pi = validId(paymentIntentId, "pi_") ? paymentIntentId : "";
   const ch = validId(chargeId, "ch_") ? chargeId : "";
@@ -191,8 +171,10 @@ router.post("/stripe/refund", requireFrontendSecret, requireEditSession, async (
     return res.status(400).json({ error: "registrationId is required — refunds must be tied to a CRM booking" });
   }
 
-  // Server-side policy gate (same 24h matrix as the CRM UI — src/lib/refundPolicy.js).
-  const policyResult = evaluateRefundPolicy(policy);
+  // Policy gate: body fields are hints — prefer the backend's stored Calendly cancel record.
+  const inviteeUri = String(calendlyInviteeUri || policy?.calendlyInviteeUri || "").trim();
+  const cancellationRecord = findCalendlyCancellation(readQueue(), inviteeUri);
+  const policyResult = attestRefundPolicy(policy, cancellationRecord);
   if (!policyResult.eligible) {
     const wantsOverride = policy && policy.override === true;
     if (!wantsOverride) {

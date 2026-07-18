@@ -81,7 +81,7 @@ Vault resistance against offline IndexedDB theft is bounded by wrapping-credenti
 After a successful PIN login, the master key, user ID, and a per-login restore token are saved to **`sessionStorage`** (`sb:session:v1`). On the next page load (e.g. browser refresh), the app validates the token (see Session Token Integrity below), re-imports the master key, decrypts the data, and restores the session automatically — no PIN re-entry required.
 
 - `sessionStorage` is scoped to the browser tab; closing the tab or window clears the session, requiring PIN entry on next open.
-- The last-visited section and tab view are also saved to `sessionStorage` (`sb:nav:v1`) while the user is logged in, so a refresh returns to the same page rather than the Command Center.
+- The last-visited section and tab view are saved to `sessionStorage` (`sb:nav:v1`) while unlocked, and **restored on the next PIN unlock** in that tab (so you return to the same page rather than always landing on Command Center). Logout and idle auto-lock clear the key.
 - Both keys are cleared on explicit logout and on idle auto-lock.
 - Idle auto-lock (15 minutes) calls the same wipe as logout: clears `cryptoKey`, `masterKeyRaw`, decrypted CRM `data`, refund session token, and `sessionStorage` session/nav keys — so neither the master key nor the dataset remain in React state after lock.
 
@@ -1036,7 +1036,7 @@ Use **Sync Stripe now** to load charges from the backend ledger and run reconcil
 
 `reconcileAmountMismatches` / `patchAmountMismatches` correct Stripe-verified bookings whose Calendly list price (`paymentAmount`) is missing or differs from `paidAmount`. On a no-op it returns the **same** `registrations` array reference so `PaymentReconciliationView`'s identity guard can stop the effect; missing list prices are filled from Stripe (not skipped), which prevents an endless `setData` / re-encrypt loop.
 
-The page header **search box** (the global `query`, passed into `PaymentReconciliationView`) filters every list on this page — Stripe charges, unmatched transactions, refunded payments, and bookings awaiting a charge — matching on name, email, session, and description.
+The page header **search box** (owned by `SearchScope`, passed into `PaymentReconciliationView` as `query`) filters every list on this page — Stripe charges, unmatched transactions, refunded payments, and bookings awaiting a charge — matching on name, email, session, and description.
 
 **Matching rule (email + time, amount first-pass):** A Stripe charge is created the moment a participant books, so the charge time equals the booking time. For each participant (matched by **email**), each unlinked charge is considered against bookings within `STRIPE_MATCH_WINDOW_MS` (2 days). **First-pass tiebreaker:** prefer a booking whose Calendly list price `amountsMatch`es the Stripe gross; among that class (or when no amount match exists), pick the **closest** booking time. The Stripe `amountGross` becomes that booking's `paidAmount` and session amount. List price is kept as *expected*. There is **no manual override** — matching is automatic.
 
@@ -1171,8 +1171,8 @@ Additional guards: a booking whose `stripeRefundId` is set, whose `paymentStatus
 #### Refund flow
 
 1. User clicks **Refund $X** (Refunds tab) or accepts the refund prompt offered immediately after a manual **Cancel booking** (see below), then confirms in a dialog.
-2. Frontend `issueStripeRefund(reg, setData)` calls `POST /api/stripe/refund` with `stripePaymentIntentId` / `stripeChargeId`, required `registrationId`, and a `policy` attestation (`cancelerType`, `canceledAt`, `sessionAt`).
-3. The backend (guarded by `requireFrontendSecret` + Edit session) looks up the PaymentIntent/Charge in Stripe, rejects zero-amount or already-refunded charges, rejects when Stripe `metadata.registrationId` conflicts with the request, evaluates the 24-hour policy server-side (Owner may send `policy.override: true`), then calls Stripe `POST /v1/refunds` (full refund). An encrypted audit entry is appended to `backend/data/refund-audit.json` under the same queue mutex as webhook queue writes.
+2. Frontend `issueStripeRefund(reg, setData)` calls `POST /api/stripe/refund` with `stripePaymentIntentId` / `stripeChargeId`, required `registrationId`, `calendlyInviteeUri`, and a `policy` hint (`cancelerType`, `canceledAt`, `sessionAt`).
+3. The backend (guarded by `requireFrontendSecret` + Edit session) looks up the PaymentIntent/Charge in Stripe, rejects zero-amount or already-refunded charges, rejects when Stripe `metadata.registrationId` conflicts with the request, then evaluates the 24-hour policy server-side via `attestRefundPolicy`: body policy fields are **hints only** — `cancelerType` / timing are taken from the backend's stored Calendly `invitee.canceled` queue record for that invitee URI when present. An unattested client-supplied `cancelerType:"host"` is ignored (cannot bypass the 24h window). Owner may send `policy.override: true`. Then Stripe `POST /v1/refunds` (full refund). An encrypted audit entry is appended to `backend/data/refund-audit.json` under the same queue mutex as webhook queue writes (quarantine + `atomicWriteUtf8`, same as queues).
 4. On success the registration is stamped with `paymentStatus: "refunded"`, `amountRefunded`, `stripeRefundId` (`re_...`), and `refundedAt`; the linked `payments` record is updated the same way.
 5. The next booking-ledger sync regenerates a **negative revenue row** (`regrev_<id>_refund`) for the refunded amount (with the Stripe refund ID) — this is what the **Refund history** list shows. Auto `cxlexp_*` cancellation expenses are no longer created.
 6. Stripe later sends the `charge.refunded` webhook, which flows through the existing webhook queue and reconciliation as confirmation (idempotent — the records are already marked refunded).
@@ -1184,7 +1184,7 @@ Additional guards: a booking whose `stripeRefundId` is set, whose `paymentStatus
 | Backend endpoint | `POST /api/stripe/refund` (`backend/routes/stripe.js`), `requireFrontendSecret` + Edit session + policy/Stripe binding |
 | Env var | `STRIPE_SECRET_KEY` in `backend/.env` (Stripe secret API key `sk_live_...` / `sk_test_...`). Without it the endpoint returns 503 — the webhook signing secret alone cannot create refunds |
 | Frontend helpers | `refundEligibility`, `evaluateRefundPolicy`, `REFUND_POLICY_HOURS` (`src/lib/refundPolicy.js`); `issueStripeRefund` (`src/lib/revenue/stripeMerge.js`); `RefundsView` |
-| Backend policy | `evaluateRefundPolicy` / `REFUND_POLICY_HOURS` (`backend/lib/refundPolicy.js` — keep in sync with the frontend module) |
+| Backend policy | `evaluateRefundPolicy` / `attestRefundPolicy` / `REFUND_POLICY_HOURS` (`backend/lib/refundPolicy.js` — keep `evaluateRefundPolicy` in sync with the frontend module) |
 | Permissions | Issuing a refund requires **Edit** permission (`canEdit`), enforced server-side |
 
 ### Table Footer Totals
@@ -1964,7 +1964,9 @@ Express bootstrap lives in `backend/server.js` (config validation, Helmet/CORS/r
 - **Calendly webhook idempotency:** enqueue is keyed by `calendlyInviteeUri` + `eventType` (same key as pull-recent dedup). Description and payment enrichment run **after** the 200 response so slow Calendly API calls cannot cause timeout-then-retry duplicates. Stripe webhooks similarly dedup on `stripeEventId`.
 - Queue file encrypted at rest with AES-256-GCM when `QUEUE_ENCRYPTION_KEY` is a valid 64-char hex string
 - Queue writes are atomic (temp file + rename). Decrypt/read failures quarantine the live file as `*.corrupt.<timestamp>` under `backend/data/` instead of letting the next write destroy it
+- **Webhook receipt log** (`webhook-events-log.json`) and **refund audit** (`refund-audit.json`) use the same quarantine + `atomicWriteUtf8` path as the queues (no fail-open `catch → []` that would destroy the audit trail on a transient read error)
 - **In-process queue mutex (`withQueueLock`):** all read-modify-write paths for Calendly/Stripe queues, the Stripe webhook receipt log, and the refund audit log are serialized so concurrent webhook/refund bursts cannot lose appends
+- Stripe webhooks missing `event.id` are rejected with 400 (prevents dedup collision on `stripe_undefined` / `""` in unsigned-dev mode)
 - Console logs use invitee/event IDs only — customer emails are never written to stdout (PII stays in encrypted queue/audit files)
 - If the encryption key is lost or rotated without decrypting first, the backend may leave `*.bak` or `*.corrupt.*` copies next to the live queue files under `backend/data/` (e.g. `pending-events.json.bak`, `pending-events.json.corrupt.…`). Those files are ciphertext for the **old** key (or tampered data) and cannot be recovered without the matching key. **Retention decision:** keep them only while you still hope to recover the old key or investigate tampering; otherwise delete them after confirming the live queue (`pending-events.json`, etc.) is healthy. They are gitignored and are not used by the running server.
 - `/pending` and `/acknowledge` require `x-frontend-secret` header injected by Vite proxy (never sent directly from browser code)
@@ -1974,6 +1976,7 @@ Express bootstrap lives in `backend/server.js` (config validation, Helmet/CORS/r
 - Startup validation: server exits with code 1 in production if `CALENDLY_WEBHOOK_SIGNING_KEY`, `QUEUE_ENCRYPTION_KEY` (must be `/^[0-9a-f]{64}$/i`), `STRIPE_WEBHOOK_SECRET`, or `FRONTEND_SECRET` are missing or malformed
 - Calendly webhook handler rejects unsigned requests in production when the signing key is unset (same fail-closed pattern as Stripe)
 - Refund / API session mint (`POST /api/auth/session`) requires a one-shot challenge from `GET /api/auth/session-challenge` plus a **server-verified HMAC** `unlockProof` over a per-user unlock secret registered via `POST /api/auth/register-unlock`. Tokens expire in 1 hour, are bound to `userId`, and carry server-side `role` / `canEdit`.
+- `POST /api/auth/register-unlock` self-registration (new `userId`, no Owner session) always forces `role: "Viewer"` and `canEdit: false` — client-supplied role bits are ignored. Only empty-registry bootstrap or an authenticated Owner session may assign elevated roles.
 - `POST /api/stripe/refund`, `POST /api/send-email`, `POST /api/integration/clear-queues`, and `POST /api/calendly/cancel-booking` require an API session with `canEdit: true` (not merely `FRONTEND_SECRET`).
 - Per-user unlock secrets are PIN-wrapped in security metadata (`wrappedUnlockSecret`) and stored encrypted at rest on the backend in `backend/data/auth-users.json`. **Fail closed:** only a missing file allows Owner bootstrap; a present but unreadable/corrupt store returns 503 on auth endpoints (never treated as an empty registry).
 - Multi-user account creation is gated by CRM setting `allowMultiUser` (default `false`) because all users share one master encryption key.
@@ -1987,8 +1990,8 @@ Express bootstrap lives in `backend/server.js` (config validation, Helmet/CORS/r
 |---|---|
 | `invitee.created` | **Skipped entirely** if a registration with the same invitee URI is already `canceled`/`rescheduled` in the CRM (CRM status wins — see Cancellation protection). Otherwise: create/update client · upsert session · create/update registration · create 3 follow-up tasks (new regs only). On **redelivery** of an existing invitee: preserve `checkedIn` / `attended` / `noShow` / `notes` and attendance statuses (`attended` / `no_show`); do not reset them to false/empty. Session `registered` recount excludes this invitee's own existing row before adding 1 (avoids double-count). |
 | `invitee.canceled` | Set registration status to `canceled` (or `rescheduled` if `payload.rescheduled = true`). If the linked session is **virtual** (no `studioId`) and has no remaining active registrations, the session is **deleted** from the session list/calendar (the canceled registration still shows on the Cancellations and Reschedules tab). **Studio** (group) sessions are kept and only have their `registered` count decremented. |
-| `invitee_no_show.created` | Set registration `noShow: true`, status `no_show` · increment session noShows |
-| `invitee_no_show.deleted` | Clear `noShow: false` · decrement session noShows. Status reverts to `booked` **only** when it was still `no_show` — manual `attended` (or other) attendance is preserved |
+| `invitee_no_show.created` | Payload exposes `invitee` as a **URI string** (not an object). Backend resolves the invitee via Calendly API before the email gate, then CRM sets registration `noShow: true`, status `no_show` · increment session noShows |
+| `invitee_no_show.deleted` | Same URI resolve as created. Clear `noShow: false` · decrement session noShows. Status reverts to `booked` **only** when it was still `no_show` — manual `attended` (or other) attendance is preserved |
 
 ### Client Deduplication
 Email address (normalized to lowercase) is the primary deduplication key. On `invitee.created`:
@@ -2608,8 +2611,10 @@ Sec.validate(data)                        // Schema validation on load
 
 ### Login Redirect
 
-After a successful PIN login (both first-time setup and explicit logins), the app navigates to the **Today — Command Center** dashboard (`section = "today"`, `view = 0`). However, if the session is restored automatically on a browser refresh (via the `sb:session:v1` token), the app instead returns the user to the exact section and tab they were on before the refresh, as stored in `sb:nav:v1`.
+After a successful PIN login, the app restores the last-visited section and tab from `sessionStorage` (`sb:nav:v1`) when present; otherwise it lands on **Today — Command Center**. Logout and idle auto-lock clear `sb:nav:v1`, so the next login after those events starts on Command Center. First-time owner setup also starts on Command Center (no prior nav).
+
+The page header search query is owned by `SearchScope` (`src/features/shell/HeaderSearch.jsx`) so typing does not re-render the App root / sidebar. List views receive a memoized `clientsById` map on the view `ctx` for O(1) client name lookups.
 
 ---
 
-*Documentation updated June 2026 (v9.4). Simply Breathe OS is a living system — update this document as features are added.*
+*Documentation updated July 2026 (v9.5). Simply Breathe OS is a living system — update this document as features are added.*

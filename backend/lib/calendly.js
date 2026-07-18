@@ -85,10 +85,16 @@ function resolveInviteeFormName(inviteeResource, scheduled = {}) {
 
 // ── Helper: extract clean fields from Calendly payload ──
 function extractEvent(event, payload) {
+  // invitee_no_show.* payloads expose invitee as a URI string, not an object.
+  const isNoShow = String(event || "").startsWith("invitee_no_show.");
+  const noShowInviteeUri = (isNoShow && typeof payload.invitee === "string")
+    ? payload.invitee
+    : "";
+
   // Dedicated invitee object when present; Calendly invitee.* webhooks use payload as the invitee.
   const invitee = (payload.invitee && typeof payload.invitee === "object")
     ? payload.invitee
-    : payload;
+    : (isNoShow ? {} : payload);
   const scheduled = payload.scheduled_event || invitee.scheduled_event || {};
   const location  = scheduled.location || {};
 
@@ -105,18 +111,23 @@ function extractEvent(event, payload) {
     ? (typeof rawAmount === "number" ? rawAmount : parseFloat(rawAmount))
     : null;
 
+  const inviteeUri = noShowInviteeUri
+    || (typeof invitee.uri === "string" ? invitee.uri : "")
+    || (typeof payload.uri === "string" && !isNoShow ? payload.uri : "")
+    || "";
+
   return {
     id:                   `evt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     receivedAt:           new Date().toISOString(),
     processed:            false,
     eventType:            event,                              // invitee.created | invitee.canceled | ...
     // Invitee — name strictly from registration/billing invitee form (never event title)
-    name:                 resolveInviteeFormName(payload, scheduled),
-    email:                (invitee.email || payload.email || "").toLowerCase(),
-    phone:                answers.phone_number || answers.phone || invitee.text_reminder_number || payload.text_reminder_number || "",
-    timezone:             invitee.timezone || payload.timezone || "",
+    name:                 resolveInviteeFormName(isNoShow ? invitee : payload, scheduled),
+    email:                (invitee.email || (!isNoShow ? payload.email : "") || "").toLowerCase(),
+    phone:                answers.phone_number || answers.phone || invitee.text_reminder_number || (!isNoShow ? payload.text_reminder_number : "") || "",
+    timezone:             invitee.timezone || (!isNoShow ? payload.timezone : "") || "",
     // Scheduled event (calendar metadata — kept separate from invitee name)
-    calendlyInviteeUri:   invitee.uri || payload.uri || "",
+    calendlyInviteeUri:   inviteeUri,
     calendlyEventUri:     scheduled.uri || "",
     calendlyEventTypeUri: scheduled.event_type || "",
     eventName:            scheduled.name || "",
@@ -278,9 +289,9 @@ async function fetchEventTypePrice(eventTypeUri) {
   return meta.price;
 }
 
-async function fetchInviteePayment(inviteeUri, eventTypeUriHint = "") {
+/** GET an invitee resource by URI (used for no-show webhooks and payment lookup). */
+async function fetchInviteeResource(inviteeUri) {
   if (!inviteeUri?.startsWith(CALENDLY_API_BASE)) return null;
-
   const token = process.env.CALENDLY_API_TOKEN;
   if (!token) return null;
 
@@ -293,13 +304,72 @@ async function fetchInviteePayment(inviteeUri, eventTypeUriHint = "") {
     });
     clearTimeout(timer);
     if (!res.ok) return null;
-    const invitee = (await res.json()).resource ?? {};
+    return (await res.json()).resource ?? null;
+  } catch (err) {
+    clearTimeout(timer);
+    console.warn(`[WARN] Could not fetch invitee resource: ${err.message}`);
+    return null;
+  }
+}
 
+/**
+ * invitee_no_show.* webhooks only include an invitee URI — resolve email/name/event
+ * so the event passes the email gate and CRM can match the registration.
+ */
+async function resolveInviteeForNoShow(extracted, inviteeUri) {
+  const uri = String(inviteeUri || extracted?.calendlyInviteeUri || "").trim();
+  if (!uri) return extracted;
+
+  const invitee = await fetchInviteeResource(uri);
+  if (!invitee) return { ...extracted, calendlyInviteeUri: uri || extracted.calendlyInviteeUri };
+
+  let scheduled = {};
+  if (invitee.event?.startsWith(CALENDLY_API_BASE)) {
+    const token = process.env.CALENDLY_API_TOKEN;
+    if (token) {
+      try {
+        const data = await calendlyApiGet(
+          invitee.event.replace(CALENDLY_API_BASE, ""),
+          token,
+        );
+        scheduled = data.resource || data || {};
+      } catch { /* optional enrichment */ }
+    }
+  }
+
+  const location = scheduled.location || {};
+  return {
+    ...extracted,
+    calendlyInviteeUri: invitee.uri || uri,
+    email: (invitee.email || "").toLowerCase(),
+    name: resolveInviteeFormName(invitee, scheduled) || extracted.name || "",
+    phone: invitee.text_reminder_number || extracted.phone || "",
+    timezone: invitee.timezone || extracted.timezone || "",
+    calendlyEventUri: scheduled.uri || invitee.event || extracted.calendlyEventUri || "",
+    calendlyEventTypeUri: scheduled.event_type || extracted.calendlyEventTypeUri || "",
+    eventName: scheduled.name || extracted.eventName || "",
+    startTime: scheduled.start_time || extracted.startTime || "",
+    endTime: scheduled.end_time || extracted.endTime || "",
+    locationType: location.type || extracted.locationType || "",
+    locationJoinUrl: location.join_url || extracted.locationJoinUrl || "",
+    locationAddress: location.location || extracted.locationAddress || "",
+    createdAt: invitee.created_at || extracted.createdAt || "",
+  };
+}
+
+async function fetchInviteePayment(inviteeUri, eventTypeUriHint = "") {
+  if (!inviteeUri?.startsWith(CALENDLY_API_BASE)) return null;
+
+  const invitee = await fetchInviteeResource(inviteeUri);
+  if (!invitee) return null;
+
+  try {
     let eventTypeUri = eventTypeUriHint || "";
     if (!eventTypeUri && invitee.event?.startsWith(CALENDLY_API_BASE)) {
       const evtController = new AbortController();
       const evtTimer = setTimeout(() => evtController.abort(), CALENDLY_API_TIMEOUT_MS);
       try {
+        const token = process.env.CALENDLY_API_TOKEN;
         const evtRes = await fetch(invitee.event, {
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           signal: evtController.signal,
@@ -322,8 +392,10 @@ async function fetchInviteePayment(inviteeUri, eventTypeUriHint = "") {
     // paidAmount = what Calendly recorded on the invitee (often $0 for coupons).
     const sessionPrice = listPrice ?? paidAmount;
 
+    // Return null (not a truthy shell of nulls) so enrichment does not clobber
+    // webhook-supplied paymentAmount/paidAmount when the API has nothing new.
     if (sessionPrice == null && paidAmount == null) {
-      return { paymentAmount: null, paidAmount: null, paymentSuccessful: false };
+      return null;
     }
 
     return {
@@ -333,7 +405,6 @@ async function fetchInviteePayment(inviteeUri, eventTypeUriHint = "") {
       priceSource: listPrice != null ? "event_type" : "calendly_payment",
     };
   } catch (err) {
-    clearTimeout(timer);
     console.warn(`[WARN] Could not fetch invitee payment: ${err.message}`);
     return null;
   }
@@ -450,9 +521,13 @@ async function enrichQueuedCalendlyEvent(eventId, { eventTypeUri = "", inviteeUr
     const pay = await fetchInviteePayment(inviteeUri, eventTypeUri || calendlyEventTypeUri || "");
     if (pay) {
       if (pay.paymentAmount != null) patches.paymentAmount = pay.paymentAmount;
-      if (pay.paidAmount != null || pay.paymentSuccessful != null) patches.paidAmount = pay.paidAmount;
-      if (pay.paymentSuccessful != null) patches.paymentSuccessful = pay.paymentSuccessful === true;
-      patches.paymentPriceSource = pay.priceSource || "";
+      // Only patch paidAmount / paymentSuccessful when the API returned a real amount —
+      // paymentSuccessful:false must not wipe webhook-supplied paidAmount:null checks.
+      if (pay.paidAmount != null) {
+        patches.paidAmount = pay.paidAmount;
+        patches.paymentSuccessful = pay.paymentSuccessful === true;
+      }
+      if (pay.priceSource) patches.paymentPriceSource = pay.priceSource;
     }
   } else if (eventTypeUri) {
     const price = await fetchEventTypePrice(eventTypeUri);
@@ -551,9 +626,11 @@ async function enrichCalendlyQueueEvent(extracted) {
     const pay = await fetchInviteePayment(extracted.calendlyInviteeUri, eventTypeUri);
     if (pay) {
       if (pay.paymentAmount != null) extracted.paymentAmount = pay.paymentAmount;
-      if (pay.paidAmount != null || pay.paymentSuccessful != null) extracted.paidAmount = pay.paidAmount;
-      if (pay.paymentSuccessful != null) extracted.paymentSuccessful = pay.paymentSuccessful === true;
-      extracted.paymentPriceSource = pay.priceSource || "";
+      if (pay.paidAmount != null) {
+        extracted.paidAmount = pay.paidAmount;
+        extracted.paymentSuccessful = pay.paymentSuccessful === true;
+      }
+      if (pay.priceSource) extracted.paymentPriceSource = pay.priceSource;
     }
   } else if (extracted.paymentAmount == null && eventTypeUri) {
     const price = await fetchEventTypePrice(eventTypeUri);
@@ -774,6 +851,8 @@ module.exports = {
   fetchEventTypeMeta,
   fetchEventTypeDescription,
   fetchEventTypePrice,
+  fetchInviteeResource,
+  resolveInviteeForNoShow,
   fetchInviteePayment,
   calendlyApiGet,
   getCalendlyUserUri,

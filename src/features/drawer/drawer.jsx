@@ -22,6 +22,10 @@ import {
   formatBookingAmount,
   resolveActualBookingAmount,
   formatActualBookingAmount,
+  formatRegistrationAmount,
+  registrationPaymentForLtv,
+  resolveSessionListPrice,
+  backfillRegistrationPaymentsForRegs,
 } from "../../lib/revenue/index.js";
 import { sum } from "../../lib/aggregate.js";
 import { FIELDS } from "../../lib/schema/fields.js";
@@ -41,7 +45,8 @@ import { notify } from "../../lib/notify.js";
 import { BreathMark, Stat, Panel, Row, Dot, Tag, MiniChip, DateChip, Empty } from "../../components/primitives.jsx";
 import { CancelCalendlyModal } from "../../components/modals.jsx";
 import { PARTNER_CHECKLIST_PHASES, PARTNER_CHECKLIST } from "../../lib/constants.js";
-const { STATUS, STATUS_COLOR, CLIENT_TYPE, INTENT_TAGS, TAG_COLOR, STAGE, STAGE_COLOR, STUDIO_TYPE, CLOSE_PROB, CONTRACT_STATUS, SESSION_STATUS, SESSION_STATUS_COLOR, SETUP_STATUS, OFFER_STATUS, OFFER_STATUS_COLOR, SOURCE, REFERRAL, REFERRAL_COLOR, OUTREACH_STATUS, OUTREACH_STATUS_COLOR, OUTREACH_WARMTH, OUTREACH_WARMTH_COLOR, OUTREACH_TARGET_TYPE, OUTREACH_RESPONSE, OUTREACH_PRIORITY, OUTREACH_PRIORITY_COLOR, TESTIMONIAL_STATUS, TESTIMONIAL_STATUS_COLOR, TESTIMONIAL_TYPE, TESTIMONIAL_THEMES, TMPL_CATEGORY, TMPL_CATEGORY_COLOR, TMPL_CHANNEL, TMPL_CHANNEL_COLOR, TMPL_LINKED_TO, EXPENSE_CATEGORY, EXPENSE_CATEGORY_COLOR, EXPENSE_PAYMENT_METHOD, EXPENSE_RECUR_FREQ, REV_CHANNEL, REV_CHANNEL_COLOR, COST_CENTER, CONTENT_TYPE, PLATFORM, PLATFORM_COLOR, CONTENT_STATUS, CONTENT_STATUS_COLOR, CONTENT_CATEGORY, CONTENT_CAT_COLOR, CONTENT_CTA, FUTYPE, PACKAGE, JOURNEY_TYPES } = constants;
+import { LANE } from "../today";
+const { STATUS, STATUS_COLOR, CLIENT_TYPE, CLIENT_TYPE_COLOR, INTENT_TAGS, TAG_COLOR, STAGE, STAGE_COLOR, STUDIO_TYPE, CLOSE_PROB, CLOSE_PROB_COLOR, CONTRACT_STATUS, SESSION_STATUS, SESSION_STATUS_COLOR, SETUP_STATUS, OFFER_STATUS, OFFER_STATUS_COLOR, SOURCE, REFERRAL, REFERRAL_COLOR, OUTREACH_STATUS, OUTREACH_STATUS_COLOR, OUTREACH_WARMTH, OUTREACH_WARMTH_COLOR, OUTREACH_TARGET_TYPE, OUTREACH_RESPONSE, OUTREACH_PRIORITY, OUTREACH_PRIORITY_COLOR, TESTIMONIAL_STATUS, TESTIMONIAL_STATUS_COLOR, TESTIMONIAL_TYPE, TESTIMONIAL_THEMES, TMPL_CATEGORY, TMPL_CATEGORY_COLOR, TMPL_CHANNEL, TMPL_CHANNEL_COLOR, TMPL_LINKED_TO, EXPENSE_CATEGORY, EXPENSE_CATEGORY_COLOR, EXPENSE_PAYMENT_METHOD, EXPENSE_RECUR_FREQ, REV_CHANNEL, REV_CHANNEL_COLOR, COST_CENTER, CONTENT_TYPE, PLATFORM, PLATFORM_COLOR, CONTENT_STATUS, CONTENT_STATUS_COLOR, CONTENT_CATEGORY, CONTENT_CAT_COLOR, CONTENT_CTA, FUTYPE, PACKAGE, JOURNEY_TYPES, OPEN_STATUSES, emptyChecklist } = constants;
 
 export function resolveDrawerTab(preferred, { db, isNew, hasTimeline, hasSessionTabs, hasChecklist }) {
   if (!preferred || preferred === "details") return "details";
@@ -477,27 +482,27 @@ export function RecordDrawer({ db, record, data, derived, today, crmSettings, on
                       // to the stored session record and the drawer draft so that Session Details
                       // stays consistent with what the Performance tab shows.
                       if (draft.studioId && setData) {
-                        let computed = null;
-                        setData(prev => {
-                          const idx = (prev.sessions || []).findIndex(s => s.id === draft.id);
-                          if (idx < 0) return prev;
-                          const sess = prev.sessions[idx];
-                          const fin = studioSessionFinance(sess, prev, { revenueRows: buildRegistrationRevenueRows(prev) });
-                          computed = { revenue: fin.gross, studioSplit: fin.studioSplit, netRevenue: fin.net };
-                          // Skip the write when nothing changed to avoid a spurious save.
-                          if (Math.abs((Number(sess.revenue) || 0) - fin.gross) < 0.005
+                        // Compute outside the setData updater — React may defer the updater
+                        // when another update is already queued, so closure harvests are unsafe.
+                        const idx = (data.sessions || []).findIndex(s => s.id === draft.id);
+                        if (idx >= 0) {
+                          const sess = data.sessions[idx];
+                          const fin = studioSessionFinance(sess, data, { revenueRows: buildRegistrationRevenueRows(data) });
+                          const computed = { revenue: fin.gross, studioSplit: fin.studioSplit, netRevenue: fin.net };
+                          const unchanged = Math.abs((Number(sess.revenue) || 0) - fin.gross) < 0.005
                             && Math.abs((Number(sess.studioSplit) || 0) - fin.studioSplit) < 0.005
-                            && Math.abs((Number(sess.netRevenue) || 0) - fin.net) < 0.005) {
-                            return prev;
+                            && Math.abs((Number(sess.netRevenue) || 0) - fin.net) < 0.005;
+                          if (!unchanged) {
+                            setData(prev => {
+                              const i = (prev.sessions || []).findIndex(s => s.id === draft.id);
+                              if (i < 0) return prev;
+                              const sessions = [...prev.sessions];
+                              sessions[i] = { ...sessions[i], ...computed };
+                              return { ...prev, sessions };
+                            });
                           }
-                          const sessions = [...prev.sessions];
-                          sessions[idx] = { ...sess, ...computed };
-                          return { ...prev, sessions };
-                        });
-                        // React's functional-update callback runs synchronously, so `computed`
-                        // is guaranteed to be set here. Sync it into draft so Session Details
-                        // shows the updated figures without the drawer needing to be reopened.
-                        if (computed) setDraft(d => ({ ...d, ...computed }));
+                          setDraft(d => ({ ...d, ...computed }));
+                        }
                       }
                       setPerfSyncing(false);
                     }}
@@ -1115,7 +1120,7 @@ async function deleteAgreementBlob(agreementId) {
   await store.remove(AGREEMENT_BLOB_PREFIX + agreementId);
 }
 
-async function persistAllAgreementBlobs(data, cryptoKey) {
+export async function persistAllAgreementBlobs(data, cryptoKey) {
   for (const p of data.partners || []) {
     for (const a of p.agreements || []) {
       if (a.dataUrl) await persistAgreementBlob(cryptoKey, a.id, a.dataUrl);

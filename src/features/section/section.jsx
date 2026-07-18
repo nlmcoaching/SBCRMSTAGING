@@ -25,7 +25,7 @@ import {
   formatRegistrationDateTime,
   sortRegistrationsBySessionTime,
 } from "../../lib/refundPolicy.js";
-import { registrationCreatedTimestamp } from "../../lib/stripeMatching.js";
+import { registrationCreatedTimestamp, registrationSessionAmount } from "../../lib/stripeMatching.js";
 import { parseImportRows } from "../../lib/csvImport.js";
 import { canAccessAdminTab } from "../../lib/constants.js";
 import { useCrm } from "../../lib/crmContext.jsx";
@@ -42,6 +42,8 @@ import { OutreachHubView } from "../outreach";
 import { RevenueAttributionView, RevenueThisMonthView, OfferConversionView, ExpenseSummaryView, RefundsView } from "../revenue";
 import { PaymentReconciliationView } from "../stripe";
 import { AdminView, UserManagementView } from "../admin";
+import { FollowUpSendButton } from "../followup";
+import { LANE } from "../today";
 const { STATUS, STATUS_COLOR, CLIENT_TYPE, CLIENT_TYPE_COLOR, INTENT_TAGS, TAG_COLOR, STAGE, STAGE_COLOR, STUDIO_TYPE, CLOSE_PROB, CLOSE_PROB_COLOR, CONTRACT_STATUS, REF_STATUS, REF_STATUS_COLOR, OUTREACH_STATUS, OUTREACH_STATUS_COLOR, OUTREACH_WARMTH, OUTREACH_WARMTH_COLOR, TESTIMONIAL_STATUS, TESTIMONIAL_STATUS_COLOR, TMPL_CATEGORY, TMPL_CATEGORY_COLOR, EXPENSE_CATEGORY, EXPENSE_CATEGORY_COLOR, REV_CHANNEL, REV_CHANNEL_COLOR, CONTENT_STATUS, CONTENT_STATUS_COLOR, CONTENT_CATEGORY, CONTENT_CAT_COLOR, PLATFORM, PLATFORM_COLOR, SESSION_STATUS, SESSION_STATUS_COLOR, OFFER_STATUS, OFFER_STATUS_COLOR, SOURCE, SOURCE_COLOR, OPEN_STATUSES, WON_STATUSES, LOST_STATUSES, REFERRAL, REFERRAL_COLOR, PARTNER_CHECKLIST } = constants;
 
 export {
@@ -78,6 +80,14 @@ export function Section({ section, view, setView, query, onOpen }) {
 
   // Must run before any early return — conditional hooks white-screen the whole app.
   const revenueRows = useMemo(() => buildRevenueViewRows(data), [data]);
+  const clientsById = useMemo(
+    () => Object.fromEntries((data.clients || []).map(c => [c.id, c])),
+    [data.clients],
+  );
+  const viewCtx = useMemo(
+    () => ({ data, derived, today, setData, section, setConfirm, canEdit, refundToken, FollowUpSendButton, clientsById }),
+    [data, derived, today, setData, section, setConfirm, canEdit, refundToken, clientsById],
+  );
   if (!cfg) return null;
 
   let activeView = Math.min(view, cfg.views.length - 1);
@@ -96,7 +106,6 @@ export function Section({ section, view, setView, query, onOpen }) {
   // (client, session, studio/partner), so searching by name works on every list, not just Sessions.
   if (query.trim()) {
     const q = norm(query);
-    const clientsById = Object.fromEntries((data.clients || []).map(c => [c.id, c]));
     const sessionsById = Object.fromEntries((data.sessions || []).map(s => [s.id, s]));
     // Sessions list: also match the names of clients who booked each session.
     const sessionClientNames = {};
@@ -191,7 +200,7 @@ export function Section({ section, view, setView, query, onOpen }) {
         </div>
       )}
       {v.layout === "board"
-        ? <BoardView groups={processed.groups} onOpen={(r) => onOpen({ db: section, record: r })} cardKeys={v.card} ctx={{ data, derived, today }} section={section} />
+        ? <BoardView groups={processed.groups} onOpen={(r) => onOpen({ db: section, record: r })} cardKeys={v.card} ctx={viewCtx} section={section} />
         : v.layout === "partner-pipeline"
         ? <PartnerPipelineView groups={processed.groups} onOpen={(r) => onOpen({ db: section, record: r })} />
         : v.layout === "session-perf"
@@ -230,7 +239,7 @@ export function Section({ section, view, setView, query, onOpen }) {
         : v.layout === "calendar"
         ? <CalendarView rows={processed.rows} today={today} derived={derived} data={data} onOpen={(r) => onOpen({ db: section, record: r })} />
         : v.layout === "record-table"
-        ? <RecordTableView records={data[section] || []} columns={v.columns} query={query} section={section} ctx={{ data, derived, today }} onOpen={onOpen} canEdit={canEdit} maxHeight="calc(100vh - 240px)" />
+        ? <RecordTableView records={data[section] || []} columns={v.columns} query={query} section={section} ctx={viewCtx} onOpen={onOpen} canEdit={canEdit} maxHeight="calc(100vh - 240px)" />
         : v.layout === "revenue-this-month"
         ? <RevenueThisMonthView data={data} today={today} query={query} onOpen={onOpen} canEdit={canEdit} />
         : v.layout === "refunds"
@@ -238,7 +247,7 @@ export function Section({ section, view, setView, query, onOpen }) {
         : <>
           <TableView columns={v.columns} rows={processed.rows} footer={processed.footer} onOpen={(r) => (
               section === "revenue" ? openRevenueViewRow(r, data, onOpen) : onOpen({ db: section, record: r })
-            )}             ctx={{ data, derived, today, setData, section, setConfirm, canEdit, refundToken }}
+            )}             ctx={viewCtx}
             maxHeight={(section === "registrations" || section === "clients" || section === "revenue" || section === "sessions") ? "calc(100vh - 240px)" : undefined}
             expandRow={v.expandRow ? (r, ctx) => v.expandRow(r, ctx) : undefined} />
           </>}

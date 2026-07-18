@@ -141,23 +141,44 @@ function writeNamedQueue(filePath, events) {
   atomicWriteUtf8(filePath, encryptPayload(json));
 }
 
-function appendWebhookLog(entry) {
+/** Read an encrypted JSON array file; quarantine on corruption (same as queues). */
+function readEncryptedJsonArray(filePath) {
   try {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    let log = [];
-    if (fs.existsSync(WEBHOOK_LOG_FILE)) {
-      try {
-        const raw = fs.readFileSync(WEBHOOK_LOG_FILE, "utf8");
-        log = JSON.parse(decryptPayload(raw));
-        if (!Array.isArray(log)) log = [];
-      } catch { log = []; }
+    if (!fs.existsSync(filePath)) return [];
+    const raw = fs.readFileSync(filePath, "utf8");
+    const json = decryptPayload(raw);
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed)) {
+      quarantineCorruptFile(filePath, "decrypted payload is not an array");
+      return [];
     }
-    log.push(entry);
-    if (log.length > WEBHOOK_LOG_MAX) log = log.slice(-WEBHOOK_LOG_MAX);
-    fs.writeFileSync(WEBHOOK_LOG_FILE, encryptPayload(JSON.stringify(log, null, 2)), "utf8");
+    return parsed;
   } catch (err) {
-    console.warn("[WARN] Failed to append webhook log:", err.message);
+    if (fs.existsSync(filePath)) {
+      quarantineCorruptFile(filePath, err.message || "read/decrypt failure");
+    }
+    return [];
   }
+}
+
+/** Append to an encrypted audit/log array with atomic write. Throws on write failure. */
+function appendEncryptedJsonArray(filePath, entry, maxLen) {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  let log = readEncryptedJsonArray(filePath);
+  log.push(entry);
+  if (maxLen > 0 && log.length > maxLen) log = log.slice(-maxLen);
+  atomicWriteUtf8(filePath, encryptPayload(JSON.stringify(log, null, 2)));
+}
+
+function appendWebhookLog(entry) {
+  appendEncryptedJsonArray(WEBHOOK_LOG_FILE, entry, WEBHOOK_LOG_MAX);
+}
+
+const REFUND_AUDIT_FILE = path.join(DATA_DIR, "refund-audit.json");
+const REFUND_AUDIT_MAX = 500;
+
+function appendRefundAudit(entry) {
+  appendEncryptedJsonArray(REFUND_AUDIT_FILE, entry, REFUND_AUDIT_MAX);
 }
 
 // ── In-process async mutex for queue file access ──
@@ -181,6 +202,7 @@ module.exports = {
   QUEUE_FILE,
   STRIPE_QUEUE_FILE,
   WEBHOOK_LOG_FILE,
+  REFUND_AUDIT_FILE,
   QUEUE_MAX_SIZE,
   QUEUE_PURGE_DAYS,
   queueKey,
@@ -188,11 +210,14 @@ module.exports = {
   decryptPayload,
   atomicWriteUtf8,
   quarantineCorruptFile,
+  readEncryptedJsonArray,
+  appendEncryptedJsonArray,
   pruneQueue,
   readQueue,
   writeQueue,
   readNamedQueue,
   writeNamedQueue,
   appendWebhookLog,
+  appendRefundAudit,
   withQueueLock,
 };

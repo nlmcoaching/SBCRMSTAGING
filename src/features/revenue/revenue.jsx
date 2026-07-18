@@ -345,7 +345,7 @@ export function RefundsView({ data, setData, canEdit, setConfirm, onOpen, refund
       {heading(`Refund history (${history.length})`)}
       {history.length
         ? <TableView columns={historyCols} rows={history} expandRow={expandHistory} ctx={{ data }}
-            footer={{ label: "Total refunded", amount: money(sum(history, "amount")) }} />
+            footer={{ label: "Total refunded", amount: money(history.reduce((s, r) => s + Math.abs(Number(r.gross) || 0), 0)) }} />
         : <Empty>No Stripe refunds issued yet. Refunds appear here with their Stripe refund ID once processed.</Empty>}
 
       {heading(`No refund due (${ineligibleRows.length})`)}

@@ -154,7 +154,9 @@ export function buildRegistrationRevenueRows(data = {}) {
 
   for (const r of (data.registrations || [])) {
     if (r.status === "rescheduled") continue;
-    if (["unpaid", "pending_verification", "unmatched", "failed"].includes(r.paymentStatus)) continue;
+    // Skip unresolved payment states — priced bookings with status "unknown" (pre-Stripe-sync)
+    // must not emit $0 isFree rows that understate revenue until reconcile.
+    if (["unpaid", "pending_verification", "unmatched", "failed", "unknown"].includes(r.paymentStatus)) continue;
 
     const session = sessions[r.sessionId];
     const client = clients[r.clientId];

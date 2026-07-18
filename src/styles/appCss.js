@@ -1,4 +1,4 @@
-import { C, hexA } from "../lib/theme.js";
+import { C, FONT, hexA } from "../lib/theme.js";
 
 export function buildAppCss() {
   return `

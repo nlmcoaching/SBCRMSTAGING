@@ -253,10 +253,12 @@ export async function issueStripeRefund(reg, setData, sessionToken, opts = {}) {
       chargeId: reg.stripeChargeId || "",
       registrationId: reg.id || "",
       reason: "requested_by_customer",
+      calendlyInviteeUri: reg.calendlyInviteeUri || "",
       policy: {
         cancelerType: reg.cancelerType || "",
         canceledAt: reg.canceledAt || "",
         sessionAt,
+        calendlyInviteeUri: reg.calendlyInviteeUri || "",
         override: opts.policyOverride === true,
       },
     }),

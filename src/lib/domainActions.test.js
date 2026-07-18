@@ -111,6 +111,26 @@ describe("refreshAfterRegistrations / upsertRegistration", () => {
     assert.equal(virt.netRevenue, 80);
   });
 
+  it("excludes rescheduled bookings from studio registered recount", () => {
+    const withReschedule = {
+      ...baseData(),
+      registrations: [
+        ...baseData().registrations,
+        {
+          id: "r4",
+          clientId: "c2",
+          sessionId: "se-s",
+          status: "rescheduled",
+          paymentStatus: "paid",
+          stripeVerified: true,
+          paidAmount: 35,
+        },
+      ],
+    };
+    const next = refreshAfterRegistrations(withReschedule, withReschedule.registrations);
+    assert.equal(next.sessions.find(s => s.id === "se-s").registered, 2);
+  });
+
   it("recounts studio registered without overwriting studio revenue fields", () => {
     const data = baseData();
     const next = upsertRegistration(data, {

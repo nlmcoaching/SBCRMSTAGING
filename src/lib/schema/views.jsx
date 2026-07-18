@@ -24,10 +24,11 @@ import { agreementExt, agreementRecordIsPdf } from "../agreements.js";
 const {
   STATUS, STATUS_COLOR, CLIENT_TYPE_COLOR, TAG_COLOR, STAGE, STAGE_COLOR,
   CLOSE_PROB_COLOR, REF_STATUS_COLOR, OUTREACH_CLOSED_STATUSES, OUTREACH_NO_RESPONSE,
-  TESTIMONIAL_STATUS_COLOR, TMPL_CATEGORY_COLOR, TMPL_CHANNEL_COLOR,
+  TESTIMONIAL_STATUS_COLOR, TESTIMONIAL_ACTION_STATUSES, TESTIMONIAL_THEMES,
+  TMPL_CATEGORY_COLOR, TMPL_CHANNEL_COLOR,
   EXPENSE_CATEGORY_COLOR, REV_CHANNEL_COLOR, CONTENT_STATUS_COLOR, CONTENT_CAT_COLOR,
   PLATFORM_COLOR, SESSION_STATUS_COLOR, OFFER_STATUS_COLOR, SOURCE_COLOR,
-  OPEN_STATUSES, WON_STATUSES, REFERRAL_COLOR,
+  OPEN_STATUSES, WON_STATUSES, REFERRAL_COLOR, FUTYPE, FUTYPE_COLOR,
 } = constants;
 
 /* ---------- View configs ---------- */
@@ -75,7 +76,7 @@ export function cancelRegistrationManually(setData, regId) {
 
 // Shared expanded-row detail panel for registration tables (All Bookings + Cancellations).
 export function registrationExpandRow(r, ctx) {
-  const client = (ctx.data.clients||[]).find(x => x.id === r.clientId);
+  const client = ctx.clientsById?.[r.clientId] || (ctx.data.clients||[]).find(x => x.id === r.clientId);
   const session = (ctx.data.sessions||[]).find(x => x.id === r.sessionId);
   // For a rescheduled booking, find the new booking it was rescheduled to.
   let rescheduledToAt = null;
@@ -255,7 +256,7 @@ export const VIEWS = {
         name: "All Bookings", layout: "table",
         columns: [
           col("createdAt",   "Scheduled On",     r => formatRegistrationDateTime(r.createdAt)),
-          col("clientId",    "Client",       (r, ctx) => { const c = (ctx.data.clients||[]).find(x => x.id === r.clientId); return c ? <strong style={{color:C.ink}}>{cleanName(c.name)}</strong> : <span style={{color:C.ink3}}>—</span>; }),
+          col("clientId",    "Client",       (r, ctx) => { const c = ctx.clientsById?.[r.clientId] || (ctx.data.clients||[]).find(x => x.id === r.clientId); return c ? <strong style={{color:C.ink}}>{cleanName(c.name)}</strong> : <span style={{color:C.ink3}}>—</span>; }),
           col("scheduledAt", "Session Date/Time", r => formatRegistrationDateTime(r.scheduledAt)),
           col("eventName",   "Event",        r => r.eventName || "—"),
           col("calendlyAmount","Calendly Amount", r => {
@@ -278,7 +279,7 @@ export const VIEWS = {
         name: "Pending Waivers", layout: "table",
         columns: [
           col("scheduledAt", "Session Date", r => r.scheduledAt ? new Date(r.scheduledAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"),
-          col("clientId",    "Client",       (r, ctx) => { const c = (ctx.data.clients||[]).find(x => x.id === r.clientId); return cleanName(c?.name || "—"); }),
+          col("clientId",    "Client",       (r, ctx) => { const c = ctx.clientsById?.[r.clientId] || (ctx.data.clients||[]).find(x => x.id === r.clientId); return cleanName(c?.name || "—"); }),
           col("eventName",   "Event",        r => r.eventName || "—"),
           col("status",      "Status",       r => r.status),
           col("waiverStatus","Waiver",       r => <span style={{color:"#C0573F",fontWeight:600}}>⚠ Pending</span>),
@@ -290,7 +291,7 @@ export const VIEWS = {
         name: "Unpaid", layout: "table",
         columns: [
           col("scheduledAt", "Session Date", r => r.scheduledAt ? new Date(r.scheduledAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"),
-          col("clientId",    "Client",       (r, ctx) => { const c = (ctx.data.clients||[]).find(x => x.id === r.clientId); return cleanName(c?.name || "—"); }),
+          col("clientId",    "Client",       (r, ctx) => { const c = ctx.clientsById?.[r.clientId] || (ctx.data.clients||[]).find(x => x.id === r.clientId); return cleanName(c?.name || "—"); }),
           col("eventName",   "Event",        r => r.eventName || "—"),
           col("status",      "Booking",      r => r.status),
           col("paymentStatus","Payment",     r => <span style={{color:"#C0573F",fontWeight:700}}>Unpaid</span>),
@@ -301,7 +302,7 @@ export const VIEWS = {
         name: "Cancellations and Reschedules", layout: "table",
         columns: [
           col("canceledAt",  "Cancelled On", r => r.canceledAt ? new Date(r.canceledAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) + " " + new Date(r.canceledAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "—"),
-          col("clientId",    "Client",       (r, ctx) => { const c = (ctx.data.clients||[]).find(x => x.id === r.clientId); return cleanName(c?.name || r.eventName || "—"); }),
+          col("clientId",    "Client",       (r, ctx) => { const c = ctx.clientsById?.[r.clientId] || (ctx.data.clients||[]).find(x => x.id === r.clientId); return cleanName(c?.name || r.eventName || "—"); }),
           col("eventName",   "Event",        r => r.eventName || "—"),
           col("scheduledAt", "Session Date", r => r.scheduledAt ? new Date(r.scheduledAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"),
           col("status",      "Status",       r => {
@@ -576,7 +577,10 @@ export const VIEWS = {
           col("clientId",   "Client",      (r, c) => clientShort(c.derived.clientName[r.clientId] || "—")),
           col("futype",     "Type",        (r) => <Tag color={FUTYPE_COLOR[r.futype]} soft>{r.futype}</Tag>),
           col("nextAction", "Next action", (r, c) => <DateChip iso={r.nextAction} today={c.today} />),
-          col("_send",      "",            (r, c) => <FollowUpSendButton r={r} data={c.data} setData={c.setData} today={c.today} />),
+          col("_send",      "",            (r, c) => {
+            const Btn = c.FollowUpSendButton;
+            return Btn ? <Btn r={r} data={c.data} setData={c.setData} today={c.today} /> : null;
+          }),
         ],
         run: (rows, c) => ({ rows: rows.filter((r) => r.nextAction && r.nextAction <= c.today).sort((a, b) => (a.nextAction || "").localeCompare(b.nextAction || "")) }) },
       { name: "All follow-ups", layout: "table",
@@ -586,7 +590,10 @@ export const VIEWS = {
           col("futype",     "Type",        (r) => <Tag color={FUTYPE_COLOR[r.futype]} soft>{r.futype}</Tag>),
           col("nextAction", "Next action", (r) => fmtDate(r.nextAction)),
           col("outcome",    "Outcome",     (r) => r.outcome ? <span style={{ color: C.brand }}>{r.outcome}</span> : <span style={{ color: C.ink3 }}>pending</span>),
-          col("_send",      "",            (r, c) => <FollowUpSendButton r={r} data={c.data} setData={c.setData} today={c.today} />),
+          col("_send",      "",            (r, c) => {
+            const Btn = c.FollowUpSendButton;
+            return Btn ? <Btn r={r} data={c.data} setData={c.setData} today={c.today} /> : null;
+          }),
         ],
         run: (rows) => ({ rows }) },
       { name: "By type", layout: "board", card: ["clientId", "nextAction", "outcome"],
