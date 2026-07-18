@@ -290,7 +290,7 @@ Application configuration (journey descriptions, package types, lead sources, et
 
 ### CORS — Browser Origins Only
 
-The backend CORS handler validates the `Origin` header against `ALLOWED_ORIGINS` when present. Requests with **no** `Origin` header (Calendly/Stripe webhook POSTs, `/health` probes, curl, and other server-to-server calls) are allowed through — CORS is a browser policy and does not protect those routes. Webhook authenticity is enforced by HMAC signature verification, not by Origin.
+The backend CORS handler validates the `Origin` header against `ALLOWED_ORIGINS` when present. Disallowed origins are rejected with `callback(null, false)` (no thrown Error) so Express does not fall through to an HTML 500. Unknown routes and unhandled errors return JSON via dedicated 404 / error middleware. Requests with **no** `Origin` header (Calendly/Stripe webhook POSTs, `/health` probes, curl, and other server-to-server calls) are allowed through — CORS is a browser policy and does not protect those routes. Webhook authenticity is enforced by HMAC signature verification, not by Origin.
 
 ### Webhook Signature Parsing
 
@@ -1957,15 +1957,16 @@ Express bootstrap lives in `backend/server.js` (config validation, Helmet/CORS/r
 **Backend Security Features:**
 - Rate limiting: 60 req/min on all `/api/` endpoints; 30 req/min on the webhook endpoint; **10 req/min on `/api/send-email`** (dedicated email limiter)
 - Helmet middleware with explicit CSP, HSTS (production), CORP, COOP on every response
-- CORS: browser `Origin` must be in `ALLOWED_ORIGINS`; requests with no `Origin` (webhooks, `/health`) are allowed — authenticity is HMAC, not Origin
+- CORS: browser `Origin` must be in `ALLOWED_ORIGINS` (rejected via `callback(null, false)`, not a thrown Error); requests with no `Origin` (webhooks, `/health`) are allowed — authenticity is HMAC, not Origin. Unmatched routes and errors return JSON (`404` / error middleware), not default HTML pages.
 - Request body size capped at 256 KB
 - Webhook HMAC-SHA256 signature verified with 5-minute timestamp replay protection
 - `FRONTEND_SECRET` / `ADMIN_SECRET` compared with `crypto.timingSafeEqual` (same as webhook HMAC checks)
-- **Calendly webhook idempotency:** enqueue is keyed by `calendlyInviteeUri` + `eventType` (same key as pull-recent dedup). Description and payment enrichment run **after** the 200 response so slow Calendly API calls cannot cause timeout-then-retry duplicates. Stripe webhooks similarly dedup on `stripeEventId`.
+- **Calendly webhook idempotency:** enqueue is keyed by `calendlyInviteeUri` (or `calendlySubmissionUri` for routing forms) + `eventType`; routing forms without a URI fall back to `email|createdAt|eventType`. Description and payment enrichment run **after** the 200 response so slow Calendly API calls cannot cause timeout-then-retry duplicates. Stripe webhooks similarly dedup on `stripeEventId`.
+- **Calendly pull-recent deadline:** sequential invitee fan-out is bounded by `CALENDLY_PULL_DEADLINE_MS` (25s). When the budget is exhausted the pull returns early with `truncated: true`; remaining events sync on the next cycle.
 - Queue file encrypted at rest with AES-256-GCM when `QUEUE_ENCRYPTION_KEY` is a valid 64-char hex string
 - Queue writes are atomic (temp file + rename). Decrypt/read failures quarantine the live file as `*.corrupt.<timestamp>` under `backend/data/` instead of letting the next write destroy it
-- **Webhook receipt log** (`webhook-events-log.json`) and **refund audit** (`refund-audit.json`) use the same quarantine + `atomicWriteUtf8` path as the queues (no fail-open `catch → []` that would destroy the audit trail on a transient read error)
-- **In-process queue mutex (`withQueueLock`):** all read-modify-write paths for Calendly/Stripe queues, the Stripe webhook receipt log, and the refund audit log are serialized so concurrent webhook/refund bursts cannot lose appends
+- **Webhook receipt log** (`webhook-events-log.json`) and **refund audit** (`refund-audit.json`) use the same quarantine + `atomicWriteUtf8` path as the queues (no fail-open `catch → []` that would destroy the audit trail on a transient read error). Both Calendly and Stripe webhooks append a receipt entry under the queue mutex.
+- **In-process queue mutex (`withQueueLock`):** all read-modify-write paths for Calendly/Stripe queues, webhook receipt log, refund audit, and destructive queue clears (`POST /api/integration/clear-queues`, `DELETE /api/calendly/events`, `DELETE /api/stripe/events`) are serialized so concurrent webhook/refund/clear bursts cannot lose appends or race empties
 - Stripe webhooks missing `event.id` are rejected with 400 (prevents dedup collision on `stripe_undefined` / `""` in unsigned-dev mode)
 - Console logs use invitee/event IDs only — customer emails are never written to stdout (PII stays in encrypted queue/audit files)
 - If the encryption key is lost or rotated without decrypting first, the backend may leave `*.bak` or `*.corrupt.*` copies next to the live queue files under `backend/data/` (e.g. `pending-events.json.bak`, `pending-events.json.corrupt.…`). Those files are ciphertext for the **old** key (or tampered data) and cannot be recovered without the matching key. **Retention decision:** keep them only while you still hope to recover the old key or investigate tampering; otherwise delete them after confirming the live queue (`pending-events.json`, etc.) is healthy. They are gitignored and are not used by the running server.
@@ -1992,6 +1993,7 @@ Express bootstrap lives in `backend/server.js` (config validation, Helmet/CORS/r
 | `invitee.canceled` | Set registration status to `canceled` (or `rescheduled` if `payload.rescheduled = true`). If the linked session is **virtual** (no `studioId`) and has no remaining active registrations, the session is **deleted** from the session list/calendar (the canceled registration still shows on the Cancellations and Reschedules tab). **Studio** (group) sessions are kept and only have their `registered` count decremented. |
 | `invitee_no_show.created` | Payload exposes `invitee` as a **URI string** (not an object). Backend resolves the invitee via Calendly API before the email gate, then CRM sets registration `noShow: true`, status `no_show` · increment session noShows |
 | `invitee_no_show.deleted` | Same URI resolve as created. Clear `noShow: false` · decrement session noShows. Status reverts to `booked` **only** when it was still `no_show` — manual `attended` (or other) attendance is preserved |
+| `routing_form_submission` / `routing_form_submission.created` | Queued for CRM intake (email optional). Dedup key is the submission URI (`calendlySubmissionUri` / `payload.uri`); email+`createdAt` is the fallback when URI is absent |
 
 ### Client Deduplication
 Email address (normalized to lowercase) is the primary deduplication key. On `invitee.created`:
@@ -2382,7 +2384,7 @@ simply-breathe-app/
 │   ├── components/
 │   │   ├── primitives.jsx       # Reusable presentational primitives
 │   │   ├── tables.jsx           # TableView, RecordTableView
-│   │   └── modals.jsx           # ConfirmModal, CancelCalendlyModal, EditProfileModal, DrawerErrorBoundary
+│   │   └── modals.jsx           # ConfirmModal, CancelCalendlyModal, EditProfileModal, DrawerErrorBoundary, AppErrorBoundary
 │   ├── features/
 │   │   ├── auth/                # First-run setup and lock screen
 │   │   ├── admin/               # Admin settings and user management views
@@ -2550,6 +2552,7 @@ User-visible ephemeral feedback uses a single channel — do **not** use `alert(
 | Component | Purpose |
 |---|---|
 | `App` | Root composition — auth gate, Calendly/Stripe sync, shell layout, data state, `CrmProvider` (imports only shell dependencies; feature views live under `src/features/*`) |
+| `AppErrorBoundary` | Root error boundary in `main.jsx` wrapping `App` + `ToastHost`; render failures show a reload fallback instead of a blank page (`modals.jsx`) |
 | `CrmProvider` / `useCrm` | Thin session context for feature views (`src/lib/crmContext.jsx`) |
 | `notify` / `ToastHost` | Shared toast channel for user-visible errors/successes (`src/lib/notify.js`, `src/components/ToastHost.jsx`) |
 | `primitives.jsx` | Shared `BreathMark`, `Stat`, `Panel`, `Row`, `Dot`, `Tag`, `MiniChip`, `DateChip`, and `Empty` presentation components |

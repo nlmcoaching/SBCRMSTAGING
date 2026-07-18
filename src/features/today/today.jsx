@@ -331,7 +331,7 @@ export function LaneSplitPanel({ data, today }) {
   const registrations = data.registrations || [];
   const mo            = today.slice(0, 7);
 
-  // Built once, shared by all three uses below (Operating profit tile Ã—2 + lane rows).
+  // Built once, shared by all three uses below (Operating profit tile ×2 + lane rows).
   const allRevRows    = useMemo(() => buildRevenueViewRows(data), [data]);
 
   // ── Shared MTD revenue rows (same source of truth as Revenue This Month tab) ──
@@ -689,7 +689,7 @@ export function OrphanedRecordsModal({ data, setData, onClose }) {
               {orphanIds.length === 0 ? "No orphaned records found." : `${orphanIds.length} deleted client${orphanIds.length !== 1 ? "s" : ""} found with linked records. Assign each group to a new client.`}
             </div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.ink3, lineHeight: 1 }}>Ã—</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.ink3, lineHeight: 1 }}>&times;</button>
         </div>
 
         <div style={body}>
@@ -805,7 +805,7 @@ export function AlertsPanel({ data, today, onOpen, compact, dismissed: dismissed
                 })} style={{
                   fontSize: 11.5, padding: "3px 8px", borderRadius: 6, cursor: "pointer",
                   background: "transparent", color: C.ink3, border: `1px solid ${C.line}`,
-                }} title="Dismiss">Ã—</button>
+                }} title="Dismiss">&times;</button>
               </div>
             </div>
           );
@@ -1438,7 +1438,7 @@ export function Today({ onOpen, onGo }) {
                         }}
                         onMouseEnter={e => e.currentTarget.style.opacity = "1"}
                         onMouseLeave={e => e.currentTarget.style.opacity = "0.5"}
-                      >Ã—</button>
+                      >&times;</button>
                     </div>
                   ))}
                 </div>

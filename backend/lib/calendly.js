@@ -87,18 +87,20 @@ function resolveInviteeFormName(inviteeResource, scheduled = {}) {
 function extractEvent(event, payload) {
   // invitee_no_show.* payloads expose invitee as a URI string, not an object.
   const isNoShow = String(event || "").startsWith("invitee_no_show.");
+  const isRoutingForm = String(event || "").startsWith("routing_form_submission");
   const noShowInviteeUri = (isNoShow && typeof payload.invitee === "string")
     ? payload.invitee
     : "";
 
   // Dedicated invitee object when present; Calendly invitee.* webhooks use payload as the invitee.
+  // Routing form submissions use payload.uri as the submission URI (not an invitee).
   const invitee = (payload.invitee && typeof payload.invitee === "object")
     ? payload.invitee
-    : (isNoShow ? {} : payload);
+    : (isNoShow || isRoutingForm ? {} : payload);
   const scheduled = payload.scheduled_event || invitee.scheduled_event || {};
   const location  = scheduled.location || {};
 
-  // Custom question answers (registration form)
+  // Custom question answers (registration form / routing form)
   const answers = {};
   (invitee.questions_and_answers || payload.questions_and_answers || []).forEach(({ question, answer }) => {
     const key = String(question || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
@@ -111,10 +113,17 @@ function extractEvent(event, payload) {
     ? (typeof rawAmount === "number" ? rawAmount : parseFloat(rawAmount))
     : null;
 
+  const submissionUri = isRoutingForm && typeof payload.uri === "string" ? payload.uri : "";
   const inviteeUri = noShowInviteeUri
     || (typeof invitee.uri === "string" ? invitee.uri : "")
-    || (typeof payload.uri === "string" && !isNoShow ? payload.uri : "")
+    || (typeof payload.uri === "string" && !isNoShow && !isRoutingForm ? payload.uri : "")
+    || submissionUri
     || "";
+
+  // Routing forms may put email in Q&A or leave submitter as an invitee URI (no email).
+  const routingEmail = isRoutingForm
+    ? (answers.email || answers.email_address || payload.email || "").toLowerCase()
+    : "";
 
   return {
     id:                   `evt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -122,12 +131,15 @@ function extractEvent(event, payload) {
     processed:            false,
     eventType:            event,                              // invitee.created | invitee.canceled | ...
     // Invitee — name strictly from registration/billing invitee form (never event title)
-    name:                 resolveInviteeFormName(isNoShow ? invitee : payload, scheduled),
-    email:                (invitee.email || (!isNoShow ? payload.email : "") || "").toLowerCase(),
-    phone:                answers.phone_number || answers.phone || invitee.text_reminder_number || (!isNoShow ? payload.text_reminder_number : "") || "",
-    timezone:             invitee.timezone || (!isNoShow ? payload.timezone : "") || "",
+    name:                 isRoutingForm
+                            ? (answers.name || answers.full_name || "")
+                            : resolveInviteeFormName(isNoShow ? invitee : payload, scheduled),
+    email:                (invitee.email || (!isNoShow && !isRoutingForm ? payload.email : "") || routingEmail || "").toLowerCase(),
+    phone:                answers.phone_number || answers.phone || invitee.text_reminder_number || (!isNoShow && !isRoutingForm ? payload.text_reminder_number : "") || "",
+    timezone:             invitee.timezone || (!isNoShow && !isRoutingForm ? payload.timezone : "") || "",
     // Scheduled event (calendar metadata — kept separate from invitee name)
     calendlyInviteeUri:   inviteeUri,
+    calendlySubmissionUri: submissionUri,
     calendlyEventUri:     scheduled.uri || "",
     calendlyEventTypeUri: scheduled.event_type || "",
     eventName:            scheduled.name || "",
@@ -204,6 +216,8 @@ function parseCalendlyPaymentAmount(rawAmount) {
 const CALENDLY_API_BASE = "https://api.calendly.com/";
 
 const CALENDLY_API_TIMEOUT_MS = 10_000; // 10 s — prevents hanging webhook handler
+/** Overall budget for pull-recent fan-out (many serial invitee GETs). Frontend times out ~15s. */
+const CALENDLY_PULL_DEADLINE_MS = 25_000;
 
 function stripHtml(html) {
   return String(html || "")
@@ -481,27 +495,33 @@ async function fetchEventTypePriceByName(eventName, token) {
   return null;
 }
 
+/** Stable dedup key: invitee URI, else routing-form submission URI, else email+createdAt for routing forms. */
+function calendlyWebhookDedupKey(extracted) {
+  const uri = extracted.calendlyInviteeUri || extracted.calendlySubmissionUri || "";
+  if (uri) return `${uri}|${extracted.eventType}`;
+  if (String(extracted.eventType || "").startsWith("routing_form_submission") && extracted.email) {
+    return `rf:${extracted.email}|${extracted.createdAt || ""}|${extracted.eventType}`;
+  }
+  return "";
+}
+
 /**
- * Idempotent Calendly webhook enqueue — dedup by invitee URI + event type
+ * Idempotent Calendly webhook enqueue — dedup by invitee/submission URI + event type
  * (mirrors Stripe's stripeEventId check). Returns { status, id, queued }.
  */
 function enqueueCalendlyWebhookEvent(extracted) {
   const queue = readQueue();
-  const key = extracted.calendlyInviteeUri
-    ? `${extracted.calendlyInviteeUri}|${extracted.eventType}`
-    : "";
+  const key = calendlyWebhookDedupKey(extracted);
   if (key) {
-    const existing = queue.find(
-      e => e.calendlyInviteeUri === extracted.calendlyInviteeUri && e.eventType === extracted.eventType,
-    );
+    const existing = queue.find(e => calendlyWebhookDedupKey(e) === key);
     if (existing) {
-      console.log(`[INFO] Duplicate Calendly ${extracted.eventType} for ${extracted.calendlyInviteeUri} — skipping`);
+      console.log(`[INFO] Duplicate Calendly ${extracted.eventType} for ${key} — skipping`);
       return { status: "duplicate", id: existing.id, queued: false };
     }
   }
   queue.push(extracted);
   writeQueue(queue);
-  console.log(`[OK] Queued ${extracted.eventType} for ${extracted.calendlyInviteeUri || extracted.id} — queue length: ${queue.length}`);
+  console.log(`[OK] Queued ${extracted.eventType} for ${extracted.calendlyInviteeUri || extracted.calendlySubmissionUri || extracted.id} — queue length: ${queue.length}`);
   return { status: "queued", id: extracted.id, queued: true };
 }
 
@@ -762,7 +782,9 @@ async function pullRecentCalendlyBookings(daysBack = 30) {
   }
 
   const minStart = new Date(Date.now() - Math.min(Math.max(daysBack, 1), 90) * 86400000).toISOString();
-  let added = 0, skipped = 0, scanned = 0, requeued = 0;
+  const deadline = Date.now() + CALENDLY_PULL_DEADLINE_MS;
+  const timedOut = () => Date.now() >= deadline;
+  let added = 0, skipped = 0, scanned = 0, requeued = 0, truncated = false;
 
   // ── PASS 1: Cancellations first ──
   // Canceled events are few and need no payment enrichment, so they queue within ~1-2s —
@@ -771,10 +793,12 @@ async function pullRecentCalendlyBookings(daysBack = 30) {
     const canceledEvents = await fetchScheduledEvents(userUri, minStart, "canceled", token);
     const cancelCandidates = [];
     for (const scheduled of canceledEvents) {
+      if (timedOut()) { truncated = true; break; }
       const uuid = scheduled.uri?.split("/").pop();
       if (!uuid) continue;
       let invPage = null;
       do {
+        if (timedOut()) { truncated = true; break; }
         const qs = new URLSearchParams({ count: "100" });
         if (invPage) qs.set("page_token", invPage);
         const invData = await calendlyApiGet(`scheduled_events/${uuid}/invitees?${qs}`, token);
@@ -785,7 +809,7 @@ async function pullRecentCalendlyBookings(daysBack = 30) {
           cancelCandidates.push(buildInviteeCanceledFromApi(invitee, scheduled));
         }
         invPage = invData.pagination?.next_page_token || null;
-      } while (invPage);
+      } while (invPage && !truncated);
     }
     const r1 = await queueCandidates(cancelCandidates);
     added += r1.added; skipped += r1.skipped; requeued += r1.requeued || 0;
@@ -798,18 +822,26 @@ async function pullRecentCalendlyBookings(daysBack = 30) {
   // Group/studio events stay "active" even when an individual participant cancels — only that
   // invitee's status flips to "canceled". So we must inspect invitees of active events too and
   // queue an invitee.canceled for any canceled participant (PASS 1 only catches fully-canceled events).
+  // Bound serial fan-out with CALENDLY_PULL_DEADLINE_MS so we return before the CRM request times out.
+  if (timedOut()) {
+    console.warn(`[WARN] Calendly API pull hit ${CALENDLY_PULL_DEADLINE_MS}ms deadline before active pass`);
+    return { added, skipped, scanned, requeued, truncated: true };
+  }
   const activeEvents = await fetchScheduledEvents(userUri, minStart, "active", token);
   const bookingCandidates = [];
   const lateCancelCandidates = [];
   for (const scheduled of activeEvents) {
+    if (timedOut()) { truncated = true; break; }
     const uuid = scheduled.uri?.split("/").pop();
     if (!uuid) continue;
     let invPage = null;
     do {
+      if (timedOut()) { truncated = true; break; }
       const qs = new URLSearchParams({ count: "100" });
       if (invPage) qs.set("page_token", invPage);
       const invData = await calendlyApiGet(`scheduled_events/${uuid}/invitees?${qs}`, token);
       for (const invitee of invData.collection || []) {
+        if (timedOut()) { truncated = true; break; }
         scanned++;
         if (!invitee.uri || !invitee.email) continue;
         if (invitee.status === "canceled") {
@@ -821,7 +853,7 @@ async function pullRecentCalendlyBookings(daysBack = 30) {
         bookingCandidates.push(extracted);
       }
       invPage = invData.pagination?.next_page_token || null;
-    } while (invPage);
+    } while (invPage && !truncated);
   }
   if (lateCancelCandidates.length) {
     const rc = await queueCandidates(lateCancelCandidates);
@@ -831,16 +863,19 @@ async function pullRecentCalendlyBookings(daysBack = 30) {
   const r2 = await queueCandidates(bookingCandidates);
   added += r2.added; skipped += r2.skipped; requeued += r2.requeued || 0;
 
-  if (added > 0) {
+  if (truncated) {
+    console.warn(`[WARN] Calendly API pull truncated after ${CALENDLY_PULL_DEADLINE_MS}ms (${scanned} invitees scanned, ${added} queued) — remaining events sync next cycle`);
+  } else if (added > 0) {
     console.log(`[OK] Calendly API pull queued ${added} event(s) (${requeued} re-queued for CRM heal/refresh, ${skipped} unchanged, ${scanned} invitees scanned)`);
   }
 
-  return { added, skipped, scanned, requeued };
+  return { added, skipped, scanned, requeued, truncated };
 }
 
 module.exports = {
   CALENDLY_API_BASE,
   CALENDLY_API_TIMEOUT_MS,
+  CALENDLY_PULL_DEADLINE_MS,
   verifySignature,
   resolveInviteeFormName,
   extractEvent,

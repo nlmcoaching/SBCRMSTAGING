@@ -54,7 +54,7 @@ export function TemplateLibraryView({ data, setData, onOpen, currentUser, query 
   });
 
   const copyTemplate = (t) => {
-    const full = (t.subject ? `Subject: ${t.subject}\n\n` : "") + t.body;
+    const full = (t.subject ? `Subject: ${t.subject}\n\n` : "") + (t.body || "");
     navigator.clipboard?.writeText(full).catch(() => {});
     setCopied(t.id);
     setTimeout(() => setCopied(null), 2000);
@@ -206,7 +206,8 @@ export function TemplateLibraryView({ data, setData, onOpen, currentUser, query 
 
   // Highlight {{variables}} in body preview
   const renderWithVars = (text, maxLen = 180) => {
-    const snippet = text.slice(0, maxLen) + (text.length > maxLen ? "…" : "");
+    const src = String(text ?? "");
+    const snippet = src.slice(0, maxLen) + (src.length > maxLen ? "…" : "");
     const parts = snippet.split(/({{[^}]+}})/g);
     return parts.map((p, i) =>
       /^{{/.test(p)
@@ -278,7 +279,7 @@ export function TemplateLibraryView({ data, setData, onOpen, currentUser, query 
             <div style={{ padding: "16px 20px 14px", borderBottom: `1px solid ${C.line}`, display: "flex", alignItems: "center", gap: 10 }}>
               <Mail size={16} color="#2563EB" />
               <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 700, fontSize: 14.5, color: C.ink }}>{emailPreview.template.name}</div>
+                <div style={{ fontWeight: 700, fontSize: 14.5, color: C.ink }}>{emailPreview.template?.name || "Untitled"}</div>
                 <div style={{ fontSize: 11.5, color: C.ink3, marginTop: 1 }}>Select a recipient to auto-populate the message</div>
               </div>
               <button onClick={() => setEmailPreview(null)} style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, padding: 4, borderRadius: 6 }}>
@@ -452,7 +453,7 @@ export function TemplateLibraryView({ data, setData, onOpen, currentUser, query 
                 <div style={{ padding: "12px 14px 10px", borderBottom: `1px solid ${C.line}` }}>
                   <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 7 }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 700, fontSize: 13.5, color: C.ink, lineHeight: 1.3 }}>{t.name}</div>
+                      <div style={{ fontWeight: 700, fontSize: 13.5, color: C.ink, lineHeight: 1.3 }}>{t.name || "Untitled"}</div>
                     </div>
                     <Tag color={chanColor} soft>{t.channel}</Tag>
                   </div>

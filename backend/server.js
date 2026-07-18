@@ -17,7 +17,7 @@ const cors       = require("cors");
 const helmet     = require("helmet");
 const rateLimit  = require("express-rate-limit");
 
-const { writeQueue, writeNamedQueue, STRIPE_QUEUE_FILE } = require("./lib/queue");
+const { writeQueue, writeNamedQueue, STRIPE_QUEUE_FILE, withQueueLock } = require("./lib/queue");
 const { requireFrontendSecret, requireEditSession } = require("./lib/authUsers");
 
 const calendlyRoutes = require("./routes/calendly");
@@ -196,7 +196,8 @@ app.use(cors({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
     if (allowedOrigins.includes(origin)) return cb(null, true);
-    cb(new Error("Not allowed by CORS"));
+    // Reject without throwing — a thrown Error becomes an HTML 500 without error middleware.
+    return cb(null, false);
   },
 }));
 
@@ -219,14 +220,31 @@ app.use("/api", emailRoutes);
 // requireAdminToken is intentionally omitted: this endpoint is called from the browser during
 // Reset to Production. ADMIN_SECRET is a server-side-only secret the browser cannot send.
 // Gate like refunds: FRONTEND_SECRET + Edit-capable API session (x-session-token).
-app.post("/api/integration/clear-queues", requireFrontendSecret, requireEditSession, (_req, res) => {
-  writeQueue([]);
-  writeNamedQueue(STRIPE_QUEUE_FILE, []);
-  res.json({ status: "cleared", calendly: 0, stripe: 0 });
+app.post("/api/integration/clear-queues", requireFrontendSecret, requireEditSession, async (_req, res) => {
+  try {
+    await withQueueLock(() => {
+      writeQueue([]);
+      writeNamedQueue(STRIPE_QUEUE_FILE, []);
+    });
+    res.json({ status: "cleared", calendly: 0, stripe: 0 });
+  } catch (err) {
+    console.error("[ERROR] clear-queues failed:", err.message);
+    res.status(500).json({ error: "Failed to clear queues" });
+  }
 });
 
 // ── Health check (unauthenticated — accepted: used by process monitors) ──
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
+
+// ── 404 + error handlers (JSON — avoid default HTML error pages) ──
+app.use((req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+app.use((err, _req, res, _next) => {
+  console.error("[ERROR]", err?.message || err);
+  const status = Number(err?.status || err?.statusCode) || 500;
+  res.status(status).json({ error: err?.message || "Internal server error" });
+});
 
 app.listen(PORT, () => {
   console.log(`\n✅ Simply Breathe webhook backend running on http://localhost:${PORT}`);

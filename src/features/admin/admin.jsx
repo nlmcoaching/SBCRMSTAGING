@@ -86,9 +86,8 @@ function buildDbSchema(fields) {
   });
 }
 
-function getDbSchema() {
-  return buildDbSchema(FIELDS || {});
-}
+/** Built once — FIELDS is a static module; avoid rebuilding on every AdminView render. */
+const DB_SCHEMA = buildDbSchema(FIELDS || {});
 
 const EMAIL_STATUS_COLOR = {
   sent:      "#2563EB",
@@ -560,7 +559,6 @@ export function ResetToProductionView({ data, setData, currentUser }) {
 }
 
 export function AdminView({ tab, data, setData, secUsers, currentUser, today, crmSettings, onSaveSettings }) {
-  const DB_SCHEMA = getDbSchema();
   const [integrityResults, setIntegrityResults] = useState(null);
   const [runningCheck, setRunningCheck]         = useState(false);
   const [schemaTable,  setSchemaTable]          = useState(() => Object.keys(SCHEMA_META)[0]);
@@ -1597,7 +1595,7 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
   };
 
   const handleUpdatePerms = async (userId, updatedPerms, updatedRole) => {
-    
+    if (!canManage) { flash("Owner access required."); return; }
     setSaving(true);
     try {
       const sec = (await loadSecMeta()) || {};
@@ -1620,6 +1618,7 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
   };
 
   const handleResetPin = async (userId, newPinVal) => {
+    if (!canManage) { flash("Owner access required."); return; }
     if (!newPinVal.trim() || !masterKeyRaw) return;
     {
       const check = Sec.validatePassphrase(newPinVal);
@@ -1763,7 +1762,6 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
         {secUsers.map(u => {
           const isMe   = u.id === currentUser?.id;
           const isEdit = editUser?.id === u.id;
-          const [ePerm, setEPerm] = [editUser?.permissions || u.permissions, (p) => setEditUser(ev => ({ ...ev, permissions: p }))];
 
           return (
             <div key={u.id} style={{

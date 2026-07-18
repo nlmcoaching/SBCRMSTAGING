@@ -581,7 +581,7 @@ When a client books through your Calendly link, the CRM automatically:
 
 At the bottom of the sidebar you'll see a **Calendly sync status indicator**. The CRM syncs automatically every **15 minutes** in the background — no action needed. Background sync always builds on your latest saved edits (it will not undo changes you made since you logged in).
 
-Each sync also **pulls recent bookings and cancellations directly from Calendly** (not just webhooks), so new bookings — and any cancellations — appear even if a webhook was missed while ngrok or the backend was offline. Cancellations are checked first on every sync, so a session canceled in Calendly is marked canceled in the CRM (and moves to the Cancellations and Reschedules view) on the very next sync, automatically. This works for **both** a one-on-one virtual session that someone cancels **and** a single participant who drops out of a **studio group class** (where the class itself stays on the calendar but that person's spot is freed) — both kinds of cancellation now come through reliably. If Calendly retries the same webhook (for example after a slow network response), the backend records it only once, so you will not get duplicate bookings from retries.
+Each sync also **pulls recent bookings and cancellations directly from Calendly** (not just webhooks), so new bookings — and any cancellations — appear even if a webhook was missed while ngrok or the backend was offline. Cancellations are checked first on every sync, so a session canceled in Calendly is marked canceled in the CRM (and moves to the Cancellations and Reschedules view) on the very next sync, automatically. This works for **both** a one-on-one virtual session that someone cancels **and** a single participant who drops out of a **studio group class** (where the class itself stays on the calendar but that person's spot is freed) — both kinds of cancellation now come through reliably. If Calendly retries the same webhook (for example after a slow network response), the backend records it only once, so you will not get duplicate bookings from retries. When there are many recent events to scan, a single sync may stop partway through a time budget and finish the rest on the next cycle — that is expected, not a failure.
 
 Recent bookings (created in the last few days) are also **re-checked** on sync so they can reappear if they were acknowledged but missing from your local CRM data. Fake signature-test bookings (names like “Sig Test” with TEST links) are ignored and will not be imported.
 
@@ -1019,7 +1019,7 @@ Clicking **Email** opens a compose window that sends the email without leaving S
 
 ### Template Variables
 
-Templates use `{{placeholders}}` that are highlighted in the preview so you can spot them easily. The Email button auto-fills most of them — you only need to manually enter things like specific dates, links, or offer details that the system can't know in advance.
+Templates use `{{placeholders}}` that are highlighted in the preview so you can spot them easily. Templates with an empty message body still preview safely (no crash). The Email button auto-fills most of them — you only need to manually enter things like specific dates, links, or offer details that the system can't know in advance.
 
 ### Available Templates
 
@@ -1425,6 +1425,9 @@ Yes, as long as you use the same browser and have not cleared your browser stora
 
 **What happens if I clear my browser cache?**
 Your encrypted data could be lost. Always use the **Admin → Storage & Backup → Download Backup** option regularly to keep a safe copy of your data.
+
+**The screen says "Something went wrong" with a Reload button. What do I do?**
+The app hit an unexpected display error and stopped rendering so you would not see a blank page. Your saved data in this browser is still there. Click **Reload app**. If it keeps happening, download a backup from **Admin → Storage & Backup** (if you can still get in), then contact support with any short error text shown on that screen.
 
 **I see a red "Save failed" banner at the top of the screen. What do I do?**
 This means your last change could not be written to browser storage (most often a storage quota issue). You may also see a short message pop up in the top-right corner with more detail. Your in-memory data is still intact for the current session, but it will be lost on a page reload. Do the following immediately:

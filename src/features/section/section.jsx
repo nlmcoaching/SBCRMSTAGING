@@ -659,7 +659,7 @@ export function CalendarView({ rows, today, derived, data, onOpen }) {
 export function SessionPerfView({ rows, derived, data = {}, onOpen }) {
   if (!rows.length) return <Empty pad>No sessions logged yet.</Empty>;
 
-  // Studio sessions derive gross/split/net from actual Stripe revenue Ã— studio share %.
+  // Studio sessions derive gross/split/net from actual Stripe revenue × studio share %.
   // Virtual sessions keep their booking-derived figures (no studio split).
   const partnersById = Object.fromEntries((data.partners || []).map((p) => [p.id, p]));
   const revenueRows = buildRegistrationRevenueRows(data);

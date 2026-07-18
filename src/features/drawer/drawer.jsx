@@ -1354,7 +1354,7 @@ export function PartnerSessionsTab({ record, data, onOpenRelated, today }) {
     .filter(s => s.studioId === record.id)
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
-  // Studio finance per session: actual Stripe revenue received Ã— this studio's share %.
+  // Studio finance per session: actual Stripe revenue received × this studio's share %.
   const partnersById = { [record.id]: record };
   const revenueRows = buildRegistrationRevenueRows(data);
   const finBySession = Object.fromEntries(sessions.map(s => [s.id, studioSessionFinance(s, data, { partnersById, revenueRows })]));
@@ -1646,7 +1646,7 @@ export function SessionBookingsTab({ record, data, onOpenRelated, setData }) {
    SESSION PERFORMANCE (drawer tab)
    ============================================================ */
 export function SessionPerformance({ record: r, derived, data }) {
-  // Studio sessions: gross/split/net derive from actual Stripe revenue received Ã— studio share %.
+  // Studio sessions: gross/split/net derive from actual Stripe revenue received × studio share %.
   const fin = r.studioId
     ? studioSessionFinance(r, data, { revenueRows: buildRegistrationRevenueRows(data) })
     : { seatPrice: 0, gross: Number(r.revenue) || 0, studioSplit: 0, net: Number(r.netRevenue) || 0, sharePct: 0 };
@@ -1672,20 +1672,20 @@ export function SessionPerformance({ record: r, derived, data }) {
       ["Journey",         esc(r.journey || "—")],
       ["Studio",          esc(studioFull || "—")],
       ["Date & Time",     `${esc(fmtDate(r.date))}${r.time ? " · " + esc(r.time) : ""}`],
-      ["Capacity",        r.capacity || "—"],
-      ["Registered",      r.registered || "—"],
-      ["Attended",        `${r.attendance || 0}${capUtil !== null ? ` (${capUtil}% full)` : ""}`],
-      ["Paid Attendees",  typeof r.paidAttendees === "number" ? r.paidAttendees : (r.attendance || 0)],
-      ["Waivers",         r.waivers || 0],
-      ["No-shows",        r.noShows || 0],
-      ["Gross Revenue",   `$${Number(gross).toFixed(2)}`],
-      ["Studio Split",    `$${Number(split).toFixed(2)}`],
-      ["Net Revenue",     `$${Number(net).toFixed(2)}`],
-      ["Rev per Head",    `$${Number(revPerHead).toFixed(2)}`],
-      ["Conversion Rate", r.conversion ? `${Math.round(r.conversion * 100)}%` : "—"],
-      ["Packages Sold",   r.packagesSold || 0],
-      ["Testimonials",    r.testimonialsCapt || 0],
-      ["Referrals",       r.referralsGenerated || 0],
+      ["Capacity",        esc(r.capacity || "—")],
+      ["Registered",      esc(r.registered || "—")],
+      ["Attended",        esc(`${r.attendance || 0}${capUtil !== null ? ` (${capUtil}% full)` : ""}`)],
+      ["Paid Attendees",  esc(typeof r.paidAttendees === "number" ? r.paidAttendees : (r.attendance || 0))],
+      ["Waivers",         esc(r.waivers || 0)],
+      ["No-shows",        esc(r.noShows || 0)],
+      ["Gross Revenue",   esc(`$${Number(gross).toFixed(2)}`)],
+      ["Studio Split",    esc(`$${Number(split).toFixed(2)}`)],
+      ["Net Revenue",     esc(`$${Number(net).toFixed(2)}`)],
+      ["Rev per Head",    esc(`$${Number(revPerHead).toFixed(2)}`)],
+      ["Conversion Rate", esc(r.conversion ? `${Math.round(r.conversion * 100)}%` : "—")],
+      ["Packages Sold",   esc(r.packagesSold || 0)],
+      ["Testimonials",    esc(r.testimonialsCapt || 0)],
+      ["Referrals",       esc(r.referralsGenerated || 0)],
     ];
 
     const metricsHtml = rows.map(([label, val]) => `
@@ -2405,7 +2405,7 @@ export function TagSelectorInput({ fld, value, onChange }) {
       {selected.map(tag => (
         <span key={tag} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px 4px 12px", borderRadius: 20, background: C.brandSoft, color: C.brandDeep, fontSize: 12.5, fontWeight: 600, border: `1px solid ${C.brand}` }}>
           {tag}
-          <button onClick={() => onChange(selected.filter(t => t !== tag))} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 1, color: C.brand, fontSize: 13, marginLeft: 2 }}>Ã—</button>
+          <button onClick={() => onChange(selected.filter(t => t !== tag))} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, lineHeight: 1, color: C.brand, fontSize: 13, marginLeft: 2 }}>&times;</button>
         </span>
       ))}
       {available.length > 0 && (

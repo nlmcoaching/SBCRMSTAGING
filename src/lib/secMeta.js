@@ -7,7 +7,10 @@ export const SEC_META_ENC_KEY = "sb:security:v1:enc";
 /** Device-local AES key for SEC_META_ENC — IDB preferred; never written to CRM backups. */
 const SEC_DEVICE_KEY = "sb:security:device-key:v1";
 
-async function loadOrCreateDeviceKeyB64() {
+/** In-flight promise so concurrent loadOrCreate callers share one create (avoids TOCTOU dual keys). */
+let _deviceKeyPromise = null;
+
+async function doLoadOrCreateDeviceKeyB64() {
   // Prefer IndexedDB so a localStorage-only scrape cannot decrypt the vault.
   try {
     const existing = await _idbGet(SEC_DEVICE_KEY);
@@ -43,6 +46,16 @@ async function loadOrCreateDeviceKeyB64() {
     }
   }
   return keyB64;
+}
+
+function loadOrCreateDeviceKeyB64() {
+  if (!_deviceKeyPromise) {
+    _deviceKeyPromise = doLoadOrCreateDeviceKeyB64().catch((err) => {
+      _deviceKeyPromise = null;
+      throw err;
+    });
+  }
+  return _deviceKeyPromise;
 }
 
 async function encryptMeta(obj) {

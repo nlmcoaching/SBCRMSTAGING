@@ -1332,7 +1332,7 @@ export default function App() {
               <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 8, maxHeight: 280, overflowY: "auto", fontSize: 11 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px 6px", borderBottom: `1px solid ${C.border}`, fontWeight: 600, color: C.ink2 }}>
                   <span>Last sync — {calendlyStatus.items.length} event{calendlyStatus.items.length !== 1 ? "s" : ""}</span>
-                  <button onClick={() => setShowSyncDetail(false)} style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, fontSize: 14, lineHeight: 1, padding: "0 2px" }}>Ã—</button>
+                  <button onClick={() => setShowSyncDetail(false)} style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, fontSize: 14, lineHeight: 1, padding: "0 2px" }}>&times;</button>
                 </div>
                 {calendlyStatus.items.map((item, i) => {
                   const typeColor = item.type === "Booked" ? C.green : item.type === "Updated" ? C.brand : item.type === "Canceled" || item.type === "No-show" ? C.red : C.ink3;
@@ -1423,7 +1423,7 @@ export default function App() {
               <button
                 onClick={() => setBackupBannerDismissed(true)}
                 style={{ background: "none", border: "none", color: "#92400E", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 4px", flexShrink: 0 }}
-                title="Dismiss">Ã—</button>
+                title="Dismiss">&times;</button>
             </div>
           )}
           {saved === "error" && (
@@ -1431,7 +1431,7 @@ export default function App() {
               <span style={{ fontWeight: 700, flexShrink: 0 }}>⚠ Save failed</span>
               <span style={{ flex: 1 }}>Your last change could not be saved. This may be a storage quota issue. Export a backup from <strong>Admin → Storage</strong> immediately, then reload the page.</span>
               <button onClick={() => { go("admin"); setSaved("idle"); }} style={{ background: "#DC2626", color: "#fff", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>Go to Admin</button>
-              <button onClick={() => setSaved("idle")} style={{ background: "none", border: "none", color: "#7F1D1D", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 4px", flexShrink: 0 }} title="Dismiss">Ã—</button>
+              <button onClick={() => setSaved("idle")} style={{ background: "none", border: "none", color: "#7F1D1D", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 4px", flexShrink: 0 }} title="Dismiss">&times;</button>
             </div>
           )}
           {staleDetected && (
@@ -1439,7 +1439,7 @@ export default function App() {
               <span style={{ fontWeight: 700, flexShrink: 0 }}>⚠ Another window has newer data</span>
               <span style={{ flex: 1 }}>This window's data is out of date — another browser tab or window has saved changes more recently. <strong>Refresh this window</strong> to get the latest data before making edits here, or your changes may overwrite the other window's saves.</span>
               <button onClick={() => window.location.reload()} style={{ background: "#D97706", color: "#fff", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>Refresh Now</button>
-              <button onClick={() => setStaleDetected(false)} style={{ background: "none", border: "none", color: "#78350F", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 4px", flexShrink: 0 }} title="Dismiss">Ã—</button>
+              <button onClick={() => setStaleDetected(false)} style={{ background: "none", border: "none", color: "#78350F", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 4px", flexShrink: 0 }} title="Dismiss">&times;</button>
             </div>
           )}
           <header className="sb-header">

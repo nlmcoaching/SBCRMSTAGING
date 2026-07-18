@@ -3,6 +3,7 @@ const express = require("express");
 const {
   readQueue,
   writeQueue,
+  appendWebhookLog,
   withQueueLock,
 } = require("../lib/queue");
 const {
@@ -51,6 +52,7 @@ router.post("/webhooks/calendly", async (req, res) => {
     "invitee_no_show.created",
     "invitee_no_show.deleted",
     "routing_form_submission",
+    "routing_form_submission.created",
   ];
 
   if (!supported.includes(event)) {
@@ -58,6 +60,7 @@ router.post("/webhooks/calendly", async (req, res) => {
     return res.status(200).json({ status: "ignored", event });
   }
 
+  const isRoutingForm = String(event).startsWith("routing_form_submission");
   let extracted = extractEvent(event, payload);
 
   // invitee_no_show.* arrives with invitee as a URI string — resolve before the email gate.
@@ -73,7 +76,7 @@ router.post("/webhooks/calendly", async (req, res) => {
     }
   }
 
-  if (!extracted.email && event !== "routing_form_submission") {
+  if (!extracted.email && !isRoutingForm) {
     console.warn("[WARN] Event has no email — skipping");
     return res.status(200).json({ status: "skipped", reason: "no email" });
   }
@@ -83,10 +86,21 @@ router.post("/webhooks/calendly", async (req, res) => {
   }
 
   // Queue first (before any Calendly API enrichment) so we can 200 quickly.
-  // Dedup by invitee URI + event type prevents timeout-then-retry duplicates.
+  // Dedup by invitee/submission URI + event type prevents timeout-then-retry duplicates.
   let result;
   try {
-    result = await withQueueLock(() => enqueueCalendlyWebhookEvent(extracted));
+    result = await withQueueLock(() => {
+      appendWebhookLog({
+        id: extracted.id,
+        provider: "calendly",
+        eventType: extracted.eventType,
+        receivedAt: extracted.receivedAt,
+        processed: false,
+        inviteeUri: extracted.calendlyInviteeUri || extracted.calendlySubmissionUri || "",
+        email: extracted.email || "",
+      });
+      return enqueueCalendlyWebhookEvent(extracted);
+    });
   } catch (err) {
     console.error("[ERROR] Failed to persist webhook event — returning 500 so Calendly retries:", err.message);
     return res.status(500).json({ error: "Failed to queue event — please retry" });
@@ -331,9 +345,14 @@ router.get("/calendly/events", requireAdminToken, (_req, res) => {
 // ────────────────────────────────────────────────────────────────
 // DELETE /api/calendly/events  (clear queue — dev/admin only)
 // ────────────────────────────────────────────────────────────────
-router.delete("/calendly/events", requireAdminToken, (_req, res) => {
-  writeQueue([]);
-  res.json({ status: "cleared" });
+router.delete("/calendly/events", requireAdminToken, async (_req, res) => {
+  try {
+    await withQueueLock(() => { writeQueue([]); });
+    res.json({ status: "cleared" });
+  } catch (err) {
+    console.error("[ERROR] Failed to clear Calendly queue:", err.message);
+    res.status(500).json({ error: "Failed to clear queue" });
+  }
 });
 
 module.exports = router;

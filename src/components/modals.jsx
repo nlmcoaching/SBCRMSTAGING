@@ -23,6 +23,56 @@ export class DrawerErrorBoundary extends React.Component {
   }
 }
 
+/** Catches render errors above App so the shell degrades to a reload screen instead of a blank page. */
+export class AppErrorBoundary extends React.Component {
+  state = { error: null };
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) {
+    console.error("[AppErrorBoundary]", error, info?.componentStack);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{
+          minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 24, background: C.bg, fontFamily: FONT.body, color: C.ink,
+        }}>
+          <div style={{
+            maxWidth: 420, width: "100%", background: C.surface, border: `1px solid ${C.line}`,
+            borderRadius: 12, padding: "28px 24px",
+          }}>
+            <div style={{ fontFamily: FONT.display, fontWeight: 700, fontSize: 20, marginBottom: 8, color: C.brandDeep }}>
+              Something went wrong
+            </div>
+            <div style={{ fontSize: 14, color: C.ink2, lineHeight: 1.5, marginBottom: 12 }}>
+              The app hit an unexpected error and could not keep rendering. Your data in this browser is unchanged — reload to try again.
+            </div>
+            {this.state.error?.message ? (
+              <div style={{
+                fontSize: 12, color: C.ink3, background: C.surfaceAlt, borderRadius: 8,
+                padding: "10px 12px", marginBottom: 16, wordBreak: "break-word",
+              }}>
+                {this.state.error.message}
+              </div>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              style={{
+                background: C.brand, color: "#fff", border: "none", borderRadius: 8,
+                padding: "10px 16px", fontSize: 14, fontWeight: 600, cursor: "pointer",
+              }}
+            >
+              Reload app
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export const AVATAR_COLORS = ["#2E6FB0","#6B5CE7","#D9892B","#4A8C6F","#2A9D8F","#C0392B","#8E44AD","#16A085","#E67E22","#2980B9"];
 
 export function EditProfileModal({ user, masterKeyRaw, onSave, onClose }) {

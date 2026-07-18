@@ -1,4 +1,4 @@
-import { apiHeaders, fetchWithTimeout, safeResJSON } from "./api.js";
+import { apiHeaders, calendlyApiUrl, fetchWithTimeout, safeResJSON } from "./api.js";
 import { getApiSessionToken } from "./apiSession.js";
 import { uid } from "./format.js";
 
@@ -34,7 +34,7 @@ export function cappedLog(existing, newEntry) {
 export async function sendCrmEmail({ to, recipientName, recipientType, subject, body, templateId = "", templateName = "", category = "", sessionToken } = {}) {
   const tok = sessionToken || getApiSessionToken();
   if (!tok) throw new Error("Not authorised — please log out and log back in before sending email.");
-  const res = await fetchWithTimeout("/api/send-email", {
+  const res = await fetchWithTimeout(calendlyApiUrl("/api/send-email"), {
     method: "POST",
     headers: { ...apiHeaders(), "x-session-token": tok },
     body: JSON.stringify({ to, recipientName, subject, body }),

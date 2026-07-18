@@ -297,9 +297,14 @@ router.post("/stripe/refund", requireFrontendSecret, requireEditSession, async (
 // ────────────────────────────────────────────────────────────────
 // DELETE /api/stripe/events  (clear Stripe queue — dev/admin only)
 // ────────────────────────────────────────────────────────────────
-router.delete("/stripe/events", requireAdminToken, (_req, res) => {
-  writeNamedQueue(STRIPE_QUEUE_FILE, []);
-  res.json({ status: "cleared" });
+router.delete("/stripe/events", requireAdminToken, async (_req, res) => {
+  try {
+    await withQueueLock(() => { writeNamedQueue(STRIPE_QUEUE_FILE, []); });
+    res.json({ status: "cleared" });
+  } catch (err) {
+    console.error("[ERROR] Failed to clear Stripe queue:", err.message);
+    res.status(500).json({ error: "Failed to clear queue" });
+  }
 });
 
 module.exports = router;
