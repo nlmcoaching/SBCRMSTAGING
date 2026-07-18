@@ -1945,7 +1945,8 @@ Express bootstrap lives in `backend/server.js` (config validation, Helmet/CORS/r
 - `QUEUE_ENCRYPTION_KEY` — 32-byte hex key for AES-256-GCM encryption of `pending-events.json` at rest. Generate with `openssl rand -hex 32` (exactly **64 hex characters**). **Required in production** (server refuses to start if missing or malformed); if blank/invalid in dev, queue is stored as plaintext with a loud warning. Runtime `_queueKey()` also requires `/^[0-9a-f]{64}$/i` so a bad key cannot silently disable encryption.
 - `CALENDLY_API_TOKEN` — Calendly Personal Access Token (from Calendly → Integrations → API & Webhooks). Required for event type description fetching and payment amount backfill. See `backend/.env.example`.
 - `STRIPE_WEBHOOK_SECRET` — Stripe webhook signing secret (`whsec_...`) from Stripe Dashboard → Developers → Webhooks. **Required in production** (server exits if missing). In dev, unsigned Stripe webhooks are **rejected** unless `ALLOW_UNSIGNED_STRIPE_WEBHOOKS=true` (never enable with a public ngrok URL; `start.ps1` refuses ngrok when set).
-- `STRIPE_SECRET_KEY` — Stripe secret API key (`sk_live_...` / `sk_test_...`) from Stripe Dashboard → Developers → API keys. Used by `POST /api/stripe/refund` to issue refunds. Optional — without it the refund endpoint returns 503 and the CRM's Refund buttons report that refunds are not configured.
+- `STRIPE_SECRET_KEY` — Stripe API key used only by `POST /api/stripe/refund`. Prefer a **restricted** key with Refunds write (`rk_test_…` / `rk_live_…`); avoid a full `sk_live_` secret on workstations. Optional — without it the refund endpoint returns 503 and the CRM's Refund buttons report that refunds are not configured. When `NODE_ENV≠production` and the value starts with `sk_live_` / `rk_live_`, startup logs a warning unless `ALLOW_LIVE_STRIPE_IN_DEV=true`.
+- `ALLOW_LIVE_STRIPE_IN_DEV` — silences the live-Stripe-in-dev warning only; does not change API behavior.
 - `TRUST_PROXY` — Set to `1` when behind ngrok/nginx/Caddy so rate limiting uses the real client IP. Omit when binding directly to port 3001 on a public interface.
 - `RESEND_API_KEY` — Resend API key for direct email sending. Server logs a warning at startup if missing and returns 503 on any send attempt.
 - `RESEND_FROM` — Sender address (default: `jeff@simplybreathe.ai`). Must be a verified Resend domain.
@@ -1975,6 +1976,7 @@ Express bootstrap lives in `backend/server.js` (config validation, Helmet/CORS/r
 - SSRF guard: `fetchEventTypeDescription` rejects any `event_type` URI that does not begin with `https://api.calendly.com/`
 - Queue capped at **1,000 events**; processed events older than **7 days** are automatically purged on each write
 - Startup validation: server exits with code 1 in production if `CALENDLY_WEBHOOK_SIGNING_KEY`, `QUEUE_ENCRYPTION_KEY` (must be `/^[0-9a-f]{64}$/i`), `STRIPE_WEBHOOK_SECRET`, or `FRONTEND_SECRET` are missing or malformed
+- **Secret hygiene:** `backend/.env` is never committed, but live keys in a plaintext workstation file are exposed to backups, folder sync, and malware. Prefer test Stripe keys locally; on shared/prod hosts inject secrets from a vault (HashiCorp Vault / AWS Secrets Manager). Rotate any credential that may have left the machine. Prefer a refund-scoped `rk_*` key over a full `sk_live_` key.
 - Calendly webhook handler rejects unsigned requests in production when the signing key is unset (same fail-closed pattern as Stripe)
 - Refund / API session mint (`POST /api/auth/session`) requires a one-shot challenge from `GET /api/auth/session-challenge` plus a **server-verified HMAC** `unlockProof` over a per-user unlock secret registered via `POST /api/auth/register-unlock`. Tokens expire in 1 hour, are bound to `userId`, and carry server-side `role` / `canEdit`.
 - `POST /api/auth/register-unlock` self-registration (new `userId`, no Owner session) always forces `role: "Viewer"` and `canEdit: false` — client-supplied role bits are ignored. Only empty-registry bootstrap or an authenticated Owner session may assign elevated roles.
@@ -2460,6 +2462,7 @@ Run `npm test` from the repo root (Node 20+ recommended for `node:test` glob exp
 | Queue | `backend/lib/queue.test.js` | Prune, AES-GCM, atomic write |
 | Refund policy (API) | `backend/lib/refundPolicy.test.js` | CJS mirror of cancel policy |
 | Calendly dedup | `backend/lib/calendly.queueDedup.test.js` | Invitee+type dedup / requeue planner |
+| Auth register-unlock | `backend/lib/auth.test.js` | Bootstrap, self-reg→Viewer clamp, Owner grants, rotate-with-proof |
 
 ### Money Arithmetic
 

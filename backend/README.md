@@ -48,6 +48,15 @@ cp .env.example .env
 Edit `.env` and fill in:
 - `CALENDLY_WEBHOOK_SIGNING_KEY` — generate (`openssl rand -hex 32`) and pass as `signing_key` when creating the webhook subscription; store the same value here. Required in production.
 - `ALLOWED_ORIGINS` — your React dev server URL (default: `http://localhost:5173`)
+- `STRIPE_SECRET_KEY` — prefer a **restricted** key with Refunds write (`rk_test_` / `rk_live_`), not a full `sk_live_` key. Use test keys for local work.
+
+**Secret hygiene:** `backend/.env` is gitignored but still plaintext on disk. Do not zip, OneDrive/Dropbox-sync, or share a project folder that contains live keys. On shared or production hosts, inject secrets from a vault (HashiCorp Vault / AWS Secrets Manager) instead of a checked-out `.env`. If this machine was ever shared or the folder left the box, rotate every live credential (Stripe, Calendly PAT, Resend, webhook secrets, `FRONTEND_SECRET`, `ADMIN_SECRET`, `QUEUE_ENCRYPTION_KEY`).
+
+Live Stripe keys with `NODE_ENV≠production` print a startup warning unless `ALLOW_LIVE_STRIPE_IN_DEV=true`.
+
+```bash
+node scripts/check-env-prefixes.js   # confirms key kinds by prefix only — never prints values
+```
 
 ### 3. Start the backend
 ```bash

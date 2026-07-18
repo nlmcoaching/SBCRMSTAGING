@@ -813,7 +813,7 @@ Use the **search box** at the top of the page to filter every list here by name,
 
 Click **Sync Stripe now** to pull new payments immediately (the CRM also checks every 15 minutes). Sync reloads the full Stripe ledger from the backend so payments are not lost after a refresh.
 
-**Administrator setup:** In Stripe Dashboard → Developers → Webhooks, add endpoint `https://YOUR-BACKEND-URL/api/webhooks/stripe` and subscribe to: `checkout.session.completed`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.refund.updated`. Copy the signing secret into `STRIPE_WEBHOOK_SECRET` in `backend/.env`. For production, also set `FRONTEND_SECRET` and `TRUST_PROXY=1` when the backend sits behind ngrok or your reverse proxy. Stripe (and Calendly) webhook POSTs do not send a browser Origin header — the backend accepts those server-to-server calls; the signing secret is what authenticates them.
+**Administrator setup:** In Stripe Dashboard → Developers → Webhooks, add endpoint `https://YOUR-BACKEND-URL/api/webhooks/stripe` and subscribe to: `checkout.session.completed`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.refund.updated`. Copy the signing secret into `STRIPE_WEBHOOK_SECRET` in `backend/.env`. For production, also set `FRONTEND_SECRET` and `TRUST_PROXY=1` when the backend sits behind ngrok or your reverse proxy. Stripe (and Calendly) webhook POSTs do not send a browser Origin header — the backend accepts those server-to-server calls; the signing secret is what authenticates them. Keep `backend/.env` only on machines you control — do not zip or cloud-sync a project folder that contains live keys; on a shared server, store secrets in a vault instead of a plain file.
 
 ### Revenue and expenses are recorded automatically
 
@@ -889,7 +889,7 @@ The **No refund due** list shows canceled bookings that don't qualify (late canc
 - Card refunds typically take **5–10 business days** to appear on the client's statement.
 - Stripe does **not** return its processing fee from the original charge.
 - You need **Edit** permission to issue refunds; others can view the lists but not click Refund. The backend also checks Edit on the refund API — a Viewer session cannot issue refunds even via DevTools.
-- **Administrator setup:** refunds require your Stripe secret API key in `STRIPE_SECRET_KEY` in `backend/.env` (Stripe Dashboard → Developers → API keys). Without it, the Refund buttons will say refunds are not configured.
+- **Administrator setup:** refunds require a Stripe API key in `STRIPE_SECRET_KEY` in `backend/.env` (Stripe Dashboard → Developers → API keys). Prefer a **restricted key** that can only issue refunds — not the full live secret key. Use test keys on a development machine; live keys mean refunds hit real money. Without a key, the Refund buttons will say refunds are not configured.
 
 ### Revenue Table tab — see every stored record
 

@@ -116,6 +116,23 @@ const emailRoutes    = require("./routes/email");
     console.warn("\n[WARN]  Running in dev mode with missing or malformed secrets.");
     console.warn("        DO NOT deploy to production without setting all required env vars.\n");
   }
+
+  // Live Stripe keys on a workstation: hygiene warning only (never log secret values).
+  // Refunds/writes will hit live Stripe when NODE_ENV≠production and sk_live_/rk_live_ is set.
+  if (!isProd) {
+    const stripeKey = process.env.STRIPE_SECRET_KEY || "";
+    const isLiveStripe = stripeKey.startsWith("sk_live_") || stripeKey.startsWith("rk_live_");
+    if (isLiveStripe && process.env.ALLOW_LIVE_STRIPE_IN_DEV !== "true") {
+      console.warn("\n[WARN]  STRIPE_SECRET_KEY looks like a LIVE Stripe key while NODE_ENV≠production.");
+      console.warn("        Refunds and other Stripe writes from this process hit LIVE money.");
+      console.warn("        Prefer sk_test_ / a refund-scoped rk_test_ for local work, or set");
+      console.warn("        ALLOW_LIVE_STRIPE_IN_DEV=true only when you intentionally need live.");
+      if (stripeKey.startsWith("sk_live_")) {
+        console.warn("        Prefer a refund-scoped restricted key (rk_live_…) instead of a full sk_live_.");
+      }
+      console.warn("");
+    }
+  }
 })();
 
 // Module-level — used in CORS handler and other guards

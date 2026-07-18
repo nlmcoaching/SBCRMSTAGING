@@ -1329,19 +1329,19 @@ export default function App() {
           <div style={{ marginTop: "auto", padding: 12 }}>
             {/* Calendly sync detail panel */}
             {!locked && showSyncDetail && calendlyStatus?.items?.length > 0 && (
-              <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 8, maxHeight: 280, overflowY: "auto", fontSize: 11 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px 6px", borderBottom: `1px solid ${C.border}`, fontWeight: 600, color: C.ink2 }}>
+              <div style={{ background: C.surface, border: `1px solid ${C.line}`, borderRadius: 8, marginBottom: 8, maxHeight: 280, overflowY: "auto", fontSize: 11 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px 6px", borderBottom: `1px solid ${C.line}`, fontWeight: 600, color: C.ink2 }}>
                   <span>Last sync — {calendlyStatus.items.length} event{calendlyStatus.items.length !== 1 ? "s" : ""}</span>
                   <button onClick={() => setShowSyncDetail(false)} style={{ background: "none", border: "none", cursor: "pointer", color: C.ink3, fontSize: 14, lineHeight: 1, padding: "0 2px" }}>&times;</button>
                 </div>
                 {calendlyStatus.items.map((item, i) => {
-                  const typeColor = item.type === "Booked" ? C.green : item.type === "Updated" ? C.brand : item.type === "Canceled" || item.type === "No-show" ? C.red : C.ink3;
+                  const typeColor = item.type === "Booked" ? "#4A8C6F" : item.type === "Updated" ? C.brand : item.type === "Canceled" || item.type === "No-show" ? "#C0392B" : C.ink3;
                   const dtStr = item.scheduledAt ? (() => { try { return new Date(item.scheduledAt).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch { return ""; } })() : "";
                   return (
-                    <div key={i} style={{ padding: "6px 10px", borderBottom: i < calendlyStatus.items.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                    <div key={i} style={{ padding: "6px 10px", borderBottom: i < calendlyStatus.items.length - 1 ? `1px solid ${C.line}` : "none" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
                         <span style={{ background: typeColor + "22", color: typeColor, borderRadius: 4, padding: "1px 5px", fontWeight: 600, fontSize: 10, flexShrink: 0 }}>{item.type}</span>
-                        <span style={{ color: C.ink1, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.clientName || "—"}</span>
+                        <span style={{ color: C.ink, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.clientName || "—"}</span>
                         {item.amount != null && <span style={{ marginLeft: "auto", color: C.ink2, flexShrink: 0 }}>{item.amount === 0 ? "Free" : `$${item.amount.toFixed(2)}`}</span>}
                       </div>
                       {(item.eventName || dtStr) && (
@@ -1388,7 +1388,7 @@ export default function App() {
                     <span style={{ color: C.brand, fontWeight: 600 }}>{calendlyStatus.pending} booking{calendlyStatus.pending !== 1 ? "s" : ""} pending…</span>
                   )}
                   {calendlyStatus?.error && !calendlyStatus?.syncing && (
-                    <span style={{ color: C.red, fontWeight: 600, display: "block" }}>{calendlyStatus.error}</span>
+                    <span style={{ color: "#C0392B", fontWeight: 600, display: "block" }}>{calendlyStatus.error}</span>
                   )}
                   {!calendlyStatus && "Calendly sync active"}
                 </span>
