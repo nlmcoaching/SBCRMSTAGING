@@ -9,6 +9,7 @@ import {
   confirmRegistrationFreeCoupon,
 } from "./stripeMatching.js";
 
+
 const clients = [
   { id: "c1", name: "Alex Rivera", email: "client1@example.com" },
   { id: "c2", name: "Jan Brady", email: "client2@example.com" },

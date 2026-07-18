@@ -3,11 +3,10 @@ import { Users, Building2, RefreshCw, Plus, X, Trash2, ChevronDown, Check, Zap, 
 import { C, hexA } from "../../lib/theme.js";
 import { fmtDate, cleanName } from "../../lib/format.js";
 import { FU_STEPS, FU_TEMPLATES, interpolateTemplate } from "../../lib/constants.js";
+import { useCrm } from "../../lib/crmContext.jsx";
 import { slimHistEntry, cappedLog, sendCrmEmail, makeEmailFailEntry } from "../../lib/email.js";
 import { findUnreplacedTemplateTokens, unreplacedTokensMessage } from "../../lib/templates.js";
 import { Stat, Tag, MiniChip } from "../../components/primitives.jsx";
-
-function f(key, label, type, opts = {}) { return { key, label, type, ...opts }; }
 
 /** Prefer saved `data.fuTemplates` body over hardcoded FU_TEMPLATES defaults. */
 function getFuStepBody(stepId, fuTemplates = []) {
@@ -153,7 +152,8 @@ export function FollowUpSendButton({ r, data, setData, today }) {
   );
 }
 
-export function FollowUpEngine({ data, setData, today, onOpen, canEdit = true }) {
+export function FollowUpEngine({ onOpen }) {
+  const { data, setData, today, canEdit } = useCrm();
   const [tab, setTab] = useState("queue");
 
   const sequences = data.sequences || [];

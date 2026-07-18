@@ -13,8 +13,10 @@ import { loadSecMeta, saveSecMeta } from "../../lib/secMeta.js";
 import { Sec } from "../../lib/sec.js";
 import { DEFAULT_CRM_SETTINGS } from "../../lib/crmSettings.js";
 import { CRM_ARRAY_KEYS, normalizeCrmData } from "../../lib/normalizeData.js";
+import { notify } from "../../lib/notify.js";
 import { Stat } from "../../components/primitives.jsx";
-import { AppComponent, getAppFields } from "../../components/appBridge.jsx";
+import { ConfirmModal } from "../../components/modals.jsx";
+import { FIELDS } from "../../lib/schema/index.js";
 
 const LAST_BACKUP_KEY      = "sb:last-backup:v1";
 
@@ -23,7 +25,7 @@ async function deleteAgreementBlob(agreementId) {
   await store.remove(AGREEMENT_BLOB_PREFIX + agreementId);
 }
 
-/** Table labels/lanes for Schema Browser — field lists come from runtime FIELDS via getAppFields(). */
+/** Table labels/lanes for Schema Browser — field lists come from src/lib/schema/fields.js. */
 const SCHEMA_META = {
   clients:        { label: "Clients",           lane: "B2C",  description: "Individual clients — leads, attendees, members, and advocates." },
   partners:       { label: "Studio Partners",   lane: "B2B",  description: "Studios, gyms, and wellness spaces that host breathwork events." },
@@ -85,7 +87,7 @@ function buildDbSchema(fields) {
 }
 
 function getDbSchema() {
-  return buildDbSchema(getAppFields() || {});
+  return buildDbSchema(FIELDS || {});
 }
 
 const EMAIL_STATUS_COLOR = {
@@ -268,7 +270,7 @@ export function EmailLogsView({ data, setData, currentUser }) {
         </div>
       )}
       {canClearLog && clearConfirm && (
-        <AppComponent name="ConfirmModal"
+        <ConfirmModal
           message="Clear the entire email log? This cannot be undone. Owner only."
           okLabel="Clear log"
           danger
@@ -1236,7 +1238,7 @@ export function AdminView({ tab, data, setData, secUsers, currentUser, today, cr
           : <div style={{ padding: "40px 24px", textAlign: "center", color: C.ink2, fontSize: 14 }}>Owner access required to reset production data.</div>
       )}
       {exportConfirm && (
-        <AppComponent name="ConfirmModal"
+        <ConfirmModal
           message="This backup file contains ALL your CRM data in plain text — client names, emails, phone numbers, and financial records. Store it in a secure location and do not share it."
           okLabel="Download backup"
           onOk={() => { doExportAll(); setExportConfirm(false); }}
@@ -1518,7 +1520,6 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
   const [newPerm, setNewPerm]           = useState({ ...ROLE_PERMISSIONS.Editor });
   const [showPin, setShowPin]           = useState(false);
   const [saving, setSaving]             = useState(false);
-  const [msg, setMsg]                   = useState("");
   const [deactivateConfirm, setDeactivateConfirm] = useState(null);
 
   const canManage = currentUser?.role === "Owner" || currentUser?.permissions?.manage;
@@ -1537,7 +1538,12 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
     );
   }
 
-  const flash = (m) => { setMsg(m); setTimeout(() => setMsg(""), 2800); };
+  const flash = (m, type) => {
+    const s = String(m ?? "");
+    if (type) return notify(s, { type });
+    if (s.startsWith("✓")) return notify.success(s.replace(/^✓\s*/, ""));
+    return notify.error(s.replace(/^Error:\s*/i, ""));
+  };
 
   const applyRoleDefaults = (role) => {
     setNewRole(role);
@@ -1546,7 +1552,7 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
 
   const handleAdd = async () => {
     if (!allowMultiUser) {
-      flash("Enable multi-user access in Admin → Settings first. All users can decrypt the full CRM.");
+      flash("Enable multi-user access in Admin → Settings first. All users can decrypt the full CRM.", "warning");
       return;
     }
     if (!newName.trim() || !newPin.trim()) return;
@@ -1580,7 +1586,7 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
         ownerSessionToken: ownerTok,
       });
       if (!registered) {
-        flash("User saved locally, but server permission sync failed — have them log in, then re-save their permissions.");
+        flash("User saved locally, but server permission sync failed — have them log in, then re-save their permissions.", "warning");
       } else {
         flash(`✓ ${nu.name} added successfully`);
       }
@@ -1658,7 +1664,7 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
       const updated = { ...sec, users: sec.users.map(u => u.id === userId ? { ...u, active: false } : u) };
       await saveSecMeta(updated);
       onUsersUpdated(updated.users.filter(u => u.active !== false));
-      flash("User deactivated");
+      flash("User deactivated", "success");
     } catch (e) { console.error("handleDeactivate:", e); }
     setSaving(false);
   };
@@ -1673,13 +1679,6 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
         <Stat label="Editor / Admin" value={secUsers.filter(u => ["Admin","Editor"].includes(u.role)).length} hint="" accent={C.brand} />
         <Stat label="Viewer"        value={secUsers.filter(u => u.role === "Viewer").length} hint="" accent={C.ink3} />
       </div>
-
-      {msg && (
-        <div style={{ background: msg.startsWith("✓") ? hexA("#4A8C6F", 0.1) : hexA("#C0392B", 0.1),
-          border: `1px solid ${hexA(msg.startsWith("✓") ? "#4A8C6F" : "#C0392B", 0.3)}`,
-          borderRadius: 8, padding: "10px 14px", fontSize: 13, fontWeight: 600,
-          color: msg.startsWith("✓") ? "#2D6A50" : "#C0392B" }}>{msg}</div>
-      )}
 
       {/* Add user */}
       {canManage && (
@@ -1827,7 +1826,7 @@ export function UserManagementView({ currentUser, secUsers, masterKeyRaw, onUser
         })}
       </div>
       {deactivateConfirm && (
-        <AppComponent name="ConfirmModal"
+        <ConfirmModal
           message={deactivateConfirm.message}
           okLabel={deactivateConfirm.okLabel}
           danger={deactivateConfirm.danger}

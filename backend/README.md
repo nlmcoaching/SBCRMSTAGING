@@ -4,6 +4,20 @@ A lightweight Node.js/Express server that receives Calendly webhook events and q
 
 ---
 
+## Layout
+
+| Path | Role |
+|---|---|
+| `server.js` | Express bootstrap (config validation, Helmet/CORS/rate limits, mounts routers) |
+| `routes/` | `calendly`, `stripe`, `auth`, `email` route modules |
+| `lib/` | `queue`, `authUsers`, `calendly`, `refundPolicy` helpers (+ unit tests) |
+| `stripe-handlers.js` | Stripe signature verify + payment extraction |
+
+```bash
+npm test                 # from repo root: frontend + backend node:test suites
+npm test                 # from backend/: queue, refund policy, Calendly queue dedup
+```
+
 ## How It Works
 
 ```

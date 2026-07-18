@@ -2,15 +2,12 @@ import { useState, useMemo } from "react";
 import { ChevronRight, Zap, AlertCircle } from "lucide-react";
 import { C, FONT, hexA } from "../../lib/theme.js";
 import { money } from "../../lib/format.js";
-import { _c } from "../../lib/revenue.js";
 import { Stat } from "../../components/primitives.jsx";
 import {
   CLIENT_TYPE_LEAD, CLIENT_TYPE_FIRST, CLIENT_TYPE_REPEAT, CLIENT_TYPE_ADVOCATE, CLIENT_TYPE_DORMANT,
   PARTNER_STAGE_TARGET, PARTNER_STAGE_DEMO, PARTNER_STAGE_PILOT, PARTNER_STAGE_ACTIVE,
   SESSION_STATUS_PROMOTED, OPEN_STATUSES, WON_STATUSES, LOST_STATUSES,
 } from "../../lib/constants.js";
-
-const sum = (rows, k) => rows.reduce((a, r) => a + _c(r[k]), 0) / 100;
 
 export function buildWorkflows(data, today) {
   const clients   = data.clients   || [];

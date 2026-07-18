@@ -1,5 +1,5 @@
 /** Pure amount-mismatch patch (no Vite/api imports — unit-testable under node:test). */
-import { amountsMatch } from "../stripeMatching.js";
+import { amountsMatch } from "./stripeMatching.js";
 
 export function patchAmountMismatches(prevRegs = []) {
   let changed = false;

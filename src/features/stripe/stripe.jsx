@@ -2,8 +2,9 @@ import { useState, useEffect, useMemo, Fragment } from "react";
 import { RefreshCw, ChevronRight, ArrowUpRight } from "lucide-react";
 import { C, hexA } from "../../lib/theme.js";
 import { fmtDate, money, norm, cleanName } from "../../lib/format.js";
-import { readAmt, applyPaymentReconciliation, reconcileAmountMismatches, formatRegistrationAmount, registrationRevenueChannel } from "../../lib/revenue.js";
-import { amountsMatch, normalizeEmail, registrationSessionAmount, registrationCreatedTimestamp, confirmRegistrationFreeCoupon } from "../../stripeMatching.js";
+import { readAmt, applyPaymentReconciliation, reconcileAmountMismatches, formatRegistrationAmount, registrationRevenueChannel } from "../../lib/revenue/index.js";
+import { amountsMatch, normalizeEmail, registrationSessionAmount, registrationCreatedTimestamp } from "../../lib/stripeMatching.js";
+import { confirmFreeCoupon as applyFreeCoupon } from "../../lib/domainActions.js";
 import { Panel, Empty } from "../../components/primitives.jsx";
 
 function formatRegistrationDateTime(iso) {
@@ -113,12 +114,7 @@ export function PaymentReconciliationView({ data, derived, setData, onOpen, sync
       setCouponError(prev => ({ ...prev, [bookingId]: "Enter the coupon code used for this booking." }));
       return;
     }
-    setData(prev => ({
-      ...prev,
-      registrations: (prev.registrations || []).map(r =>
-        r.id === bookingId ? confirmRegistrationFreeCoupon(r, code) : r
-      ),
-    }));
+    setData(prev => applyFreeCoupon(prev, bookingId, code));
     setCouponDrafts(prev => {
       const next = { ...prev };
       delete next[bookingId];

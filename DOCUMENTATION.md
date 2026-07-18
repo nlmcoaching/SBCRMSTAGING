@@ -143,7 +143,7 @@ After 5 consecutive failed PIN attempts, the lock screen displays a lockout mess
 | Layer | Storage | Survives |
 |---|---|---|
 | Client-side | **IndexedDB** (`sb:pin-lockout:v2`) | Page refresh, tab close, `localStorage.clear()` |
-| Server-side | In-memory Map in `backend/server.js` | XSS-based JS injection, DevTools IDB deletion |
+| Server-side | In-memory Map in `backend/lib/authUsers.js` | XSS-based JS injection, DevTools IDB deletion |
 
 `handleUnlock` reads the IDB counter and calls `GET /api/auth/pin-status` **before** attempting PIN verification. A failure is recorded in both stores via `POST /api/auth/pin-attempt`. The server counter resets on server restart (acceptable for local deployment); the IDB counter persists until the 5-minute TTL expires. Stale entries are pruned automatically on IDB read.
 
@@ -187,7 +187,7 @@ The app uses a **stale-write guard** to prevent one browser tab from silently ov
 
 The Calendly/Stripe background poll runs every **15 minutes** while unlocked (`useEffect` deps: `[locked]` only). Sync function references are held in refs updated each render so the interval always calls the latest `syncCalendly` / `syncStripe`.
 
-More importantly, both syncs apply webhook/ledger events **inside** `setData(prev => …)` starting from the latest React state — not from a closed-over `data` snapshot taken at unlock. Replacing whole collections (`clients`, `registrations`, `sessions`, etc.) from an unlock-time copy would silently revert every edit made after login, then persist the revert. Acknowledge ids and sync status are still taken from the updater’s final run (Strict Mode may invoke the updater twice in development).
+More importantly, both syncs apply webhook/ledger events **inside** `setData(prev => …)` starting from the latest React state — not from a closed-over `data` snapshot taken at unlock. The pure reducers are `applyCalendlyEvents` (`src/lib/calendlySync.js`) and `applyStripeSyncEvents` (`src/lib/stripeSync.js`); App only owns fetch/ack/UI status. Replacing whole collections from an unlock-time copy would silently revert every edit made after login, then persist the revert. Acknowledge ids and sync status are still taken from the updater’s final run (Strict Mode may invoke the updater twice in development).
 
 ### Legacy Account Upgrade Banner
 
@@ -1154,7 +1154,9 @@ Manual **Revenue** records (gross, Stripe fee, studio split, etc.) are part of t
 
 Refunds are **one-click approved**: the CRM evaluates the cancellation policy automatically, but a human always clicks **Refund** (and confirms) before any money moves. Nothing is refunded silently.
 
-#### Eligibility policy matrix (`refundEligibility(reg, data)`)
+#### Eligibility policy matrix (`src/lib/refundPolicy.js`)
+
+Shared by the Refunds UI, Today alerts, and `POST /api/stripe/refund`. `refundEligibility(reg, data)` applies payment guards then calls pure `evaluateRefundPolicy({ cancelerType, canceledAt, sessionAt })` (the same function the backend requires).
 
 | Initiator (`cancelerType`) | Time window | Stripe amount | Result |
 |---|---|---|---|
@@ -1179,9 +1181,10 @@ Additional guards: a booking whose `stripeRefundId` is set, whose `paymentStatus
 
 | Requirement | Detail |
 |---|---|
-| Backend endpoint | `POST /api/stripe/refund` (`backend/server.js`), `requireFrontendSecret` + Edit session + policy/Stripe binding |
+| Backend endpoint | `POST /api/stripe/refund` (`backend/routes/stripe.js`), `requireFrontendSecret` + Edit session + policy/Stripe binding |
 | Env var | `STRIPE_SECRET_KEY` in `backend/.env` (Stripe secret API key `sk_live_...` / `sk_test_...`). Without it the endpoint returns 503 — the webhook signing secret alone cannot create refunds |
-| Frontend helpers | `refundEligibility`, `issueStripeRefund` (`src/lib/revenue.js`), `REFUND_POLICY_HOURS`, `RefundsView` |
+| Frontend helpers | `refundEligibility`, `evaluateRefundPolicy`, `REFUND_POLICY_HOURS` (`src/lib/refundPolicy.js`); `issueStripeRefund` (`src/lib/revenue/stripeMerge.js`); `RefundsView` |
+| Backend policy | `evaluateRefundPolicy` / `REFUND_POLICY_HOURS` (`backend/lib/refundPolicy.js` — keep in sync with the frontend module) |
 | Permissions | Issuing a refund requires **Edit** permission (`canEdit`), enforced server-side |
 
 ### Table Footer Totals
@@ -1306,6 +1309,7 @@ Pre-built communication templates that can be copied and sent directly from the 
 
 ### Features
 
+- The 14 templates above ship in seed data (`src/lib/seed.js`) and are preserved on Reset to Production. There is no bulk “load starter templates” path — an empty library shows a create/restore empty state.
 - Filter by category and channel (Email / SMS).
 - Search by name, subject, or body text. Both the page header **search box** (the global `query`, passed into `TemplateLibraryView`) and the in-page search field filter the list; when both are set, a template must match both.
 - Variable highlighting — placeholders like `{{clientName}}`, `{{sessionDate}}`, `{{studioName}}` are highlighted in the preview.
@@ -1437,7 +1441,7 @@ A real-time snapshot of the entire system.
 
 | Card | Value |
 |---|---|
-| Total Records | Sum of all records across all schema tables (derived from runtime `FIELDS`) |
+| Total Records | Sum of all records across all schema tables (derived from `FIELDS` in `src/lib/schema`) |
 | Active Users | Number of active user accounts in the security config |
 | Data Size | Uncompressed JSON size of all CRM data (KB) |
 | Storage Used | Size of the encrypted store entry (KB) |
@@ -1478,7 +1482,7 @@ A real-time save status chip appears in the header bar:
 | Saved | ✓ Saved (green) | Most recent change was persisted |
 | Error | Red banner below nav | Last write failed — export backup immediately via Admin → Storage |
 
-When a save error occurs a full-width red banner appears below the navigation bar with a link to Admin and a dismiss button. The banner stays visible until the next successful save or the user dismisses it. A single alert() is also shown on first failure (with quota/reason details); subsequent failures are indicated only by the banner.
+When a save error occurs a full-width red banner appears below the navigation bar with a link to Admin and a dismiss button. The banner stays visible until the next successful save or the user dismisses it. On first failure a toast also appears via `notify.error` (quota/reason details); subsequent failures are indicated only by the banner.
 
 #### Encryption Spec Panel
 
@@ -1515,7 +1519,7 @@ A full, interactive reference for every database table and field in the CRM. No 
 
 #### Table Selector
 
-Toggle buttons for every table in runtime `FIELDS` (including Follow-Ups and Registrations). Each button shows the table label and field count. The selected table is highlighted.
+Toggle buttons for every table in shared `FIELDS` (including Follow-Ups and Registrations). Each button shows the table label and field count. The selected table is highlighted.
 
 #### Field Listing
 
@@ -1567,7 +1571,7 @@ Per-table counts: total fields · required fields · dropdown fields · checkbox
 | `templates` | Templates | Core | Runtime drawer fields |
 | `registrations` | Registrations | B2C | Calendly bookings (sync-only) |
 
-Field lists and counts are generated from the runtime `FIELDS` constant in `src/App.jsx` (plus a synthetic `id` column). Labels and lane badges come from `SCHEMA_META` in `admin.jsx`.
+Field lists and counts are generated from the shared `FIELDS` export in `src/lib/schema` (plus a synthetic `id` column). Admin imports `FIELDS` directly — no runtime `getAppFields()` registration. Labels and lane badges come from `SCHEMA_META` in `admin.jsx`.
 
 ---
 
@@ -1750,7 +1754,7 @@ If the backend is offline during reset, CRM data is still wiped but queue cleari
 |---|---|
 | Access control | Sidebar and Admin tabs are role-filtered via `SECTION_ACCESS` / `ADMIN_TAB_ACCESS` in `constants.js`. User Management is Owner-only; Settings is Owner/Admin; Reset is Owner-only. In-view gates remain for export, restore, clear log, and user CRUD. |
 | Integrity checks | Non-destructive read-only scan — no data is modified |
-| Schema data | Built at runtime from `FIELDS` in `src/App.jsx` via `getAppFields()` / `buildDbSchema()` in `admin.jsx` — select values resolve from each field’s `options` (same source as the record drawer) |
+| Schema data | Built from shared `FIELDS` (`src/lib/schema`) via `buildDbSchema()` in `admin.jsx` — select values resolve from each field’s `options` (same source as the record drawer) |
 | Field names | Canonical runtime keys are listed in `FIELD` in `constants.js` (e.g. offers use `clientId` / `price` / `expireDate`; testimonials use `clientId` / `permissionReceived`; referrals use `referrerId`) |
 | Export format | JSON (not encrypted) — suitable for manual backup and disaster recovery |
 | Storage calculation | Encrypted size read from the encrypted store directly; uncompressed size computed via `TextEncoder` |
@@ -1861,7 +1865,7 @@ Expenses feed into two places:
 |---|---|
 | Data key | `expenses` array within the encrypted store |
 | Constants | `EXPENSE_CATEGORY`, `EXPENSE_CATEGORY_COLOR`, `EXPENSE_PAYMENT_METHOD`, `EXPENSE_RECUR_FREQ` |
-| Component | `ExpenseSummaryView` (inline in `App.jsx`) |
+| Component | `ExpenseSummaryView` (`src/features/revenue`) |
 | Navigation | Listed under B2C lane in sidebar |
 | Seed data | 10 example records covering common expense types |
 
@@ -1875,7 +1879,7 @@ Simply Breathe OS integrates with Calendly via a lightweight Node.js/Express web
 ### Architecture
 
 ```
-Calendly → POST /api/webhooks/calendly (backend/server.js)
+Calendly → POST /api/webhooks/calendly (backend/routes/calendly.js)
          → pending-events.json queue (dedup by invitee URI + event type; 200 before enrichment)
          → async enrichment (event-type description + payment via Calendly API)
          → React CRM polls GET /api/calendly/pending every 15 min
@@ -1883,7 +1887,7 @@ Calendly → POST /api/webhooks/calendly (backend/server.js)
          → Processes new events → updates data state
          → POST /api/calendly/acknowledge (marks events done)
 
-Stripe   → POST /api/webhooks/stripe (backend/server.js)
+Stripe   → POST /api/webhooks/stripe (backend/routes/stripe.js)
          → stripe-pending-events.json queue (dedup by stripeEventId)
          → React CRM polls GET /api/stripe/pending every 15 min
          → Matches payments to Calendly bookings (email + amount + 30 min window)
@@ -1894,7 +1898,23 @@ Calendly creates bookings with **expected session price** and `paymentStatus: pe
 
 The Vite dev server proxies all `/api` requests to `http://localhost:3001`, avoiding CORS entirely.
 
-### Backend (`backend/server.js`)
+### Backend (`backend/server.js` + `routes/` + `lib/`)
+
+Express bootstrap lives in `backend/server.js` (config validation, Helmet/CORS/rate limits, route mounting). Handlers are split by domain:
+
+| Module | Responsibility |
+|---|---|
+| `backend/routes/calendly.js` | Calendly webhooks, pending/ack/pull, cancel, event-description, admin queue |
+| `backend/routes/stripe.js` | Stripe webhooks, ledger/pending/ack, refunds, admin queue clear |
+| `backend/routes/auth.js` | Session challenge/mint, unlock registration, PIN lockout |
+| `backend/routes/email.js` | Resend send + delivery status |
+| `backend/lib/queue.js` | AES-256-GCM queue encryption, atomic writes, mutex, webhook log |
+| `backend/lib/authUsers.js` | Auth-user store, session tokens, Express guards |
+| `backend/lib/calendly.js` | Signature verify, payload extract, Calendly API enrichment/pull |
+| `backend/lib/refundPolicy.js` | 24h cancellation → refund policy (CJS; mirror of `src/lib/refundPolicy.js`) |
+| `backend/stripe-handlers.js` | Stripe signature verify + payment extraction |
+
+**Unit tests** use Node’s built-in test runner (`node:test`). From the repo root, `npm test` runs all frontend `src/**/*.test.js` suites, then `backend`’s `lib/**/*.test.js`. Narrow scripts: `npm run test:frontend`, `npm run test:backend`, `npm run test:stripe-match`, `npm run test:reconcile`.
 
 | Endpoint | Method | Description |
 |---|---|---|
@@ -2040,7 +2060,7 @@ Each Stripe payment event processed by the CRM is stored as a `payment` record:
 | `stripeCheckoutSessionId` | Stripe Checkout Session ID (when applicable) |
 | `stripeEventId` | Stripe webhook event ID |
 | `customerEmail` | Payer email from Stripe |
-| `amountGross` | Amount paid. **Queue/ledger events** (from `extractStripePayment`): integer cents with `_centsFormat: true`. **CRM `payments` records:** always USD dollar floats — cents are normalized and `_centsFormat` is dropped at ingestion / on every merge rewrite (`stripeEventInDollars` / `paymentInDollars` in `src/lib/revenue.js`). |
+| `amountGross` | Amount paid. **Queue/ledger events** (from `extractStripePayment`): integer cents with `_centsFormat: true`. **CRM `payments` records:** always USD dollar floats — cents are normalized and `_centsFormat` is dropped at ingestion / on every merge rewrite (`stripeEventInDollars` / `paymentInDollars` in `src/lib/revenue/money.js`). |
 | `amountRefunded` | Cumulative refunded amount (same dual-format rules as `amountGross` on the queue; dollar floats in the CRM store). |
 | `_centsFormat` | `true` on queue/ledger extraction only. Never persisted on CRM payment rows after sync. |
 | `currency` | ISO currency code (default `usd`) |
@@ -2052,7 +2072,7 @@ Each Stripe payment event processed by the CRM is stored as a `payment` record:
 
 ### Stripe Webhook Matching (Option 1)
 
-On `checkout.session.completed` or `payment_intent.succeeded`, the CRM auto-matches using `src/stripeMatching.js`:
+On `checkout.session.completed` or `payment_intent.succeeded`, the CRM auto-matches using `src/lib/stripeMatching.js`:
 
 1. **Email** must match the booking client email (also read from Stripe `metadata` when charge email is absent).
 2. **Amount is not used for matching** — Calendly `paymentAmount` is the list price; after match, **Stripe `amountGross` replaces it** as the tracked session price and revenue.
@@ -2061,7 +2081,7 @@ On `checkout.session.completed` or `payment_intent.succeeded`, the CRM auto-matc
 
 Multiple candidates with equal score → **needs review**. Otherwise → **unmatched**.
 
-Unit tests: `npm run test:stripe-match`
+Unit tests: `npm test` (or `npm run test:stripe-match` for matching only)
 
 Refund events (`charge.refunded`, `charge.refund.updated`) update linked payment and registration refund fields. Refunds issued **from** the CRM (Revenue → Refunds tab, or the prompt after a manual host cancel) go through `POST /api/stripe/refund` and stamp the records immediately; the subsequent `charge.refunded` webhook is an idempotent confirmation. See **Stripe Refunds for Canceled Bookings** in the Revenue Attribution section.
 
@@ -2255,7 +2275,7 @@ Click the avatar in the top-right to open the dropdown:
 - Numeric fields coerced via `nums` + `num()`; boolean fields via `bools` + `bool()` (expense `taxDeductible` / `recurring` must not remain string `"false"`, which is truthy in JS)
 - Date fields listed in each map’s `dates` array must be empty or strict `YYYY-MM-DD` (validated by `isValidISODate`); invalid dates skip the row
 - Duplicate rows skipped via per-section `dedupe` keys (expense date+vendor+amount+description); expense append also dedupes against existing records
-- Shared parser: `parseImportRows()` in `App.jsx` (`IMPORT_MAP.expenses` only)
+- Shared parser: `parseImportRows()` in `src/lib/csvImport.js` (`IMPORT_MAP.expenses` only)
 
 ### CSV Export
 
@@ -2340,7 +2360,10 @@ See **STAGING.md** for the full branch workflow and commands.
 ```
 simply-breathe-app/
 ├── backend/                     # Calendly webhook backend (Node.js/Express)
-│   ├── server.js                # Webhook endpoint + event queue API
+│   ├── server.js                # Express bootstrap (middleware + route mount)
+│   ├── stripe-handlers.js       # Stripe webhook extract + signature verify
+│   ├── routes/                  # calendly, stripe, auth, email routers
+│   ├── lib/                     # queue, authUsers, calendly, refundPolicy (+ tests)
 │   ├── package.json
 │   ├── .env.example             # Environment variable template
 │   ├── .env                     # Local config (gitignored)
@@ -2352,13 +2375,17 @@ simply-breathe-app/
 │   ├── sb-heart-wave.png        # Lock screen logo
 │   └── favicon.ico
 ├── src/
-│   ├── App.jsx                  # Root state, routing, drawers, and shared views
+│   ├── App.jsx                  # Root composition: auth gate, sync, shell layout, data state
 │   ├── components/
 │   │   ├── primitives.jsx       # Reusable presentational primitives
-│   │   └── appBridge.jsx        # Shared App views + runtime FIELDS for Schema Browser
+│   │   ├── tables.jsx           # TableView, RecordTableView
+│   │   └── modals.jsx           # ConfirmModal, CancelCalendlyModal, EditProfileModal, DrawerErrorBoundary
 │   ├── features/
 │   │   ├── auth/                # First-run setup and lock screen
 │   │   ├── admin/               # Admin settings and user management views
+│   │   ├── today/               # Command Center (Today dashboard, alerts, NBA)
+│   │   ├── section/             # Section router + calendar/board layouts (VIEWS from lib/schema)
+│   │   ├── drawer/              # RecordDrawer + session/partner drawer tabs
 │   │   ├── content/             # Content analytics
 │   │   ├── followup/            # Follow-up engine and template views
 │   │   ├── outreach/            # Outreach hub
@@ -2372,17 +2399,32 @@ simply-breathe-app/
 │   │   ├── theme.js             # Colors, fonts, hexA
 │   │   ├── format.js            # money, dates, uid, cleanName
 │   │   ├── constants.js         # Domain enums, status groupings, FIELD map, schemaValues()
+│   │   ├── schema/              # Shared source of truth: fields.js (`f` helper), views.jsx, defaults.js
+│   │   ├── aggregate.js         # Shared `sum(rows, k)` (integer-cents)
+│   │   ├── stripeMatching.js    # Stripe↔booking reconciliation
+│   │   ├── csvImport.js         # Expense CSV parse/dedupe (IMPORT_MAP)
 │   │   ├── crmSettings.js       # Configurable CRM lists
+│   │   ├── crmContext.jsx       # CrmProvider + useCrm() — thin session context for feature views
+│   │   ├── domainActions.js     # Pure multi-collection mutations (reg upsert/cancel, client cascade)
+│   │   ├── registrationPaymentLookup.js  # Calendly payment-lookup → registration field patch
 │   │   ├── checklists.js        # Session/equipment checklist defs
 │   │   ├── templates.js         # Template var helpers, unreplaced-token scan, outreachScore
 │   │   ├── api.js               # API headers, Calendly helpers (`cancelCalendlyEvent`, description fetch)
 │   │   ├── email.js             # sendCrmEmail + email log helpers
-│   │   ├── store.js             # IndexedDB / localStorage facade
+│   │   ├── store.js             # IndexedDB / localStorage facade (+ tests)
 │   │   ├── sec.js               # AES-GCM / PIN / session crypto
 │   │   ├── normalizeData.js     # CRM shape repair + studio heal
-│   │   ├── revenue.js           # Ledger, Stripe payment, LTV helpers
+│   │   ├── calendlySync.js      # Pure Calendly queue → CRM apply (`applyCalendlyEvents`)
+│   │   ├── stripeSync.js        # Pure Stripe pending/ledger → CRM apply
+│   │   ├── revenue/             # Revenue helpers (barrel: index.js)
+│   │   │   ├── money.js         # Cents/dollar units (`_c`, `readAmt`, …)
+│   │   │   ├── ltv.js           # Booking amounts, session revenue, channels
+│   │   │   ├── ledger.js        # Auto revenue/expense rows, studio finance, LTV totals
+│   │   │   ├── stripeMerge.js   # Webhook merge, reconciliation, refunds
+│   │   │   └── index.js         # Re-exports for callers
 │   │   └── seed.js              # Default SEED dataset
-│   ├── stripeMatching.js        # Stripe↔booking reconciliation
+│   ├── styles/
+│   │   └── appCss.js            # Shell/layout CSS template (theme tokens)
 │   ├── assets/logo.js           # Brand logo (base64)
 │   └── index.css                # Global CSS + responsive rules
 ├── vite.config.js               # CSP headers, Vite proxy (/api → localhost:3001)
@@ -2393,19 +2435,43 @@ simply-breathe-app/
 └── USER_GUIDE.md
 ```
 
+### Unit Tests
+
+Run `npm test` from the repo root (Node 20+ recommended for `node:test` glob expansion). Coverage focuses on pure helpers first:
+
+| Suite | Path | Covers |
+|---|---|---|
+| Stripe match | `src/lib/stripeMatching.test.js` | Email/time auto-match, free-coupon confirm |
+| Revenue money | `src/lib/revenue.money.test.js` | Cents/dollar helpers, Stripe ingest |
+| Revenue reconcile | `src/lib/revenue.reconcile.test.js` | Amount-mismatch patch |
+| Refund policy | `src/lib/refundPolicy.test.js` | 24h cancel → refund matrix + CRM guards |
+| Normalize | `src/lib/normalizeData.test.js` | Array repair, seed purge, studio heal |
+| Templates | `src/lib/templates.test.js` | `{{vars}}`, autofill, outreach score |
+| Security | `src/lib/sec.test.js` | Passphrase rules, sanitize, encrypt round-trip |
+| Store | `src/lib/store.test.js` | IndexedDB primary, LS migrate/fallback, `window.storage` |
+| Calendly sync apply | `src/lib/calendlySync.test.js` | Queue → client/session/reg/cancel/no-show apply |
+| Stripe sync apply | `src/lib/stripeSync.test.js` | Pending+ledger merge, reconcile apply |
+| Domain actions | `src/lib/domainActions.test.js` | Registration upsert/cancel, LTV/session recount, client cascade |
+| Queue | `backend/lib/queue.test.js` | Prune, AES-GCM, atomic write |
+| Refund policy (API) | `backend/lib/refundPolicy.test.js` | CJS mirror of cancel policy |
+| Calendly dedup | `backend/lib/calendly.queueDedup.test.js` | Invitee+type dedup / requeue planner |
+
 ### Money Arithmetic
 
 All dollar amounts in the frontend are accumulated using **integer-cents math** to prevent IEEE-754 floating-point drift (e.g. `0.1 + 0.2 ≠ 0.3`).
 
 | Helper | Location | Description |
 |---|---|---|
-| `_c(v)` | `src/lib/revenue.js` | Converts a dollar float to integer cents: `Math.round(v * 100)`. Used as a building block everywhere amounts are summed. |
-| `calcNet(r)` | `src/lib/revenue.js` | Computes net for a revenue row in cents, then divides by 100: `(_c(gross) − _c(fee) − _c(split) − _c(cost) − _c(refunds)) / 100`. |
-| `sum(rows, k)` | `App.jsx` (table helpers) | Sums a dollar field across an array in cents then divides: `rows.reduce((a,r) => a + _c(r[k]), 0) / 100`. |
-| `readAmt(rec, field)` | `src/lib/revenue.js` | Reads `amountGross` / `amountRefunded`. Divides by 100 when `rec._centsFormat` is `true` (queue/ledger cents); passes through dollar floats on CRM payment records. |
-| `stripeEventInDollars(evt)` | `src/lib/revenue.js` | Ingestion helper: converts a `_centsFormat` queue event to dollar floats and drops the flag before merge/write. |
-| `paymentInDollars(p)` | `src/lib/revenue.js` | Ensures a CRM payment row stores dollar floats and has no `_centsFormat` (heals mixed-unit rows on sync/refund rewrite). |
-| `refundAmountDollars(amount, fallback)` | `src/lib/revenue.js` | Asserts refund API `amount` is dollars; converts a mistaken cents integer when it matches `fallback` paid±1¢. |
+| `_c(v)` | `src/lib/revenue/money.js` | Converts a dollar float to integer cents: `Math.round(v * 100)`. Used as a building block everywhere amounts are summed. |
+| `calcNet(r)` | `src/lib/revenue/money.js` | Computes net for a revenue row in cents, then divides by 100: `(_c(gross) − _c(fee) − _c(split) − _c(cost) − _c(refunds)) / 100`. |
+| `sum(rows, k)` | `src/lib/aggregate.js` | Sums a dollar field across an array in cents then divides: `rows.reduce((a,r) => a + _c(r[k]), 0) / 100`. Re-exported from `schema/views.jsx` for callers that already import from schema. |
+| `f(key, label, type, opts)` | `src/lib/schema/fields.js` | Shared field-schema builder used by `FIELDS` (and any feature that defines form fields). |
+| `readAmt(rec, field)` | `src/lib/revenue/money.js` | Reads `amountGross` / `amountRefunded`. Divides by 100 when `rec._centsFormat` is `true` (queue/ledger cents); passes through dollar floats on CRM payment records. |
+| `stripeEventInDollars(evt)` | `src/lib/revenue/money.js` | Ingestion helper: converts a `_centsFormat` queue event to dollar floats and drops the flag before merge/write. |
+| `paymentInDollars(p)` | `src/lib/revenue/money.js` | Ensures a CRM payment row stores dollar floats and has no `_centsFormat` (heals mixed-unit rows on sync/refund rewrite). |
+| `refundAmountDollars(amount, fallback)` | `src/lib/revenue/money.js` | Asserts refund API `amount` is dollars; converts a mistaken cents integer when it matches `fallback` paid±1¢. |
+
+Import from the barrel (`src/lib/revenue/index.js`) or a specific submodule (`money.js`, `ltv.js`, `ledger.js`, `stripeMerge.js`).
 
 **Stripe payment record format migration (2026-07):** `backend/stripe-handlers.js` `extractStripePayment` stores queue/ledger `amountGross` / `amountRefunded` as **integer cents** with `_centsFormat: true`. The frontend normalizes to **dollar floats at the ingestion boundary** (`processStripeWebhookEvents` / `buildStripePaymentRecord`) and **drops `_centsFormat` on every payment rewrite**, so CRM store rows never mix units. `readAmt()` remains for reading raw queue events and any legacy mixed rows. Refunds from `POST /api/stripe/refund` return `amount` in dollars (`centsToDollars`); `refundAmountDollars` guards against a cents value being written into `paidAmount − amountRefunded` (which would go negative and clamp to $0).
 
@@ -2415,10 +2481,11 @@ All dollar amounts in the frontend are accumulated using **integer-cents math** 
 |---|---|
 | `C` | Color palette (brand, surface, ink, line, etc.) — `src/lib/theme.js` |
 | `FONT` | Typography (display, body) — `src/lib/theme.js` |
-| `LANE` | B2C / B2B visual theme config — `App.jsx` |
+| `LANE` | B2C / B2B visual theme config — `src/features/today` |
 | `SEED` | Default data for first run — `src/lib/seed.js` |
-| `FIELDS` | Dynamic form schema per section — `App.jsx` |
-| `VIEWS` | View definitions (table, kanban, custom) per section — `App.jsx` |
+| `FIELDS` | Dynamic form schema per section — `src/lib/schema/fields.js` |
+| `newRecord` | Default record factory per table — `src/lib/schema/defaults.js` |
+| `VIEWS` | View definitions (table, kanban, custom) per section — `src/lib/schema/views.jsx` |
 | `STORE_KEY_ENC` | `simplybreathe:data:v5:enc` — encrypted data key (`src/lib/api.js`) |
 | `SEC_META_KEY` | Legacy plaintext key `sb:security:v1` (migrated to encrypted vault) |
 | `SEC_META_ENC_KEY` | `sb:security:v1:enc` — AES-GCM encrypted user/security config (`src/lib/secMeta.js`) |
@@ -2426,19 +2493,70 @@ All dollar amounts in the frontend are accumulated using **integer-cents math** 
 
 ### State Management
 
-All state is managed via React `useState` and `useMemo` in the root `App` component and passed down as props. No external state library is used.
+All CRM state is owned by the root `App` component (`useState` / `useMemo`). No external state library is used.
+
+After auth, `App` wraps the shell in `<CrmProvider value={crmValue}>` (`src/lib/crmContext.jsx`). Feature routers read shared session state with `useCrm()` instead of receiving 20+ props through `Section`.
+
+| Context field | Source |
+|---|---|
+| `data`, `setData` | Encrypted CRM store |
+| `derived` | Memoized lookups (partner names, etc.) |
+| `canEdit` | Current user permissions |
+| `currentUser` | Active session user |
+| `crmSettings`, `saveCrmSettings` | Configurable lists + persist helper |
+| `today` | `todayISO()` |
+| `setConfirm` | Confirm modal trigger |
+| `secUsers`, `setSecUsers`, `masterKeyRaw` | Multi-user / admin |
+| `syncStripe`, `stripeStatus`, `refundToken` | Stripe sync + refund API session |
+
+**Layout/nav stays as props** (not in context): `section`, `view`, `setView`, `query`, `onOpen`, `onGo`. `Section` is a layout router only — it picks a view from `VIEWS` and does not re-export App state as props. New App fields needed by a feature go on `crmValue` and are read via `useCrm()`; do not thread them through `Section` (avoids the documented blank-page failure mode).
+
+`RecordDrawer` and some modals still receive explicit props from `App` (drawer lifecycle is owned by the shell).
+
+### Domain mutations (`src/lib/domainActions.js`)
+
+Multi-collection registration and client updates are **pure helpers** `(data, …) => nextData`. Callers keep React ownership: `setData(prev => helper(prev, …))`. There is no reducer or actions dispatcher.
+
+| Helper | Behavior |
+|---|---|
+| `refreshAfterRegistrations` | Shared side-effect kernel: client LTV (`applyRegistrationLifetimeValues`), virtual session revenue (`refreshCalendlySessionRevenue`), studio `registered` recount (studio financial fields untouched) |
+| `upsertRegistration` / `patchRegistration` | Insert/replace or map one registration, then refresh |
+| `cancelRegistration` | Mark canceled in CRM; never deletes the session; recounts + refreshes |
+| `confirmFreeCoupon` | Coupon stamp + refresh |
+| `applyPaymentLookupPatch` | Calendly payment-lookup payload → regs + refresh |
+| `applyStripeRefundLocal` | Stamp refund on reg + matching payment + refresh |
+| `deleteClientCascade` | Delete client; delete deps (`registrations`, `sequences`, `followups`, `offers`, `testimonials`, referrals touching the client); clear `clientId` on `payments` / `revenue` / `expenses`; then refresh |
+
+**Rule:** Features must not invent registration or client multi-collection `setData` shapes that skip LTV / session recount. Wire through these helpers (App `saveRecord` / client `deleteRecord`, Stripe coupon, payment lookup, refund stamp, waive-refund, manual cancel wrapper). Calendly/Stripe sync apply builders remain separate pure reducers.
+
+### Notifications (`src/lib/notify.js` + `ToastHost`)
+
+User-visible ephemeral feedback uses a single channel — do **not** use `alert()` for CRM errors.
+
+| API | Purpose |
+|---|---|
+| `notify(message, { type, duration })` | Push a toast (`type`: `error` \| `success` \| `warning` \| `info`) |
+| `notify.error` / `.success` / `.warning` / `.info` | Typed helpers |
+| `subscribeNotify(fn)` | Used by `ToastHost` only |
+| `ToastHost` | Fixed top-right toast stack mounted in `main.jsx` (z-index 4000) |
+
+**Keep separate from toasts:** Calendly/Stripe sync status panels, the header save/stale/backup banners, form-field validation, and the Alerts bell (CRM action items).
 
 ### Key Components
 
 | Component | Purpose |
 |---|---|
-| `App` | Root — auth gate, layout, data state |
+| `App` | Root composition — auth gate, Calendly/Stripe sync, shell layout, data state, `CrmProvider` (imports only shell dependencies; feature views live under `src/features/*`) |
+| `CrmProvider` / `useCrm` | Thin session context for feature views (`src/lib/crmContext.jsx`) |
+| `notify` / `ToastHost` | Shared toast channel for user-visible errors/successes (`src/lib/notify.js`, `src/components/ToastHost.jsx`) |
 | `primitives.jsx` | Shared `BreathMark`, `Stat`, `Panel`, `Row`, `Dot`, `Tag`, `MiniChip`, `DateChip`, and `Empty` presentation components |
-| `features/*` | Leaf feature modules re-export their public components through each folder's `index.js`; feature modules import shared code from `lib` and never import `App.jsx` |
+| `tables.jsx` / `modals.jsx` | Shared table renderers and confirm/profile/cancel modals (imported directly by features) |
+| `features/*` | Leaf feature modules re-export their public components through each folder's `index.js`; feature modules import shared code from `lib`/`components` and never import `App.jsx` |
 | `LockScreen` | PIN login, user tile selection |
-| `Today` | Dashboard with stats, alerts, NBA |
+| `Today` | Dashboard with stats, alerts, NBA (`features/today`); data via `useCrm()` |
 | `ActionEmailModal` | Relationship NBA email compose — template dropdown, pre-filled recipient, editable subject/body, send via Resend |
-| `Section` | Dynamic view renderer for all data sections |
+| `Section` | Layout router for data sections (`features/section`); reads `VIEWS` from `src/lib/schema`; shared state via `useCrm()` |
+| `RecordDrawer` | Create/edit/view drawer for all record types (`features/drawer`) |
 | `TableView` | Standard table layout renderer (columns + optional expandable rows / footer) |
 | `RecordTableView` | Raw-table renderer for the **Revenue Table** and **Expense Table** tabs — sortable column headings and expandable rows that reveal every stored field; reads the underlying table directly. Columns supplied by `revenueTableCols()` / `expenseTableCols()` |
 | `RevenueThisMonthView` | Revenue **This month** tab — computes Gross Revenue from Stripe amounts in the `revenue` table and Net Revenue = gross − refunds − expenses (from the `expenses` table), with month-over-month deltas and supporting record listings |

@@ -10,6 +10,12 @@ export let _idbPromise = null;
 // Once IndexedDB open fails, stop retrying every get/set — fall through to localStorage.
 let _idbUnavailable = false;
 
+/** Test-only: clear open-handle + failure latch between suites. */
+export function _resetStoreStateForTests() {
+  _idbPromise = null;
+  _idbUnavailable = false;
+}
+
 export function _idbOpen() {
   if (_idbUnavailable) return Promise.reject(new Error("indexeddb-unavailable"));
   if (_idbPromise) return _idbPromise;

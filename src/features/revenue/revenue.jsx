@@ -4,9 +4,17 @@ import { XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ComposedChar
 import { C, FONT, hexA } from "../../lib/theme.js";
 import { addMonthsISO, fmtDate, money, sameMonth, norm, cleanName, clientShort } from "../../lib/format.js";
 import { SOURCE_COLOR, OFFER_STATUS, OFFER_STATUS_COLOR, OPEN_STATUSES, WON_STATUSES, LOST_STATUSES, EXPENSE_CATEGORY, EXPENSE_CATEGORY_COLOR, REV_CHANNEL_COLOR } from "../../lib/constants.js";
-import { _c, calcNet, buildRevenueViewRows, applyStudioSessionSplit, isAutoExpenseRecord, AUTO_SPLIT_EXP_ID_PREFIX, issueStripeRefund } from "../../lib/revenue.js";
+import { _c, calcNet, buildRevenueViewRows, applyStudioSessionSplit, isAutoExpenseRecord, AUTO_SPLIT_EXP_ID_PREFIX, issueStripeRefund } from "../../lib/revenue/index.js";
+import { patchRegistration } from "../../lib/domainActions.js";
+import { sum } from "../../lib/aggregate.js";
+import {
+  REFUND_POLICY_HOURS,
+  formatRegistrationDateTime,
+  sortRegistrationsBySessionTime,
+  refundEligibility,
+} from "../../lib/refundPolicy.js";
 import { Stat, Panel, Tag, DateChip, Empty } from "../../components/primitives.jsx";
-import { AppComponent } from "../../components/appBridge.jsx";
+import { TableView, RecordTableView } from "../../components/tables.jsx";
 
 export function RevenueThisMonthView({ data, today, query, onOpen, canEdit }) {
   const monthStr = String(today || new Date().toISOString().slice(0, 10)).slice(0, 7); // "YYYY-MM"
@@ -87,13 +95,13 @@ export function RevenueThisMonthView({ data, today, query, onOpen, canEdit }) {
       <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink2, margin: "4px 2px 8px", textTransform: "uppercase", letterSpacing: ".05em" }}>
         Revenue records — {monthLabel}
       </div>
-      <AppComponent name="RecordTableView" records={revThis} columns={revenueTableCols()} section="revenue"
+      <RecordTableView records={revThis} columns={revenueTableCols()} section="revenue"
         query={query} ctx={{ data, today }} onOpen={onOpen} canEdit={canEdit} />
 
       <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink2, margin: "20px 2px 8px", textTransform: "uppercase", letterSpacing: ".05em" }}>
         Expenses — {monthLabel}
       </div>
-      <AppComponent name="RecordTableView" records={expThis} columns={expenseTableCols()} section="expenses"
+      <RecordTableView records={expThis} columns={expenseTableCols()} section="expenses"
         query={query} ctx={{ data, today }} onOpen={onOpen} canEdit={canEdit} />
     </div>
   );
@@ -208,14 +216,11 @@ export function RefundsView({ data, setData, canEdit, setConfirm, onOpen, refund
       message: `Override and waive the refund for ${who}? No money will be sent to Stripe. This can be undone by opening the booking record.`,
       okLabel: "Waive refund",
       onOk: () => {
-        setData(prev => {
-          const regs = prev.registrations || [];
-          const idx = regs.findIndex(x => x.id === r.id);
-          if (idx < 0) return prev;
-          const updated = [...regs];
-          updated[idx] = { ...updated[idx], refundWaived: true, refundWaivedAt: new Date().toISOString() };
-          return { ...prev, registrations: updated };
-        });
+        setData(prev => patchRegistration(prev, r.id, reg => ({
+          ...reg,
+          refundWaived: true,
+          refundWaivedAt: new Date().toISOString(),
+        })));
       },
     });
   };
@@ -334,86 +339,24 @@ export function RefundsView({ data, setData, canEdit, setConfirm, onOpen, refund
 
       {heading(`Refunds due (${dueRows.length})`)}
       {dueRows.length
-        ? <AppComponent name="TableView" columns={dueCols} rows={dueRows} expandRow={expandDue} ctx={{ data }} />
+        ? <TableView columns={dueCols} rows={dueRows} expandRow={expandDue} ctx={{ data }} />
         : <Empty>No refunds due. Canceled bookings that qualify for a refund will appear here.</Empty>}
 
       {heading(`Refund history (${history.length})`)}
       {history.length
-        ? <AppComponent name="TableView" columns={historyCols} rows={history} expandRow={expandHistory} ctx={{ data }}
+        ? <TableView columns={historyCols} rows={history} expandRow={expandHistory} ctx={{ data }}
             footer={{ label: "Total refunded", amount: money(sum(history, "amount")) }} />
         : <Empty>No Stripe refunds issued yet. Refunds appear here with their Stripe refund ID once processed.</Empty>}
 
       {heading(`No refund due (${ineligibleRows.length})`)}
       {ineligibleRows.length
-        ? <AppComponent name="TableView" columns={ineligibleCols} rows={ineligibleRows} expandRow={expandIneligible} ctx={{ data }} />
+        ? <TableView columns={ineligibleCols} rows={ineligibleRows} expandRow={expandIneligible} ctx={{ data }} />
         : <Empty>No canceled bookings outside the refund policy.</Empty>}
     </div>
   );
 }
 
 const col = (key, label, render, opts = {}) => ({ key, label, render, ...opts });
-
-function registrationSessionTimestamp(reg, data) {
-  if (reg.scheduledAt) {
-    const t = Date.parse(reg.scheduledAt);
-    if (!Number.isNaN(t)) return t;
-  }
-  if (reg.sessionId && data?.sessions) {
-    const s = data.sessions.find(x => x.id === reg.sessionId);
-    if (s?.date) {
-      const t = Date.parse(`${s.date}T${(s.time || "00:00").slice(0, 5)}`);
-      if (!Number.isNaN(t)) return t;
-    }
-  }
-  return 0;
-}
-
-function formatRegistrationDateTime(iso) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-
-function sortRegistrationsBySessionTime(rows, data) {
-  return [...rows].sort((a, b) => registrationSessionTimestamp(b, data) - registrationSessionTimestamp(a, data));
-}
-
-const REFUND_POLICY_HOURS = 24;
-
-function refundEligibility(reg, data) {
-  if (!reg || reg.status !== "canceled") return { eligible: false, amount: 0, reason: "Not canceled" };
-  const amount = Number(reg.paidAmount) || 0;
-  if (reg.stripeRefundId || reg.paymentStatus === "refunded" || (Number(reg.amountRefunded) || 0) > 0) {
-    return { eligible: false, amount: 0, reason: "Already refunded" };
-  }
-  if (reg.refundWaived) return { eligible: false, amount, reason: "Refund waived" };
-  if (amount <= 0) return { eligible: false, amount: 0, reason: "Free booking — nothing to refund" };
-  if (!reg.stripePaymentIntentId && !reg.stripeChargeId) {
-    return { eligible: false, amount, reason: "No Stripe payment on file" };
-  }
-
-  const canceler = String(reg.cancelerType || "").toLowerCase();
-  if (canceler === "host") {
-    return { eligible: true, amount, reason: "Canceled by host — full refund due" };
-  }
-
-  // Client (invitee) cancel — apply the 24-hour window. Unknown initiators are treated
-  // like client cancels but flagged for review before the human approves.
-  const flag = canceler && canceler !== "invitee"
-    ? `Canceled by "${reg.cancelerType}" — review before refunding`
-    : (!canceler ? "Initiator unknown — review before refunding" : "");
-  const sessionTs = registrationSessionTimestamp(reg, data);
-  const canceledTs = Date.parse(reg.canceledAt || "");
-  if (!sessionTs || Number.isNaN(canceledTs)) {
-    return { eligible: true, amount, reason: "Client canceled", flag: flag || "Cancellation timing unknown — verify the 24-hour policy before refunding" };
-  }
-  const hoursBefore = (sessionTs - canceledTs) / 3600000;
-  if (hoursBefore > REFUND_POLICY_HOURS) {
-    return { eligible: true, amount, reason: `Client canceled ${Math.floor(hoursBefore)}h before session`, flag };
-  }
-  return { eligible: false, amount, reason: `Late cancel (\u2264${REFUND_POLICY_HOURS}h before session) — no refund per policy` };
-}
 
 function revenueTableCols() {
   return [
@@ -452,8 +395,6 @@ function expenseTableCols() {
     col("auto", "Type", (r) => r.auto ? <Tag soft>Auto</Tag> : <Tag color={C.brand} soft>Manual</Tag>, { align: "center", sortVal: (r) => (r.auto ? 1 : 0) }),
   ];
 }
-
-const sum = (rows, k) => rows.reduce((a, r) => a + _c(r[k]), 0) / 100;
 
 export function ExpenseSummaryView({ data, today, onOpen, onImportExpenses, canEdit = true }) {
   const expenses = data.expenses || [];

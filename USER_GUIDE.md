@@ -232,6 +232,14 @@ The **All Clients** view is sorted **A–Z by client name** automatically when y
 4. Add **Intent Tags** if relevant — these help you personalize your messaging (e.g. Anxiety, Burnout, Performance).
 5. Click **Save**.
 
+### Deleting a Client
+
+If you have delete permission, open the client record and use **Delete** (same confirm flow as other records).
+
+Deleting a client also removes their linked **bookings, follow-ups, offers, testimonials, referrals, and follow-up sequences**. Payment, revenue, and expense history stays in the CRM, but the client link on those rows is cleared so totals remain accurate without a dangling name. Session registered counts and other clients’ LTV update automatically after the delete.
+
+> Prefer merging duplicates into one primary record before you delete, so you do not lose booking history you still need.
+
 ### Understanding Client Types
 
 | Type | When to Use |
@@ -985,7 +993,7 @@ The best time to ask is within 5–7 days of a powerful session. When you check 
 
 **Navigate to:** Sidebar → Templates
 
-Templates save you from writing the same messages over and over. The system comes with 14 pre-written templates covering the most common situations. Use the **search box** at the top of the page (or the search field on the templates page itself) to find a template by name, subject, or message text.
+Templates save you from writing the same messages over and over. The system comes with 14 pre-written templates covering the most common situations (they stay in place when you Reset to Production). If your Template Library is empty, click **New** to create one, or restore from a backup. Use the **search box** at the top of the page (or the search field on the templates page itself) to find a template by name, subject, or message text.
 
 ### Three Buttons on Every Template
 
@@ -1419,7 +1427,7 @@ Yes, as long as you use the same browser and have not cleared your browser stora
 Your encrypted data could be lost. Always use the **Admin → Storage & Backup → Download Backup** option regularly to keep a safe copy of your data.
 
 **I see a red "Save failed" banner at the top of the screen. What do I do?**
-This means your last change could not be written to browser storage (most often a storage quota issue). Your in-memory data is still intact for the current session, but it will be lost on a page reload. Do the following immediately:
+This means your last change could not be written to browser storage (most often a storage quota issue). You may also see a short message pop up in the top-right corner with more detail. Your in-memory data is still intact for the current session, but it will be lost on a page reload. Do the following immediately:
 1. Click **Go to Admin** in the red banner (or navigate to Admin → Storage & Backup).
 2. Click **Download Backup** to save a JSON copy of all your data.
 3. Reload the page. Your data will reload from the last successfully saved point.
@@ -1428,6 +1436,9 @@ This means your last change could not be written to browser storage (most often 
 
 **The header shows "Saving…" — is that normal?**
 Yes. Every time you save a record the header briefly shows "Saving…" while the change is written to storage, then "✓ Saved" for a moment. If you see "Saving…" for more than a few seconds and it never changes to "✓ Saved", check your browser console for errors and export a backup as a precaution.
+
+**What are the messages that appear in the top-right corner?**
+Those are short system notices (import results, file errors, refund failures, and similar). They disappear on their own, or you can dismiss them with the ×. They are separate from the **Alerts** bell, which lists CRM follow-up items, and from the Calendly/Stripe sync status in the sidebar.
 
 **Is my data secure?**
 Yes. CRM records are encrypted with AES-256-GCM. Your PIN is never stored — it unlocks a wrapped key. Account metadata (user list and key material) is also encrypted in the browser with a device-local key. Even if someone opened a casual localStorage dump, they would not see readable security metadata or CRM data without your PIN / this browser profile.
@@ -1466,7 +1477,7 @@ If the backend refuses to start in production and logs a malformed `QUEUE_ENCRYP
 Yes. Go to **Calendly Bookings** and click **New** to create a registration record manually. You'll need to link it to an existing client and session.
 
 **A client booked twice and I have a duplicate. How do I fix it?**
-The system matches clients by email address. If a duplicate client was created (e.g. the client used two different email addresses), open the older record and merge the information into the primary record manually, then delete the duplicate.
+The system matches clients by email address. If a duplicate client was created (e.g. the client used two different email addresses), open the older record and merge the information into the primary record manually, then delete the duplicate. Deleting a client also removes that client’s bookings, follow-ups, offers, testimonials, referrals, and sequences — payment/revenue/expense rows stay with the client link cleared.
 
 **The Registered Attendees number on a studio session looks wrong. How do I fix it?**
 Registered Attendees is automatically synced from the actual bookings when you open the session drawer — you don't need to edit it manually. If the number looks off, check the Bookings tab first: the count reflects non-canceled registrations only. Open the session drawer to trigger a refresh.

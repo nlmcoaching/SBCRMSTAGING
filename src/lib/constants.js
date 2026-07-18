@@ -453,7 +453,7 @@ export const SECTION_ACCESS = {
 };
 
 /**
- * Admin tab visibility by layout id (see VIEWS.admin in App.jsx).
+ * Admin tab visibility by layout id (see VIEWS.admin in src/lib/schema/views.jsx).
  * Omitted layouts are visible to every authenticated role.
  * Destructive actions inside visible tabs stay Owner-gated in AdminView.
  */

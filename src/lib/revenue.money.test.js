@@ -7,7 +7,7 @@ import {
   refundAmountDollars,
   buildStripePaymentRecord,
   processStripeWebhookEvents,
-} from "./revenue.js";
+} from "./revenue/index.js";
 
 describe("readAmt / unit helpers", () => {
   it("divides cents when _centsFormat is set", () => {
@@ -173,7 +173,7 @@ describe("processStripeWebhookEvents unit mixing", () => {
 
 describe("refunds as negative revenue rows", () => {
   it("emits charge + negative refund rows and no cxlexp expense", async () => {
-    const { buildRegistrationRevenueRows, buildBookingLedgerRecords, calcNet } = await import("./revenue.js");
+    const { buildRegistrationRevenueRows, buildBookingLedgerRecords, calcNet } = await import("./revenue/index.js");
     const data = {
       clients: [{ id: "c1", name: "Ada", email: "a@b.com", source: "Calendly" }],
       sessions: [{ id: "s1", name: "Virtual", date: "2026-07-10", locationType: "zoom" }],
